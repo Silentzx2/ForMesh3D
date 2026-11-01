@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <strong>⚡ Quick Start:</strong> <code>git clone https://github.com/Silentzx2/ForMesh3D.git</code> → <code>bash scripts/setup.sh</code> → <code>bash scripts/start.sh</code> → Open <a href="http://localhost:3000">http://localhost:3000</a>
+  <strong>⚡ Quick Start:</strong> <code>git clone --recurse-submodules https://github.com/Silentzx2/ForMesh3D.git</code> → <code>bash scripts/setup.sh</code> → <code>bash scripts/start.sh</code> → Open <a href="http://localhost:3000">http://localhost:3000</a>
 </p>
 
 <p align="center">
@@ -79,11 +79,11 @@ ForMesh3D unifies neural 3D generation, asset finishing, validation, and export 
 >
 > 1. **Core Repository License**: ForMesh3D's original code (orchestrator, API gateway, scheduler, and Next.js studio UI) is open-source under the **[Apache License 2.0](LICENSE)**.
 > 2. **Post-Processing Provenance**: The mesh post-processing engine (`backend/postprocess/`) was forked and customized from **[visualbruno/3DGenStudio](https://github.com/visualbruno/3DGenStudio)** under the **3D Gen Studio Community License**. See **[backend/postprocess/THIRD_PARTY_LICENSE.md](backend/postprocess/THIRD_PARTY_LICENSE.md)**.
-> 3. **Commercial Ownership of Outputs**: **You own 100% of the 3D meshes, textures, rigs, and assets generated with ForMesh3D**. You are completely free to use, monetize, sell, or include them in commercial games and software without restrictions.
+> 3. **Use of Generated Outputs**: Rights to generated outputs depend on the upstream model/checkpoint terms and applicable law. The Apache license on this repository does not grant unrestricted rights to every third-party model output; check the exact model and checkpoint terms before commercial use.
 > 4. **Notice for Commercial & SaaS Implementors**:
 >    - The Apache 2.0 license applies **strictly to ForMesh3D's original code**. We do **not** own or re-license the underlying third-party models, research weights, or ported submodules.
 >    - The ported `3DGenStudio` post-processing pipeline prohibits hosting the software as a paid public/private commercial SaaS service without explicit written consent from the upstream author (`visualbruno`).
->    - Individual model checkpoints (e.g. Hunyuan3D-2.1, FastMesh, TripoSG) carry their respective upstream research, academic, or non-commercial licenses (see **[backend/thirdparty/LICENSE](backend/thirdparty/LICENSE)** and individual `backend/thirdparty/<model>/LICENSE` files).
+>    - Individual model source snapshots and checkpoints have their own terms. There is no single `backend/thirdparty/README.md`; read the `LICENSE`/`NOTICE` files inside the exact model directory and the relevant checkpoint repository.
 >    - **Do NOT blindly deploy or redistribute ForMesh3D as a paid commercial product or SaaS** without auditing and complying with the respective licenses of each integrated model and component!
 
 > [!NOTE]
@@ -109,7 +109,7 @@ ForMesh3D unifies neural 3D generation, asset finishing, validation, and export 
 | Engine Export | GLB/FBX game-ready packages plus LOD and collision assets |
 
 > [!WARNING]
-> **Model readiness is not uniform.** A model being registered or enabled in `backend/config/models.yaml` does not guarantee that its checkpoint will load or that inference will produce a valid mesh on every deployment. Some model pipelines are reported to fail during initialization/loading, while others can complete with broken or unusable geometry. Model-specific GPU validation is incomplete; do not treat the catalog as a production-readiness guarantee.
+> **Model readiness is not uniform.** A model being registered or enabled in `backend/config/models.yaml` does not guarantee that its checkpoint will load or that inference will produce a valid mesh on every deployment. Some model pipelines are reported to fail during initialization/loading, while others can complete with broken or unusable geometry. Model-specific GPU validation is incomplete; do not treat the catalog as a production-readiness guarantee.> **Current adapter audit (2026-11-01):** Static review of the latest `dev` baseline identified defects in Pixal3D camera/conditioning setup, Paint3D source-stage/output handling, UniRig initialization, FastMesh V4K mapping, the TRELLIS text-painting registry entry, and model identity propagation through ModelFactory. See [the audited project state](Docs/MEMORY.md). The current backend workflow has no GPU adapter regression coverage.
 
 ## 🔄 End-to-End Asset Generation Pipeline
 
@@ -251,10 +251,10 @@ The model registry is dynamically configured via `backend/config/models.yaml` an
 | **TRELLIS** | `trellis_image_to_3d` / `trellis_image_to_raw_mesh` | Raw Mesh | 11.5 GB | Raw FlexiCubes geometry; optional texture generation is a separate stage |
 | **TRELLIS.2** | `trellis2_image_to_3d` / `trellis2_image_to_raw_mesh` | Raw Mesh | 23.5 GB | High-fidelity FlexiCubes geometry; legacy textured IDs resolve to raw geometry |
 | **TripoSG** | `triposg_image_to_raw_mesh` | Image/Scribble to 3D | 8 GB | High-fidelity image and scribble guided 3D geometry |
-| **Pixal3D** | `pixal3d_image_to_raw_mesh` / `pixal3d_image_to_3d` | Raw Mesh | ~18 GB (~10-12 GB in low-VRAM mode) | Pixel-aligned O-Voxel projection, native PBR, 1536 cascade |
+| **Pixal3D** | `pixal3d_image_to_raw_mesh` / `pixal3d_image_to_3d` | Raw Mesh | ~18 GB configured reservation | Pixel-aligned O-Voxel source; adapter initialization currently has unresolved camera/condition-model defects |
 | **TaoFlowForge** | `taoflowforge_image_to_raw_mesh` | Raw Mesh | 20 GB (registered but **disabled**) | Progressive native-mesh generation, direct connectivity |
 | **Paint3D** | `paint3d` | PBR Texture | ~12 GB | Centralized texturing stage for 1K/2K atlas targets |
-|| **FastMesh (1K & 4K)** | `fastmesh_v1k_retopology` | Mesh Retopology | 16–24.5 GB | Fixed-budget neural quad retopology producing clean animation loops |
+| **FastMesh (V1K)** | `fastmesh_v1k_retopology` | Mesh Retopology | 16 GB configured reservation | V1K manifest entry; V4K is not backed by a separate current manifest/adapter configuration |
 | **UniRig** | `unirig_auto_rig` | Auto-Rigging | 9 GB | Automated bipedal skeletal armature generation |
 | **ARDY** | `ardy_motion_generation` | Motion AI | CPU-only; no GPU VRAM reservation | Interactive autoregressive text-to-motion generation; CPU/RAM-bound |
 | **PartUV** | `partuv_uv_unwrapping` | UV Unwrapping | 7 GB | Automated seam placement and UV chart packing |
@@ -262,11 +262,11 @@ The model registry is dynamically configured via `backend/config/models.yaml` an
 
 > **Registry source of truth:** the catalog above mirrors `backend/config/models.yaml`. Only entries with `enabled: true` are exposed by `GET /api/v1/system/models`; `taoflowforge_image_to_raw_mesh` is registered but disabled. `backend/config/smart_presets.yaml` holds the intent presets (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`; `native` is a backend-only sentinel).
 
-> **FastMesh resource admission:** The 16 GB (V1K) / 24.5 GB (V4K) figures are conservative scheduler reservations, not upstream-published minimum VRAM. Both variants declare the `accelerate_auto_device_map` multi-GPU strategy, so layers can be sharded across selected GPUs, but a single device still has to satisfy the admission budget on its own. Full variant-matched checkpoint files (about 4.38 GB / 4.39 GB on disk) are required, and checkpoint size must not be confused with inference VRAM.
+> **FastMesh status:** The current manifest describes V1K only. The V4K registry alias maps to the V1K adapter class, which uses the V1K checkpoint key. Do not use V4K capability, checkpoint-size, or multi-GPU claims as current support until a separate V4K contract and supported-host validation exist.
 
 ### 📐 Single Source of Truth & Generation Planning
 - **Single Source of Truth (`backend/config/quality.yaml`)**: Every tunable threshold, limit, tier, and budget is canonically declared in `quality.yaml` (pipeline tunables) and `models.yaml` (model facts and VRAM reservations). Intent presets live in `backend/config/smart_presets.yaml` and planner routing rules in `backend/config/planner_rules.yaml`. Code reads from these single sources and never defines in-code fallback numeric dicts.
-- **Model-Native Source Fidelity & Adapter-Owned Profiles**: Fixed model-specific inference schedules, step counts, guidance scales, octree resolutions, samplers, and decoders are locked directly inside model adapters (`_LOCKED_INFERENCE_PROFILE`). The UI does not expose unbacked or fake inference quality sliders. The multiprocess scheduler enforces source fidelity and strips any legacy inference overrides before dispatching to adapters, while caller-controlled seed and image identity are preserved.
+- **Model-Native Source Fidelity**: Each adapter must be checked against its own upstream inference API. The current source does not justify claiming that all 17 adapters have a consistent locked-profile implementation. The November 1, 2026 audit found source/import and API mismatches in Pixal3D, Paint3D, UniRig, FastMesh V4K, and TRELLIS text painting; see `Docs/MEMORY.md` and `Docs/TASKS.md`. Do not expose a parameter unless the active adapter consumes it.
 - **Source vs. Production Mesh Distinction**:
   - `master/source.glb` is the immutable raw generative mesh captured at full model-native fidelity and verified with SHA-256 immutability.
   - Production meshes (`game_ready/`, `lods/`, `collision/`) are downstream derived artifacts produced by the post-processing recipe selected by the request intent (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`; `native` is a backend-only sentinel).
@@ -342,12 +342,12 @@ backend/storage/models/meshes/<asset_name>_<job_id>/
 - **Python**: Python 3.10 via Conda (`conda create -n 3daigc-api python=3.10`).
 
 
-The shared Python runtime is version-pinned for supported model adapters: Transformers 4.44.2, Diffusers 0.30.3, and PyTorch 2.6.0 with CUDA 12.4. Dependencies are split into `backend/requirements-core.txt` (CPU-safe, always installed) and `backend/requirements-models.txt` (GPU-only ML packages, installed only when an NVIDIA GPU is detected). Use `bash scripts/setup.sh` rather than installing model dependencies individually. Custom GitHub/wheel deps (nvdiffrast, nvdiffrec_render, CuMesh, o-voxel, diff_gaussian_rasterization, kaolin) are documented in `Docs/MISSING-DEPS.md`.
+The shared runtime has core and model-specific dependency files: `backend/requirements-core.txt` and `backend/requirements-models.txt`. Use `bash scripts/setup.sh` and follow the [ThirdParty source guide](backend/thirdparty/README.md) plus the exact model directory's upstream requirements. A generic installation does not make every model package importable or guarantee that every compiled extension is available.
 
 ### 1. Clone & Frontend Setup
 
 ```bash
-git clone https://github.com/Silentzx2/ForMesh3D.git
+git clone --recurse-submodules https://github.com/Silentzx2/ForMesh3D.git
 cd ForMesh3D
 
 # Install frontend dependencies with Bun
@@ -431,7 +431,7 @@ The FastAPI backend exposes comprehensive REST and SSE streaming endpoints:
 | `/api/v1/mesh-generation/image-mesh-painting` | `POST` | Paint PBR textures onto existing 3D geometry |
 | `/api/v1/mesh-generation/text-mesh-painting` | `POST` | Paint PBR textures onto existing 3D geometry from a text prompt |
 | `/api/v1/smart-generation/generation` | `POST` | Intent-driven generation with deterministic model selection |
-| `/api/v1/mesh-retopology/retopologize-mesh` | `POST` | Run FastMesh V1K/V4K quad retopology on mesh |
+| `/api/v1/mesh-retopology/retopologize-mesh` | `POST` | Run FastMesh V1K (V4K unsupported pending a separate manifest/adapter contract) quad retopology on mesh |
 | `/api/v1/mesh-uv-unwrapping/unwrap-mesh` | `POST` | Generate conformal UV atlas charts |
 | `/api/v1/mesh-segmentation/segment-mesh` | `POST` | Segment mesh into semantic parts |
 | `/api/v1/mesh-editing/text-mesh-editing` | `POST` | Edit existing mesh using localized prompt deformation |
@@ -448,10 +448,8 @@ The FastAPI backend exposes comprehensive REST and SSE streaming endpoints:
 ForMesh3D maintains rigorous unit, integration, and regression test suites:
 
 ```bash
-# Backend CPU contract tests (includes the geometry dependencies used by the pipeline).
-# This is exactly what the Backend Runtime Contract CI workflow runs.
-PYTHONPATH=backend python -m pytest -q backend/tests \
-  backend/thirdparty/tests/test_runtime_path_utils.py
+# Shared model-weight path contract (same focused test run by backend CI).
+(cd backend && python -m pytest -q tests/test_loader.py)
 
 # Verify clean compilation across all Python modules
 python3 -m compileall -q backend/
@@ -467,7 +465,7 @@ bun run lint
 bash -n manager.sh backend/scripts/*.sh scripts/*.sh
 ```
 
-**Verification status**: The backend CPU contract suite, `python3 -m compileall -q backend/`, `bun test` and `npx tsc --noEmit` all pass without model weights or a GPU (verified green on `dev` at 2026-10-23: 40 passed / 6 skipped backend, 54 passed / 0 failed Bun, zero TS errors). GPU/model inference and Blender-dependent validation still require the supported runtime environment.
+**Verification boundary (2026-11-01 audit)**: The current backend workflow compiles Python sources, checks shell syntax, and tests the shared weights-path resolver. It does not prove that each model adapter imports, loads checkpoints, executes on a GPU, or produces valid geometry. The previous October 23 green counts are historical and are not evidence for the current `dev` revision. Frontend tests/build, GPU inference, and Blender-dependent validation were not run in this audit.
 
 ---
 
@@ -482,9 +480,9 @@ Source generation uses model-specific inference schedules and source-density set
 <details>
 <summary><strong>Can I use ForMesh3D commercially or deploy it as a paid SaaS service?</strong></summary>
 
-**For Outputs**: Yes! You own 100% of all 3D meshes, textures, rigs, and assets generated with ForMesh3D. You may use them in commercial video games, 3D printing, VFX, or digital storefronts.
+**For Outputs**: Do not assume unrestricted commercial rights. Check the upstream model and checkpoint terms for the specific generator, along with applicable law, before redistributing or commercially using generated assets.
 
-**For Code & Hosting**: While ForMesh3D's original orchestrator is open-source under Apache 2.0, the codebase incorporates ported engines (such as the `3DGenStudio` post-processing pipeline under the 3D Gen Studio Community License) and external neural model weights that carry non-commercial or academic research restrictions. **You may NOT sell the unmodified software or host it as a paid commercial SaaS service without explicit author permission.** Please review **[backend/thirdparty/LICENSE](backend/thirdparty/LICENSE)** and **[backend/postprocess/THIRD_PARTY_LICENSE.md](backend/postprocess/THIRD_PARTY_LICENSE.md)** for details.
+**For Code & Hosting**: ForMesh3D's original code is under Apache 2.0, while ported components, model source code, pretrained checkpoints, and datasets may have separate terms. Review the [ThirdParty source and licensing guide](backend/thirdparty/README.md), the license files inside each model directory, and [post-processing attribution](backend/postprocess/THIRD_PARTY_LICENSE.md). The main repository license does not override upstream terms.
 </details>
 
 <details>
@@ -553,9 +551,9 @@ The stream preserves newline- and carriage-return-delimited progress output, par
 | 📋 **[Task Tracker](Docs/TASKS.md)** | Future tasks and follow-ups; new tasks will be added here |
 | ⚡ **[Physics Runtime Specification](Docs/SYSTEM-BLUEPRINT.md#physics-path)** | Rigid-body simulation, mass properties, and Rapier3D integration |
 | 🔌 **[API Documentation](Docs/api-documentation.md)** | Complete endpoint schemas, request payloads, and status codes |
-| ⚖️ **[Third-Party Model Licenses](backend/thirdparty/LICENSE)** | Upstream terms and attributions for all integrated model weights |
+| ⚖️ **[Third-Party Model Sources & Licensing](backend/thirdparty/README.md)** | Source layout and links to each model's own LICENSE/NOTICE files |
 | 🔒 **[Security Policy](Docs/SECURITY.md)** | Vulnerability reporting and isolated environment safety guidelines |
-| 📦 **[Missing Dependencies](Docs/MISSING-DEPS.md)** | Custom GitHub/wheel deps not pip-installable directly |
+| 📦 **[Model Source & Weight Reference](resources.md)** | Adapter-to-source mapping and checkpoint storage conventions |
 
 ---
 
@@ -564,7 +562,7 @@ The stream preserves newline- and carriage-return-delimited progress output, par
 - **ForMesh3D Core**: Licensed under the **[Apache License 2.0](LICENSE)**.
 - **Post-Processing Pipeline**: Ported and adapted from **[visualbruno/3DGenStudio](https://github.com/visualbruno/3DGenStudio)** under the **3D Gen Studio Community License**. See **[backend/postprocess/THIRD_PARTY_LICENSE.md](backend/postprocess/THIRD_PARTY_LICENSE.md)**.
 - **Backend API Gateway Base**: Forked and modernized from **[FishWoWater/3DAIGC-API](https://github.com/FishWoWater/3DAIGC-API)**.
-- **Neural Model Checkpoints**: Individual neural model architectures are subject to their respective original authors' licenses (Hunyuan3D, TRELLIS, TripoSG, FastMesh, etc.). See **[backend/thirdparty/LICENSE](backend/thirdparty/LICENSE)** and individual `backend/thirdparty/<model>/LICENSE` files for full attributions and terms.
+- **Neural Model Checkpoints**: Source and checkpoint terms are controlled by their respective upstream authors. There is no collection-wide ThirdParty license; read the license/notice files in the exact source directory and checkpoint repository. See [the ThirdParty guide](backend/thirdparty/README.md).
 
 ---
 
@@ -595,7 +593,7 @@ Inference schedules are adapter-owned and are not editable from the Generate UI.
 
 ForMesh3D now treats the generated master mesh as the immutable high-fidelity asset and produces optimized/game-ready derivatives from it. Model selection remains additive and capability-aware, so existing models are retained rather than replaced. The scheduler caps tracked VRAM estimates with live device-free memory; supported adapters use actual Accelerate layer maps or component placement when a single GPU cannot meet the reservation.
 
-FastMesh V1K/V4K can shard layers across selected GPUs. Hunyuan3D-Paint uses row-chunk raster interpolation/extraction and can place renderer/super-resolution and multiview diffusion components on separate GPUs. Incomplete placement fails explicitly. Paint3D, UniRig, PartUV, and ARDY are not treated as sharded merely because several GPUs exist; their current adapters remain single-device unless a verified placement implementation is added. Rigged assets regenerate their thumbnail and the viewport resolves canonical GLB/FBX artifact URLs.
+FastMesh V1K (V4K unsupported pending a separate manifest/adapter contract) can shard layers across selected GPUs. Hunyuan3D-Paint uses row-chunk raster interpolation/extraction and can place renderer/super-resolution and multiview diffusion components on separate GPUs. Incomplete placement fails explicitly. Paint3D, UniRig, PartUV, and ARDY are not treated as sharded merely because several GPUs exist; their current adapters remain single-device unless a verified placement implementation is added. Rigged assets regenerate their thumbnail and the viewport resolves canonical GLB/FBX artifact URLs.
 
 Quality diagnostics can compare derivatives to the master and can use reference-mesh metrics when ground truth is available. Final GPU/OOM validation remains hardware-specific; CPU CI covers source and scheduler contracts, not actual model inference.
 

@@ -1,325 +1,70 @@
-# Model Official Repos and Weight Links
+# Model Source and Weight Reference
 
-Copy-paste ready: each model lists its adapter file, `git clone` command, and weight
-download link. Sources verified against each project's official GitHub/HuggingFace page.
+This file is a navigation index for the model source and checkpoint layout currently represented in the ForMesh3D `dev` tree. It is not a runtime-readiness certificate. A registry entry, source folder, or checkpoint directory does not prove that an adapter imports, loads, or generates a valid result.
 
-Downloading weights is a separate step (`backend/scripts/download_models.sh`).
+## Source repository
 
----
+All model source snapshots are tracked in the `backend/thirdparty` Git submodule:
 
-## 1. ARDY — Motion generation
+- Repository: [ForMesh3D-ThirdParty](https://github.com/Silentzx2/ForMesh3D-ThirdParty)
+- Guide: [backend/thirdparty/README.md](https://github.com/Silentzx2/ForMesh3D-ThirdParty/blob/main/README.md)
+- Main project pins an exact submodule commit; update that gitlink when the third-party repository advances.
+- Each source directory retains its own upstream README, license, and dependency instructions. There is no shared model license or universal dependency set.
 
-Adapter: `backend/adapters/ardy_adapter.py`
+## Current adapter and source map
 
-Clone the official repo:
-```
-git clone https://github.com/nv-tlabs/ardy
-```
-
-Weights / checkpoints:
-- Repo includes code + checkpoints
-- Gated text encoder: https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct
-- Models: https://huggingface.co/VAST-AI/UniRig
-
----
-
-## 2. FastMesh (V1K / V4K) — Mesh retopology
-
-Adapter: `backend/adapters/fastmesh_adapter.py`
-
-Clone the official repo:
-```
-git clone https://github.com/jhkim0759/FastMesh
-```
-
-Weights / checkpoints:
-```
-https://huggingface.co/WopperSet/FastMesh-V1K
-https://huggingface.co/WopperSet/FastMesh-V4K
-```
-
----
-
-## 3. Hi3D v1.0 (SPARC3D) — Geometry refinement
-
-Adapter: `backend/adapters/hi3d_adapter.py`
-
-Clone the official repo:
-```
-git clone https://github.com/hi3d-official/Hi3Dv1.0
-```
-
-Weights / checkpoints:
-```
-https://huggingface.co/hi3d-official/Hi3Dv1.0
-```
-
----
-
-## 4. Hunyuan3D-Shape-v2-1 — Image-to-raw-mesh
-
-Adapter: `backend/adapters/hunyuan3d_shape_v21.py`
-
-Clone the official repo:
-```
-git clone https://github.com/tencent-hunyuan/hunyuan3d-2.1
-```
-
-Weights / checkpoints:
-```
-https://huggingface.co/tencent/Hunyuan3D-2.1/tree/main/hunyuan3d-dit-v2-1
-```
-
----
-
-## 5. Hunyuan3D-DiT-v2-mini-Turbo — Image-to-raw-mesh (low VRAM)
-
-Adapter: `backend/adapters/hunyuan3d_dit_v2_mini_turbo.py`
-
-Clone the official repo:
-```
-git clone https://github.com/Tencent-Hunyuan/Hunyuan3D-2
-```
-
-Weights / checkpoints:
-```
-https://huggingface.co/tencent/Hunyuan3D-2mini/tree/main/hunyuan3d-dit-v2-mini-turbo
-```
-
----
-
-## 6. Hunyuan3D-Paint-v2-1 — PBR mesh painting (4K/8K)
-
-Adapter: `backend/adapters/hunyuan3d_paint_v21.py`
-
-Clone the official repo:
-```
-git clone https://github.com/tencent-hunyuan/hunyuan3d-2.1
-```
-
-Weights / checkpoints:
-```
-https://huggingface.co/tencent/Hunyuan3D-2.1/tree/main/hunyuan3d-paintpbr-v2-1
-```
-
----
-
-## 7. Hunyuan3D 2.1 common base — Shared base class
-
-Adapter: `backend/adapters/hunyuan3d_adapter_v21.py`
-
-Clone the official repo:
-```
-git clone https://github.com/tencent-hunyuan/hunyuan3d-2.1
-```
-
-Weights / checkpoints:
-- Same as Shape/Paint above (hunyuan3d-dit-v2-1 and hunyuan3d-paintpbr-v2-1)
-
----
-
-## 8. Hunyuan3D decoder profile — Helper utility (not a model)
-
-Adapter: `backend/adapters/hunyuan3d_decoder_profile.py`
-
-Official repo: N/A (internal utility)
-Weights: N/A
-
----
-
-## 9. Paint3D — 1K/2K texture painting
-
-Adapter: `backend/adapters/paint3d_adapter.py`
-
-Clone the official repo:
-```
-git clone https://github.com/OpenTexture/Paint3D
-```
-
-Weights / checkpoints:
-- ControlNet + SD1.5 checkpoints resolved dynamically by adapter (`_resolve_checkpoints()`)
-- Falls back to public HF repo IDs; checks local `pretrained/Paint3D/` first
-
----
-
-## 10. PartUV — UV unwrapping
-
-Adapter: `backend/adapters/partuv_adapter.py`
-
-Clone the official repo:
-```
-git clone https://github.com/EricWang12/PartUV
-```
-
-Weights / checkpoints:
-```
-backend/pretrained/PartUV/model_objaverse.ckpt
-```
-
----
-
-## 11. Pixal3D — Image-to-3D (O-Voxel)
-
-Adapter: `backend/adapters/pixal3d_adapter.py`
-
-Clone the official repo:
-```
-git clone https://github.com/TencentARC/Pixal3D
-```
-
-Weights / checkpoints:
-- DINOv3 image-conditioner: camenduru/dinov3-vitl16-pretrain-lvd1689m
-- Pipeline weights from `model_path` (pretrained/Pixal3D)
-
----
-
-## 12. TaoFlowForge — Native mesh generation
-
-Adapter: `backend/adapters/taoflowforge_adapter.py`
-
-Clone the official repo:
-```
-git clone https://github.com/alibaba/Taobao3D
-```
-(TaoFlowForge lives in the `TaoFlowForge/` subfolder of this repo.)
-
-Weights / checkpoints:
-```
-stage0.pt, stage1.pt, stage2.pt under backend/pretrained/Taobao3D/TaoFlowForge/
-```
-
----
-
-## 13. TRELLIS — Image-to-raw-mesh
-
-Adapter: `backend/adapters/trellis_adapter.py`
-
-Clone the official repo:
-```
-git clone https://github.com/microsoft/TRELLIS
-```
-
-Weights / checkpoints:
-```
-https://huggingface.co/microsoft/TRELLIS-image-large
-```
-
----
-
-## 14. TRELLIS.2 — Image-to-raw-mesh (cascade)
-
-Adapter: `backend/adapters/trellis2_adapter.py`
-
-Clone the official repo:
-```
-git clone https://github.com/microsoft/TRELLIS.2
-```
-
-Weights / checkpoints:
-```
-https://huggingface.co/microsoft/TRELLIS.2-4B
-```
-
----
-
-## 15. TRELLIS.2 painting — Mesh texturing
-
-Adapter: `backend/adapters/trellis2_paint_adapter.py`
-
-Clone the official repo:
-```
-git clone https://github.com/microsoft/TRELLIS.2
-```
-
-Weights / checkpoints:
-- Same as TRELLIS.2 above
-
----
-
-## 16. TripoSG — Image-to-raw-mesh
-
-Adapter: `backend/adapters/triposg_adapter.py`
-
-Clone the official repo:
-```
-git clone https://github.com/VAST-AI-Research/TripoSG
-```
-
-Weights / checkpoints:
-```
-https://huggingface.co/VAST-AI/TripoSG
-```
-
----
-
-## 17. Unique3D — Image-to-raw-mesh
-
-Adapter: `backend/adapters/unique3d_adapter.py`
-
-Clone the official repo:
-```
-git clone https://github.com/AiuniAI/Unique3D
-```
-
-Weights / checkpoints:
-```
-https://huggingface.co/spaces/Wuvin/Unique3D/tree/main/ckpt
-```
-
----
-
-## 18. UniRig — Auto-rigging
-
-Adapter: `backend/adapters/unirig_adapter.py`
-
-Clone the official repo:
-```
-git clone https://github.com/VAST-AI-Research/UniRig
-```
-
-Weights / checkpoints:
-```
-https://huggingface.co/VAST-AI/UniRig
-```
-
----
-
-## Quick reference table
-
-| # | Adapter File | Model | git clone | Weights |
+| Adapter module | Source directory | Purpose | Configured weights path (under `backend/pretrained`) | Audit note |
 |---|---|---|---|---|
-| 1 | `backend/adapters/ardy_adapter.py` | ARDY | `git clone https://github.com/nv-tlabs/ardy` | repo + HF `VAST-AI/UniRig` |
-| 2 | `backend/adapters/fastmesh_adapter.py` | FastMesh V1K/V4K | `git clone https://github.com/jhkim0759/FastMesh` | HF `WopperSet/FastMesh-V1K`, `WopperSet/FastMesh-V4K` |
-| 3 | `backend/adapters/hi3d_adapter.py` | Hi3D v1.0 | `git clone https://github.com/hi3d-official/Hi3Dv1.0` | HF `hi3d-official/Hi3Dv1.0` |
-| 4 | `backend/adapters/hunyuan3d_shape_v21.py` | Hunyuan3D-Shape-v2-1 | `git clone https://github.com/tencent-hunyuan/hunyuan3d-2.1` | HF `tencent/Hunyuan3D-2.1` (hunyuan3d-dit-v2-1) |
-| 5 | `backend/adapters/hunyuan3d_dit_v2_mini_turbo.py` | Hunyuan3D-DiT-v2-mini-Turbo | `git clone https://github.com/Tencent-Hunyuan/Hunyuan3D-2` | HF `tencent/Hunyuan3D-2mini` (hunyuan3d-dit-v2-mini-turbo) |
-| 6 | `backend/adapters/hunyuan3d_paint_v21.py` | Hunyuan3D-Paint-v2-1 | `git clone https://github.com/tencent-hunyuan/hunyuan3d-2.1` | HF `tencent/Hunyuan3D-2.1` (hunyuan3d-paintpbr-v2-1) |
-| 7 | `backend/adapters/hunyuan3d_adapter_v21.py` | Hunyuan3D 2.1 base | `git clone https://github.com/tencent-hunyuan/hunyuan3d-2.1` | Same as #4 / #6 |
-| 8 | `backend/adapters/hunyuan3d_decoder_profile.py` | Decoder helper | N/A | N/A |
-| 9 | `backend/adapters/paint3d_adapter.py` | Paint3D | `git clone https://github.com/OpenTexture/Paint3D` | Dynamic (ControlNet + SD1.5) |
-| 10 | `backend/adapters/partuv_adapter.py` | PartUV | `git clone https://github.com/EricWang12/PartUV` | `backend/pretrained/PartUV/model_objaverse.ckpt` |
-| 11 | `backend/adapters/pixal3d_adapter.py` | Pixal3D | `git clone https://github.com/TencentARC/Pixal3D` | DINOv3 + model_path weights |
-| 12 | `backend/adapters/taoflowforge_adapter.py` | TaoFlowForge | `git clone https://github.com/alibaba/Taobao3D` | `backend/pretrained/Taobao3D/TaoFlowForge/` |
-| 13 | `backend/adapters/trellis_adapter.py` | TRELLIS | `git clone https://github.com/microsoft/TRELLIS` | HF `microsoft/TRELLIS-image-large` |
-| 14 | `backend/adapters/trellis2_adapter.py` | TRELLIS.2 | `git clone https://github.com/microsoft/TRELLIS.2` | HF `microsoft/TRELLIS.2-4B` |
-| 15 | `backend/adapters/trellis2_paint_adapter.py` | TRELLIS.2 painting | `git clone https://github.com/microsoft/TRELLIS.2` | Same as #14 |
-| 16 | `backend/adapters/triposg_adapter.py` | TripoSG | `git clone https://github.com/VAST-AI-Research/TripoSG` | HF `VAST-AI/TripoSG` |
-| 17 | `backend/adapters/unique3d_adapter.py` | Unique3D | `git clone https://github.com/AiuniAI/Unique3D` | HF `Wuvin/Unique3D` (ckpt/) |
-| 18 | `backend/adapters/unirig_adapter.py` | UniRig | `git clone https://github.com/VAST-AI-Research/UniRig` | HF `VAST-AI/UniRig` |
+| `ardy_adapter.py` | `ardy/` | Text-to-motion generation | `ardy/` | CPU-only path in the manifest; checkpoint and inference not tested |
+| `fastmesh_adapter.py` | `FastMesh/` | Mesh retopology | `FastMesh-V1K/` | Manifest currently declares V1K only; V4K registry key is not backed by a distinct current adapter configuration |
+| `hi3d_adapter.py` | `Hi3D/` | Experimental geometry refinement | `Hi3D/` | Adapter expects a coarse mesh input; not a standalone raw image-to-mesh path |
+| `hunyuan3d_shape_v21.py` | `Hunyuan3D-2.1/` | Hunyuan3D 2.1 shape generation | `tencent/Hunyuan3D-2.1/` | Source/API and GPU loading require runtime validation |
+| `hunyuan3d_paint_v21.py` | `Hunyuan3D-2.1/` | Hunyuan3D 2.1 PBR painting | `tencent/Hunyuan3D-2.1/` | Shares the upstream source/checkpoint family with Shape |
+| `hunyuan3d_dit_v2_mini_turbo.py` | `hunyuan3d-2/` | Lower-parameter Hunyuan3D mini generation | `tencent/Hunyuan3D-2mini/` | Source import and runtime need validation |
+| `hunyuan3d_adapter_v21.py` | Hunyuan3D legacy source family | Legacy Hunyuan3D 2.1 compatibility adapter | Check the active manifest entry | Legacy module; do not assume it is an independently enabled model |
+| `paint3d_adapter.py` | `Paint3D/` | Mesh texture generation | `Paint3D/` | Current adapter has a source-script path/output-texture integration defect; see `Docs/MEMORY.md` |
+| `partuv_adapter.py` | `PartUV/` | UV unwrapping | `PartUV/` | Source extension and model runtime need validation |
+| `pixal3d_adapter.py` | `Pixal3D/` | Image-to-3D with O-Voxel export | `Pixal3D/` | Current adapter has camera/condition-model initialization defects; see `Docs/MEMORY.md` |
+| `taoflowforge_adapter.py` | `Taobao3D/` (TaoFlowForge subdirectory) | Progressive native mesh generation | `Taobao3D/TaoFlowForge/` | Verify source package root and checkpoints before inference |
+| `trellis_adapter.py` | `TRELLIS/` | TRELLIS image-to-3D | `TRELLIS/` | Image-to-3D path; no verified text-painting behavior implied |
+| `trellis2_adapter.py` | `TRELLIS.2/` | TRELLIS.2 image-to-3D | `TRELLIS.2/` | Image-to-3D path; checkpoint and GPU validation not run |
+| `trellis2_paint_adapter.py` | `TRELLIS.2/` | TRELLIS.2 mesh painting | `TRELLIS.2/` | Separate adapter over the same source directory |
+| `triposg_adapter.py` | `TripoSG/` | Image-to-3D generation | `TripoSG/` | Model source and weight load need validation |
+| `unique3d_adapter.py` | `Unique3D/` | Image-to-3D generation/refinement | `Unique3D/` | Checkpoint layout and source import need validation |
+| `unirig_adapter.py` | `UniRig/` | Character rigging | `UniRig/` | Current adapter's initialization/API does not match the inspected upstream contract; see `Docs/MEMORY.md` |
 
----
+The 17 modules above share 14 source directories because Shape/Paint share Hunyuan3D 2.1, the two TRELLIS.2 adapters share TRELLIS.2, and TaoFlowForge is part of the Taobao3D source tree.
 
-## Notes
+## Download and storage rules
 
-- **Hunyuan3D-2.1** (`tencent-hunyuan/hunyuan3d-2.1`) hosts both Shape-v2-1 (3.3B DiT) and Paint-v2-1 (2B PBR) under one repo; weights live in separate HF subfolders.
-- **FastMesh** weights are published by the author (WopperSet) on HuggingFace as two variants: V1K (~1K vertices) and V4K (~4K vertices).
-- **UniRig** weights are hosted at `VAST-AI/UniRig` on HuggingFace; skeleton+skinning trained on Articulation-XL2.0.
-- **TRELLIS.2** weights (`microsoft/TRELLIS.2-4B`) are a 4B-parameter model supporting up to 1536³ resolution.
-- **Hi3D v1.0** is built on Sparc3D; DINOv2/CLIP encoders load from HF on first use unless cached locally.
-- **Unique3D** weights are distributed via the `Wuvin/Unique3D` HuggingFace Space (`ckpt/` folder).
-- **Paint3D** resolves ControlNet/SD1.5 checkpoints at runtime via `_resolve_checkpoints()`, checking local `pretrained/Paint3D/` first then public HF repo IDs.
-- **PartUV** expects `model_objaverse.ckpt` under `backend/pretrained/PartUV/` per the adapter constructor.
+- Default shared checkpoint root: `backend/pretrained`.
+- Override the root with `MODEL_STORAGE_ROOT`; relative values resolve from the ForMesh3D repository root, not the process working directory.
+- The shared resolver is `backend/loader.py:get_model_weights_dir(model_key)`.
+- The downloader is `backend/scripts/download_models.sh`; use its built-in help/model selectors rather than manually inventing a path.
+- The ThirdParty submodule stores source, not large checkpoints. Do not commit weights, generated assets, user uploads, tokens, or local environment files.
+- Application uploads and generated assets use the existing application storage configuration; `MODEL_STORAGE_ROOT` is weights-only.
 
-## Disclaimer
+## Upstream source links
 
-Links reflect the state of each project's official repo/HF page at time of research. Model availability, gating, and license terms are controlled by the upstream authors; verify before downloading or using in any deployment.
+| Model source | Upstream project |
+|---|---|
+| ARDY | [nv-tlabs/ardy](https://github.com/nv-tlabs/ardy) |
+| Hunyuan3D 2.1 | [Tencent-Hunyuan/Hunyuan3D-2.1](https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1) |
+| Hunyuan3D 2 | [Tencent-Hunyuan/Hunyuan3D-2](https://github.com/Tencent-Hunyuan/Hunyuan3D-2) |
+| Hi3D | [hi3d-official/Hi3Dv1.0](https://github.com/hi3d-official/Hi3Dv1.0) |
+| Paint3D | [OpenTexture/Paint3D](https://github.com/OpenTexture/Paint3D) |
+| PartUV | [EricWang12/PartUV](https://github.com/EricWang12/PartUV) |
+| Pixal3D | [TencentARC/Pixal3D](https://github.com/TencentARC/Pixal3D) |
+| TaoFlowForge / Taobao3D | [alibaba/Taobao3D](https://github.com/alibaba/Taobao3D) |
+| TRELLIS | [microsoft/TRELLIS](https://github.com/microsoft/TRELLIS) |
+| TRELLIS.2 | [microsoft/TRELLIS.2](https://github.com/microsoft/TRELLIS.2) |
+| TripoSG | [VAST-AI-Research/TripoSG](https://github.com/VAST-AI-Research/TripoSG) |
+| UniRig | [VAST-AI-Research/UniRig](https://github.com/VAST-AI-Research/UniRig) |
+| Unique3D | [AiuniAI/Unique3D](https://github.com/AiuniAI/Unique3D) |
+| FastMesh | See the checked-in `FastMesh/README.md` and attribution files for the exact upstream provenance of this snapshot |
+
+## Runtime and licensing caveats
+
+No checkpoint downloads, model construction, GPU inference, or mesh-quality validation were performed during the November 1, 2026 repository audit. Pixal3D, Paint3D, UniRig, FastMesh V4K, and TRELLIS text-painting have specific code-level gaps documented in `Docs/MEMORY.md`; do not present them as verified working features.
+
+Read the LICENSE/NOTICE files inside each exact model directory before use, redistribution, or commercial deployment. Source-code rights, checkpoint rights, dataset terms, and rights to generated outputs can differ.

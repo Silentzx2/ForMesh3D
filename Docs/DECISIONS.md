@@ -1,7 +1,7 @@
 # Architecture Decisions — ForMesh 3D
 
 > **Version**: 0.1.0
-> **Last Updated**: October 2026
+> **Last Updated**: November 1, 2026
 
 ---
 
@@ -44,13 +44,13 @@
 5. `REQUIRE_GPU=1` combined with CPU-mode resolution aborts setup with a non-zero exit.
 6. Backend `requirements.txt` splits into `requirements-core.txt` (CPU-safe) and `requirements-models.txt` (GPU-only ML packages); `requirements-core.txt` alone is installed in CPU mode.
 7. In CUDA mode, `install.sh` checks for an NVIDIA GPU before installing `requirements-models.txt`. If no GPU is found, the user is prompted to continue core-only or abort.
-8. Custom GitHub/wheel deps (nvdiffrast, nvdiffrec_render, CuMesh, o-voxel, diff_gaussian_rasterization, kaolin) are documented in `Docs/MISSING-DEPS.md` and are not pip-installable directly.
+8. Model and compiled-extension dependencies are installed only through the dependency paths present in `backend/requirements-core.txt`, `backend/requirements-models.txt`, `backend/scripts/install.sh`, or the relevant upstream model instructions. There is no separate missing-dependency catalogue; inspect the installer and the individual source directory before assuming a dependency is installed.
 
 **Consequences:**
 - Setup completes on headless/CPU-only hosts without CUDA wheels or model source.
 - CUDA/GPU inference still works on hosts with NVIDIA GPUs when run with `--gpu` or auto-detected CUDA.
 - Model adapters are importable at runtime only when their heavy ML dependencies were installed; a GPU-mode adapter used in CPU mode degrades gracefully at inference time rather than breaking setup.
-- Custom GitHub/wheel deps are documented in `Docs/MISSING-DEPS.md` and must be installed manually or via `install.sh` when GPU mode is active.
+- Do not assume every custom extension is installed by the generic requirements files. The current installer contains model-specific steps; verify each model's dependency and build path before using that adapter.
 - Verification: `scripts/tests/script_test.sh` resolver tests + static grep test run in Backend Runtime Contract CI; `bash -n` passes on all edited scripts.
 
 

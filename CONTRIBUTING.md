@@ -26,7 +26,7 @@ ForMesh3D is an active beta phase project combining a Next.js 16 frontend, FastA
 ## Setup
 
 ```bash
-git clone https://github.com/Silentzx2/ForMesh3D.git
+git clone --recurse-submodules https://github.com/Silentzx2/ForMesh3D.git
 cd ForMesh3D
 bash scripts/setup.sh
 ```
@@ -36,14 +36,14 @@ bash scripts/setup.sh
 If you do not have an NVIDIA GPU, run setup in CPU mode. Model/CUDA dependencies are skipped; the studio, API, and post-processing tools remain available.
 
 ```bash
-git clone https://github.com/Silentzx2/ForMesh3D.git
+git clone --recurse-submodules https://github.com/Silentzx2/ForMesh3D.git
 cd ForMesh3D
 bash scripts/setup.sh --cpu
 ```
 
 Use `--cpu` to force CPU mode even if a GPU is present, or `--gpu` to force CUDA mode. Use `--with-thirdparty` to initialize third-party model sources.
 
-Third-party model integrations are maintained under `backend/thirdparty/` in this repository. A normal checkout does not require a separate third-party repository.
+Third-party model sources are pinned as the `backend/thirdparty` Git submodule. You do not need to clone that repository separately; use `--recurse-submodules` on first clone, or let `scripts/setup.sh` initialize it with `git submodule update --init --recursive`. See [the ThirdParty source guide](backend/thirdparty/README.md).
 
 The maintained Wheels release is used for compatible prebuilt Python wheels; the installer falls back to source/index installation when a compatible wheel is unavailable.
 
@@ -84,9 +84,8 @@ bun test
 bun run lint
 bun run build
 
-# Backend CPU contracts. This is exactly what the Backend Runtime Contract CI workflow runs.
-PYTHONPATH=backend python -m pytest -q backend/tests \
-  backend/thirdparty/tests/test_runtime_path_utils.py
+# Shared model-weight path contract (same focused test run by backend CI).
+(cd backend && python -m pytest -q tests/test_loader.py)
 
 # Verify clean compilation across all Python modules
 python3 -m compileall -q backend/
@@ -95,13 +94,13 @@ python3 -m compileall -q backend/
 bash -n manager.sh backend/scripts/*.sh scripts/*.sh
 ```
 
-The backend CPU contract suite uses the geometry libraries listed in `.github/workflows/backend-runtime-ci.yml`; it does not load model weights or run inference. `python3 scripts/verify_contracts.py`, Blender-stage validation and GPU/model inference require the full `3daigc-api` environment on an appropriate host. Static checks do not replace those runtime checks.
+The current backend CI covers only source compilation, shell syntax, and the shared loader contract. It does not load model weights or run inference. Blender-stage validation and GPU/model inference require the full `3daigc-api` environment on an appropriate host.
 
 ### Continuous integration
 
 Two GitHub Actions workflows live under `.github/workflows/`:
 
-- **Backend Runtime Contract CI** (`.github/workflows/backend-runtime-ci.yml`): compiles the backend sources, checks `backend/scripts/download_models.sh` shell syntax, and runs `backend/tests/` plus the third-party runtime-path contract on Python 3.10.
+- **Backend Runtime Contract CI** (`.github/workflows/backend-runtime-ci.yml`): compiles Python sources, checks shell syntax, and runs `backend/tests/test_loader.py` on Python 3.10. It does not run model-adapter regression tests or GPU inference.
 - **Frontend CI** (`.github/workflows/frontend-ci.yml`): installs dependencies with Bun, runs the TypeScript type-check (`bun run test`), all Bun contract tests (`bun test`), and the production build (`bun run build`).
 
 The backend workflow runs on pushes and pull requests targeting `main` and `dev`; the frontend workflow runs on pushes to `dev` and on pull requests targeting `dev` or `main`. Local verification should mirror the CI commands before opening a pull request.

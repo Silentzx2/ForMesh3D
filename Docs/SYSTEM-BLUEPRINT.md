@@ -1,3 +1,13 @@
+# ForMesh3D — System Blueprint
+
+> **Document role:** Architecture notes and dated design history. Historical entries explain intended or previously implemented behavior; they are not a guarantee that the current branch still implements it.
+>
+> **Current status (2026-11-01):** Use [MEMORY.md](MEMORY.md) for the latest source audit and [ARCHITECTURE.md](ARCHITECTURE.md) for current responsibility boundaries. Adapter registration does not establish runtime readiness. Pixal3D, Paint3D, UniRig, FastMesh V4K, and TRELLIS text painting have unresolved source/API gaps; GPU inference and output-quality validation are NOT RUN.
+>
+> When a historical entry conflicts with the current code or the audit, the current checked-in implementation and the latest audit take precedence.
+
+---
+
 ## 2026-10-19 Texture, UV and Rigging Contract Update
 
 - Paint3D/Hunyuan3D-Paint requests reject user-supplied localized UV masks until an adapter actually wires them into inference; full-mesh texturing remains available.
@@ -30,13 +40,13 @@ ForMesh 3D is an end-to-end generative 3D reconstruction and asset optimization 
 ### Core Stack
 - **Frontend**: Next.js 16 (React 19, TypeScript, Three.js, React Three Fiber, Tailwind CSS)
 - **API Gateway**: FastAPI (Python 3.10, Conda env `3daigc-api`, Pydantic V2, AsyncIO)
-- **Model Adapters**: Python adapters for TRELLIS, TRELLIS.2, Hunyuan3D-2.1 (Shape/Paint/Mini Turbo), Paint3D, PartUV, UniRig, FastMesh, TripoSG, Unique3D, ARDY, Pixal3D, TaoFlowForge, and Hi3D (all 17 adapters wired to official ThirdParty APIs using shared `backend/loader.py` for weights resolution and `patcher/` for external fixes)
+- **Model Adapters**: 17 adapter modules and registry entries connect the application to TRELLIS, TRELLIS.2, Hunyuan3D, Paint3D, PartUV, UniRig, FastMesh, TripoSG, Unique3D, ARDY, Pixal3D, TaoFlowForge, and Hi3D. Source inspection on 2026-11-01 found unresolved import/API contracts in Pixal3D, Paint3D, UniRig, FastMesh V4K, and TRELLIS text painting; registration must not be treated as proof of a working adapter. See `Docs/MEMORY.md`.
 - **Scheduler**: VRAM-aware multiprocess scheduler with GPU monitoring
 - **Queue/Broker**: Redis 7 (optional, multi-worker mode only)
 - **File Storage**: Local filesystem + Redis FileStore (multi-worker mode)
 
 ### Model-Native Source Fidelity Contract
-1. The frontend sends no model-specific inference schedule; numeric inference profiles (steps, guidance, octree/depth resolution, samplers) are owned by each adapter's `_LOCKED_INFERENCE_PROFILE`. Only the seed and the image identity stay caller-controlled.
+1. Model-native inference settings must be confirmed against each current adapter and upstream API. The frontend must not expose a setting unless it is consumed by that adapter. Do not copy unverified profile numbers into this blueprint; current adapters do not all expose a consistent locked-profile implementation.
 2. Scheduler removes post-process-only target, extraction/decimation/remesh, LOD, physics, and paint controls before model inference, and also strips adapter-owned inference keys.
 3. Adapter extraction and inference profiles are adapter-owned; the canonical values live in the adapter implementations and must not be copied into a second documentation table. Configured requests and effective runtime values are not interchangeable.
 4. Source texture settings are model-owned and separate from downstream production atlas resolution.
@@ -71,7 +81,7 @@ Intent presets (`backend/config/smart_presets.yaml`, version 1) define the defau
 
 ### GPU Placement & Derived Artifact Contract
 - The scheduler combines tracked reservations with live per-device free memory. Aggregate VRAM is admitted only for adapters that actually shard model layers or place independent components on multiple GPUs.
-- FastMesh uses Accelerate automatic device mapping and rejects a multi-GPU plan if its map does not use at least two selected GPUs. Hunyuan3D-Paint uses bounded row-chunk raster work and separate renderer/super-resolution and multiview diffusion devices when a multi-GPU plan is supplied.
+- FastMesh multi-GPU placement is not a verified current capability: the manifest exposes V1K only and the shared adapter is hard-coded to the V1K checkpoint key. Hunyuan3D-Paint's source-level placement logic still requires supported-host validation before treating its multi-GPU behavior as production-ready.
 - Paint3D child-stage processes remain single-GPU and are not declared multi-GPU capable. UniRig, PartUV, and ARDY retain their existing single-device inference paths until their own adapters implement and verify actual sharding.
 - Rigging stores native FBX plus a GLB viewport artifact. The viewer obeys canonical artifact-format query values, and rigged geometry invalidates the previous thumbnail.
 

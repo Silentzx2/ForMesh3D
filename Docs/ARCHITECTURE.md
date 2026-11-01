@@ -1,7 +1,10 @@
 # Architecture — ForMesh 3D
 
+> **Evidence note (2026-11-01):** This document contains dated design and historical implementation notes. Treat them as current behavior only when they match the checked-in source and the latest audit section below. Older per-model profiles, test-suite descriptions, and multi-GPU claims are not runtime verification. The current adapter audit is summarized in [MEMORY.md](MEMORY.md).
+
+
 > **Architecture Version**: 0.1.0 (FastAPI + Next.js 16)
-> **Last Verified**: October 29, 2026
+> **Last Reviewed**: November 1, 2026 (static source and documentation audit)
 > **Target Environments**: Linux (Ubuntu 20.04/22.04/24.04), Cloud GPU / Local Workstations
 
 ---
@@ -14,7 +17,7 @@ ForMesh 3D is an end-to-end generative 3D asset pipeline. The system is architec
 
 - **Presentation Layer**: Next.js 16 frontend with interactive Three.js 3D viewport, studio workspace tooling, persistent asset thumbnailing/previews, real-time hardware telemetry HUD, viewport background job capsule, and model management.
 - **API Gateway**: FastAPI backend (Python 3.10, Conda env `3daigc-api`) with VRAM-aware multiprocess scheduler, request validation, rate limiting, dual-store job synchronization (Redis + SQLite), and authorized artifact delivery.
-- **Model Adapters & ThirdParty Integration**: Thin Python adapters for each AI model (all 17 adapters wired to official ThirdParty APIs). Adapters obtain their weights directory from the shared `backend/loader.py` (`<MODEL_STORAGE_ROOT>/<model_key>`), invoke official pipelines in `backend/thirdparty/`, and execute conditional runtime patches from `patcher/<model_key>/` without altering upstream source. Normal image-to-3D requests produce raw geometry; the scheduler runs an optional centralized texture stage after the raw master checkpoint is secured. Paint3D is used for 1K/2K, and Hunyuan3D-Paint for 4K/8K with its internal RealESRGAN step enabled automatically.
+- **Model Adapters & ThirdParty Integration**: 17 adapter modules and their registry entries exist. They use `backend/loader.py` for model-weight path resolution and the `backend/thirdparty/` Git submodule for upstream source, but the November 1, 2026 source audit found unresolved source-import and inference-contract defects. Registration must not be described as successful integration or production readiness. See **Current adapter integration audit** below and `Docs/MEMORY.md`.
 - **Scheduler & CPU Concurrency**: VRAM-aware scheduler with GPU monitoring, model-input sanitization, dual-store job synchronization (Redis + SQLite), and multi-core CPU concurrency allocating all available cores (`nproc=8`, `OMP_NUM_THREADS=8`) across scheduler workers, marching cubes, and postprocessing.
 
 ## Repository Owner Map & Safe Change Paths
@@ -23,13 +26,13 @@ Use this map to find the owner of a behavior before editing it.
 
 | Concern | Source owner | Change here when… | Authoritative inputs |
 |---|---|---|---|
-|| Workspace navigation and page mounts | `app/`, `features/workspace/` | A page, workspace tool, or route alias is added/removed | Next.js route files and workspace route allow-list |
+| Workspace navigation and page mounts | `app/`, `features/workspace/` | A page, workspace tool, or route alias is added/removed | Next.js route files and workspace route allow-list |
 | Generation UI state and serialization | `features/workspace/Panels/GeneratePanel.tsx`, `features/workspace/utils/buildGenerationParameters.ts` | A visible generation control or request field changes | UI state is serialized by the builder; no inference schedule belongs here |
 | HTTP validation and job construction | `backend/api/routers/mesh_generation.py` | Request shape, intent resolution, file intake, or job metadata changes | Pydantic request model, `backend/config/smart_presets.yaml`, `backend/config/planner_rules.yaml` |
 | Model choice and worker lifecycle | `backend/core/planner.py`, `backend/core/scheduler/` | Auto-selection, resource feasibility, model loading, fallback, or queue behavior changes | `backend/config/planner_rules.yaml`, `backend/config/models.yaml`, runtime probe |
 | Model inference contract | `backend/adapters/` and adapter-owned model schemas | A model's native call, supported runtime input, or fixed inference profile changes | Adapter profile and model facts in `backend/config/models.yaml`; GPU behavior still requires runtime validation |
 | Asset production and derivatives | `backend/postprocess/pipeline.py`, `backend/postprocess/services/` | Master promotion, repair, retopology, UV, baking, LOD, collision, QA, or export changes | `backend/config/quality.yaml`; preset recipes in `backend/config/smart_presets.yaml` |
-| Quality limits and production algorithms | `backend/config/quality.yaml`, `backend/core/config.py` | A threshold, sampling policy, physics default/bound, or production recipe changes | Required config keys are validated at load; extend `backend/tests/test_config_ssot.py` |
+| Quality limits and production algorithms | `backend/config/quality.yaml`, `backend/core/config.py` | A threshold, sampling policy, physics default/bound, or production recipe changes | Required config keys are validated at load; add or run a focused checked-in test for the changed policy (the current CI loader test does not cover quality-config parity) |
 | Cross-cutting contracts and verification | `backend/tests/`, frontend `*.test.mjs`, `.github/workflows/` | A request, artifact, route, or runtime contract changes | Focused contract tests and the CI commands documented in [CONTRIBUTING.md](../CONTRIBUTING.md) |
 
 ### Generation runtime ownership
@@ -39,16 +42,19 @@ The normal image-to-asset path is UI upload/request serialization → FastAPI va
 For a behavior change, update the owning implementation and its contract test first, then update the linked contract/API docs and verify the targeted CI command. Do not copy thresholds, model profiles, or intent recipes into a second owner.
 
 ### Model-Native Source Fidelity Contract
-- Fixed model-specific inference profiles belong to adapters; the scheduler removes request overrides for migrated adapters instead of holding duplicate numeric profiles. Seed and image identity remain caller-controlled.
-- Hunyuan3D-Shape-v2.1 locks the effective dev scheduler values in its adapter: octree resolution 1300, 150 steps, guidance 5.0, 80,000 chunks, and the native dense decoder with marching cubes. These are preserved runtime values, not a claim of GPU or quality validation; the resolution carries OOM risk.
-- TripoSG locks the effective dev scheduler values in its adapter: 100 steps, guidance 9.0, dense depth 10, hierarchical depth 11, and no Flash decoder. Its current depth resolver does not automatically downgrade from supplied VRAM estimates. GPU quality/VRAM benchmarking has not been performed for these settings.
-- Hunyuan3D-DiT-v2-mini-Turbo is adapter-owned like the other migrated profiles: its adapter locks octree resolution 768, 20 steps, guidance 7.5 and 80,000 chunks. These runtime values must not be retuned as a side effect.
-- TRELLIS locks 100 sparse/slat sampling steps, guidance 7.5 and `simplify=0.0` in its adapter; TRELLIS.2 keeps its `1536_cascade` geometry target and existing token budget, while the raw-mesh path skips texture-latent inference and decoding. The separate TRELLIS.2 painting adapter remains unchanged.
-- Pixal3D locks the `1536_cascade` pipeline at resolution 2048; Unique3D locks `input_processing=true`, `do_refine=true` and `expansion_weight=0.1`; TaoFlowForge locks `fill_holes=true` and `offload="auto"` for progressive native mesh generation. Unique3D's `fast_geo()` Screened Poisson initialization uses depth 7, matching the existing helper default; visual quality remains GPU-verification dependent.
-- The scheduler strips downstream-only target/decimation/remesh controls before adapter inference.
-- Raw extraction ceilings remain model-specific; only explicit hardware safety guards may lower them.
-- Normal image-to-3D routes return raw geometry; optional texture presets are handled after master promotion (Paint3D 1K/2K, Hunyuan3D-Paint 4K/8K). Legacy textured model IDs resolve to raw-generation aliases.
-- master/source.glb is immutable; retopology, UV, LOD, collision, and bake operations act on derived artifacts.
+
+Model-specific inference behavior is owned by the relevant adapter and upstream API, where implemented. This document deliberately does not duplicate per-model step counts, guidance scales, resolutions, samplers, or decoder settings: the previous numeric table no longer matched several current adapter files and is withdrawn.
+
+Static source inspection of the `dev` baseline on 2026-11-01 identified material gaps:
+- The factory does not forward `model_id` through adapter constructor parameters, while adapter constructors may initialize the attribute to `None`.
+- Pixal3D has an undefined `width` reference and does not initialize the four projection-condition models that its vendored `from_pretrained` path leaves unset.
+- Paint3D resolves stage scripts from the weights directory and returns the input mesh rather than applying the generated albedo to the output mesh.
+- UniRig omits the required `__target__` passed to vendored `get_system`; the expected `predict_rig` path does not match the inspected upstream `Trainer.predict` entry point.
+- FastMesh's manifest exposes V1K only; the registry's V4K ID resolves to an adapter class hard-coded to V1K.
+- The TRELLIS text-painting registry entry reaches an image-conditioned adapter, not a verified text-conditioned pipeline.
+- The generic installer does not install or establish all model source package roots; individual adapter import paths need model-by-model validation.
+
+These are code-review findings, not runtime reproductions. Model checkpoint loading, GPU inference, VRAM, and geometry quality remain NOT RUN. Do not use old profile numbers or catalog registration as evidence that a model works.
 
 ### Intent Preset Production Budgets
 
@@ -96,63 +102,19 @@ flowchart TD
 
 ### Hunyuan Runtime Loading & Shared Dependencies
 
-### UniRig attention selection and FastMesh resource admission
+### Current runtime and source-import audit (2026-11-01)
 
-- UniRig chooses SDPA only when the active Transformers causal-LM class advertises `_supports_sdpa`; unsupported architectures such as OPT use eager attention. A GPU-wide fallback alone does not prove every model architecture supports SDPA.
-- UniRig Pointcept `SerializedAttention` checks the current CUDA device before enabling FlashAttention: compute capability 8.0+ may use FlashAttention; pre-Ampere, unknown-capability, or no-FlashAttention environments use its eager implementation. Attention dropout remains an `nn.Dropout` module so the eager path can run both directly and after a FlashAttention runtime failure.
-- The shared TorchCluster FPS fallback imports PyTorch lazily before defining the typed function, preventing missing-name failures when the optional `torch_cluster` package is absent.
-- FastMesh V1K/V4K can use Accelerate `infer_auto_device_map` + `dispatch_model` when one GPU cannot meet the reservation. Loading fails explicitly unless the generated device map places layers on at least two reserved GPUs. The 16,384 MB / 24,500 MB budgets remain conservative project reservations, not upstream-published minimums.
-- Hunyuan3D-Paint bounds raster interpolation and UV attribute extraction in 128-row chunks to avoid giant full-frame gather temporaries. Its mesh renderer/super-resolution stage stays on the first selected device; multiview diffusion can run on the second selected device.
-- The scheduler's VRAM estimate is capped by live `torch.cuda.mem_get_info()` data so memory consumed outside the scheduler's own reservations is not treated as free. Aggregate VRAM is considered only for declared, supported dispatch strategies, and incomplete multi-GPU dispatch fails closed.
-- Paint3D does not advertise multi-GPU placement: its isolated child-stage processes currently run on one selected GPU, so adding their VRAM together would be a false capacity guarantee.
-- Rigged assets invalidate stale thumbnails so the viewer generates a preview from the new GLB. The viewport resolves canonical `artifact_format` query values before falling back to asset metadata; the browser-facing rigged artifact is GLB and native FBX remains separately downloadable.
+The following points supersede older detailed notes in this section when they conflict with the current adapter and ThirdParty source trees:
 
+- **UniRig:** the vendored `get_system(**kwargs)` parser requires `__target__`; the current adapter call omits it. The inspected upstream run path uses a Lightning `Trainer.predict` flow, not the adapter's assumed `system.predict_rig` method.
+- **FastMesh:** only V1K is declared in the current model manifest. The registered V4K ID maps to the same adapter class, whose `MODEL_KEY` is fixed to V1K. Do not advertise V4K or multi-GPU placement as an available current capability.
+- **Pixal3D:** the adapter currently references an undefined `width` in its camera fallback and does not construct the projection-conditioning models that the vendored pipeline leaves for the official inference entry point.
+- **Paint3D:** source-stage scripts are in the ThirdParty source tree, not the model checkpoint directory. The current adapter's export path does not apply the generated albedo to the returned mesh.
+- **Model source paths:** the weights loader is not a Python source resolver. The installer currently installs O-Voxel from TRELLIS.2 but does not establish all the other model package roots; verify each adapter's actual import root and upstream package API independently.
+- **CI boundary:** the old workflow named adapter regression tests that no longer exist in the checked-in tree. The updated workflow is narrowed to source compilation, shell syntax, and the checked-in shared-loader contract test. It does not validate GPU adapters.
+- **GPU/checkpoint behavior:** no end-to-end inference, checkpoint load, peak-VRAM measurement, or output-quality check was run during this audit.
 
-### Multi-GPU placement and rigged artifact contracts
-- Model manifests may advertise multi-GPU only when an adapter applies a real layer or component placement strategy. The scheduler passes per-device memory budgets to Accelerate; device-map/component placement must use at least two reserved GPUs or raise a runtime error rather than silently running on one card.
-- FastMesh layer sharding uses the scheduler's selected GPU IDs and memory limits. Hunyuan3D-Paint uses explicit component placement, with the renderer pinned to the first selected GPU and multiview diffusion on a second when available.
-- Live free VRAM is measured alongside tracked allocations to account for CUDA processes and work that did not originate in the current scheduler.
-- The rigging adapter stores both native `rigged.fbx` and a converted `rigged.glb`; the viewport must load the GLB by default and only use FBX when the canonical artifact URL asks for FBX. A changed geometry clears the old preview thumbnail.
-
-### Runtime failure and readiness contracts
-- Hunyuan3D-Paint's adapter-level Numba/cache and safe-background-remover helpers also use the canonical backend compatibility loader. This avoids a cached generic `utils.torchvision_fix` silently selecting the Shape or Paint vendored helper for adapter-owned fallback logic.
-- Backend CI runs Python source compilation plus CPU-only compatibility, source-contract, and resource-planner tests; frontend CI runs dependency installation, TypeScript checking, and production build. These lanes do not run GPU/checkpoint-backed inference or measure actual peak VRAM.
-
-- ModelFactory and UniRig load the main backend TorchVision/Transformers compatibility helper by a canonical file path under a private module name; they do not rely on whichever third-party `utils.torchvision_fix` Python resolves first.
-- The generic `utils` package can still resolve model-specific Shape utilities by design, so third-party code must continue to use an adapter-scoped path or its own package-qualified import. Runtime helper lookup must not depend on this package search order.
-
-- The CPU contract suite imports the main-repo TorchVision helper by file path to avoid accidentally resolving the identically named Hunyuan Shape utility module, which correctly depends on the full model runtime.
-- Lightweight source-contract tests now cover BaseModel error-state/cause-chain behavior, Paint3D child-stage preflight and UV validation, and the UniRig/ARDY/ModelFactory exception-chain contracts.
-
-- The shared `backend.utils` package retains the pre-existing Hunyuan Shape utility path for shape-generation compatibility but no longer globally registers the Hunyuan Paint utility path; Paint imports are scoped to its initialization.
-- The dependency-contract test now validates the current shared baseline declared in `backend/requirements.txt` and verifies that TripoSG does not duplicate those centrally managed dependencies. This changes test expectations only; requirement files remain unchanged.
-
-- Hunyuan3D-Paint preserves processing-stage exception causes with `raise ... from e` and traceback logging, not only loader-stage causes.
-- A local DINOv2 checkpoint is selected only when both `config.json` and at least one recognized model-weight file exist; incomplete local caches trigger an explicit warning before the remote fallback.
-- Backend Runtime Contract CI checks out recursive submodules because the existing dependency-contract suite reads reference metadata from a vendored submodule. This lane runs source compilation and CPU-only contracts, not GPU inference.
-
-- Hunyuan3D-Paint temporarily adds its vendored utility path only during model initialization and restores both `sys.path` and the shared `utils.__path__` in `finally`; the shared utils package no longer globally adds third-party paths.
-- Hunyuan3D-Paint retries no longer purge shared `sys.modules` entries. Missing local texture or DINO checkpoints are logged before selecting a remote repository fallback.
-- ARDY reads its vendored `pyproject.toml` dependency declarations and warns about installed-version mismatches before inference; the check is diagnostic only and does not modify the shared environment or block loading.
-- ARDY is manifest-declared CPU-only: the resource planner returns a CPU plan with no GPU IDs/VRAM reservations, and its dedicated worker hides CUDA before worker initialization. The adapter explicitly loads the motion model and local LLM2Vec text encoder on CPU.
-- ARDY forces TEXT_ENCODER_DEVICE=cpu and local float32 text encoding to prevent a text-encoder API/CUDA fallback. CPU inference is slower and requires sufficient host RAM and access to the gated text-encoder checkpoint.
-- `BaseModel.load()` preserves the original exception as the chained cause. A lightweight CPU backend CI lane compiles backend Python and runs dependency-contract tests; it does not replace GPU/checkpoint-backed smoke tests.
-
-- The Transformers HybridCache import fallback aliases the available real DynamicCache/Cache implementation and logs that HybridCache-specific behavior is not reproduced; it no longer creates an empty compatibility subclass.
-- TorchVision native/operator import errors are captured during helper import so diagnostics remain importable, and compatibility setup failures are reported at warning level with the traceback rather than silently skipped.
-- ModelFactory and model adapters retain the original exception chain during import/construction failures. Diagnostic logs identify the adapter/model without dumping the full configuration.
-- UniRig's default source and checkpoint roots are resolved from the adapter file, not the process working directory.
-- Hunyuan3D-Paint returns a background_removal mode/degraded marker and fallback reason when it uses a safe or identity fallback.
-
-- BaseModel.process preserves ERROR after a failed request; only a successful request returns the model state to LOADED.
-- UniRig import failures report the actual exception type/message and missing module when available. Blender bpy is described as the cause only when the original exception supports that diagnosis.
-- Paint3D initialization imports both child-stage entry-point graphs in a fresh subprocess using the production interpreter, working directory, PYTHONPATH, and GPU visibility before marking the runtime ready.
-- Paint3D validates finite per-vertex UV coordinates after the unwrap attempt. If automatic unwrap fails and UVs are invalid, the request stops at mesh preparation with the original cause rather than failing later in texturing.
-- Hunyuan3D-Paint reports BackgroundRemover import-time ImportError and native-library OSError with their chained cause; model-load failures retain traceback context.
-
-- The Python 3.10 / PyTorch 2.6 + CUDA 12.4 environment pins `transformers==4.48.3` to satisfy Mini Turbo's upstream minimum and PEFT's `HybridCache` import; `diffusers==0.30.3` remains unchanged.
-- Shape imports `hy3dshape.pipelines` and `hy3dshape.rembg` from the vendored package root. Mini resolves its vendored `hy3dgen` root before importing and validates both source files and the checkpoint subfolder.
-- Model adapters log chained initialization exceptions; the multiprocess worker stores the full traceback in backend logs and returns a concise initialization summary to the client.
+This static audit does not replace supported-host inference tests. Preserve model-specific profiles and upstream defaults until the affected integration is fixed and verified.
 
 ### Pipeline Planner v0 and Runtime Probe contracts (Task 1E)
 - `backend/core/runtime_probe.py`: Returns a uniform runtime capability payload (`probe_runtime()`) including live VRAM (`torch.cuda.mem_get_info`), peak allocated memory, host RAM (`psutil`), installed adapter classes (`_ADAPTER_MAP`), enabled models from `models.yaml`, and license opt-in state.
@@ -251,7 +213,7 @@ flowchart TB
         direction TB
         SHAPE["Shape Generation<br/>TRELLIS · Hunyuan3D-2.1<br/>TripoSG"]:::purple
         PAINT["Optional Texture Stage<br/>Paint3D 1K/2K · Hunyuan Paint 4K/8K"]:::purple
-        STRUCT["Structure & Motion<br/>FastMesh (V1K/V4K)<br/>UniRig · ARDY"]:::purple
+        STRUCT["Structure & Motion<br/>FastMesh (V1K only; V4K unverified)<br/>UniRig · ARDY"]:::purple
         RETARGET["Motion Retargeting<br/>Joint mapping · rotation and root-motion playback"]:::purple
     end
 
@@ -329,7 +291,7 @@ Located at `backend/api/`:
 
 ### Admin master.log streaming contract
 
-The Admin Logs tab treats `logs/master.log` as the canonical source and streams the complete file plus appended writes through SSE. Data is transported as UTF-8 chunks with file-identity and byte-offset event IDs, so blank lines, whitespace, CR/CRLF control characters, partial lines, and Unicode are not line-parsed or filtered. The proxy forwards `Last-Event-ID` for gap-free reconnects; pause/resume continues from the last consumed offset. Truncation or rotation emits a reset event. UI batches only DOM updates, not log retention.
+The Admin Logs tab treats `logs/master.log` as the canonical source and starts a fresh SSE connection from the configured recent-line tail (or EOF when the requested tail is zero), then streams appended writes. Data is transported as UTF-8 chunks with file-identity and byte-offset event IDs, so blank lines, CR/CRLF, partial lines, and Unicode are preserved. The proxy forwards `Last-Event-ID` for reconnects; truncation or rotation emits a reset event. Browser history is bounded; this is not an unbounded full-file replay.
 
 ### 2.3 Model Execution Layer
 
@@ -340,7 +302,7 @@ The Admin Logs tab treats `logs/master.log` as the canonical source and streams 
 | **GPU Monitor** | `backend/core/scheduler/gpu_monitor.py` | Real-time VRAM and temperature polling |
 | **Job Queue** | `backend/core/scheduler/job_queue.py` | Job request models and types |
 | **Redis Job Queue** | `backend/core/scheduler/redis_job_queue.py` | Redis-backed distributed job queue with dual Redis/SQLite atomic deletion synchronization |
-| **Model Adapters** | `backend/adapters/` | All 17 adapters fully wired to real ThirdParty inference APIs (TRELLIS, TRELLIS.2, Hunyuan3D-Shape-v2-1, Hunyuan3D-Paint-v2-1, Hunyuan3D-DiT-v2-mini-Turbo, Hunyuan3D-Paint legacy, Hi3D, TripoSG, Unique3D, Pixal3D, TaoFlowForge, PartUV, UniRig, FastMesh, ARDY, Paint3D, TRELLIS.2 Paint). Normal image-to-3D geometry models output untextured raw geometry only, routed into canonical storage (`backend/storage/models/meshes/`). TripoSG uses its upstream Y-up extraction orientation without an extra rotation. Each adapter resolves weights via the shared `backend/loader.get_model_weights_dir`, falls back to `DEFAULT_SEED = 42891` (`quality.yaml seeds.base_seed`) when no seed is supplied, and owns its locked inference schedule (`_LOCKED_INFERENCE_PROFILE`) — the scheduler strips request-side inference overrides before dispatch. |
+| **Model Adapters** | `backend/adapters/` | 17 adapter modules and registry entries cover TRELLIS, TRELLIS.2, Hunyuan3D, Hi3D, TripoSG, Unique3D, Pixal3D, TaoFlowForge, PartUV, UniRig, FastMesh, ARDY, and Paint3D. This is a registration inventory, not a validated list of working pipelines. Static audit findings and unverified integrations are listed in the Current Model-Native Source Fidelity Contract above and `Docs/MEMORY.md`. |
 | **Raw Geometry Fidelity Contracts** | `backend/adapters/*_adapter.py` | Model-native inference profiles (steps, guidance, octree/depth resolution, chunks, samplers) are adapter-owned and locked inside each adapter implementation. The scheduler strips request-side inference overrides (`_ADAPTER_OWNED_INFERENCE_INPUTS`) and production-only controls (`_POSTPROCESS_ONLY_INPUTS`) before invoking adapters; seed and image identity remain caller-controlled. |
 | **Texture Synthesis Pipeline** | `backend/adapters/hunyuan3d_paint_v21.py` & `backend/adapters/paint3d_adapter.py` | Centralized texture adapters (Paint3D for 1K/2K, Hunyuan3D-Paint for 4K/8K) operating downstream on post-processed raw mesh geometry. RealESRGAN x4+ super-resolution and DifferentiableRenderer for PBR validation. |
 
