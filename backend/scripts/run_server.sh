@@ -187,129 +187,65 @@ exec >> "$LOG_DIR/master.log" 2>&1
 SCHEDULER_PID_FILE="$PID_DIR/scheduler.pid"
 API_PID_FILE="$PID_DIR/api.pid"
 
-# Locate Python 3.10 binary
-PYTHON_BIN=""
-
-# 1. Direct explicit override via .env or environment
-if [ -n "${PYTHON_EXEC:-}" ] && [ -x "$PYTHON_EXEC" ]; then
-    PYTHON_BIN="$PYTHON_EXEC"
-fi
-
+# Resolve Python strictly from the environment manager selected during setup.
 ENV_PREF="${FORMASH3D_ENV_MANAGER:-${AI_STUDIO_ENV_MANAGER:-${ENV_MANAGER:-conda}}}"
+ENV_PREF="${ENV_PREF,,}"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/python_env.sh"
 
-# 2. Conda lookup (checked first when manager preference is conda or unset)
-if [ -z "$PYTHON_BIN" ] && [ "$ENV_PREF" != "venv" ]; then
-    CONDA_ROOT=""
-    for cand in \
-        "$(command -v conda >/dev/null 2>&1 && conda info --base 2>/dev/null || true)" \
-        "${CONDA_HOME:-}" \
-        "${CONDA_PREFIX:-}" \
-        "$HOME/miniconda3" \
-        "/opt/conda" \
-        "$HOME/anaconda3" \
-        "/root/miniconda3" \
-        "/content/miniconda3" \
-        "$HOME/miniconda" \
-        "/usr/local/miniconda3" \
-        "/usr/local/anaconda3"; do
-        if [ -n "$cand" ] && [ -d "$cand" ]; then
-            if [ -f "$cand/etc/profile.d/conda.sh" ] || [ -x "$cand/bin/conda" ]; then
-                CONDA_ROOT="$cand"
-                break
-            fi
-        fi
-    done
-
-    if [ -n "$CONDA_ROOT" ]; then
-        [ -f "$CONDA_ROOT/etc/profile.d/conda.sh" ] && source "$CONDA_ROOT/etc/profile.d/conda.sh" 2>/dev/null || true
-        export PATH="$CONDA_ROOT/bin:$PATH"
-    fi
-
-    # Check known candidate paths for conda env 3daigc-api
-    for py_candidate in \
-        "${CONDA_PREFIX:-}/bin/python" \
-        "${CONDA_ROOT:-}/envs/3daigc-api/bin/python"; do
-        if [ -n "$py_candidate" ] && [ -x "$py_candidate" ]; then
-            PYTHON_BIN="$py_candidate"
-            break
-        fi
-    done
-
-    # If still not located directly, query conda env list
-    if [ -z "$PYTHON_BIN" ] && command -v conda >/dev/null 2>&1; then
-        eval "$(conda shell.bash hook 2>/dev/null || true)"
-        env_dir="$(conda info --envs 2>/dev/null | awk '$1 == "3daigc-api" {print $NF}')"
-        if [ -n "$env_dir" ] && [ -x "$env_dir/bin/python" ]; then
-            PYTHON_BIN="$env_dir/bin/python"
-        fi
-    fi
-fi
-
-# 3. Virtualenv lookup (checked if conda was not found, or if venv was preferred)
-if [ -z "$PYTHON_BIN" ]; then
-    for venv_py in \
-        "$PROJECT_ROOT/3daigc-api/bin/python" \
-        "$PROJECT_ROOT/.venv/bin/python" \
-        "$PROJECT_ROOT/backend/.venv/bin/python" \
-        "${VIRTUAL_ENV:-}/bin/python"; do
-        if [ -n "$venv_py" ] && [ -x "$venv_py" ]; then
-            PYTHON_BIN="$venv_py"
-            break
-        fi
-    done
-fi
-
-# 4. Fallback check: system Python 3.10 with installed backend packages
-if [ -z "$PYTHON_BIN" ]; then
-    for sys_py in $(command -v python3.10 2>/dev/null || true) $(command -v python3 2>/dev/null || true); do
-        if [ -x "$sys_py" ]; then
-            if "$sys_py" -c "import sys; assert sys.version_info[:2] == (3, 10); import fastapi, yaml" >/dev/null 2>&1; then
-                PYTHON_BIN="$sys_py"
-                break
-            fi
-        fi
-    done
-fi
-
-# If no environment was found, do NOT create a blind .venv that fills disk space
-if [ -z "$PYTHON_BIN" ]; then
-    echo "❌ Python 3.10 environment '3daigc-api' not found."
-    echo "   Neither Conda environment '3daigc-api' nor virtualenv in '$PROJECT_ROOT/3daigc-api' / '$PROJECT_ROOT/.venv' exists."
-    echo "💡 Please run the setup script first to configure the environment:"
-    echo "   ./manager.sh (option 1: Run Full Setup)"
-    echo "   # or: bash scripts/setup.sh"
-    echo "   # or: cd backend && bash scripts/install.sh"
+if ! formesh_resolve_python "$ENV_PREF"; then
+    echo "❌ Backend Python environment could not be resolved."
+    echo "   Selected environment manager: $ENV_PREF"
+    echo "   Check PYTHON_EXEC and the selected environment path/name in $PROJECT_ROOT/.env"
     exit 1
 fi
 
-# Activate environment paths for current process and spawned child workers
-ENV_DIR="$(dirname "$(dirname "$PYTHON_BIN")")"
-export PATH="$ENV_DIR/bin:$PATH"
-if [ -d "$ENV_DIR/conda-meta" ]; then
-    export CONDA_PREFIX="$ENV_DIR"
-    if command -v conda >/dev/null 2>&1; then
-        eval "$(conda shell.bash hook 2>/dev/null || true)"
-        conda activate 3daigc-api 2>/dev/null || true
-    fi
-else
-    export VIRTUAL_ENV="$ENV_DIR"
+PYTHON_BIN="$FORMESH_PYTHON_BIN"
+ENV_DIR="$("$PYTHON_BIN" -c 'import os, sys; print(os.path.realpath(sys.prefix))' 2>/dev/null)"
+if [[ -z "$ENV_DIR" || ! -x "$PYTHON_BIN" ]]; then
+    echo "❌ Selected Python interpreter is not executable: $PYTHON_BIN"
+    exit 1
 fi
 
-echo "🐍 Using Python runtime: $PYTHON_BIN"
+# Ensure scheduler/API child processes inherit the same selected environment.
+export PATH="$ENV_DIR/bin:$PATH"
+if [[ "$ENV_PREF" == "venv" ]]; then
+    export VIRTUAL_ENV="$ENV_DIR"
+    unset CONDA_PREFIX CONDA_DEFAULT_ENV
+else
+    export CONDA_PREFIX="$ENV_DIR"
+    if formesh_find_conda; then
+        CONDA_ROOT="$(conda info --base 2>/dev/null || true)"
+        if [[ -n "$CONDA_ROOT" && -f "$CONDA_ROOT/etc/profile.d/conda.sh" ]]; then
+            # shellcheck disable=SC1091
+            source "$CONDA_ROOT/etc/profile.d/conda.sh"
+            if ! conda activate "$ENV_DIR"; then
+                echo "❌ Could not activate selected Conda prefix: $ENV_DIR"
+                exit 1
+            fi
+            export PATH="$ENV_DIR/bin:$PATH"
+            export CONDA_PREFIX="$ENV_DIR"
+        fi
+    fi
+fi
 
-# Verify Python version strictly conforms to Python 3.10
+echo "🐍 Using selected $ENV_PREF runtime: $PYTHON_BIN"
 PY_VER="$("$PYTHON_BIN" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "unknown")"
 if [ "$PY_VER" != "3.10" ]; then
     echo "⚠️  Warning: Python version is $PY_VER (expected 3.10). 3D AI dependencies require Python 3.10."
 fi
 
-# Verify core dependencies are present
-if ! "$PYTHON_BIN" -c "import fastapi, uvicorn, yaml, pydantic_settings" >/dev/null 2>&1; then
-    echo "❌ Core backend dependencies (fastapi, uvicorn, pyyaml, pydantic-settings) missing in $PYTHON_BIN."
-    echo "💡 Please run installation: cd backend && bash scripts/install.sh"
+# Show the real import exception instead of hiding it behind a generic
+# "core dependencies missing" message.
+if IMPORT_OUTPUT="$("$PYTHON_BIN" -c "import fastapi, uvicorn, yaml, pydantic_settings" 2>&1)"; then
+    :
+else
+    echo "❌ Core backend import validation failed for: $PYTHON_BIN"
+    echo "   Selected environment manager: $ENV_PREF"
+    echo "   Python prefix: $ENV_DIR"
+    printf '%s\n' "$IMPORT_OUTPUT"
     exit 1
 fi
-
 
 
 # Function to cleanup processes on exit

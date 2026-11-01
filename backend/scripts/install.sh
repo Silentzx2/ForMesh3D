@@ -178,27 +178,66 @@ ensure_blender() {
     fi
 }
 
-# Persist environment config to .env
+# Persist the selected manager and exact environment so runtime startup
+# never guesses between a Conda base, another env, or a default venv path.
 persist_env_config() {
     local env_file="$PROJECT_ROOT/.env"
+    local pair key value
+    local pairs=(
+        "FORMASH3D_ENV_MANAGER=$ENV_MANAGER"
+        "AI_STUDIO_ENV_MANAGER=$ENV_MANAGER"
+        "PYTHON_EXEC=$ACTIVE_PYTHON"
+        "UV_PYTHON=$ACTIVE_PYTHON"
+    )
+    if [[ "$ENV_MANAGER" == "venv" ]]; then
+        pairs+=("FORMASH3D_VENV_PATH=$ENV_DIR" "FORMASH3D_CONDA_ENV_PATH=")
+    else
+        pairs+=("FORMASH3D_VENV_PATH=" "FORMASH3D_CONDA_ENV_NAME=$ENV_NAME" "FORMASH3D_CONDA_ENV_PATH=$CONDA_ENV_PATH")
+    fi
+
     if [[ ! -f "$env_file" && -f "$PROJECT_ROOT/.env.example" ]]; then
         cp "$PROJECT_ROOT/.env.example" "$env_file"
     fi
-    if [[ -f "$env_file" ]]; then
-        for pair in "FORMASH3D_ENV_MANAGER=${ENV_MANAGER}" \
-                    "AI_STUDIO_ENV_MANAGER=${ENV_MANAGER}" \
-                    "PYTHON_EXEC=${ACTIVE_PYTHON}" \
-                    "UV_PYTHON=${ACTIVE_PYTHON}"; do
-            local k="${pair%%=*}"
-            local v="${pair#*=}"
-            if grep -q "^${k}=" "$env_file"; then
-                sed -i "s|^${k}=.*|${k}=${v}|" "$env_file"
-            else
-                echo "${k}=${v}" >> "$env_file"
-            fi
-        done
-        echo "[INFO] Persisted environment config to $env_file"
-    fi
+    [[ -f "$env_file" ]] || return 0
+
+    for pair in "${pairs[@]}"; do
+        key="${pair%%=*}"
+        value="${pair#*=}"
+        ENV_CONFIG_KEY="$key" ENV_CONFIG_VALUE="$value" python - "$env_file" <<'PY'
+import os
+import shlex
+import sys
+import tempfile
+
+path = sys.argv[1]
+key = os.environ["ENV_CONFIG_KEY"]
+value = os.environ["ENV_CONFIG_VALUE"]
+replacement = f"{key}={shlex.quote(value)}"
+with open(path, "r", encoding="utf-8") as stream:
+    lines = stream.readlines()
+output = []
+written = False
+for line in lines:
+    if line.startswith(f"{key}="):
+        if not written:
+            output.append(replacement + "\n")
+            written = True
+    else:
+        output.append(line)
+if not written:
+    output.append(replacement + "\n")
+directory = os.path.dirname(path) or "."
+fd, temporary = tempfile.mkstemp(prefix=".env.", dir=directory, text=True)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        stream.writelines(output)
+    os.replace(temporary, path)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+PY
+    done
+    echo "[INFO] Persisted selected Python environment to $env_file"
 }
 
 # ── Header ───────────────────────────────────────────────────────────────────
@@ -232,12 +271,14 @@ choose_env_manager() {
     export FORMASH3D_ENV_MANAGER="${ENV_MANAGER}"
     export AI_STUDIO_ENV_MANAGER="${ENV_MANAGER}"
     echo "[INFO] Using environment manager: ${ENV_MANAGER}"
-    echo "[INFO] Target environment: 3daigc-api (Python 3.10)"
+    echo "[INFO] Target environment: ${FORMASH3D_CONDA_ENV_NAME:-3daigc-api} (Python 3.10)"
 }
 choose_env_manager
 
 # ── Activate Python environment (conda or venv) ──────────────────────────────
-ENV_NAME="3daigc-api"
+ENV_NAME="${FORMASH3D_CONDA_ENV_NAME:-${CONDA_ENV_NAME:-3daigc-api}}"
+CONDA_ENV_PATH="${FORMASH3D_CONDA_ENV_PATH:-${CONDA_ENV_PATH:-}}"
+ENV_DIR=""
 
 if [[ "${ENV_MANAGER}" == "conda" ]]; then
     if ! command -v conda >/dev/null 2>&1; then
@@ -249,6 +290,7 @@ if [[ "${ENV_MANAGER}" == "conda" ]]; then
             fi
         done
     fi
+
     if ! command -v conda >/dev/null 2>&1; then
         echo "[INFO] Conda not found. Installing Miniconda..."
         CONDA_HOME="${CONDA_HOME:-$HOME/miniconda3}"
@@ -272,40 +314,92 @@ if [[ "${ENV_MANAGER}" == "conda" ]]; then
         conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main 2>/dev/null || true
         conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r 2>/dev/null || true
         eval "$(conda shell.bash hook 2>/dev/null || true)"
-        if [[ "${CONDA_DEFAULT_ENV:-}" == "$ENV_NAME" ]]; then
-            echo "[INFO] Conda env '$ENV_NAME' already active."
+
+        if [[ -n "$CONDA_ENV_PATH" ]]; then
+            CONDA_ENV_PATH="${CONDA_ENV_PATH/#\~/$HOME}"
+            [[ "$CONDA_ENV_PATH" == /* ]] || CONDA_ENV_PATH="$PROJECT_ROOT/$CONDA_ENV_PATH"
+            if [[ ! -d "$CONDA_ENV_PATH/conda-meta" ]]; then
+                echo "[INFO] Creating selected Conda prefix '$CONDA_ENV_PATH' (Python 3.10)..."
+                conda create -p "$CONDA_ENV_PATH" python=3.10 -y || {
+                    echo "[ERROR] Could not create selected Conda prefix: $CONDA_ENV_PATH"
+                    exit 1
+                }
+            fi
+            conda activate "$CONDA_ENV_PATH" 2>/dev/null || source activate "$CONDA_ENV_PATH" 2>/dev/null || {
+                echo "[ERROR] Could not activate selected Conda prefix: $CONDA_ENV_PATH"
+                exit 1
+            }
+            ENV_DIR="$CONDA_ENV_PATH"
+        elif [[ "$ENV_NAME" == "base" ]]; then
+            conda activate base 2>/dev/null || source activate base 2>/dev/null || {
+                echo "[ERROR] Could not activate selected Conda environment 'base'."
+                exit 1
+            }
+        elif [[ "${CONDA_DEFAULT_ENV:-}" == "$ENV_NAME" ]]; then
+            echo "[INFO] Conda environment '$ENV_NAME' already active."
         elif conda info --envs 2>/dev/null | awk '{print $1}' | grep -qx "$ENV_NAME"; then
-            echo "[INFO] Activating existing conda env '$ENV_NAME'..."
-            conda activate "$ENV_NAME" 2>/dev/null || source activate "$ENV_NAME" 2>/dev/null || true
+            echo "[INFO] Activating selected Conda environment '$ENV_NAME'..."
+            conda activate "$ENV_NAME" 2>/dev/null || source activate "$ENV_NAME" 2>/dev/null || {
+                echo "[ERROR] Could not activate selected Conda environment '$ENV_NAME'."
+                exit 1
+            }
         else
-            echo "[INFO] Creating conda env '$ENV_NAME' (Python 3.10)..."
-            if conda create -n "$ENV_NAME" python=3.10 -y 2>/dev/null; then
-                conda activate "$ENV_NAME" 2>/dev/null || source activate "$ENV_NAME" 2>/dev/null || true
-            else
-                echo "[WARN] Conda env creation failed; falling back to venv..."
-                ENV_MANAGER="venv"
-            fi
+            echo "[INFO] Creating selected Conda environment '$ENV_NAME' (Python 3.10)..."
+            conda create -n "$ENV_NAME" python=3.10 -y || {
+                echo "[ERROR] Could not create selected Conda environment '$ENV_NAME'."
+                exit 1
+            }
+            conda activate "$ENV_NAME" 2>/dev/null || source activate "$ENV_NAME" 2>/dev/null || {
+                echo "[ERROR] Could not activate selected Conda environment '$ENV_NAME'."
+                exit 1
+            }
         fi
-        if [[ "${ENV_MANAGER}" == "conda" ]]; then
-            CONDA_PY_VER="$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "")"
-            if [[ "$CONDA_PY_VER" != "3.10" && "${CONDA_DEFAULT_ENV:-}" != "$ENV_NAME" ]]; then
-                echo "[WARN] Conda env '$ENV_NAME' not active (Python $CONDA_PY_VER); falling back to venv..."
-                ENV_MANAGER="venv"
-            fi
+
+        ACTIVE_CONDA_PREFIX="$(python -c 'import os, sys; print(os.path.realpath(sys.prefix))' 2>/dev/null || echo "")"
+        CONDA_PY_VER="$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "")"
+        if [[ "$CONDA_PY_VER" != "3.10" || ! -d "$ACTIVE_CONDA_PREFIX/conda-meta" ]]; then
+            echo "[ERROR] Selected Conda environment is not a valid Python 3.10 Conda prefix."
+            echo "        Environment: ${CONDA_ENV_PATH:-$ENV_NAME}"
+            echo "        Python version: ${CONDA_PY_VER:-unknown}"
+            exit 1
         fi
+        if [[ -n "$CONDA_ENV_PATH" ]]; then
+            EXPECTED_CONDA_PREFIX="$(cd "$CONDA_ENV_PATH" && pwd -P)"
+            if [[ "$ACTIVE_CONDA_PREFIX" != "$EXPECTED_CONDA_PREFIX" ]]; then
+                echo "[ERROR] Conda activated '$ACTIVE_CONDA_PREFIX' instead of '$EXPECTED_CONDA_PREFIX'."
+                exit 1
+            fi
+        elif [[ "$ENV_NAME" != "base" && "${CONDA_DEFAULT_ENV:-}" != "$ENV_NAME" ]]; then
+            echo "[ERROR] Conda activated '${CONDA_DEFAULT_ENV:-unknown}' instead of '$ENV_NAME'."
+            exit 1
+        fi
+        ENV_DIR="$ACTIVE_CONDA_PREFIX"
     else
-        echo "[WARN] Conda not available. Falling back to venv..."
+        echo "[WARN] Conda is unavailable. Falling back to venv..."
         ENV_MANAGER="venv"
     fi
 fi
 
 if [[ "${ENV_MANAGER}" == "venv" ]]; then
-    ENV_DIR="$PROJECT_ROOT/3daigc-api"
-    if [[ ! -d "$ENV_DIR" && -d "$PROJECT_ROOT/.venv" && -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
-        ENV_DIR="$PROJECT_ROOT/.venv"
+    if [[ -n "${FORMASH3D_VENV_PATH:-}" ]]; then
+        ENV_DIR="${FORMASH3D_VENV_PATH/#\~/$HOME}"
+        [[ "$ENV_DIR" == /* ]] || ENV_DIR="$PROJECT_ROOT/$ENV_DIR"
+    elif [[ -n "${VIRTUAL_ENV:-}" && -f "$VIRTUAL_ENV/pyvenv.cfg" ]]; then
+        ENV_DIR="$VIRTUAL_ENV"
+    else
+        ENV_DIR="$PROJECT_ROOT/3daigc-api"
+        if [[ ! -f "$ENV_DIR/pyvenv.cfg" && -f "$PROJECT_ROOT/.venv/pyvenv.cfg" ]]; then
+            ENV_DIR="$PROJECT_ROOT/.venv"
+        fi
     fi
-    if [[ ! -d "$ENV_DIR" ]]; then
+
+    if [[ ! -f "$ENV_DIR/pyvenv.cfg" ]]; then
+        if [[ -e "$ENV_DIR" ]]; then
+            echo "[ERROR] Selected venv path exists but is not a virtual environment: $ENV_DIR"
+            exit 1
+        fi
         echo "[INFO] Creating Python 3.10 venv at $ENV_DIR..."
+        mkdir -p "$(dirname "$ENV_DIR")"
         if command -v python3.10 >/dev/null 2>&1; then
             python3.10 -m venv "$ENV_DIR" || exit 1
         elif command -v uv >/dev/null 2>&1; then
@@ -315,7 +409,18 @@ if [[ "${ENV_MANAGER}" == "venv" ]]; then
         fi
     fi
     source "$ENV_DIR/bin/activate" || exit 1
+    ACTIVE_VENV_PREFIX="$(python -c 'import os, sys; print(os.path.realpath(sys.prefix))' 2>/dev/null || echo "")"
+    EXPECTED_VENV_PREFIX="$(cd "$ENV_DIR" && pwd -P)"
+    if [[ "$ACTIVE_VENV_PREFIX" != "$EXPECTED_VENV_PREFIX" ]]; then
+        echo "[ERROR] Activated venv '$ACTIVE_VENV_PREFIX' does not match selected path '$EXPECTED_VENV_PREFIX'."
+        exit 1
+    fi
+    ENV_DIR="$ACTIVE_VENV_PREFIX"
 fi
+
+# Keep manager aliases in sync if Conda was unavailable and the installer fell back.
+export FORMASH3D_ENV_MANAGER="$ENV_MANAGER"
+export AI_STUDIO_ENV_MANAGER="$ENV_MANAGER"
 
 echo "[INFO] Environment manager: $ENV_MANAGER"
 echo "[INFO] Active Python: $(python -c 'import sys; print(sys.executable)')"
