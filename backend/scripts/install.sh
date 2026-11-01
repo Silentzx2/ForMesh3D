@@ -395,45 +395,50 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     echo ""
     echo "[INFO] Installing model dependencies from GitHub/wheel sources..."
 
-    # flash-attn
+    # flash-attn — prebuilt wheel only, no source build
     echo "[INFO] Installing flash-attn..."
-    install_local_wheel "flash_attn-*.whl" "flash-attn" \
-        || $UV_PIP install flash-attn==2.7.3 --no-build-isolation
+    install_local_wheel "flash_attn-*.whl" "flash-attn" || { echo "[ERROR] flash-attn wheel not found in $WHEEL_DIR"; exit 1; }
 
-    # nvdiffrast
+    # diso — prebuilt wheel only, no source build
+    echo "[INFO] Installing diso..."
+    install_local_wheel "diso-*.whl" "diso" || { echo "[ERROR] diso wheel not found in $WHEEL_DIR"; exit 1; }
+
+    # nvdiffrast — prebuilt wheel only, no source build
     echo "[INFO] Installing nvdiffrast..."
-    install_local_wheel "nvdiffrast-*.whl" "nvdiffrast" \
-        || { rm -rf /tmp/extensions/nvdiffrast; _retry 3 5 git clone -b v0.4.0 https://github.com/NVlabs/nvdiffrast.git /tmp/extensions/nvdiffrast; $UV_PIP install /tmp/extensions/nvdiffrast --no-build-isolation; }
+    install_local_wheel "nvdiffrast-*.whl" "nvdiffrast" || { echo "[ERROR] nvdiffrast wheel not found in $WHEEL_DIR"; exit 1; }
 
-    # nvdiffrec_render
+    # nvdiffrec_render — prebuilt wheel only, no source build
     echo "[INFO] Installing nvdiffrec..."
-    install_local_wheel "nvdiffrec_render-*.whl" "nvdiffrec" \
-        || { rm -rf /tmp/extensions/nvdiffrec; _retry 3 5 git clone -b renderutils https://github.com/JeffreyXiang/nvdiffrec.git /tmp/extensions/nvdiffrec; $UV_PIP install /tmp/extensions/nvdiffrec --no-build-isolation; }
+    install_local_wheel "nvdiffrec_render-*.whl" "nvdiffrec" || { echo "[ERROR] nvdiffrec wheel not found in $WHEEL_DIR"; exit 1; }
 
-    # CuMesh
+    # CuMesh — prebuilt wheel only, no source build
     echo "[INFO] Installing CuMesh..."
-    install_local_wheel "cumesh-*.whl" "CuMesh" \
-        || { rm -rf /tmp/extensions/CuMesh; _retry 3 5 git clone https://github.com/JeffreyXiang/CuMesh.git /tmp/extensions/CuMesh --recursive; $UV_PIP install /tmp/extensions/CuMesh --no-build-isolation; }
+    install_local_wheel "cumesh-*.whl" "CuMesh" || { echo "[ERROR] CuMesh wheel not found in $WHEEL_DIR"; exit 1; }
 
-    # o-voxel (local copy)
+    # o-voxel — prebuilt wheel only, no source build
     echo "[INFO] Installing o-voxel..."
-    install_local_wheel "o_voxel-*.whl" "o-voxel" \
-        || { rm -rf /tmp/extensions/o-voxel; cp -r "$THIRDPARTY_DIR/TRELLIS.2/o-voxel" /tmp/extensions/o-voxel; $UV_PIP install /tmp/extensions/o-voxel --no-build-isolation; }
+    install_local_wheel "o_voxel-*.whl" "o-voxel" || { echo "[ERROR] o-voxel wheel not found in $WHEEL_DIR"; exit 1; }
 
-    # kaolin (NVIDIA S3 wheel)
+    # kaolin (NVIDIA S3 wheel — no wheel-house copy)
     echo "[INFO] Installing kaolin..."
     $UV_PIP install --find-links="$WHEEL_DIR" kaolin -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.6.0_cu124.html \
         || { echo "[ERROR] kaolin install failed"; exit 1; }
 
-    # diff_gaussian_rasterization (via mip-splatting)
+    # diff_gaussian_rasterization — prebuilt wheel only, no source build
     echo "[INFO] Installing diff-gaussian-rasterization..."
-    install_local_wheel "diff_gaussian_rasterization-*.whl" "diff-gaussian-rasterization" \
-        || { rm -rf /tmp/extensions/mip-splatting; _retry 3 5 git clone https://github.com/autonomousvision/mip-splatting.git /tmp/extensions/mip-splatting; $UV_PIP install /tmp/extensions/mip-splatting/submodules/diff-gaussian-rasterization/ --no-build-isolation; }
+    install_local_wheel "diff_gaussian_rasterization-*.whl" "diff-gaussian-rasterization" || { echo "[ERROR] diff-gaussian-rasterization wheel not found in $WHEEL_DIR"; exit 1; }
 
-    # pytorch3d
+    # pytorch3d — prebuilt wheel only, no source build
     echo "[INFO] Installing pytorch3d..."
-    install_local_wheel "pytorch3d-*.whl" "pytorch3d" \
-        || _retry 3 5 $UV_PIP install --no-build-isolation git+https://github.com/facebookresearch/pytorch3d.git@stable
+    install_local_wheel "pytorch3d-*.whl" "pytorch3d" || { echo "[ERROR] pytorch3d wheel not found in $WHEEL_DIR"; exit 1; }
+
+    # torch_scatter — prebuilt wheel only, no source build
+    echo "[INFO] Installing torch_scatter..."
+    install_local_wheel "torch_scatter-*.whl" "torch_scatter" || { echo "[ERROR] torch_scatter wheel not found in $WHEEL_DIR"; exit 1; }
+
+    # spconv-cu124 — prebuilt wheel only, no source build
+    echo "[INFO] Installing spconv-cu124..."
+    install_local_wheel "spconv-cu124-*.whl" "spconv-cu124" || { echo "[ERROR] spconv-cu124 wheel not found in $WHEEL_DIR"; exit 1; }
 
     echo "[SUCCESS] Model dependencies installed."
 else
