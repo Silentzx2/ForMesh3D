@@ -438,7 +438,7 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
 
     # spconv-cu124 — prebuilt wheel only, no source build
     echo "[INFO] Installing spconv-cu124..."
-    install_local_wheel "spconv-cu124-*.whl" "spconv-cu124" || { echo "[ERROR] spconv-cu124 wheel not found in $WHEEL_DIR"; exit 1; }
+    install_local_wheel "spconv_cu124-*.whl" "spconv-cu124" || { echo "[ERROR] spconv-cu124 wheel not found in $WHEEL_DIR"; exit 1; }
 
     echo "[SUCCESS] Model dependencies installed."
 else
