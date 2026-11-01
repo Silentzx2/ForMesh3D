@@ -2912,6 +2912,24 @@ class MultiprocessModelScheduler:
                 model_config,
                 active_workers=self.resource_planner.cpu_worker_limit(len(self.workers)),
             )
+        # CPU offload: if the planner flagged this heavy model for CPU offload
+        # (insufficient single-GPU VRAM), force the worker onto CPU regardless
+        # of GPU placement. The worker process hides CUDA when kind == "cpu".
+        job_plan = (job_request.inputs or {}).get("plan", {}) or {}
+        if job_plan.get("cpu_offload"):
+            resource_plan = ResourcePlan(
+                kind="cpu",
+                gpu_ids=(),
+                primary_gpu=None,
+                reservation_mb={},
+                max_memory_mb={"cpu_mb": int(model_config.get("vram_requirement", 0))},
+                cpu_threads=int((job_request.inputs or {}).get("cpu_threads", os.cpu_count() or 8)),
+                strategy="cpu_offload",
+                reason=job_plan.get(
+                    "offload_reason",
+                    f"CPU offload: insufficient single-GPU VRAM for {target_model_id}",
+                ),
+            )
         if resource_plan is None:
             logger.info("No supported resource placement for model %s; job will wait", target_model_id)
             return "NO_VRAM"

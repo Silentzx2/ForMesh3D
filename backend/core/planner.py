@@ -513,6 +513,36 @@ def plan_generation(
         selected_idx = idx
         break
 
+    # CPU offload for heavy models when single-GPU VRAM is insufficient.
+    # Heavy models (TRELLIS.2, Pixal3D, Hunyuan3D-Shape, FastMesh, TRELLIS)
+    # with declared low_vram support fall back to CPU worker when free VRAM
+    # cannot fit the model's reservation. Light models (Mini-Turbo, TripoSG,
+    # PartUV, ARDY) keep their normal GPU path.
+    if selected_candidate is not None and has_cuda:
+        cand_id = selected_candidate["adapter"]
+        model_meta = dict(models_catalog.get(cand_id, {}))
+        vram_mb = model_meta.get("vram_requirement", 0)
+        caps = dict(model_meta.get("capabilities") or {})
+        low_vram_supported = bool(
+            caps.get("low_vram_supported", False)
+            or caps.get("cpu_offload", False)
+            or "low_vram_requirement" in model_meta
+        )
+        vram_budget_gb = round(float(vram_mb) / 1024.0, 2) if vram_mb else 0.0
+        max_free_gb = runtime.get("max_freeable_vram_gb") or runtime.get("max_free_vram_gb") or free_vram_gb
+        if (
+            vram_mb
+            and low_vram_supported
+            and max_free_gb is not None
+            and max_free_gb < vram_budget_gb
+        ):
+            selected_candidate["cpu_offload"] = True
+            selected_candidate["offload_reason"] = (
+                f"Single-GPU free VRAM {max_free_gb:.1f} GB < model requirement "
+                f"{vram_budget_gb:.1f} GB; using CPU offload"
+            )
+            reasons.append(selected_candidate["offload_reason"])
+
     # 5. If all candidates failed (e.g. no CUDA), recompute whole plan using fallback of last resort
     if selected_candidate is None:
         if not auto_mode and explicit_model:
