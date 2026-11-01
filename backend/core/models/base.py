@@ -26,13 +26,14 @@ class BaseModel(ABC):
 
     def __init__(
         self,
-        model_id: str,
-        model_path: str,
         vram_requirement: int,
+        model_id: str = None,
+        model_path: str = None,
         feature_type: str = "unknown",
+        **kwargs,
     ):
         self.model_id = model_id
-        self.model_path = Path(model_path)
+        self.model_path = Path(model_path) if model_path else None
         self.vram_requirement = vram_requirement  # MB
         self.feature_type = feature_type
         self.status = ModelStatus.UNLOADED
@@ -54,7 +55,14 @@ class BaseModel(ABC):
 
     @abstractmethod
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """Process a single request. Override in subclasses."""
+        """Process a single request.
+
+        Returns a dict with at least:
+            - "success": bool indicating whether processing succeeded
+            - "output_mesh_path" or "mesh_path": path to the produced mesh file
+            - "generation_info": dict of adapter-reported metadata (seed, steps, etc.)
+        Adapters may include additional keys as needed.
+        """
         pass
 
     def load(self, gpu_id: Optional[int], resource_plan: Optional[Dict[str, Any]] = None) -> bool:

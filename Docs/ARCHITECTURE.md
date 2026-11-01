@@ -6,7 +6,7 @@
 
 ---
 
-> Route and mount inventory: see `Docs/ROUTE-MOUNT-AUDIT.md` for current Next.js page aliases, workspace route validation and FastAPI router parity.
+
 
 ## 1. Architectural Mission & Overview
 
@@ -14,16 +14,16 @@ ForMesh 3D is an end-to-end generative 3D asset pipeline. The system is architec
 
 - **Presentation Layer**: Next.js 16 frontend with interactive Three.js 3D viewport, studio workspace tooling, persistent asset thumbnailing/previews, real-time hardware telemetry HUD, viewport background job capsule, and model management.
 - **API Gateway**: FastAPI backend (Python 3.10, Conda env `3daigc-api`) with VRAM-aware multiprocess scheduler, request validation, rate limiting, dual-store job synchronization (Redis + SQLite), and authorized artifact delivery.
-- **Model Adapters**: Python adapters for each AI model (TRELLIS, TRELLIS.2, Hunyuan3D-Shape-v2-1, Hunyuan3D-Paint-v2-1, Hunyuan3D-DiT-v2-mini-Turbo, Paint3D, PartUV, UniRig, TripoSG, ARDY, FastMesh, Unique3D, Pixal3D, TaoFlowForge). Normal image-to-3D requests produce raw geometry; the scheduler runs an optional centralized texture stage after the raw master checkpoint is secured. Paint3D is used for 1K/2K, and Hunyuan3D-Paint for 4K/8K with its internal RealESRGAN step enabled automatically.
+- **Model Adapters & ThirdParty Integration**: Thin Python adapters for each AI model (all 17 adapters wired to official ThirdParty APIs). Adapters obtain their weights directory from the shared `backend/loader.py` (`<MODEL_STORAGE_ROOT>/<model_key>`), invoke official pipelines in `backend/thirdparty/`, and execute conditional runtime patches from `patcher/<model_key>/` without altering upstream source. Normal image-to-3D requests produce raw geometry; the scheduler runs an optional centralized texture stage after the raw master checkpoint is secured. Paint3D is used for 1K/2K, and Hunyuan3D-Paint for 4K/8K with its internal RealESRGAN step enabled automatically.
 - **Scheduler & CPU Concurrency**: VRAM-aware scheduler with GPU monitoring, model-input sanitization, dual-store job synchronization (Redis + SQLite), and multi-core CPU concurrency allocating all available cores (`nproc=8`, `OMP_NUM_THREADS=8`) across scheduler workers, marching cubes, and postprocessing.
 
 ## Repository Owner Map & Safe Change Paths
 
-Use this map to find the owner of a behavior before editing it. The generation UI contract is detailed in [GENERATION-UI-CONTRACT.md](./GENERATION-UI-CONTRACT.md); the current control-to-consumer inventory is in [GENERATION-CONTROL-AUDIT.md](./GENERATION-CONTROL-AUDIT.md).
+Use this map to find the owner of a behavior before editing it.
 
 | Concern | Source owner | Change here when… | Authoritative inputs |
 |---|---|---|---|
-| Workspace navigation and page mounts | `app/`, `features/workspace/`, `Docs/ROUTE-MOUNT-AUDIT.md` | A page, workspace tool, or route alias is added/removed | Next.js route files and workspace route allow-list |
+|| Workspace navigation and page mounts | `app/`, `features/workspace/` | A page, workspace tool, or route alias is added/removed | Next.js route files and workspace route allow-list |
 | Generation UI state and serialization | `features/workspace/Panels/GeneratePanel.tsx`, `features/workspace/utils/buildGenerationParameters.ts` | A visible generation control or request field changes | UI state is serialized by the builder; no inference schedule belongs here |
 | HTTP validation and job construction | `backend/api/routers/mesh_generation.py` | Request shape, intent resolution, file intake, or job metadata changes | Pydantic request model, `backend/config/smart_presets.yaml`, `backend/config/planner_rules.yaml` |
 | Model choice and worker lifecycle | `backend/core/planner.py`, `backend/core/scheduler/` | Auto-selection, resource feasibility, model loading, fallback, or queue behavior changes | `backend/config/planner_rules.yaml`, `backend/config/models.yaml`, runtime probe |
@@ -340,8 +340,8 @@ The Admin Logs tab treats `logs/master.log` as the canonical source and streams 
 | **GPU Monitor** | `backend/core/scheduler/gpu_monitor.py` | Real-time VRAM and temperature polling |
 | **Job Queue** | `backend/core/scheduler/job_queue.py` | Job request models and types |
 | **Redis Job Queue** | `backend/core/scheduler/redis_job_queue.py` | Redis-backed distributed job queue with dual Redis/SQLite atomic deletion synchronization |
-| **Model Adapters** | `backend/adapters/` | Python inference adapters (TRELLIS, TRELLIS.2, Hunyuan3D-Shape-v2-1, Hunyuan3D-Paint-v2-1, Hunyuan3D-DiT-v2-mini-Turbo, PartUV, UniRig, TripoSG, ARDY, FastMesh, **Unique3D**, **Paint3D**, Pixal3D, TaoFlowForge). Normal image-to-3D geometry models output untextured raw geometry only, routed through `OutputPathGenerator` into canonical storage (`backend/storage/models/meshes/`). TripoSG uses its upstream Y-up extraction orientation without an extra rotation. |
-| **Raw Geometry Fidelity Contracts** | `backend/adapters/hunyuan3d_decoder_profile.py` | Enforces native dense extraction for Hunyuan3D models: `VanillaVolumeDecoder` + `MCSurfaceExtractor` with `mc_algo="mc"`. Fails fast if VAE doesn't switch from FlashVDM. Mini Turbo locks `octree_resolution=768`. TripoSG locks `dense_octree_depth=10` and `hierarchical_octree_depth=11`; its depth resolver does not downgrade from supplied VRAM estimates. |
+| **Model Adapters** | `backend/adapters/` | All 17 adapters fully wired to real ThirdParty inference APIs (TRELLIS, TRELLIS.2, Hunyuan3D-Shape-v2-1, Hunyuan3D-Paint-v2-1, Hunyuan3D-DiT-v2-mini-Turbo, Hunyuan3D-Paint legacy, Hi3D, TripoSG, Unique3D, Pixal3D, TaoFlowForge, PartUV, UniRig, FastMesh, ARDY, Paint3D, TRELLIS.2 Paint). Normal image-to-3D geometry models output untextured raw geometry only, routed into canonical storage (`backend/storage/models/meshes/`). TripoSG uses its upstream Y-up extraction orientation without an extra rotation. Each adapter resolves weights via the shared `backend/loader.get_model_weights_dir`, falls back to `DEFAULT_SEED = 42891` (`quality.yaml seeds.base_seed`) when no seed is supplied, and owns its locked inference schedule (`_LOCKED_INFERENCE_PROFILE`) — the scheduler strips request-side inference overrides before dispatch. |
+| **Raw Geometry Fidelity Contracts** | `backend/adapters/*_adapter.py` | Model-native inference profiles (steps, guidance, octree/depth resolution, chunks, samplers) are adapter-owned and locked inside each adapter implementation. The scheduler strips request-side inference overrides (`_ADAPTER_OWNED_INFERENCE_INPUTS`) and production-only controls (`_POSTPROCESS_ONLY_INPUTS`) before invoking adapters; seed and image identity remain caller-controlled. |
 | **Texture Synthesis Pipeline** | `backend/adapters/hunyuan3d_paint_v21.py` & `backend/adapters/paint3d_adapter.py` | Centralized texture adapters (Paint3D for 1K/2K, Hunyuan3D-Paint for 4K/8K) operating downstream on post-processed raw mesh geometry. RealESRGAN x4+ super-resolution and DifferentiableRenderer for PBR validation. |
 
 ### 2.4 Storage Layer
@@ -594,7 +594,7 @@ The active catalog is sourced from `backend/config/models.yaml`. Text-conditione
 | Pixal3D | `pixal3d_image_to_raw_mesh`; `pixal3d_image_to_3d` | Image → Raw Mesh (O-Voxel) | ~18 GB |
 | TaoFlowForge | `taoflowforge_image_to_raw_mesh` | Image → Raw Mesh (progressive native mesh) | ~20 GB; registered but disabled by default |
 
-**Readiness caveat:** this table describes manifest registration and declared resource budgets, not verified runtime readiness or mesh quality. A registered/enabled model can still fail checkpoint or pipeline initialization, and a completed inference can still produce invalid geometry. Current reported limitations and the model-by-model verification boundary are tracked in [MODEL-STATUS.md](MODEL-STATUS.md).
+**Readiness caveat:** this table describes manifest registration and declared resource budgets, not verified runtime readiness or mesh quality. A registered/enabled model can still fail checkpoint or pipeline initialization, and a completed inference can still produce invalid geometry.
 
 ## 8.1 Raw Generation Fidelity / Official Parity Contract
 

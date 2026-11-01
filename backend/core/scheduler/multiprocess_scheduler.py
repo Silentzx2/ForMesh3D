@@ -48,7 +48,6 @@ import logging
 import multiprocessing as mp
 import os
 import queue
-import random
 import shutil
 import threading
 import tempfile
@@ -175,6 +174,8 @@ _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS = frozenset({
     "hi3d_image_to_raw_mesh",
     "hi3d_image_to_textured_mesh",
     "hi3d",
+    "paint3d",
+    "paint3d_image_mesh_painting",
 })
 _ADAPTER_OWNED_INFERENCE_INPUTS = frozenset({
     "source_quality", "requested_quality", "quality", "meshQuality", "mesh_quality",
@@ -902,8 +903,8 @@ def _process_job_in_worker(
         from core.config import get_quality_config
         from core.planner import get_planner_apply_config, resolve_seed_plan
         seeds_cfg = dict(get_quality_config()["seeds"])
-        if model_inputs.get("seed") is None and request_inputs.get("seed") is None:
-            seeds_cfg["base_seed"] = random.randint(10000, 999999)
+        # base_seed from quality.yaml (42891) is the default when no seed is
+        # supplied; resolve_seed_plan handles the fallback. Do not clobber it.
         seed_plan = resolve_seed_plan(
             request_inputs,
             model_inputs,

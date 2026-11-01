@@ -19,7 +19,17 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(cd "$BACKEND_DIR/.." && pwd)"
-PRETRAINED_DIR="$SCRIPT_DIR/../pretrained"
+# Shared model-weights root: honors MODEL_STORAGE_ROOT (default backend/pretrained),
+# resolved against the stable project root—not the incidental CWD—so the download
+# manager and backend/loader.py agree on the weights directory for every model.
+if [ -n "${MODEL_STORAGE_ROOT:-}" ]; then
+    case "$MODEL_STORAGE_ROOT" in
+        /*)  PRETRAINED_DIR="$MODEL_STORAGE_ROOT" ;;
+        *)   PRETRAINED_DIR="$PROJECT_ROOT/$MODEL_STORAGE_ROOT" ;;
+    esac
+else
+    PRETRAINED_DIR="$PROJECT_ROOT/backend/pretrained"
+fi
 
 # Add 3daigc-api virtual environment to PATH if present
 if [[ -d "$PROJECT_ROOT/3daigc-api/bin" ]]; then

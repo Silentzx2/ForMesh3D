@@ -6,7 +6,7 @@ ForMesh3D is an active beta phase project combining a Next.js 16 frontend, FastA
 
 ## Before changing code
 
-1. Read [RULES.md](RULES.md) first.
+1. Read [AGENTS.md](AGENTS.md) first.
 2. Read the relevant document in [Docs/](Docs/) before changing architecture, APIs, UI conventions, or runtime behavior.
 3. Trace the existing flow and identify the root cause before adding a workaround.
 4. Prefer existing helpers, services, dependencies, and contracts.

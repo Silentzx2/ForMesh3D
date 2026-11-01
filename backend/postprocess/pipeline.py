@@ -384,19 +384,12 @@ def _execute_texture_stage(
                 logger.debug("ModelFactory Paint3D lookup: %s", e)
 
             if adapter is None:
-                for mod_name, cls_name in [
-                    ("adapters.paint3d_adapter", "Paint3DImageMeshPaintingAdapter"),
-                    ("adapters.paint3d_adapter", "Paint3DAdapter"),
-                ]:
-                    try:
-                        import importlib
-                        mod = importlib.import_module(mod_name)
-                        cls = getattr(mod, cls_name, None)
-                        if cls:
-                            adapter = cls(vram_requirement=12000)
-                            break
-                    except Exception as e:
-                        logger.debug("Paint3D direct import %s.%s: %s", mod_name, cls_name, e)
+                import importlib
+
+                mod = importlib.import_module("adapters.paint3d_adapter")
+                cls = getattr(mod, "Paint3DAdapter", None)
+                if cls:
+                    adapter = cls(vram_requirement=12000)
 
             if adapter is None:
                 raise RuntimeError("Paint3D texture adapter is not yet registered or installed.")
@@ -1929,7 +1922,9 @@ def run_postprocess_job(
 
     # Enforce raw mesh size cap — NO model may exceed 500K vertices / 1M faces
     # in the immutable master. Decimate post-extraction if the adapter produced
-    # an oversized mesh (e.g. TripoSG ~3.4M vertices).
+    # an oversized mesh (e.g. TripoSG ~3.4M vertices). This is the single write
+    # to master/source.glb after adapter output; the hash below becomes the
+    # canonical master hash for immutability checks.
     _raw_mesh = load_mesh(str(raw_path), Path(raw_path).name)
     _enforced_mesh = _enforce_mesh_limits(_raw_mesh, job_inputs.get("model_preference", "unknown"))
     if len(_enforced_mesh.vertices) < len(_raw_mesh.vertices) or len(_enforced_mesh.faces) < len(

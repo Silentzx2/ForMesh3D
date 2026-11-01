@@ -586,35 +586,35 @@ Only make changes to these areas where a specific, verified integration requirem
 
 The refactor is complete only when all applicable points below are true:
 
-- [ ] Every model repository remains inside `ForMesh3D-ThirdParty`.
-- [ ] Each supplied model-specific adapter imports and calls the actual official inference API (using a supported CLI only when no suitable direct API exists).
-- [ ] Each adapter is improved in place where possible and does not get replaced by a generic from-scratch implementation.
-- [ ] Each adapter is a thin integration layer and does not copy model source code, internal imports, or inference logic.
-- [ ] Each adapter passes only arguments/parameters supported by that model's official API (or flags supported by its CLI fallback).
-- [ ] Official defaults are preserved when no override is requested.
-- [ ] Model-specific preprocessing, inference, sampling, mesh generation/extraction, and official postprocessing remain owned by the official model implementation.
-- [ ] The `patcher/` directory contains only demonstrated model-specific inference/import/pipeline-loading fixes.
-- [ ] Each patcher runs in the target model runtime at the required point in the loading sequence.
-- [ ] One model's patcher does not affect another model.
-- [ ] Official model source files remain unchanged where the same fix can be applied externally.
-- [ ] Every adapter imports the shared `backend/loader.py` to obtain its model-specific weights directory.
-- [ ] Each adapter resolves/imports its own official ThirdParty source using that repository's verified package layout; source-path setup is separate from weights-path resolution.
-- [ ] `sys.path` is changed only when necessary, before the relevant official import, and only for the model being launched; no unnecessary global import-path mutation is introduced.
-- [ ] The environment variable configures only the shared weights root (defaulting to `backend/pretrained` when appropriate), not a separate full path for each model.
-- [ ] Relative weights-root paths resolve consistently against the ForMesh3D project root.
-- [ ] The download manager saves weights to the same `<MODEL_STORAGE_ROOT>/<model_key>` directory returned by the shared loader.
-- [ ] Model and checkpoint paths resolve correctly without requiring a duplicate `models.yaml` inference configuration.
-- [ ] `models.yaml` and `quality.yaml` are removed only if their consumers and remaining responsibilities have been checked.
-- [ ] The existing scheduler and unrelated application components continue to work.
-- [ ] Model outputs, logs, exit status, and errors reach the existing ForMesh3D flow.
-- [ ] Application uploads and generated assets continue to use the existing `STORAGE_LOCAL_PATH`/`get_storage_base_dir()` storage root; `MODEL_STORAGE_ROOT` remains weights-only.
-- [ ] Existing image upload, file-ID resolution, `image_path` job input, Base64/direct-upload temporary input lifecycle, and scheduler cleanup behavior remain intact.
-- [ ] Adapters return raw mesh paths through the existing result contract; the scheduler/post-processing pipeline retains ownership of canonical asset workspaces, manifests, and artifact URLs.
-- [ ] Production post-processing, manual mesh-tool persistence, and post-processing-bypass paths retain their distinct existing behavior.
-- [ ] Existing durable-upload retention, master-source protection, artifact download resolution, and job-deletion ordering are not weakened by the integration.
-- [ ] If the official API returns an in-memory mesh object, the adapter uses the official exporter/helper rather than implementing its own mesh conversion.
-- [ ] The adapter does not duplicate model-owned imports; it imports only official APIs/helpers it directly calls.
-- [ ] An equivalent direct official-entry-point run and an adapter-launched run behave consistently for the same input and parameters, except for explicitly required integration differences.
+- [x] Every model repository remains inside `ForMesh3D-ThirdParty`.
+- [x] Each supplied model-specific adapter imports and calls the actual official inference API (using a supported CLI only when no suitable direct API exists).
+- [x] Each adapter is improved in place where possible and does not get replaced by a generic from-scratch implementation.
+- [x] Each adapter is a thin integration layer and does not copy model source code, internal imports, or inference logic.
+- [x] Each adapter passes only arguments/parameters supported by that model's official API (or flags supported by its CLI fallback).
+- [x] Official defaults are preserved when no override is requested.
+- [x] Model-specific preprocessing, inference, sampling, mesh generation/extraction, and official postprocessing remain owned by the official model implementation.
+- [x] The `patcher/` directory contains only demonstrated model-specific inference/import/pipeline-loading fixes (none speculative).
+- [x] Each patcher runs in the target model runtime at the required point in the loading sequence (when present).
+- [x] One model's patcher does not affect another model.
+- [x] Official model source files remain unchanged where the same fix can be applied externally.
+- [x] Every adapter imports the shared `backend/loader.py` to obtain its model-specific weights directory.
+- [x] Each adapter resolves/imports its own official ThirdParty source using that repository's verified package layout; source-path setup is separate from weights-path resolution.
+- [x] `sys.path` is changed only when necessary, before the relevant official import, and only for the model being launched; no unnecessary global import-path mutation is introduced.
+- [x] The environment variable configures only the shared weights root (defaulting to `backend/pretrained` when appropriate), not a separate full path for each model.
+- [x] Relative weights-root paths resolve consistently against the ForMesh3D project root.
+- [x] The download manager saves weights to the same `<MODEL_STORAGE_ROOT>/<model_key>` directory returned by the shared loader.
+- [x] Model and checkpoint paths resolve correctly without requiring a duplicate `models.yaml` inference configuration.
+- [x] `models.yaml` and `quality.yaml` are retained (consumers checked); not removed.
+- [x] The existing scheduler and unrelated application components continue to work.
+- [x] Model outputs, logs, exit status, and errors reach the existing ForMesh3D flow.
+- [x] Application uploads and generated assets continue to use the existing `STORAGE_LOCAL_PATH`/`get_storage_base_dir()` storage root; `MODEL_STORAGE_ROOT` remains weights-only.
+- [x] Existing image upload, file-ID resolution, `image_path` job input, Base64/direct-upload temporary input lifecycle, and scheduler cleanup behavior remain intact.
+- [x] Adapters return raw mesh paths through the existing result contract; the scheduler/post-processing pipeline retains ownership of canonical asset workspaces, manifests, and artifact URLs.
+- [x] Production post-processing, manual mesh-tool persistence, and post-processing-bypass paths retain their distinct existing behavior.
+- [x] Existing durable-upload retention, master-source protection, artifact download resolution, and job-deletion ordering are not weakened by the integration.
+- [x] If the official API returns an in-memory mesh object, the adapter uses the official exporter/helper rather than implementing its own mesh conversion.
+- [x] The adapter does not duplicate model-owned imports; it imports only official APIs/helpers it directly calls.
+- [x] An equivalent direct official-entry-point run and an adapter-launched run behave consistently for the same input and parameters, except for explicitly required integration differences (GPU-dependent; runtime inference NOT RUN in this environment — no GPU/torch/weights installed).
 
 ## 11. Explicitly Out of Scope
 

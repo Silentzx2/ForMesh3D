@@ -689,28 +689,6 @@ mesh_retopology:
     enabled: true
     max_workers: 1
     
-  # EXPERIMENTAL_MAX_DETAIL: V4K is a fixed ~4k-vertex retopology checkpoint; no supported inference-step/guidance controls exist.
-  fastmesh_v4k_retopology:
-    model_name: "FastMesh — Retopology"
-    upstream_repository: null
-    upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
-    checkpoint_license: "unverified"
-    capabilities:
-      native_topology: false
-      output_resolution: null
-      retopology: true
-      target_variant: "V4K"
-      multi_gpu: true
-      multi_gpu_strategy: accelerate_auto_device_map
-    vram_requirement: 24500  # MB; conservative admission budget, not an upstream-published minimum
-    init_params:
-      variant: "V4K"
-    supported_inputs: ["obj", "glb", "ply", "stl"]
-    supported_outputs: ["obj", "glb", "ply"]
-    model_path: "backend/pretrained/FastMesh-V4K"
-    enabled: true
-    max_workers: 1
-
 # UV unwrapping
 uv_unwrapping:
   # EXPERIMENTAL_MAX_DETAIL: retain official PartUV distortion threshold=1.25; larger thresholds explicitly permit more distortion. Adapter exposes no sampling-step/guidance controls.
@@ -726,7 +704,7 @@ uv_unwrapping:
     vram_requirement: 7168  # MB
     supported_inputs: ["obj", "glb"]
     supported_outputs: ["obj"]
-    model_path: "backend/pretrained/PartUV/model_objaverse.ckpt"
+    model_path: "backend/pretrained/PartUV"
     enabled: true
     max_workers: 1
 

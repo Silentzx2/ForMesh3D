@@ -52,7 +52,7 @@ Rules:
 - `Docs/SECURITY.md` — Security requirements
 - `Docs/CHANGELOG.md` — Version history (keep only last 3 changes)
 - `Docs/SYSTEM-BLUEPRINT.md` — Complete system blueprint
-- `Docs/GENERATION-UI-CONTRACT.md` — Generation UI ⇄ request ⇄ pipeline contract
+- `Docs/GENERATION-UI-CONTRACT.md` — Generation UI ⇄ request ⇄ pipeline contract (documented in PRD.md and SYSTEM-BLUEPRINT.md)
 - `Docs/api-documentation.md` — HTTP API reference
 - `README.md` — Project overview (always kept current)
 

@@ -251,6 +251,7 @@ class TextMeshPaintingRequest(BaseModel):
     mesh_file_id: Optional[str] = Field(
         None, description="File ID from upload endpoint"
     )
+    seed: Optional[int] = Field(None, ge=0, description="Random seed for reproducibility")
     texture_resolution: int = Field(
         1024, description="Texture resolution"
     )
@@ -355,6 +356,7 @@ class ImageToRawMeshRequest(BaseModel):
     image_file_id: Optional[str] = Field(
         None, description="File ID from upload endpoint"
     )
+    seed: Optional[int] = Field(None, ge=0, description="Random seed for reproducibility")
     texture_resolution: Optional[int] = Field(
         None, description="Optional texture-atlas preset or size; omitted values fall back to the intent preset"
     )
@@ -550,6 +552,7 @@ class ImageToTexturedMeshRequest(BaseModel):
     image_file_id: Optional[str] = Field(
         None, description="File ID from upload endpoint"
     )
+    seed: Optional[int] = Field(None, ge=0, description="Random seed for reproducibility")
     texture_image_path: Optional[str] = Field(
         None, description="Path to the texture image"
     )
@@ -736,6 +739,7 @@ class ImageMeshPaintingRequest(BaseModel):
     mesh_file_id: Optional[str] = Field(
         None, description="File ID from upload endpoint"
     )
+    seed: Optional[int] = Field(None, ge=0, description="Random seed for reproducibility")
     texture_resolution: int = Field(
         1024, description="Texture resolution"
     )

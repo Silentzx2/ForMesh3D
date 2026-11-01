@@ -35,7 +35,7 @@
   <a href="https://github.com/Silentzx2/ForMesh3D/stargazers"><img src="https://img.shields.io/github/stars/Silentzx2/ForMesh3D?style=for-the-badge" alt="GitHub stars"></a>
   <a href="https://github.com/Silentzx2/ForMesh3D/commits/main"><img src="https://img.shields.io/github/last-commit/Silentzx2/ForMesh3D?style=for-the-badge" alt="Last commit"></a>
   <a href="https://github.com/Silentzx2/ForMesh3D/issues"><img src="https://img.shields.io/github/issues/Silentzx2/ForMesh3D?style=for-the-badge" alt="Issues"></a>
-  <a href="docs/GITHUB_SETUP.md"><img src="https://img.shields.io/badge/CPU%20mode-supported-5319e7?style=for-the-badge" alt="CPU mode supported"></a>
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/CPU%20mode-supported-5319e7?style=for-the-badge" alt="CPU mode supported"></a>
 </p>
 
 ## Table of Contents
@@ -54,9 +54,9 @@
 |---|---|
 | UI/UX, docs, tests, API, post-process | Model adapters (TRELLIS, Hunyuan3D, TripoSG, Unique3D) |
 | CPU-only setup mode | Quality pipeline & generation quality gates |
-| [Good First Issues](docs/GOOD_FIRST_ISSUES.md) | [Backend Runtime Contract CI](.github/workflows/backend-runtime-ci.yml) |
+| [Tasks & Roadmap](Docs/TASKS.md) | [Backend Runtime Contract CI](.github/workflows/backend-runtime-ci.yml) |
 
-[View all good first issues →](docs/GOOD_FIRST_ISSUES.md)
+[View task list & roadmap →](Docs/TASKS.md)
 
 ---
 
@@ -88,7 +88,7 @@ ForMesh3D unifies neural 3D generation, asset finishing, validation, and export 
 
 > [!NOTE]
 > ### 🛡️ Repository Rules & Engineering Standards
-> All contributions and architectural modifications must comply strictly with **[RULES.md](RULES.md)**:
+> All contributions and architectural modifications must comply strictly with **[AGENTS.md](AGENTS.md)**:
 > - **Ponytail Minimalist Architecture**: YAGNI-first, reuse existing helpers and standard library, shortest correct diffs, zero speculative abstractions.
 > - **Documentation Integrity**: Any pipeline or backend modification must be reflected across all `Docs/*.md` guides immediately.
 > - **Source Integrity**: Downstream post-processing must operate on derived data and never mutate `master/source.glb`.
@@ -109,7 +109,7 @@ ForMesh3D unifies neural 3D generation, asset finishing, validation, and export 
 | Engine Export | GLB/FBX game-ready packages plus LOD and collision assets |
 
 > [!WARNING]
-> **Model readiness is not uniform.** A model being registered or enabled in `backend/config/models.yaml` does not guarantee that its checkpoint will load or that inference will produce a valid mesh on every deployment. Some model pipelines are reported to fail during initialization/loading, while others can complete with broken or unusable geometry. Model-specific GPU validation is incomplete; do not treat the catalog as a production-readiness guarantee. See [Docs/MODEL-STATUS.md](Docs/MODEL-STATUS.md) for current limitations and the validation checklist.
+> **Model readiness is not uniform.** A model being registered or enabled in `backend/config/models.yaml` does not guarantee that its checkpoint will load or that inference will produce a valid mesh on every deployment. Some model pipelines are reported to fail during initialization/loading, while others can complete with broken or unusable geometry. Model-specific GPU validation is incomplete; do not treat the catalog as a production-readiness guarantee.
 
 ## 🔄 End-to-End Asset Generation Pipeline
 
@@ -254,7 +254,7 @@ The model registry is dynamically configured via `backend/config/models.yaml` an
 | **Pixal3D** | `pixal3d_image_to_raw_mesh` / `pixal3d_image_to_3d` | Raw Mesh | ~18 GB (~10-12 GB in low-VRAM mode) | Pixel-aligned O-Voxel projection, native PBR, 1536 cascade |
 | **TaoFlowForge** | `taoflowforge_image_to_raw_mesh` | Raw Mesh | 20 GB (registered but **disabled**) | Progressive native-mesh generation, direct connectivity |
 | **Paint3D** | `paint3d` | PBR Texture | ~12 GB | Centralized texturing stage for 1K/2K atlas targets |
-| **FastMesh (1K & 4K)** | `fastmesh_v1k_retopology`<br>`fastmesh_v4k_retopology` | Mesh Retopology | 16–24.5 GB | Fixed-budget neural quad retopology producing clean animation loops |
+|| **FastMesh (1K & 4K)** | `fastmesh_v1k_retopology` | Mesh Retopology | 16–24.5 GB | Fixed-budget neural quad retopology producing clean animation loops |
 | **UniRig** | `unirig_auto_rig` | Auto-Rigging | 9 GB | Automated bipedal skeletal armature generation |
 | **ARDY** | `ardy_motion_generation` | Motion AI | CPU-only; no GPU VRAM reservation | Interactive autoregressive text-to-motion generation; CPU/RAM-bound |
 | **PartUV** | `partuv_uv_unwrapping` | UV Unwrapping | 7 GB | Automated seam placement and UV chart packing |
@@ -342,7 +342,7 @@ backend/storage/models/meshes/<asset_name>_<job_id>/
 - **Python**: Python 3.10 via Conda (`conda create -n 3daigc-api python=3.10`).
 
 
-The shared Python runtime is version-pinned for supported model adapters: Transformers 4.44.2, Diffusers 0.30.3, and PyTorch 2.6.0 with CUDA 12.4 (see `backend/requirements.txt`). Use `bash scripts/setup.sh` rather than installing model dependencies individually.
+The shared Python runtime is version-pinned for supported model adapters: Transformers 4.44.2, Diffusers 0.30.3, and PyTorch 2.6.0 with CUDA 12.4. Dependencies are split into `backend/requirements-core.txt` (CPU-safe, always installed) and `backend/requirements-models.txt` (GPU-only ML packages, installed only when an NVIDIA GPU is detected). Use `bash scripts/setup.sh` rather than installing model dependencies individually. Custom GitHub/wheel deps (nvdiffrast, nvdiffrec_render, CuMesh, o-voxel, diff_gaussian_rasterization, kaolin) are documented in `Docs/MISSING-DEPS.md`.
 
 ### 1. Clone & Frontend Setup
 
@@ -546,9 +546,8 @@ The stream preserves newline- and carriage-return-delimited progress output, par
 | 🏛️ **[System Architecture](Docs/ARCHITECTURE.md)** | Deep architectural layers, gateway design, and scheduler contracts |
 | 📋 **[Product Requirements (PRD)](Docs/PRD.md)** | Core features, target users, and product roadmaps |
 | 🎨 **[Design System](Docs/DESIGN.md)** | Studio Gold color tokens, UI component specifications, and layouts |
-| 🛡️ **[Agent & Engineering Rules](RULES.md)** | Authoritative coding standards, minimalist practices, and change policies |
+| 🛡️ **[Agent & Engineering Rules](AGENTS.md)** | Authoritative coding standards, minimalist practices, and change policies |
 | 📝 **[Project Decisions (ADRs)](Docs/DECISIONS.md)** | Architecture Decision Records (up to ADR-087) |
-| 🧪 **[Experimental Model Settings](Docs/EXPERIMENTAL-MODEL-SETTINGS.md)** | Dated upstream/community evidence, active max-detail profiles, compatibility limits and user-confirmation policy |
 | 🧠 **[Project Memory & Status](Docs/MEMORY.md)** | Active state, hardware prerequisites, and verified milestones |
 | 📜 **[Change Log](Docs/CHANGELOG.md)** | Chronological history of releases, fixes, and optimizations |
 | 📋 **[Task Tracker](Docs/TASKS.md)** | Future tasks and follow-ups; new tasks will be added here |
@@ -556,6 +555,7 @@ The stream preserves newline- and carriage-return-delimited progress output, par
 | 🔌 **[API Documentation](Docs/api-documentation.md)** | Complete endpoint schemas, request payloads, and status codes |
 | ⚖️ **[Third-Party Model Licenses](backend/thirdparty/LICENSE)** | Upstream terms and attributions for all integrated model weights |
 | 🔒 **[Security Policy](Docs/SECURITY.md)** | Vulnerability reporting and isolated environment safety guidelines |
+| 📦 **[Missing Dependencies](Docs/MISSING-DEPS.md)** | Custom GitHub/wheel deps not pip-installable directly |
 
 ---
 
@@ -589,7 +589,7 @@ These capabilities reuse the existing scheduler, image editor, post-processing, 
 
 ## Generation Experiments & Reusable Presets
 
-Inference schedules are adapter-owned and are not editable from the Generate UI. Production choices such as output intent, topology, repair, baking and LODs are separate from model inference. See [Docs/EXPERIMENTAL-MODEL-SETTINGS.md](Docs/EXPERIMENTAL-MODEL-SETTINGS.md) for the profile change-control policy and [Docs/GENERATION-UI-CONTRACT.md](Docs/GENERATION-UI-CONTRACT.md) for the current request boundary. The active UI contract is also summarized in [Docs/GENERATION-CONTROL-AUDIT.md](Docs/GENERATION-CONTROL-AUDIT.md).
+Inference schedules are adapter-owned and are not editable from the Generate UI. Production choices such as output intent, topology, repair, baking and LODs are separate from model inference.
 
 ## High-Fidelity Generation Architecture
 

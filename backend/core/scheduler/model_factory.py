@@ -172,6 +172,10 @@ class ModelFactory:
             "module": "adapters.pixal3d_adapter",
             "class": "Pixal3DImageToRawMeshAdapter",
         },
+        "pixal3d_image_to_3d": {
+            "module": "adapters.pixal3d_adapter",
+            "class": "Pixal3DImageToRawMeshAdapter",
+        },
         # TaoFlowForge adapter
         "taoflowforge_image_to_raw_mesh": {
             "module": "adapters.taoflowforge_adapter",
@@ -242,6 +246,9 @@ class ModelFactory:
         try:
             model_id = config["model_id"]
             feature_type = config.get("feature_type")
+
+            # Validate config structure early.
+            cls.validate_config(config)
 
             # Route legacy image_to_textured_mesh feature to raw geometry
             if feature_type == "image_to_textured_mesh":

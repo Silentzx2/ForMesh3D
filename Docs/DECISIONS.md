@@ -23,7 +23,7 @@
 
 **Decision:**
 1. In `MeshProcessor.save_mesh`, make `crease_angle_deg=None` default so raw geometric normals are preserved without forced angle-weighted normal clustering.
-2. In Hunyuan3D-2.1 adapters and `hunyuan3d_decoder_profile.py`, enable `FlashVDM` decoder and support dynamic `dmc` (Dual Marching Cubes) when `diso` is present, with graceful `mc` fallback.
+2. In Hunyuan3D-2.1 adapters (`backend/adapters/hunyuan3d_shape_v21.py`, `backend/adapters/hunyuan3d_dit_v2_mini_turbo.py`, `backend/adapters/hunyuan3d_adapter_v21.py`), the official `Hunyuan3DDiTFlowMatchingPipeline` is loaded via `from_pretrained` with the adapter-owned locked inference schedule (octree resolution, steps, guidance, chunks); the scheduler strips request-side inference overrides before dispatch.
 3. In Unique3D `simple_clean_mesh`, disable Laplacian smoothing and Loop subdivision for raw geometry generation.
 4. In Pixal3D adapter, set `remesh=False` in `to_glb`.
 5. In TRELLIS.2 adapter, enforce `max_num_tokens=524288` to prevent automatic cascade resolution degradation.
@@ -38,16 +38,19 @@
 
 **Decision:**
 1. A shared resolver `scripts/lib/compute_mode.sh` computes `FORMASH3D_COMPUTE` ∈ {auto|cpu|cuda} from `nvidia-smi` presence plus `FORCE_CPU`/`FORCE_CUDA`/`CUDA_FORCE_PRESENT`/`REQUIRE_GPU`/`FORMASH3D_COMPUTE` environment.
-2. CPU mode skips: CUDA toolkit setup, `ensure_release_wheels`, model stack installation (`install_model_stacks()`), and Blender runtime. PyTorch is installed from the CPU wheel index (`https://download.pytorch.org/whl/cpu`).
+2. CPU mode skips: CUDA toolkit setup, `ensure_release_wheels`, model dependency installation (`requirements-models.txt`), and Blender runtime. PyTorch is installed from the CPU wheel index (`https://download.pytorch.org/whl/cpu`).
 3. CPU mode keeps: frontend + backend API, post-processing tools, quality pipeline, ARDY (optional via `--cpu-extras --with-thirdparty`), tests.
 4. `--cpu` / `--gpu` flags force the mode; `--with-thirdparty` initializes third-party submodules even in CPU mode; `--update-thirdparty` enables `--remote --merge` (opt-in only).
 5. `REQUIRE_GPU=1` combined with CPU-mode resolution aborts setup with a non-zero exit.
 6. Backend `requirements.txt` splits into `requirements-core.txt` (CPU-safe) and `requirements-models.txt` (GPU-only ML packages); `requirements-core.txt` alone is installed in CPU mode.
+7. In CUDA mode, `install.sh` checks for an NVIDIA GPU before installing `requirements-models.txt`. If no GPU is found, the user is prompted to continue core-only or abort.
+8. Custom GitHub/wheel deps (nvdiffrast, nvdiffrec_render, CuMesh, o-voxel, diff_gaussian_rasterization, kaolin) are documented in `Docs/MISSING-DEPS.md` and are not pip-installable directly.
 
 **Consequences:**
 - Setup completes on headless/CPU-only hosts without CUDA wheels or model source.
 - CUDA/GPU inference still works on hosts with NVIDIA GPUs when run with `--gpu` or auto-detected CUDA.
 - Model adapters are importable at runtime only when their heavy ML dependencies were installed; a GPU-mode adapter used in CPU mode degrades gracefully at inference time rather than breaking setup.
+- Custom GitHub/wheel deps are documented in `Docs/MISSING-DEPS.md` and must be installed manually or via `install.sh` when GPU mode is active.
 - Verification: `scripts/tests/script_test.sh` resolver tests + static grep test run in Backend Runtime Contract CI; `bash -n` passes on all edited scripts.
 
 
@@ -59,6 +62,4 @@
 1. Treat catalog registration, checkpoint availability, pipeline initialization, successful inference, and mesh-quality validation as separate lifecycle states.
 2. Do not describe every enabled model as production-ready unless a supported-host load/inference smoke test and output-quality review are recorded for that model.
 3. Preserve initialization tracebacks in backend logs and expose actionable job/API error states; do not translate load failures into successful/empty mesh results.
-4. Track model-specific evidence and unresolved reports in `Docs/MODEL-STATUS.md`.
-
 **Consequences:** The available-model catalog remains a capability/manifest listing. Production readiness requires model-specific runtime and geometry evidence; CPU-only CI is not sufficient.
