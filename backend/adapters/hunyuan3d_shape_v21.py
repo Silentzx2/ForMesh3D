@@ -55,15 +55,16 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
         # Make the vendored hunyuan3d-2 source importable in the worker process,
         # which only has backend/ on sys.path. Model-specific source path setup
         # per TASKS.md §3.3 — not a global patch, not in loader.py.
-        # The thirdparty package is nested: Hunyuan3D-2.1/hy3dshape/hy3dshape/.
-        # Add both levels so that `from hy3dshape.hy3dshape.pipelines import ...`
-        # (adapter import) and `import hy3dshape.models` (thirdparty internal
-        # get_obj_from_str) both resolve correctly.
+        # Hunyuan3D-2.1 has a nested layout: Hunyuan3D-2.1/hy3dshape/hy3dshape/.
+        # The outer hy3dshape/ has no __init__.py (namespace package), so adding
+        # only Hunyuan3D-2.1/ to sys.path lets Python resolve
+        # `from hy3dshape.hy3dshape.pipelines import ...` through namespace
+        # package resolution. Do NOT also add hy3dshape/ itself — that would make
+        # `import hy3dshape` resolve to the inner package (which HAS __init__.py),
+        # breaking `hy3dshape.hy3dshape` resolution.
         _hunyuan2_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Hunyuan3D-2.1")
-        _hunyuan2_pkg_root = str(Path(_hunyuan2_root) / "hy3dshape")
-        for _p in (_hunyuan2_root, _hunyuan2_pkg_root):
-            if _p not in sys.path:
-                sys.path.insert(0, _p)
+        if _hunyuan2_root not in sys.path:
+            sys.path.insert(0, _hunyuan2_root)
         from hy3dshape.hy3dshape.pipelines import (
             Hunyuan3DDiTFlowMatchingPipeline,
         )
