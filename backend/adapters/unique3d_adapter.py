@@ -104,7 +104,19 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
 
         from PIL import Image
 
-        image = Image.open(image_path).convert("RGB")
+        try:
+            image = Image.open(image_path).convert("RGB")
+        except Exception as img_err:
+            return {
+                "success": False,
+                "error": f"Failed to open image {image_path}: {img_err}",
+            }
+
+        if image is None:
+            return {
+                "success": False,
+                "error": f"Image.open returned None for {image_path}",
+            }
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:

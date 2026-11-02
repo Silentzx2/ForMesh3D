@@ -2279,8 +2279,8 @@ class MultiprocessModelScheduler:
                 final_result = result.get("result") or {}
                 # All adapters write output meshes to tempfile.mkdtemp() (/tmp),
                 # but the download endpoint requires paths under storage_root
-                # (relative_to(storage_root) check). Copy any temp output mesh
-                # into storage_root/models/meshes/ so it can be served.
+                # (relative_to(storage_root) check per docs/TASKS.md §4.5).
+                # Copy into the canonical asset workspace so downloads work.
                 _out_mesh_path = (
                     final_result.get("output_mesh_path")
                     or final_result.get("mesh_path")
@@ -2291,7 +2291,7 @@ class MultiprocessModelScheduler:
                     _src = Path(_out_mesh_path)
                     if _src.is_file():
                         _storage_root = get_storage_base_dir()
-                        _mesh_dir = _storage_root / "models" / "meshes"
+                        _mesh_dir = _storage_root / "models" / "meshes" / f"{job_id}"
                         _mesh_dir.mkdir(parents=True, exist_ok=True)
                         _dst = _mesh_dir / _src.name
                         if not _dst.exists():
