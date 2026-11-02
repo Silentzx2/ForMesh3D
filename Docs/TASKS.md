@@ -5,7 +5,11 @@
 **Target branch:** `dev`  
 **Third-party repository:** `Silentzx2/ForMesh3D-ThirdParty`
 
-> **Implementation audit — 2026-11-01:** The structural work (17 adapter modules, registry entries, shared weights resolver, downloader root, and per-model patcher convention) is present, but this task is **not acceptance-complete**. Static review found integration defects in model identity propagation, Pixal3D, Paint3D, UniRig, FastMesh V4K, TRELLIS text painting, and model-source import setup. **Model-source import setup is now resolved**: TRELLIS, TripoSG, and Unique3D adapters add the correct ThirdParty source root to `sys.path` in `_load_model`; TRELLIS downloads full weights from HuggingFace Hub (`microsoft/TRELLIS.2-4B`) when local weights are absent and moves the pipeline to CUDA; Unique3D uses `device_map="balanced"` and `chdir`s to the weights dir for `./ckpt/` paths; TripoSG handles `diso` CUDA mesh-extraction failure on pre-Ampere GPUs. The checked-in workflow also referenced deleted tests; this update replaces those references with a focused loader contract test. No model checkpoint load, GPU inference, or generated-mesh quality validation was run. The unchecked acceptance items below are intentionally left open until fixed and verified.
+> **Implementation audit — 2026-11-03:** The 17 adapter modules, registry entries, shared weights resolver, downloader root, and model-specific patcher convention remain in place; this task is **not acceptance-complete**. The 2026-11-01 audit's source/API defects in Hunyuan3D-Shape and Unique3D have now received targeted adapter fixes:
+> - **Hunyuan3D-Shape v2.1:** add the parent of the vendored `hy3dshape` package to `sys.path`; consume the actual flat `List[Trimesh]` result while ignoring failed (`None`) extractions; pass the supplied seed through the pipeline's supported `generator` argument.
+> - **Unique3D:** call the vendored `app.gradio_3dgen.generate3dv2` Python entry point, which performs the actual multiview prediction → geometric reconstruction → GLB export flow. Initialize the model zoo and predictor modules while the model weights directory is the working directory because the vendored code uses relative `./ckpt/` paths.
+>
+> The two edited adapters pass `py_compile`. Checkpoint loading, GPU inference, and mesh-quality validation were **NOT RUN**; the unchecked acceptance items below remain open until supported-host runtime verification is completed. The unrelated Pixal3D, Paint3D, UniRig, FastMesh V4K, TRELLIS text-painting, and model-identity findings remain open.
 
 
 ---

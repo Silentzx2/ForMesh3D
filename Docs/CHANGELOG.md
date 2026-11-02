@@ -1,5 +1,14 @@
 # ForMesh3D Changelog
 
+## 2026-11-03 — Hunyuan3D-Shape and Unique3D adapter corrections
+
+- Hunyuan3D-Shape: use the parent of the vendored `hy3dshape` package as the import root; consume the actual flat `List[Trimesh]` pipeline output, skip `None` extraction failures, and forward the supplied seed through `generator=`.
+- Unique3D: call the vendored `app.gradio_3dgen.generate3dv2` callable instead of treating its Stable Diffusion ControlNet refinement sub-pipeline as a mesh generator. This follows the upstream multiview prediction, geometric reconstruction, and GLB export path.
+- Unique3D model-zoo and predictor initialization now occurs while the model weights directory is the working directory; inference temporarily restores that CWD contract for upstream `./ckpt/` and `/tmp/gradio` paths.
+- Python syntax compilation for the two changed adapters: PASS. Model checkpoint initialization, GPU inference, and mesh-quality validation: NOT RUN.
+
+---
+
 ## 2026-11-02 — Adapter import, weight-download, and inference fixes
 
 - TRELLIS adapter: downloads full `microsoft/TRELLIS.2-4B` weights from HuggingFace Hub when local `pipeline.json` is absent; moves pipeline to CUDA (`pipeline.to(device, dtype)`); fixed mesh export — `MeshExtractResult` has no `.export()`, now converts torch tensors to `trimesh.Trimesh` before export.
@@ -37,13 +46,3 @@
 - Aligned CPU/CUDA PyTorch index handling and installer guards. The previous changelog records 8/8 compute-mode resolver checks; this documentation pass did not rerun them.
 
 ---
-
-## 2026-11-01 — Adapter/Loader Integration Work Landed; Runtime Audit Still Open
-
-- Added or updated 17 adapter modules, registry aliases, the shared weights resolver, and downloader support for `MODEL_STORAGE_ROOT`.
-- Static inspection confirms model IDs are registered, but registration is not proof that each adapter imports and calls its upstream inference API correctly.
-- The follow-up source audit found unresolved integration blockers in Pixal3D, Paint3D, UniRig, FastMesh V4K, the TRELLIS text-painting registry entry, and model identity propagation.
-- `backend/loader.py` resolves `<MODEL_STORAGE_ROOT>/<model_key>` relative to the repository root when configured relatively, rejects absolute/traversal keys, and raises when the directory is missing.
-- The downloader reads the same shared storage-root environment variable; path parity was source-inspected, not exercised with real model downloads.
-- The original integration commit reported a successful Python compile and 26 fixes; those checks were not re-run in this documentation pass. GPU/checkpoint loading, geometry quality, peak VRAM, and supported-host smoke tests remain NOT RUN.
-- The October 30 readiness disclosure remains applicable: model-specific load/inference/quality validation is required before calling any adapter production-ready.

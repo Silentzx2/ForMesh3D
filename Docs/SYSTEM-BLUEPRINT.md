@@ -2,7 +2,7 @@
 
 > **Document role:** Architecture notes and dated design history. Historical entries explain intended or previously implemented behavior; they are not a guarantee that the current branch still implements it.
 >
-> **Current status (2026-11-01):** Use [MEMORY.md](MEMORY.md) for the latest source audit and [ARCHITECTURE.md](ARCHITECTURE.md) for current responsibility boundaries. Adapter registration does not establish runtime readiness. Pixal3D, Paint3D, UniRig, FastMesh V4K, and TRELLIS text painting have unresolved source/API gaps; GPU inference and output-quality validation are NOT RUN.
+> **Current status (2026-11-03):** Use [MEMORY.md](MEMORY.md) for the latest source audit and [ARCHITECTURE.md](ARCHITECTURE.md) for current responsibility boundaries. Adapter registration does not establish runtime readiness. Hunyuan3D-Shape and Unique3D received targeted source/API corrections and syntax checks; checkpoint loading, GPU inference, and output-quality validation remain NOT RUN. Pixal3D, Paint3D, UniRig, FastMesh V4K, and TRELLIS text painting retain unresolved source/API gaps.
 >
 > When a historical entry conflicts with the current code or the audit, the current checked-in implementation and the latest audit take precedence.
 
@@ -40,7 +40,7 @@ ForMesh 3D is an end-to-end generative 3D reconstruction and asset optimization 
 ### Core Stack
 - **Frontend**: Next.js 16 (React 19, TypeScript, Three.js, React Three Fiber, Tailwind CSS)
 - **API Gateway**: FastAPI (Python 3.10, Conda env `3daigc-api`, Pydantic V2, AsyncIO)
-- **Model Adapters**: 17 adapter modules and registry entries connect the application to TRELLIS, TRELLIS.2, Hunyuan3D, Paint3D, PartUV, UniRig, FastMesh, TripoSG, Unique3D, ARDY, Pixal3D, TaoFlowForge, and Hi3D. Source inspection on 2026-11-01 found unresolved import/API contracts in Pixal3D, Paint3D, UniRig, FastMesh V4K, and TRELLIS text painting; registration must not be treated as proof of a working adapter. See `Docs/MEMORY.md`.
+- **Model Adapters**: 17 adapter modules and registry entries connect the application to TRELLIS, TRELLIS.2, Hunyuan3D, Paint3D, PartUV, UniRig, FastMesh, TripoSG, Unique3D, ARDY, Pixal3D, TaoFlowForge, and Hi3D. The 2026-11-03 static audit corrected Hunyuan3D-Shape import/result handling and routed Unique3D through its real multiview-to-mesh entry point; neither has GPU/runtime validation yet. Pixal3D, Paint3D, UniRig, FastMesh V4K, and TRELLIS text painting remain unresolved. See `Docs/MEMORY.md`.
 - **Scheduler**: VRAM-aware multiprocess scheduler with GPU monitoring
 - **Queue/Broker**: Redis 7 (optional, multi-worker mode only)
 - **File Storage**: Local filesystem + Redis FileStore (multi-worker mode)

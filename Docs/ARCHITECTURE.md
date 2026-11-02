@@ -1,10 +1,10 @@
 # Architecture — ForMesh 3D
 
-> **Evidence note (2026-11-01):** This document contains dated design and historical implementation notes. Treat them as current behavior only when they match the checked-in source and the latest audit section below. Older per-model profiles, test-suite descriptions, and multi-GPU claims are not runtime verification. The current adapter audit is summarized in [MEMORY.md](MEMORY.md).
+> **Evidence note (2026-11-03):** This document contains dated design and historical implementation notes. Treat them as current behavior only when they match the checked-in source and the latest audit section below. Older per-model profiles, test-suite descriptions, and multi-GPU claims are not runtime verification. The current adapter audit is summarized in [MEMORY.md](MEMORY.md).
 
 
 > **Architecture Version**: 0.1.0 (FastAPI + Next.js 16)
-> **Last Reviewed**: November 1, 2026 (static source and documentation audit)
+> **Last Reviewed**: November 3, 2026 (targeted Hunyuan3D-Shape and Unique3D source/API audit)
 > **Target Environments**: Linux (Ubuntu 20.04/22.04/24.04), Cloud GPU / Local Workstations
 
 ---
@@ -17,7 +17,7 @@ ForMesh 3D is an end-to-end generative 3D asset pipeline. The system is architec
 
 - **Presentation Layer**: Next.js 16 frontend with interactive Three.js 3D viewport, studio workspace tooling, persistent asset thumbnailing/previews, real-time hardware telemetry HUD, viewport background job capsule, and model management.
 - **API Gateway**: FastAPI backend (Python 3.10, Conda env `3daigc-api`) with VRAM-aware multiprocess scheduler, request validation, rate limiting, dual-store job synchronization (Redis + SQLite), and authorized artifact delivery.
-- **Model Adapters & ThirdParty Integration**: 17 adapter modules and their registry entries exist. They use `backend/loader.py` for model-weight path resolution and the `backend/thirdparty/` Git submodule for upstream source, but the November 1, 2026 source audit found unresolved source-import and inference-contract defects. Registration must not be described as successful integration or production readiness. See **Current adapter integration audit** below and `Docs/MEMORY.md`.
+- **Model Adapters & ThirdParty Integration**: 17 adapter modules and their registry entries exist. They use `backend/loader.py` for model-weight path resolution and the `backend/thirdparty/` Git submodule for upstream source. The November 3, 2026 review corrected the Hunyuan3D-Shape package root/result handling and rewired Unique3D to its real image-to-mesh callable; both changes are syntax-checked but not GPU-validated. Other source/API defects remain. Registration must not be described as successful integration or production readiness. See **Current adapter integration audit** below and `Docs/MEMORY.md`.
 - **Scheduler & CPU Concurrency**: VRAM-aware scheduler with GPU monitoring, model-input sanitization, dual-store job synchronization (Redis + SQLite), and multi-core CPU concurrency allocating all available cores (`nproc=8`, `OMP_NUM_THREADS=8`) across scheduler workers, marching cubes, and postprocessing.
 
 ## Repository Owner Map & Safe Change Paths
@@ -102,7 +102,7 @@ flowchart TD
 
 ### Hunyuan Runtime Loading & Shared Dependencies
 
-### Current runtime and source-import audit (2026-11-01)
+### Current runtime and source-import audit (2026-11-03)
 
 The following points supersede older detailed notes in this section when they conflict with the current adapter and ThirdParty source trees:
 
@@ -110,9 +110,11 @@ The following points supersede older detailed notes in this section when they co
 - **FastMesh:** only V1K is declared in the current model manifest. The registered V4K ID maps to the same adapter class, whose `MODEL_KEY` is fixed to V1K. Do not advertise V4K or multi-GPU placement as an available current capability.
 - **Pixal3D:** the adapter currently references an undefined `width` in its camera fallback and does not construct the projection-conditioning models that the vendored pipeline leaves for the official inference entry point.
 - **Paint3D:** source-stage scripts are in the ThirdParty source tree, not the model checkpoint directory. The current adapter's export path does not apply the generated albedo to the returned mesh.
-- **Model source paths:** the weights loader is not a Python source resolver. The installer currently installs O-Voxel from TRELLIS.2 but does not establish all the other model package roots; verify each adapter's actual import root and upstream package API independently.
+- **Hunyuan3D-Shape v2.1:** corrected the import root to the parent directory of the vendored `hy3dshape` package. The adapter now consumes the pipeline's flat list of meshes (skipping extraction failures represented by `None`) and forwards the seed through its supported generator argument.
+- **Unique3D:** the adapter no longer treats the ControlNet image-to-image refinement pipeline as a mesh generator. It now calls the vendored `generate3dv2` entry point, initializes the model zoo and reconstruction predictors with the model weights directory as CWD, and returns the GLB path produced by the official save helper.
+- **Model source paths:** the weights loader is not a Python source resolver. Source roots remain model-specific and must be verified against each vendored package; Hunyuan3D-Shape and Unique3D paths/call contracts were source-checked for this patch.
 - **CI boundary:** the old workflow named adapter regression tests that no longer exist in the checked-in tree. The updated workflow is narrowed to source compilation, shell syntax, and the checked-in shared-loader contract test. It does not validate GPU adapters.
-- **GPU/checkpoint behavior:** no end-to-end inference, checkpoint load, peak-VRAM measurement, or output-quality check was run during this audit.
+- **GPU/checkpoint behavior:** no end-to-end inference, checkpoint load, peak-VRAM measurement, or output-quality check was run during this audit. The two changed adapter files pass Python syntax compilation only.
 
 This static audit does not replace supported-host inference tests. Preserve model-specific profiles and upstream defaults until the affected integration is fixed and verified.
 

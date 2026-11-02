@@ -109,7 +109,9 @@ ForMesh3D unifies neural 3D generation, asset finishing, validation, and export 
 | Engine Export | GLB/FBX game-ready packages plus LOD and collision assets |
 
 > [!WARNING]
-> **Model readiness is not uniform.** A model being registered or enabled in `backend/config/models.yaml` does not guarantee that its checkpoint will load or that inference will produce a valid mesh on every deployment. Some model pipelines are reported to fail during initialization/loading, while others can complete with broken or unusable geometry. Model-specific GPU validation is incomplete; do not treat the catalog as a production-readiness guarantee.> **Current adapter audit (2026-11-01):** Static review of the latest `dev` baseline identified defects in Pixal3D camera/conditioning setup, Paint3D source-stage/output handling, UniRig initialization, FastMesh V4K mapping, the TRELLIS text-painting registry entry, and model identity propagation through ModelFactory. See [the audited project state](Docs/MEMORY.md). The current backend workflow has no GPU adapter regression coverage.
+> **Model readiness is not uniform.** A model being registered or enabled in `backend/config/models.yaml` does not guarantee that its checkpoint will load or that inference will produce a valid mesh on every deployment. Some model pipelines can still fail during initialization/loading or produce broken geometry. Model-specific GPU validation is incomplete; do not treat the catalog as a production-readiness guarantee.
+>
+> **Current adapter audit (2026-11-03):** Hunyuan3D-Shape import/result handling and Unique3D's image-to-mesh API wiring have targeted source-level fixes and pass syntax compilation; checkpoint loading and GPU inference remain NOT RUN. Pixal3D, Paint3D, UniRig, FastMesh V4K, the TRELLIS text-painting registry entry, and model identity propagation retain open findings. See [the audited project state](Docs/MEMORY.md).
 
 ## 🔄 End-to-End Asset Generation Pipeline
 
@@ -465,7 +467,7 @@ bun run lint
 bash -n manager.sh backend/scripts/*.sh scripts/*.sh
 ```
 
-**Verification boundary (2026-11-01 audit)**: The current backend workflow compiles Python sources, checks shell syntax, and tests the shared weights-path resolver. It does not prove that each model adapter imports, loads checkpoints, executes on a GPU, or produces valid geometry. The previous October 23 green counts are historical and are not evidence for the current `dev` revision. Frontend tests/build, GPU inference, and Blender-dependent validation were not run in this audit.
+**Verification boundary (2026-11-03 targeted adapter fix)**: `python -m py_compile` passed for `hunyuan3d_shape_v21.py` and `unique3d_adapter.py`. This is syntax-only validation; checkpoint initialization, GPU inference, output mesh inspection, full backend CI, frontend tests/build, and Blender-dependent validation were NOT RUN for this change.
 
 ---
 

@@ -1,12 +1,11 @@
 """Hunyuan3D-2.1 Shape adapter — thin integration over the official ThirdParty
 inference API.
 
-Wraps ``hy3dshape.hy3dshape.pipelines.Hunyuan3DDiTFlowMatchingPipeline`` from
-``backend/thirdparty/Hunyuan3D-2.1``. Weights are resolved through
-``backend.loader.get_model_weights_dir``. Inference schedules (steps, guidance,
+Wraps hy3dshape.pipelines.Hunyuan3DDiTFlowMatchingPipeline from
+backend/thirdparty/Hunyuan3D-2.1. Weights are resolved through
+backend.loader.get_model_weights_dir. Inference schedules (steps, guidance,
 octree resolution, chunks) are adapter-owned and stripped by the scheduler.
 """
-# Status - debug
 from __future__ import annotations
 
 import contextlib
@@ -52,21 +51,21 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
         self._pipeline: Any = None
 
     def _load_model(self) -> Any:
-        # Make the vendored hunyuan3d-2 source importable in the worker process,
-        # which only has backend/ on sys.path. Model-specific source path setup
-        # per TASKS.md §3.3 — not a global patch, not in loader.py.
-        # Hunyuan3D-2.1 has a nested layout: Hunyuan3D-2.1/hy3dshape/hy3dshape/.
-        # The OUTER hy3dshape/ lacks __init__.py and is NOT a package.
-        # The INNER hy3dshape/hy3dshape/ IS the actual package.
-        # Add the inner package root to sys.path so `import hy3dshape` works.
-        _hunyuan2_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Hunyuan3D-2.1")
-        _hunyuan2_pkg_root = str(Path(_hunyuan2_root) / "hy3dshape" / "hy3dshape")
-        logger.info(f"Hunyuan3D-2.1: thirdparty root={_hunyuan2_root}, pkg_root={_hunyuan2_pkg_root}, exists={Path(_hunyuan2_pkg_root).exists()}")
-        if _hunyuan2_pkg_root not in sys.path:
-            sys.path.insert(0, _hunyuan2_pkg_root)
-        from hy3dshape.pipelines import (
-            Hunyuan3DDiTFlowMatchingPipeline,
+        # hy3dshape is the package directory; sys.path must contain its parent.
+        # Hunyuan3D-2.1/hy3dshape/hy3dshape/__init__.py is the package entrypoint.
+        shape_import_root = (
+            Path(__file__).resolve().parents[1]
+            / "thirdparty"
+            / "Hunyuan3D-2.1"
+            / "hy3dshape"
         )
+        if not (shape_import_root / "hy3dshape" / "__init__.py").is_file():
+            raise ImportError(f"Hunyuan3D-2.1 Shape package not found under {shape_import_root}")
+        shape_import_root = str(shape_import_root)
+        if shape_import_root not in sys.path:
+            sys.path.insert(0, shape_import_root)
+
+        from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading Hunyuan3D-2.1 Shape pipeline from %s", weights_dir)
@@ -106,6 +105,8 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
             return {"success": False, "error": f"image not found: {image_path}"}
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
+        generator = torch.Generator(device=device).manual_seed(seed) if torch is not None else None
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
@@ -116,19 +117,29 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
                 octree_resolution=1300,
                 num_chunks=8000,
                 output_type="trimesh",
+                generator=generator,
             )
 
-        # pipeline returns List[List[trimesh.Trimesh]]
-        meshes = outputs[0] if isinstance(outputs, list) and outputs else []
-        if not meshes:
+        # The vendored pipeline exports a flat List[trimesh.Trimesh]; failed
+        # surface extraction is represented by None entries in that list.
+        if isinstance(outputs, (list, tuple)):
+            mesh = next((item for item in outputs if item is not None), None)
+        else:
+            mesh = outputs
+        if mesh is None:
             return {"success": False, "error": "Hunyuan3D-2.1 Shape produced no mesh"}
-
-        mesh = meshes[0]
+        if not callable(getattr(mesh, "export", None)):
+            return {
+                "success": False,
+                "error": f"Hunyuan3D-2.1 returned an unsupported mesh result: {type(mesh).__name__}",
+            }
 
         import tempfile
 
         out = Path(tempfile.mkdtemp()) / f"hunyuan3d_shape_{seed}.glb"
         mesh.export(str(out))
+        if not out.is_file():
+            return {"success": False, "error": "Hunyuan3D-2.1 mesh export did not create a file"}
 
         return {
             "success": True,

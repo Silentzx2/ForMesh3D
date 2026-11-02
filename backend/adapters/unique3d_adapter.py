@@ -1,11 +1,10 @@
 """Unique3D adapter — thin integration over the official ThirdParty inference
 API.
 
-Wraps ``app.all_models.model_zoo`` from ``backend/thirdparty/Unique3D``.
-High-quality single-image mesh generation. Weights resolved through
-``backend.loader.get_model_weights_dir``.
+Calls Unique3D's app.gradio_3dgen.generate3dv2 Python inference entry point
+from backend/thirdparty/Unique3D. Weights are resolved through
+backend.loader.get_model_weights_dir.
 """
-# Status - debug
 from __future__ import annotations
 
 import contextlib
@@ -50,150 +49,110 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
         self.version = "1.0"
         self.experimental = False
         self._zoo: Any = None
+        self._generate3d: Any = None
+        self._weights_dir: Path | None = None
 
     def _load_model(self) -> Any:
-        # Make the vendored Unique3D source importable in the worker process,
-        # which only has backend/ on sys.path. Model-specific source path setup
-        # per TASKS.md §3.3 — not a global patch, not in loader.py.
-        unique3d_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Unique3D")
-        if unique3d_root not in sys.path:
-            sys.path.insert(0, unique3d_root)
-        logger.info("Loading Unique3D model zoo from %s", unique3d_root)
-        from app.all_models import model_zoo
+        unique3d_root = (
+            Path(__file__).resolve().parents[1] / "thirdparty" / "Unique3D"
+        ).resolve()
+        if not (unique3d_root / "app" / "gradio_3dgen.py").is_file():
+            raise ImportError(f"Unique3D source not found under {unique3d_root}")
+        if str(unique3d_root) not in sys.path:
+            sys.path.insert(0, str(unique3d_root))
 
-        # all_models.py references "./ckpt/..." relative to CWD
-        # (controlnet="./ckpt/controlnet-tile"). Weights live under
-        # pretrained/Unique3D/, so chdir there for init_models() and restore
-        # CWD afterwards to avoid side effects in the worker process.
-        weights_dir = Path(get_model_weights_dir(self.MODEL_KEY))
-        _prev_cwd = Path.cwd()
+        weights_dir = Path(get_model_weights_dir(self.MODEL_KEY)).resolve()
+        previous_cwd = Path.cwd()
         try:
+            # Unique3D resolves its ckpt/, config and RealESRGAN paths relative
+            # to CWD, and its model modules load checkpoints during import.
             os.chdir(str(weights_dir))
+            from app.all_models import model_zoo
 
-            # Check if SD v1-5 base model exists locally to avoid redundant
-            # HF Hub download. load_common_sd15_pipe defaults to
-            # "runwayml/stable-diffusion-v1-5" which always downloads.
-            for _candidate in (
+            # Prefer a locally downloaded SD 1.5 checkpoint over a Hub lookup.
+            for candidate in (
                 weights_dir,
                 weights_dir / "stable-diffusion-v1-5",
                 weights_dir / "sd-v1-5",
                 weights_dir / "v1-5",
                 weights_dir / "runwayml" / "stable-diffusion-v1-5",
             ):
-                if _candidate.is_dir() and (_candidate / "model_index.json").is_file():
-                    model_zoo.base_model = str(_candidate)
-                    logger.info(
-                        f"Using local SD v1-5 base model: {_candidate}"
-                    )
+                if candidate.is_dir() and (candidate / "model_index.json").is_file():
+                    model_zoo.base_model = str(candidate)
+                    logger.info("Using local Unique3D SD v1.5 base model: %s", candidate)
                     break
 
             model_zoo.init_models()
+            # Import the upstream callable only after CWD is set: importing it
+            # initializes the multiview and normal predictors from ./ckpt/.
+            from app.gradio_3dgen import generate3dv2
         finally:
-            os.chdir(str(_prev_cwd))
+            os.chdir(str(previous_cwd))
 
         self._zoo = model_zoo
+        self._generate3d = generate3dv2
+        self._weights_dir = weights_dir
         self.model = model_zoo
         return model_zoo
 
     def _unload_model(self) -> None:
         self._zoo = None
+        self._generate3d = None
+        self._weights_dir = None
         self.model = None
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        zoo = self._zoo
-        if zoo is None:
-            return {"success": False, "error": "Unique3D model zoo not loaded"}
+        generate3d = self._generate3d
+        weights_dir = self._weights_dir
+        if generate3d is None or weights_dir is None:
+            return {"success": False, "error": "Unique3D inference pipeline not loaded"}
 
         image_path = inputs.get("image_path") or inputs.get("image")
         if not image_path or not Path(image_path).is_file():
             return {"success": False, "error": f"image not found: {image_path}"}
 
-        seed = int(inputs.get("seed", DEFAULT_SEED))
-
-        # Unique3D's inference is exposed through its model zoo's multiview +
-        # refinement pipeline. Use the official image-to-mesh path.
-        try:
-            pipe = zoo.pipe_disney_controlnet_tile_ipadapter_i2i
-        except AttributeError:
-            return {
-                "success": False,
-                "error": "Unique3D zoo exposes no inference pipeline entry point",
-            }
-
         from PIL import Image
 
         try:
-            image = Image.open(image_path).convert("RGB")
-        except Exception as img_err:
-            return {
-                "success": False,
-                "error": f"Failed to open image {image_path}: {img_err}",
-            }
+            with Image.open(image_path) as source:
+                image = source.convert("RGB")
+        except Exception as image_error:
+            return {"success": False, "error": f"Failed to open image {image_path}: {image_error}"}
 
-        if image is None or not isinstance(image, Image.Image):
-            return {
-                "success": False,
-                "error": f"Invalid image for pipeline {image_path}: type={type(image).__name__}, value={image!r}",
-            }
-
-        # Guard: ensure image is a valid PIL Image before passing to pipeline
-        if not hasattr(image, "mode") or not hasattr(image, "size"):
-            return {
-                "success": False,
-                "error": f"Image object missing required attributes (mode, size): {type(image).__name__}",
-            }
-
-        logger.debug(
-            f"DEBUG unique3d: image_path={image_path}, "
-            f"image_type={type(image).__name__ if image is not None else 'NoneType'}, "
-            f"image_is_none={image is None}, "
-            f"image_mode={getattr(image, 'mode', 'N/A')}, "
-            f"image_size={getattr(image, 'size', 'N/A')}"
-        )
+        seed = int(inputs.get("seed", DEFAULT_SEED))
+        output_dir = Path("/tmp/gradio")
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
-        with ctx:
-            # Final guard: ensure image is still a valid PIL Image
-            if image is None or not isinstance(image, Image.Image):
-                return {
-                    "success": False,
-                    "error": f"Image became invalid before pipeline call: type={type(image).__name__}, value={image!r}",
-                }
-            # Official Unique3D inference: multiview diffusion then refinement.
-            # ControlNet img2img pipeline requires prompt; pass empty string for
-            # unconditional generation. Seed is passed via generator, not as a
-            # __call__ kwarg (the pipeline has no 'seed' parameter).
-            generator = torch.Generator().manual_seed(seed) if torch is not None else None
-            try:
-                meshes = pipe(image=image, prompt="", generator=generator)
-            except TypeError:
-                meshes = pipe(image=image, prompt="")
+        previous_cwd = Path.cwd()
+        try:
+            # The upstream function hardcodes ./ckpt and /tmp/gradio rather
+            # than accepting roots. Run it from the model weights directory.
+            os.chdir(str(weights_dir))
+            with ctx:
+                output_mesh_path, _ = generate3d(
+                    preview_img=image,
+                    input_processing=True,
+                    seed=seed,
+                    render_video=False,
+                )
+        finally:
+            os.chdir(str(previous_cwd))
 
-        mesh_list = meshes if isinstance(meshes, list) else [meshes]
-        if not mesh_list:
-            return {"success": False, "error": "Unique3D produced no mesh"}
-
-        mesh = mesh_list[0]
-
-        import trimesh
-        import tempfile
-
-        if not isinstance(mesh, trimesh.Trimesh):
-            mesh = trimesh.Trimesh(
-                vertices=mesh.vertices, faces=mesh.faces, process=False
-            )
-        out = Path(tempfile.mkdtemp()) / f"unique3d_{seed}.glb"
-        mesh.export(str(out))
+        if not output_mesh_path:
+            return {"success": False, "error": "Unique3D produced no mesh path"}
+        output_path = Path(output_mesh_path)
+        if not output_path.is_file():
+            return {
+                "success": False,
+                "error": f"Unique3D did not create its returned mesh file: {output_path}",
+            }
 
         return {
             "success": True,
-            "output_mesh_path": str(out),
-            "mesh_path": str(out),
-            "generation_info": {
-                "seed": seed,
-                "num_inference_steps": "adapter_owned",
-                "guidance_scale": "adapter_owned",
-            },
+            "output_mesh_path": str(output_path.resolve()),
+            "mesh_path": str(output_path.resolve()),
+            "generation_info": {"seed": seed},
         }
 
     def get_supported_formats(self) -> Dict[str, list[str]]:
