@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -60,18 +61,18 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
         logger.info("Loading Unique3D model zoo from %s", unique3d_root)
         from app.all_models import model_zoo
 
-        # Unique3D's all_models.py references "./ckpt/..." relative paths, so the
-        # ckpt dir must exist under thirdparty/Unique3D. Link it to the downloaded
-        # weights under pretrained/Unique3D if the runtime dir doesn't have it.
+        # all_models.py references "./ckpt/..." relative to CWD
+        # (controlnet="./ckpt/controlnet-tile"). Weights live under
+        # pretrained/Unique3D/, so chdir there for init_models() and restore
+        # CWD afterwards to avoid side effects in the worker process.
         weights_dir = Path(get_model_weights_dir(self.MODEL_KEY))
-        ckpt_link = Path(unique3d_root) / "ckpt"
-        if not ckpt_link.exists() and (weights_dir / "ckpt").exists():
-            try:
-                ckpt_link.symlink_to(weights_dir / "ckpt", target_is_directory=True)
-            except OSError:  # read-only fs or race — fall back to real copy dir
-                pass
+        _prev_cwd = Path.cwd()
+        try:
+            os.chdir(str(weights_dir))
+            model_zoo.init_models()
+        finally:
+            os.chdir(str(_prev_cwd))
 
-        model_zoo.init_models()
         self._zoo = model_zoo
         self.model = model_zoo
         return model_zoo

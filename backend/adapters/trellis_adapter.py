@@ -21,8 +21,8 @@ except ImportError:  # pragma: no cover - torch optional in CPU-only environment
     torch = None
 
 from backend.core.models.base import BaseModel, ModelStatus
-from backend.loader import get_model_weights_dir
-from huggingface_hub import hf_hub_download
+from backend.loader import _resolve_repo_root, get_model_weights_dir
+from huggingface_hub import snapshot_download
 
 logger = logging.getLogger(__name__)
 
@@ -68,27 +68,47 @@ class _TrellisBaseAdapter(BaseModel):
             sys.path.insert(0, _trellis_root)
         from trellis.pipelines.trellis_image_to_3d import TrellisImageTo3DPipeline
 
-        weights_dir = get_model_weights_dir(self.MODEL_KEY)
+        # Resolve the weights directory. MODEL_KEY="TRELLIS" maps to
+        # pretrained/TRELLIS/. The download script also places v1 weights under
+        # pretrained/TRELLIS/TRELLIS-image-large/, so check both locations.
+        try:
+            weights_dir = get_model_weights_dir(self.MODEL_KEY)
+        except FileNotFoundError:
+            weights_dir = Path(_resolve_repo_root()) / "backend" / "pretrained" / self.MODEL_KEY
+            weights_dir.mkdir(parents=True, exist_ok=True)
         weights_dir_path = Path(weights_dir)
         logger.info("Loading TRELLIS pipeline from %s", weights_dir)
 
-        # If the local weights directory is incomplete, download pipeline.json
-        # from HuggingFace Hub so the vendored Pipeline.from_pretrained can
-        # resolve everything locally afterwards.
-        pipeline_json = weights_dir_path / "pipeline.json"
-        if not pipeline_json.is_file():
+        # v1 weights (microsoft/TRELLIS-image-large) land under
+        # pretrained/TRELLIS/TRELLIS-image-large/ per download_models.sh.
+        alt_weights_dir = weights_dir_path / "TRELLIS-image-large"
+
+        def _has_pipeline(d: Path) -> bool:
+            return (d / "pipeline.json").is_file()
+
+        # If neither location has pipeline.json, pull the whole
+        # microsoft/TRELLIS.2-4B repo from HuggingFace Hub so every checkpoint
+        # (.json + .safetensors) the vendored Pipeline.from_pretrained references
+        # is present locally. Downloading only pipeline.json leaves the actual
+        # model files missing, which makes models.from_pretrained treat the
+        # absolute local path as a fake HF repo_id and 404.
+        if not _has_pipeline(weights_dir_path) and not _has_pipeline(alt_weights_dir):
             weights_dir_path.mkdir(parents=True, exist_ok=True)
             logger.info(
-                "TRELLIS pipeline.json not found locally; downloading from "
-                "HuggingFace Hub microsoft/TRELLIS..."
+                "TRELLIS weights not found locally; downloading all checkpoints "
+                "from HuggingFace Hub microsoft/TRELLIS.2-4B..."
             )
-            hf_hub_download(
+            snapshot_download(
                 repo_id="microsoft/TRELLIS.2-4B",
-                filename="pipeline.json",
                 local_dir=str(weights_dir_path),
             )
+            pipeline_path = weights_dir_path
+        elif _has_pipeline(alt_weights_dir):
+            pipeline_path = alt_weights_dir
+        else:
+            pipeline_path = weights_dir_path
 
-        pipeline = TrellisImageTo3DPipeline.from_pretrained(str(weights_dir))
+        pipeline = TrellisImageTo3DPipeline.from_pretrained(str(pipeline_path))
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline
