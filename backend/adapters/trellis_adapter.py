@@ -22,6 +22,7 @@ except ImportError:  # pragma: no cover - torch optional in CPU-only environment
 
 from backend.core.models.base import BaseModel, ModelStatus
 from backend.loader import get_model_weights_dir
+from huggingface_hub import hf_hub_download
 
 logger = logging.getLogger(__name__)
 
@@ -68,18 +69,24 @@ class _TrellisBaseAdapter(BaseModel):
         from trellis.pipelines.trellis_image_to_3d import TrellisImageTo3DPipeline
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
+        weights_dir_path = Path(weights_dir)
         logger.info("Loading TRELLIS pipeline from %s", weights_dir)
 
-        # The vendored Pipeline.from_pretrained treats the path as a HuggingFace
-        # repo_id when pipeline.json is missing locally, which triggers
-        # confusing HF Hub 404/401 errors. Fail fast with a clear message.
-        pipeline_json = Path(weights_dir) / "pipeline.json"
+        # If the local weights directory is incomplete, download pipeline.json
+        # from HuggingFace Hub so the vendored Pipeline.from_pretrained can
+        # resolve everything locally afterwards.
+        pipeline_json = weights_dir_path / "pipeline.json"
         if not pipeline_json.is_file():
-            raise RuntimeError(
-                f"TRELLIS weights not found at {weights_dir}: "
-                f"{pipeline_json} is missing. Run "
-                f"'bash backend/scripts/download_models.sh' to download TRELLIS "
-                f"checkpoints, or set MODEL_STORAGE_ROOT to the correct weights root."
+            weights_dir_path.mkdir(parents=True, exist_ok=True)
+            logger.info(
+                "TRELLIS pipeline.json not found locally; downloading from "
+                "HuggingFace Hub microsoft/TRELLIS..."
+            )
+            hf_hub_download(
+                repo_id="microsoft/TRELLIS",
+                filename="pipeline.json",
+                local_dir=str(weights_dir_path),
+                local_dir_use_symlinks=False,
             )
 
         pipeline = TrellisImageTo3DPipeline.from_pretrained(str(weights_dir))
