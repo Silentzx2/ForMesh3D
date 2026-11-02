@@ -9,22 +9,43 @@ supplied by the scheduler. The package exposes each adapter module for
 """
 
 from __future__ import annotations
-
-# Adapter modules (imported by model_factory via their module path):
-#   adapters.trellis_adapter
-#   adapters.trellis2_adapter
-#   adapters.trellis2_paint_adapter
-#   adapters.hunyuan3d_shape_v21
-#   adapters.hunyuan3d_paint_v21
-#   adapters.hunyuan3d_dit_v2_mini_turbo
-#   adapters.hunyuan3d_adapter_v21
-#   adapters.hi3d_adapter
-#   adapters.triposg_adapter
-#   adapters.unique3d_adapter
-#   adapters.paint3d_adapter
-#   adapters.partuv_adapter
-#   adapters.pixal3d_adapter
-#   adapters.ardy_adapter
-#   adapters.unirig_adapter
-#   adapters.fastmesh_adapter
-#   adapters.taoflowforge_adapter
+# Map of registered model ID -> adapter module path.
+# Used by runtime_probe._get_installed_adapters() to report which adapters
+# are installed, and by planner._is_adapter_registered() to admit candidates.
+# Keys are the canonical model IDs from backend/config/models.yaml; values are
+# the adapter module that implements that model.
+_ADAPTER_MAP: dict[str, str] = {
+    # ── image-to-raw-mesh ──────────────────────────────────────────────
+    "hunyuan3d_shape_v21_image_to_raw_mesh": "adapters.hunyuan3d_shape_v21",
+    "hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh": "adapters.hunyuan3d_dit_v2_mini_turbo",
+    "triposg_image_to_raw_mesh": "adapters.triposg_adapter",
+    "unique3d_image_to_raw_mesh": "adapters.unique3d_adapter",
+    "pixal3d_image_to_raw_mesh": "adapters.pixal3d_adapter",
+    "pixal3d_image_to_3d": "adapters.pixal3d_adapter",
+    "trellis_image_to_3d": "adapters.trellis_adapter",
+    "trellis_image_to_raw_mesh": "adapters.trellis_adapter",
+    "trellis2_image_to_3d": "adapters.trellis2_adapter",
+    "trellis2_image_to_raw_mesh": "adapters.trellis2_adapter",
+    "taoflowforge_image_to_raw_mesh": "adapters.taoflowforge_adapter",
+    "hi3d_image_to_raw_mesh": "adapters.hi3d_adapter",
+    # ── legacy textured-mesh aliases ───────────────────────────────────
+    "trellis_image_to_textured_mesh": "adapters.trellis_adapter",
+    "trellis2_image_to_textured_mesh": "adapters.trellis2_adapter",
+    "hi3d_image_to_textured_mesh": "adapters.hi3d_adapter",
+    # ── image-mesh-painting ────────────────────────────────────────────
+    "trellis_image_mesh_painting": "adapters.trellis_adapter",
+    "trellis2_image_mesh_painting": "adapters.trellis2_adapter",
+    "hunyuan3d_paint_v21_image_mesh_painting": "adapters.hunyuan3d_paint_v21",
+    "paint3d": "adapters.paint3d_adapter",
+    # ── text-mesh-painting ─────────────────────────────────────────────
+    "trellis_text_mesh_painting": "adapters.trellis_adapter",
+    # ── mesh-retopology ────────────────────────────────────────────────
+    "fastmesh_v1k_retopology": "adapters.fastmesh_adapter",
+    "fastmesh_v4k_retopology": "adapters.fastmesh_adapter",
+    # ── uv-unwrapping ──────────────────────────────────────────────────
+    "partuv_uv_unwrapping": "adapters.partuv_adapter",
+    # ── auto-rigging ───────────────────────────────────────────────────
+    "unirig_auto_rig": "adapters.unirig_adapter",
+    # ── motion-generation ──────────────────────────────────────────────
+    "ardy_motion_generation": "adapters.ardy_adapter",
+}
