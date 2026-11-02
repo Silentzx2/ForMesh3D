@@ -118,6 +118,14 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
                 "error": f"Image.open returned None for {image_path}",
             }
 
+        logger.debug(
+            f"DEBUG unique3d: image_path={image_path}, "
+            f"image_type={type(image).__name__ if image is not None else 'NoneType'}, "
+            f"image_is_none={image is None}, "
+            f"image_mode={getattr(image, 'mode', 'N/A')}, "
+            f"image_size={getattr(image, 'size', 'N/A')}"
+        )
+
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
             # Official Unique3D inference: multiview diffusion then refinement.

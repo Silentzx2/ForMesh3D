@@ -367,6 +367,16 @@ def model_worker_process(
     gpu_ids = list(worker_config.gpu_ids)
     cpu_only = (worker_config.resource_plan or {}).get("kind") == "cpu"
     device_label = "CPU" if cpu_only else f"GPU {gpu_id}"
+    # Clear stale __pycache__ so worker always loads latest adapter code
+    # (prevents old .pyc from being used after a code update without full restart)
+    import shutil as _shutil
+    from pathlib import Path as _Path
+    _repo_root = _Path(__file__).resolve().parents[2]
+    for _cache_dir in _repo_root.glob("backend/**/__pycache__"):
+        try:
+            _shutil.rmtree(_cache_dir)
+        except Exception:
+            pass
     if cpu_only:
         # Dedicated worker process: hide CUDA before any runtime code can initialize it.
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
