@@ -325,7 +325,7 @@ def _execute_texture_stage(
 
             if adapter is None:
                 try:
-                    from adapters.trellis2_paint_adapter import Trellis2ImageMeshPaintingAdapter
+                    from backend.adapters.trellis2_paint_adapter import Trellis2ImageMeshPaintingAdapter
                     adapter = Trellis2ImageMeshPaintingAdapter(vram_requirement=16000)
                 except Exception as exc:
                     raise RuntimeError(f"TRELLIS.2 paint adapter could not be loaded: {exc}")
@@ -386,7 +386,7 @@ def _execute_texture_stage(
             if adapter is None:
                 import importlib
 
-                mod = importlib.import_module("adapters.paint3d_adapter")
+                mod = importlib.import_module("backend.adapters.paint3d_adapter")
                 cls = getattr(mod, "Paint3DAdapter", None)
                 if cls:
                     adapter = cls(vram_requirement=12000)
@@ -448,7 +448,7 @@ def _execute_texture_stage(
 
             if adapter is None:
                 try:
-                    from adapters.hunyuan3d_paint_v21 import Hunyuan3DPaintV21ImageMeshPaintingAdapter
+                    from backend.adapters.hunyuan3d_paint_v21 import Hunyuan3DPaintV21ImageMeshPaintingAdapter
                     adapter = Hunyuan3DPaintV21ImageMeshPaintingAdapter(vram_requirement=21000)
                 except Exception as exc:
                     raise RuntimeError(f"Hunyuan3D-Paint-v2.1 adapter could not be loaded: {exc}")

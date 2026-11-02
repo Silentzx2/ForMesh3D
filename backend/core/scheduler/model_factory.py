@@ -8,6 +8,7 @@ load models without direct imports.
 
 import importlib
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -303,6 +304,12 @@ class ModelFactory:
 
             # Dynamic import
             try:
+                # Ensure the repo root is importable so backend.* packages
+                # (and the adapters' internal backend.core.* imports) resolve
+                # in the worker subprocess, which only has backend/ on sys.path.
+                _repo_root = str(Path(__file__).resolve().parents[3])
+                if _repo_root not in sys.path:
+                    sys.path.insert(0, _repo_root)
                 module = importlib.import_module(module_name)
 
                 model_class = getattr(module, class_name)
