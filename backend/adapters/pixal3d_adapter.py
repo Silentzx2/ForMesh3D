@@ -65,7 +65,7 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
         pipeline = Pixal3DImageTo3DPipeline.from_pretrained(str(weights_dir))
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
         dtype = torch.float16 if torch is not None and torch.cuda.is_available() else torch.float32
-        pipeline.to(device, dtype)
+        pipeline.to(device)
         # Pixal3D's image_cond_model_* attributes must be loaded externally
         # (DinoV3ProjFeatureExtractor instances). Load them from HF if available.
         try:

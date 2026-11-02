@@ -63,8 +63,7 @@ class Trellis2ImageMeshPaintingAdapter(BaseModel):
         logger.info("Loading TRELLIS.2 texturing pipeline from %s", weights_dir)
         pipeline = Trellis2TexturingPipeline.from_pretrained(str(weights_dir))
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
-        dtype = torch.float16 if torch is not None and torch.cuda.is_available() else torch.float32
-        pipeline.to(device, dtype)
+        pipeline.to(device)
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline

@@ -112,8 +112,7 @@ class _TrellisBaseAdapter(BaseModel):
         # Move pipeline to the worker's GPU so xformers attention (CUDA-only)
         # works instead of failing on CPU with float32.
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
-        dtype = torch.float16 if torch is not None and torch.cuda.is_available() else torch.float32
-        pipeline.to(device, dtype)
+        pipeline.to(device)
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline

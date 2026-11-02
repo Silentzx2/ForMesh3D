@@ -90,8 +90,7 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(pipeline_path))
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
-        dtype = torch.float16 if torch is not None and torch.cuda.is_available() else torch.float32
-        pipeline.to(device, dtype)
+        pipeline.to(device)
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline
