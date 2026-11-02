@@ -109,13 +109,14 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
             # Official Unique3D inference: multiview diffusion then refinement.
-            # ControlNet img2img pipeline requires prompt or prompt_embeds; pass
-            # empty prompt for unconditional generation.
+            # ControlNet img2img pipeline requires prompt; pass empty string for
+            # unconditional generation. Seed is passed via generator, not as a
+            # __call__ kwarg (the pipeline has no 'seed' parameter).
+            generator = torch.Generator().manual_seed(seed) if torch is not None else None
             try:
-                meshes = pipe(image=image, seed=seed, prompt="")
+                meshes = pipe(image=image, prompt="", generator=generator)
             except TypeError:
-                # Fall back to a minimal invocation if the signature differs.
-                meshes = pipe(image, prompt="")
+                meshes = pipe(image=image, prompt="")
 
         mesh_list = meshes if isinstance(meshes, list) else [meshes]
         if not mesh_list:

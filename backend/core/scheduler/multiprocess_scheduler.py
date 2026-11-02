@@ -2277,6 +2277,27 @@ class MultiprocessModelScheduler:
             # Generation jobs become final only after canonical post-processing.
             if result.get("success"):
                 final_result = result.get("result") or {}
+                # All adapters write output meshes to tempfile.mkdtemp() (/tmp),
+                # but the download endpoint requires paths under storage_root
+                # (relative_to(storage_root) check). Copy any temp output mesh
+                # into storage_root/models/meshes/ so it can be served.
+                _out_mesh_path = (
+                    final_result.get("output_mesh_path")
+                    or final_result.get("mesh_path")
+                    or final_result.get("output_path")
+                    or final_result.get("file_path")
+                )
+                if _out_mesh_path:
+                    _src = Path(_out_mesh_path)
+                    if _src.is_file():
+                        _storage_root = get_storage_base_dir()
+                        _mesh_dir = _storage_root / "models" / "meshes"
+                        _mesh_dir.mkdir(parents=True, exist_ok=True)
+                        _dst = _mesh_dir / _src.name
+                        if not _dst.exists():
+                            shutil.copy2(str(_src), str(_dst))
+                        final_result["output_mesh_path"] = str(_dst)
+                        final_result["mesh_path"] = str(_dst)
                 if job_request.feature in ("image_mesh_painting", "text_mesh_painting"):
                     postprocess_mode = "manual_mesh_tool"
                     enable_postprocess = False
