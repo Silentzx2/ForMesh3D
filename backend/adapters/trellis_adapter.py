@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -66,6 +67,16 @@ class _TrellisBaseAdapter(BaseModel):
         _trellis_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "TRELLIS")
         if _trellis_root not in sys.path:
             sys.path.insert(0, _trellis_root)
+
+        # FlashAttention requires Ampere+ GPUs (sm_80+). Tesla T4 (sm_75) is
+        # pre-Ampere, so fall back to PyTorch native scaled_dot_product_attention
+        # which works on all CUDA GPUs. Must be set before TRELLIS modules import
+        # so __init__ reads SPARSE_ATTN_BACKEND before binding ATTN locally.
+        if torch is not None and torch.cuda.is_available() and self.gpu_id is not None:
+            major, _ = torch.cuda.get_device_capability(self.gpu_id)
+            if major < 8:
+                os.environ.setdefault('SPARSE_ATTN_BACKEND', 'sdpa')
+
         from trellis.pipelines.trellis_image_to_3d import TrellisImageTo3DPipeline
 
         # Resolve the weights directory. MODEL_KEY="TRELLIS" maps to
