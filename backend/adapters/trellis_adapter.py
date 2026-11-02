@@ -156,6 +156,10 @@ class _TrellisBaseAdapter(BaseModel):
         mesh = result.get("mesh") if isinstance(result, dict) else None
         if mesh is None:
             return {"success": False, "error": "TRELLIS produced no mesh"}
+        if isinstance(mesh, list):
+            mesh = mesh[0] if mesh else None
+            if mesh is None:
+                return {"success": False, "error": "TRELLIS produced no mesh"}
 
         import trimesh
         import tempfile
