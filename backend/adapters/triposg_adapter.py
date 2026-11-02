@@ -59,6 +59,9 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
         _triposg_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "TripoSG")
         if _triposg_root not in sys.path:
             sys.path.insert(0, _triposg_root)
+        _scripts_dir = str(Path(_triposg_root) / "scripts")
+        if _scripts_dir not in sys.path:
+            sys.path.insert(0, _scripts_dir)
         from triposg.pipelines.pipeline_triposg import TripoSGPipeline
         from briarmbg import BriaRMBG
 

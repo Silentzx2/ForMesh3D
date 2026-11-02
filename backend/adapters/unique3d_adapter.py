@@ -51,13 +51,13 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
         self._zoo: Any = None
 
     def _load_model(self) -> Any:
-        weights_dir = get_model_weights_dir(self.MODEL_KEY)
-        # Unique3D expects to run from its own repo root so its `app/` package
-        # resolves. Add the ThirdParty Unique3D dir to sys.path.
-        thirdparty_dir = Path(weights_dir).resolve()
-        if str(thirdparty_dir) not in sys.path:
-            sys.path.insert(0, str(thirdparty_dir))
-        logger.info("Loading Unique3D model zoo from %s", thirdparty_dir)
+        # Make the vendored Unique3D source importable in the worker process,
+        # which only has backend/ on sys.path. Model-specific source path setup
+        # per TASKS.md §3.3 — not a global patch, not in loader.py.
+        unique3d_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Unique3D")
+        if unique3d_root not in sys.path:
+            sys.path.insert(0, unique3d_root)
+        logger.info("Loading Unique3D model zoo from %s", unique3d_root)
         from app.all_models import model_zoo
 
         model_zoo.init_models()
