@@ -3522,24 +3522,17 @@ class MultiprocessModelScheduler:
                                 self._mark_worker_available(worker_id)
                                 logger.debug(f"Marked worker {worker_id} as available")
 
-                                # If worker experienced a fatal CUDA error or crashed, destroy it to release GPU state
+                                # If worker experienced any failure during load or inference,
+                                # destroy it to release GPU memory immediately so another model can load
                                 if not success and isinstance(result, dict):
-                                    err_str = str(result.get("error", "")).lower()
-                                    if any(kw in err_str for kw in [
-                                        "out of memory",
-                                        "cuda error",
-                                        "illegal memory access",
-                                        "all cuda-capable devices are busy",
-                                        "mesh extraction returned no output",
-                                        "diso dual-marching-cubes",
-                                    ]):
-                                        logger.warning(
-                                            f"Worker {worker_id} encountered fatal inference error; destroying worker to release resources: {err_str}"
+                                    err_str = str(result.get("error", ""))
+                                    logger.warning(
+                                        f"Worker {worker_id} encountered failure; destroying worker to release GPU: {err_str}"
+                                    )
+                                    if self.main_event_loop:
+                                        self.main_event_loop.call_soon_threadsafe(
+                                            lambda wid=worker_id: asyncio.create_task(self._destroy_worker(wid))
                                         )
-                                        if self.main_event_loop:
-                                            self.main_event_loop.call_soon_threadsafe(
-                                                lambda wid=worker_id: asyncio.create_task(self._destroy_worker(wid))
-                                            )
 
                                 # Set result in event loop
                                 if self.main_event_loop and not future.done():
