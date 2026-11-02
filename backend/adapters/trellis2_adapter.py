@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -51,6 +52,12 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         self._pipeline: Any = None
 
     def _load_model(self) -> Any:
+        # Make the vendored TRELLIS.2 source importable in the worker process,
+        # which only has backend/ on sys.path. Model-specific source path setup
+        # per TASKS.md §3.3 — not a global patch, not in loader.py.
+        _trellis2_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "TRELLIS.2")
+        if _trellis2_root not in sys.path:
+            sys.path.insert(0, _trellis2_root)
         from trellis2.pipelines.trellis2_image_to_3d import Trellis2ImageTo3DPipeline
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)

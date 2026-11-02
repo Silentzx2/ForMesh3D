@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -51,6 +52,12 @@ class Hunyuan3DPaintV21ImageMeshPaintingAdapter(BaseModel):
         self._pipeline: Any = None
 
     def _load_model(self) -> Any:
+        # Make the vendored hunyuan3d-2 source importable in the worker process,
+        # which only has backend/ on sys.path. Model-specific source path setup
+        # per TASKS.md §3.3 — not a global patch, not in loader.py.
+        _hunyuan2_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "hunyuan3d-2")
+        if _hunyuan2_root not in sys.path:
+            sys.path.insert(0, _hunyuan2_root)
         from hy3dgen.texgen.pipelines import Hunyuan3DPaintPipeline
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)

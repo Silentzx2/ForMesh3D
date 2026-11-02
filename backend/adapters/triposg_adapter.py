@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -52,6 +53,12 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
         self._rmbg: Any = None
 
     def _load_model(self) -> Any:
+        # Make the vendored TripoSG source importable in the worker process,
+        # which only has backend/ on sys.path. Model-specific source path setup
+        # per TASKS.md §3.3 — not a global patch, not in loader.py.
+        _triposg_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "TripoSG")
+        if _triposg_root not in sys.path:
+            sys.path.insert(0, _triposg_root)
         from triposg.pipelines.pipeline_triposg import TripoSGPipeline
         from briarmbg import BriaRMBG
 

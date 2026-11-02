@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict
@@ -54,6 +55,12 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
         self._pipeline: Any = None
 
     def _load_model(self) -> Any:
+        # Make the vendored TaoFlowForge source importable in the worker process,
+        # which only has backend/ on sys.path. Model-specific source path setup
+        # per TASKS.md §3.3 — not a global patch, not in loader.py.
+        _tao_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Taobao3D" / "TaoFlowForge")
+        if _tao_root not in sys.path:
+            sys.path.insert(0, _tao_root)
         from taoflowforge.pipeline import TaoFlowForgePipeline
         from taoflowforge.config import (
             InferenceConfig,

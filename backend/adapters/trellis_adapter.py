@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -58,6 +59,12 @@ class _TrellisBaseAdapter(BaseModel):
         self._pipeline: Any = None
 
     def _load_model(self) -> Any:
+        # Make the vendored TRELLIS source importable in the worker subprocess,
+        # which only has backend/ on sys.path. Model-specific source path setup
+        # per TASKS.md §3.3 — not a global patch, not in loader.py.
+        _trellis_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "TRELLIS")
+        if _trellis_root not in sys.path:
+            sys.path.insert(0, _trellis_root)
         from trellis.pipelines.trellis_image_to_3d import TrellisImageTo3DPipeline
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
