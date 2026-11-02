@@ -3525,9 +3525,16 @@ class MultiprocessModelScheduler:
                                 # If worker experienced a fatal CUDA error or crashed, destroy it to release GPU state
                                 if not success and isinstance(result, dict):
                                     err_str = str(result.get("error", "")).lower()
-                                    if any(kw in err_str for kw in ["out of memory", "cuda error", "illegal memory access", "all cuda-capable devices are busy"]):
+                                    if any(kw in err_str for kw in [
+                                        "out of memory",
+                                        "cuda error",
+                                        "illegal memory access",
+                                        "all cuda-capable devices are busy",
+                                        "mesh extraction returned no output",
+                                        "diso dual-marching-cubes",
+                                    ]):
                                         logger.warning(
-                                            f"Worker {worker_id} encountered fatal CUDA error; destroying worker to release resources: {err_str}"
+                                            f"Worker {worker_id} encountered fatal inference error; destroying worker to release resources: {err_str}"
                                         )
                                         if self.main_event_loop:
                                             self.main_event_loop.call_soon_threadsafe(
