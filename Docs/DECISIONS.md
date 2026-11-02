@@ -42,9 +42,9 @@
 3. CPU mode keeps: frontend + backend API, post-processing tools, quality pipeline, ARDY (optional via `--cpu-extras --with-thirdparty`), tests.
 4. `--cpu` / `--gpu` flags force the mode; `--with-thirdparty` initializes third-party submodules even in CPU mode; `--update-thirdparty` enables `--remote --merge` (opt-in only).
 5. `REQUIRE_GPU=1` combined with CPU-mode resolution aborts setup with a non-zero exit.
-6. Backend `requirements.txt` splits into `requirements-core.txt` (CPU-safe) and `requirements-models.txt` (GPU-only ML packages); `requirements-core.txt` alone is installed in CPU mode.
+6. Backend `requirements.txt` is the CPU-safe core (installed in CPU mode) and `requirements-models.txt` adds GPU-only ML packages in CUDA mode.
 7. In CUDA mode, `install.sh` checks for an NVIDIA GPU before installing `requirements-models.txt`. If no GPU is found, the user is prompted to continue core-only or abort.
-8. Model and compiled-extension dependencies are installed only through the dependency paths present in `backend/requirements-core.txt`, `backend/requirements-models.txt`, `backend/scripts/install.sh`, or the relevant upstream model instructions. There is no separate missing-dependency catalogue; inspect the installer and the individual source directory before assuming a dependency is installed.
+8. Model and compiled-extension dependencies are installed only through the dependency paths present in `backend/requirements.txt`, `backend/requirements-models.txt`, `backend/scripts/install.sh`, or the relevant upstream model instructions. There is no separate missing-dependency catalogue; inspect the installer and the individual source directory before assuming a dependency is installed.
 
 **Consequences:**
 - Setup completes on headless/CPU-only hosts without CUDA wheels or model source.

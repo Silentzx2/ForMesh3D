@@ -342,7 +342,7 @@ backend/storage/models/meshes/<asset_name>_<job_id>/
 - **Python**: Python 3.10 via Conda (`conda create -n 3daigc-api python=3.10`).
 
 
-The shared runtime has core and model-specific dependency files: `backend/requirements-core.txt` and `backend/requirements-models.txt`. Use `bash scripts/setup.sh` and follow the [ThirdParty source guide](backend/thirdparty/README.md) plus the exact model directory's upstream requirements. A generic installation does not make every model package importable or guarantee that every compiled extension is available.
+The shared runtime has core dependency file `backend/requirements.txt` and the model-specific `backend/requirements-models.txt` (GPU-only ML packages). Use `bash scripts/setup.sh` and follow the [ThirdParty source guide](backend/thirdparty/README.md) plus the exact model directory's upstream requirements. A generic installation does not make every model package importable or guarantee that every compiled extension is available.
 
 ### 1. Clone & Frontend Setup
 

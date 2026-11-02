@@ -6,6 +6,10 @@ pydantic>=2.10.0
 pydantic-settings>=2.1.0
 orjson>=3.9.0
 
+# fastapi>=0.109.0 imports starlette._exception_handler; pin a compatible
+# starlette so the resolver does not silently pull an incompatible release.
+starlette>=0.36.3,<0.37.0
+
 httpx==0.25.2
 python-multipart==0.0.31
 
@@ -36,6 +40,9 @@ flake8==6.1.0
 mypy==1.7.1
 
 structlog==23.2.0
+
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.5.0
 
 gunicorn==22.0.0
 redis==5.0.1

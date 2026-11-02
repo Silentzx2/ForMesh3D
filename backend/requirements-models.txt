@@ -4,10 +4,10 @@
 # required by model adapters (TRELLIS, Hunyuan3D, TripoSG, Unique3D, Pixal3D,
 # UniRig, PartUV, FastMesh, ARDY, TaoFlowForge, Hi3D, Paint3D).
 #
-# Version policy: only packages NOT already in requirements-core.txt go here.
+# Version policy: only packages NOT already in requirements.txt go here.
 # Shared packages (numpy, scipy, trimesh, pillow, fastapi, uvicorn, pydantic,
 # opencv-python-headless, scikit-image, imageio, omegaconf, pyyaml, etc.) are
-# owned by requirements-core.txt — do NOT duplicate them here. Conflicting
+# owned by requirements.txt — do NOT duplicate them here. Conflicting
 # model-version requests are noted in comments and resolved per-model in
 # install.sh instead of overriding core.
 #
