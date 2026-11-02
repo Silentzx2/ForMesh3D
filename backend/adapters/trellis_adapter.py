@@ -147,10 +147,17 @@ class _TrellisBaseAdapter(BaseModel):
         if mesh is None:
             return {"success": False, "error": "TRELLIS produced no mesh"}
 
+        import trimesh
         import tempfile
 
         out = Path(tempfile.mkdtemp()) / f"trellis_{seed}.glb"
-        mesh.export(str(out))
+        # MeshExtractResult has vertices/faces as torch tensors, no .export() method
+        tmesh = trimesh.Trimesh(
+            vertices=mesh.vertices.cpu().numpy(),
+            faces=mesh.faces.cpu().numpy(),
+            process=False,
+        )
+        tmesh.export(str(out))
 
         return {
             "success": True,

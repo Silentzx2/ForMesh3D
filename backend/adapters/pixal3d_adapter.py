@@ -63,6 +63,30 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading Pixal3D pipeline from %s", weights_dir)
         pipeline = Pixal3DImageTo3DPipeline.from_pretrained(str(weights_dir))
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
+        dtype = torch.float16 if torch is not None and torch.cuda.is_available() else torch.float32
+        pipeline.to(device, dtype)
+        # Pixal3D's image_cond_model_* attributes must be loaded externally
+        # (DinoV3ProjFeatureExtractor instances). Load them from HF if available.
+        try:
+            from pixal3d.models import DinoV3ProjFeatureExtractor
+            pipeline.image_cond_model_ss = DinoV3ProjFeatureExtractor.from_pretrained(
+                "facebook/dinov3-vitl16-pretrain-lvd1689m"
+            ).to(device, dtype)
+            pipeline.image_cond_model_shape_512 = DinoV3ProjFeatureExtractor.from_pretrained(
+                "facebook/dinov3-vitl16-pretrain-lvd1689m"
+            ).to(device, dtype)
+            pipeline.image_cond_model_shape_1024 = DinoV3ProjFeatureExtractor.from_pretrained(
+                "facebook/dinov3-vitl16-pretrain-lvd1689m"
+            ).to(device, dtype)
+            pipeline.image_cond_model_tex_1024 = DinoV3ProjFeatureExtractor.from_pretrained(
+                "facebook/dinov3-vitl16-pretrain-lvd1689m"
+            ).to(device, dtype)
+        except Exception as exc:  # pragma: no cover - optional cond models
+            logger.warning(
+                "Pixal3D image_cond_model_* not loaded: %s; pipeline.run() "
+                "will fail unless these are set externally.", exc
+            )
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline
@@ -88,6 +112,7 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
         image = Image.open(image_path).convert("RGB")
 
         # Camera angle estimate matching the official app.py flow.
+        width = image.size[0]
         camera_angle_x = 2 * math.atan(width / 32.0)
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()

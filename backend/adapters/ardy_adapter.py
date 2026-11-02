@@ -53,12 +53,19 @@ class ArdyMotionGenerationAdapter(BaseModel):
     def _load_model(self) -> Any:
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading ARDY model from %s", weights_dir)
+        # Make the vendored ARDY source importable in the worker process,
+        # which only has backend/ on sys.path. Model-specific source path setup
+        # per TASKS.md §3.3 — not a global patch, not in loader.py.
+        _ardy_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "ardy")
+        if _ardy_root not in sys.path:
+            sys.path.insert(0, _ardy_root)
         from ardy.model import load_model
 
         model = load_model(
             "ARDY-Core-RP-20FPS-Horizon40",
             device="cpu",
             checkpoints_dir=str(weights_dir),
+            text_encoder=False,  # avoid HF download for text encoder
         )
         self._model = model
         self.model = model
@@ -98,12 +105,18 @@ class ArdyMotionGenerationAdapter(BaseModel):
             lengths = torch.tensor([num_frames], device=device)
             pad_mask = length_to_mask(lengths)
             first_heading_angle = torch.zeros(1, device=device)
+            # motion_mask: all ones (no joints masked out), observed_motion: zeros (no conditioning)
+            motion_mask = torch.ones(1, num_frames, model.motion_rep.n_joints * 3, device=device)
+            observed_motion = torch.zeros(1, num_frames, model.motion_rep.n_joints * 3, device=device)
+            num_denoising_steps = 50
             motion = model(
                 texts,
                 num_frames,
-                num_denoising_steps=None,
+                num_denoising_steps=num_denoising_steps,
                 pad_mask=pad_mask,
                 first_heading_angle=first_heading_angle,
+                motion_mask=motion_mask,
+                observed_motion=observed_motion,
                 cfg_weight=2.0,
             )
             output = model.motion_rep.inverse(motion, is_normalized=True)

@@ -62,9 +62,23 @@ class Hunyuan3DV21ImageToRawMeshAdapter(BaseModel):
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading Hunyuan3D-2.1 legacy pipeline from %s", weights_dir)
+        weights_dir_path = Path(weights_dir)
+        if not (weights_dir_path / "config.json").is_file():
+            weights_dir_path.mkdir(parents=True, exist_ok=True)
+            logger.info(
+                "Hunyuan3D-2.1 legacy weights not found locally; downloading all checkpoints "
+                "from HuggingFace Hub tencent/Hunyuan3D-2.1..."
+            )
+            from huggingface_hub import snapshot_download
+
+            snapshot_download(
+                repo_id="tencent/Hunyuan3D-2.1",
+                local_dir=str(weights_dir_path),
+            )
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
         pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-            str(weights_dir),
-            device=self.device or "cuda",
+            str(weights_dir_path),
+            device=device,
         )
         self._pipeline = pipeline
         self.model = pipeline
@@ -85,6 +99,13 @@ class Hunyuan3DV21ImageToRawMeshAdapter(BaseModel):
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
 
+        import trimesh
+
+        generator = None
+        if torch is not None:
+            generator = torch.Generator(device=device if 'device' in dir() else "cpu")
+            generator.manual_seed(seed)
+
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
             outputs = pipeline(
@@ -94,9 +115,10 @@ class Hunyuan3DV21ImageToRawMeshAdapter(BaseModel):
                 octree_resolution=1300,
                 num_chunks=80000,
                 output_type="trimesh",
+                generator=generator,
             )
 
-        meshes = outputs[0] if isinstance(outputs, list) and outputs else []
+        meshes = outputs if isinstance(outputs, list) else [outputs]
         if not meshes:
             return {"success": False, "error": "Hunyuan3D-2.1 legacy produced no mesh"}
 
@@ -142,6 +164,34 @@ class Hunyuan3DV21ImageMeshPaintingAdapter(Hunyuan3DV21ImageToRawMeshAdapter):
 
     MODEL_KEY = "tencent/Hunyuan3D-2.1"
     FEATURE_TYPE = "image_mesh_painting"
+
+    def _load_model(self) -> Any:
+        # Paint uses the texgen pipeline, not the shape pipeline.
+        _hunyuan2_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "hunyuan3d-2")
+        if _hunyuan2_root not in sys.path:
+            sys.path.insert(0, _hunyuan2_root)
+        from hy3dgen.texgen.pipelines import Hunyuan3DPaintPipeline
+
+        weights_dir = get_model_weights_dir(self.MODEL_KEY)
+        logger.info("Loading Hunyuan3D-2.1 legacy paint pipeline from %s", weights_dir)
+        weights_dir_path = Path(weights_dir)
+        if not (weights_dir_path / "config.json").is_file():
+            weights_dir_path.mkdir(parents=True, exist_ok=True)
+            logger.info(
+                "Hunyuan3D-2.1 paint weights not found locally; downloading all checkpoints "
+                "from HuggingFace Hub tencent/Hunyuan3D-2.1..."
+            )
+            from huggingface_hub import snapshot_download
+
+            snapshot_download(
+                repo_id="tencent/Hunyuan3D-2.1",
+                local_dir=str(weights_dir_path),
+            )
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
+        pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(weights_dir_path))
+        self._pipeline = pipeline
+        self.model = pipeline
+        return pipeline
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         pipeline = self._pipeline

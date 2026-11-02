@@ -22,6 +22,7 @@ except ImportError:  # pragma: no cover - torch optional in CPU-only environment
 
 from backend.core.models.base import BaseModel, ModelStatus
 from backend.loader import get_model_weights_dir
+from huggingface_hub import snapshot_download
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,35 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading TRELLIS.2 pipeline from %s", weights_dir)
-        pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(weights_dir))
+        weights_dir_path = Path(weights_dir)
+        # weights download to nested TRELLIS.2-4B/ subfolder per download_models.sh
+        alt_weights_dir = weights_dir_path / "TRELLIS.2-4B"
+
+        def _has_pipeline(d: Path) -> bool:
+            return (d / "pipeline.json").is_file()
+
+        if not _has_pipeline(weights_dir_path) and not _has_pipeline(alt_weights_dir):
+            weights_dir_path.mkdir(parents=True, exist_ok=True)
+            logger.info(
+                "TRELLIS.2 weights not found locally; downloading all checkpoints "
+                "from HuggingFace Hub microsoft/TRELLIS.2-4B..."
+            )
+            from huggingface_hub import snapshot_download
+
+            snapshot_download(
+                repo_id="microsoft/TRELLIS.2-4B",
+                local_dir=str(weights_dir_path),
+            )
+            pipeline_path = weights_dir_path
+        elif _has_pipeline(alt_weights_dir):
+            pipeline_path = alt_weights_dir
+        else:
+            pipeline_path = weights_dir_path
+
+        pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(pipeline_path))
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
+        dtype = torch.float16 if torch is not None and torch.cuda.is_available() else torch.float32
+        pipeline.to(device, dtype)
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline
@@ -102,9 +131,21 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         mesh = mesh_list[0]
 
         import tempfile
+        import trimesh
+        from o_voxel.postprocess import to_glb
 
         out = Path(tempfile.mkdtemp()) / f"trellis2_{seed}.glb"
-        mesh.export(str(out))
+        # MeshWithVoxel has no .export() method; use o_voxel.postprocess.to_glb()
+        glb_bytes = to_glb(
+            vertices=mesh.vertices,
+            faces=mesh.faces,
+            attr_volume=mesh.attrs,
+            coords=mesh.coords,
+            attr_layout=mesh.layout,
+            voxel_size=mesh.voxel_size,
+        )
+        with open(str(out), "wb") as f:
+            f.write(glb_bytes)
 
         return {
             "success": True,

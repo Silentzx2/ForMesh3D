@@ -81,7 +81,7 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
             image_size=512,
             output_dir=str(Path(tempfile.gettempdir()) / "taoflowforge"),
         )
-        pipeline = TaoFlowForgePipeline.from_config(config, device=self.device or "cuda")
+        pipeline = TaoFlowForgePipeline.from_config(config, device=f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu")
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline

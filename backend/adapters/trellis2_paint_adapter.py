@@ -62,6 +62,9 @@ class Trellis2ImageMeshPaintingAdapter(BaseModel):
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading TRELLIS.2 texturing pipeline from %s", weights_dir)
         pipeline = Trellis2TexturingPipeline.from_pretrained(str(weights_dir))
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
+        dtype = torch.float16 if torch is not None and torch.cuda.is_available() else torch.float32
+        pipeline.to(device, dtype)
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline
@@ -92,7 +95,7 @@ class Trellis2ImageMeshPaintingAdapter(BaseModel):
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
-            textured = pipeline(
+            textured = pipeline.run(
                 mesh=mesh,
                 image=image,
                 seed=seed,

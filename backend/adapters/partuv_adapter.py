@@ -52,6 +52,12 @@ class PartUVUnwrappingAdapter(BaseModel):
     def _load_model(self) -> Any:
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading PartUV from %s", weights_dir)
+        # Make the vendored PartUV source importable in the worker process,
+        # which only has backend/ on sys.path. Model-specific source path setup
+        # per TASKS.md §3.3 — not a global patch, not in loader.py.
+        _partuv_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "PartUV")
+        if _partuv_root not in sys.path:
+            sys.path.insert(0, _partuv_root)
         # The compiled C++ extension must be importable; fall back gracefully.
         try:
             from partuv import _core  # type: ignore
@@ -87,22 +93,19 @@ class PartUVUnwrappingAdapter(BaseModel):
         ctx = contextlib.nullcontext()
         with ctx:
             try:
-                result = self._preprocess(
-                    mesh_path,
-                    distortion_threshold=distortion_threshold,
-                    save_individual_parts=False,
-                )
+                result = self._preprocess(mesh_path)
             except TypeError:
-                # Fall back to a minimal call if the signature differs.
                 result = self._preprocess(mesh_path)
 
         import tempfile
 
         out = Path(tempfile.mkdtemp()) / f"partuv_{seed}.obj"
-        if hasattr(result, "export"):
-            result.export(str(out))
-        elif isinstance(result, trimesh.Trimesh):
-            result.export(str(out))
+        # preprocess returns a 4-tuple: (mesh, binary_file_path, tree_dict, preprocess_times)
+        mesh_result = result[0] if isinstance(result, tuple) else result
+        if hasattr(mesh_result, "export"):
+            mesh_result.export(str(out))
+        elif isinstance(mesh_result, trimesh.Trimesh):
+            mesh_result.export(str(out))
         else:
             return {"success": False, "error": "PartUV produced no exportable mesh"}
 

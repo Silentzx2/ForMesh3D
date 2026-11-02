@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -51,15 +52,35 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
         self._pipeline: Any = None
 
     def _load_model(self) -> Any:
+        # Make the vendored hunyuan3d-2 source importable in the worker process,
+        # which only has backend/ on sys.path. Model-specific source path setup
+        # per TASKS.md §3.3 — not a global patch, not in loader.py.
+        _hunyuan2_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Hunyuan3D-2.1")
+        if _hunyuan2_root not in sys.path:
+            sys.path.insert(0, _hunyuan2_root)
         from hy3dshape.hy3dshape.pipelines import (
             Hunyuan3DDiTFlowMatchingPipeline,
         )
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading Hunyuan3D-2.1 Shape pipeline from %s", weights_dir)
+        weights_dir_path = Path(weights_dir)
+        if not (weights_dir_path / "config.json").is_file():
+            weights_dir_path.mkdir(parents=True, exist_ok=True)
+            logger.info(
+                "Hunyuan3D-2.1 Shape weights not found locally; downloading all checkpoints "
+                "from HuggingFace Hub tencent/Hunyuan3D-2.1..."
+            )
+            from huggingface_hub import snapshot_download
+
+            snapshot_download(
+                repo_id="tencent/Hunyuan3D-2.1",
+                local_dir=str(weights_dir_path),
+            )
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
         pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-            str(weights_dir),
-            device=self.device or "cuda",
+            str(weights_dir_path),
+            device=device,
         )
         self._pipeline = pipeline
         self.model = pipeline

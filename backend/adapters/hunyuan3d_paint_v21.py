@@ -62,7 +62,26 @@ class Hunyuan3DPaintV21ImageMeshPaintingAdapter(BaseModel):
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading Hunyuan3D-Paint pipeline from %s", weights_dir)
-        pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(weights_dir))
+        weights_dir_path = Path(weights_dir)
+        if not (weights_dir_path / "config.json").is_file():
+            weights_dir_path.mkdir(parents=True, exist_ok=True)
+            logger.info(
+                "Hunyuan3D-Paint weights not found locally; downloading all checkpoints "
+                "from HuggingFace Hub tencent/Hunyuan3D-2.1..."
+            )
+            from huggingface_hub import snapshot_download
+
+            snapshot_download(
+                repo_id="tencent/Hunyuan3D-2.1",
+                local_dir=str(weights_dir_path),
+            )
+        try:
+            pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(weights_dir_path))
+        except Exception as exc:
+            logger.error(
+                "Hunyuan3D-Paint failed to load (CUDA required): %s", exc
+            )
+            raise
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline

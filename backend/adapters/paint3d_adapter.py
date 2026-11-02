@@ -52,27 +52,32 @@ class Paint3DAdapter(BaseModel):
 
     def _load_model(self) -> Any:
         # Paint3D does not expose a single importable inference class; it runs
-        # its stage-1/stage-2 pipelines as subprocesses with config files. We
-        # verify the ThirdParty source is importable and store the weights dir
-        # so the subprocess can resolve checkpoints relative to it.
+        # its stage-1/stage-2 pipelines as subprocesses with config files. Scripts
+        # and configs live under backend/thirdparty/Paint3D (source root), while
+        # weights live under backend/pretrained/Paint3D (weights dir).
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
-        pipeline1 = weights_dir / "pipeline_paint3d_stage1.py"
-        pipeline2 = weights_dir / "pipeline_paint3d_stage2.py"
-        if not pipeline1.is_file() or not pipeline2.is_file():
+        # Paint3D source root for pipeline scripts and configs
+        _paint3d_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Paint3D")
+        stage1 = Path(_paint3d_root) / "pipeline_paint3d_stage1.py"
+        stage2 = Path(_paint3d_root) / "pipeline_paint3d_stage2.py"
+        if not stage1.is_file() or not stage2.is_file():
             raise FileNotFoundError(
-                f"Paint3D pipeline scripts not found under {weights_dir}"
+                f"Paint3D pipeline scripts not found under {_paint3d_root}"
             )
-        logger.info("Paint3D pipelines resolved at %s", weights_dir)
-        self.model = weights_dir
-        return weights_dir
+        logger.info("Paint3D pipelines resolved at %s", _paint3d_root)
+        self.model = {"weights_dir": str(weights_dir), "paint3d_root": str(_paint3d_root)}
+        return self.model
 
     def _unload_model(self) -> None:
         self.model = None
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        weights_dir = self.model
-        if weights_dir is None:
+        paint = self.model
+        if paint is None:
             return {"success": False, "error": "Paint3D not loaded"}
+
+        weights_dir = Path(paint["weights_dir"])
+        paint3d_root = Path(paint["paint3d_root"])
 
         mesh_path = inputs.get("mesh_path")
         image_path = inputs.get("image_path")
@@ -88,15 +93,15 @@ class Paint3DAdapter(BaseModel):
         ctx = contextlib.nullcontext()
         with ctx:
             # Stage 1: coarse texture generation.
-            stage1 = weights_dir / "pipeline_paint3d_stage1.py"
+            stage1 = paint3d_root / "pipeline_paint3d_stage1.py"
             out1 = workdir / "stage1"
             cmd = [
                 "python",
                 str(stage1),
                 "--sd_config",
-                str(weights_dir / "controlnet" / "config" / "depth_based_inpaint_template.yaml"),
+                str(paint3d_root / "controlnet" / "config" / "depth_based_inpaint_template.yaml"),
                 "--render_config",
-                str(weights_dir / "paint3d" / "config" / "train_config_paint3d.py"),
+                str(paint3d_root / "paint3d" / "config" / "train_config_paint3d.py"),
                 "--mesh_path",
                 str(mesh_path),
                 "--outdir",
@@ -107,7 +112,7 @@ class Paint3DAdapter(BaseModel):
             if image_path:
                 cmd += ["--ip_adapter_image_path", str(image_path)]
             logger.info("Running Paint3D stage 1")
-            proc = subprocess.run(cmd, cwd=str(weights_dir), capture_output=True, text=True)
+            proc = subprocess.run(cmd, cwd=str(paint3d_root), capture_output=True, text=True)
             if proc.returncode != 0:
                 logger.error("Paint3D stage 1 failed: %s", proc.stderr[-2000:])
                 return {
@@ -116,15 +121,15 @@ class Paint3DAdapter(BaseModel):
                 }
 
             # Stage 2: UV refinement.
-            stage2 = weights_dir / "pipeline_paint3d_stage2.py"
+            stage2 = paint3d_root / "pipeline_paint3d_stage2.py"
             out2 = workdir / "stage2"
             cmd2 = [
                 "python",
                 str(stage2),
                 "--sd_config",
-                str(weights_dir / "controlnet" / "config" / "UV_based_inpaint_template.yaml"),
+                str(paint3d_root / "controlnet" / "config" / "UV_based_inpaint_template.yaml"),
                 "--render_config",
-                str(weights_dir / "paint3d" / "config" / "train_config_paint3d.py"),
+                str(paint3d_root / "paint3d" / "config" / "train_config_paint3d.py"),
                 "--mesh_path",
                 str(mesh_path),
                 "--outdir",
@@ -133,7 +138,7 @@ class Paint3DAdapter(BaseModel):
             if prompt:
                 cmd2 += ["--prompt", prompt]
             logger.info("Running Paint3D stage 2")
-            proc2 = subprocess.run(cmd2, cwd=str(weights_dir), capture_output=True, text=True)
+            proc2 = subprocess.run(cmd2, cwd=str(paint3d_root), capture_output=True, text=True)
             if proc2.returncode != 0:
                 logger.error("Paint3D stage 2 failed: %s", proc2.stderr[-2000:])
                 return {
@@ -141,11 +146,16 @@ class Paint3DAdapter(BaseModel):
                     "error": f"Paint3D stage 2 failed: {proc2.stderr[-500:]}",
                 }
 
-        # Locate the produced albedo texture and re-export the mesh with it.
+        # Locate the produced albedo texture and apply it to the mesh before export.
         albedo = next(out2.rglob("albedo.png"), None) or next(out2.rglob("*.png"), None)
         import trimesh
 
         mesh = trimesh.load(mesh_path, process=False)
+        if albedo is not None and albedo.is_file():
+            import PIL.Image as PILImage
+
+            texture = PILImage.open(str(albedo)).convert("RGB")
+            mesh.visual = trimesh.visual.TextureVisuals(image=texture)
         out = Path(tempfile.mkdtemp()) / f"paint3d_{seed}.glb"
         mesh.export(str(out))
 

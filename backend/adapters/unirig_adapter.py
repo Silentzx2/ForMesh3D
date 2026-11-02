@@ -55,11 +55,9 @@ class UniRigAdapter(BaseModel):
         # UniRig is a lightning training system; inference uses get_system +
         # trainer.predict. Import the thirdparty package so its `src/` modules
         # resolve, then build the system from its config.
-        thirdparty_dir = Path(weights_dir).resolve()
-        import sys
-
-        if str(thirdparty_dir) not in sys.path:
-            sys.path.insert(0, str(thirdparty_dir))
+        _unirig_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "UniRig")
+        if _unirig_root not in sys.path:
+            sys.path.insert(0, _unirig_root)
         from src.system.parse import get_system
 
         system = get_system(
@@ -68,6 +66,7 @@ class UniRigAdapter(BaseModel):
             loss_config={},
             scheduler_config={},
             steps_per_epoch=1,
+            __target__="ar",  # required by thirdparty parse.py
         )
         self._system = system
         self.model = system

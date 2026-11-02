@@ -63,6 +63,9 @@ class Hi3DImageToRawMeshAdapter(BaseModel):
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading Hi3D pipeline from %s", weights_dir)
         pipeline = Sparc3DPipeline.from_pretrained(str(weights_dir))
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
+        dtype = torch.float16 if torch is not None and torch.cuda.is_available() else torch.float32
+        pipeline.to(device, dtype)
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline

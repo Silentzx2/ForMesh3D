@@ -53,18 +53,19 @@ class FastMeshRetopologyAdapter(BaseModel):
     def _load_model(self) -> Any:
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading FastMesh model from %s", weights_dir)
-        thirdparty_dir = Path(weights_dir).resolve().parent
-        import sys
-
-        if str(thirdparty_dir) not in sys.path:
-            sys.path.insert(0, str(thirdparty_dir))
+        # Make the vendored FastMesh source importable in the worker process,
+        # which only has backend/ on sys.path. Model-specific source path setup
+        # per TASKS.md §3.3 — not a global patch, not in loader.py.
+        _fastmesh_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "FastMesh")
+        if _fastmesh_root not in sys.path:
+            sys.path.insert(0, _fastmesh_root)
         from models import MODELS
 
         variant = self.MODEL_KEY.split("-")[-1]  # "V1K" / "V4K"
-        model = MODELS["fastmesh"].from_pretrained(
-            f"WopperSet/FastMesh-{variant}"
-        )
+        model = MODELS["MeshGen"].from_pretrained(str(weights_dir))
         model.eval()
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
+        model.to(device)
         self._model = model
         self.model = model
         return model
