@@ -100,7 +100,7 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
         guidance = float(inputs.get("guidance_scale", 7.0))
         faces = int(inputs.get("faces", -1))
 
-        from triposg.scripts.inference_triposg import run_triposg
+        from scripts.inference_triposg import run_triposg
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:

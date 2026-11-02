@@ -60,6 +60,17 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
         logger.info("Loading Unique3D model zoo from %s", unique3d_root)
         from app.all_models import model_zoo
 
+        # Unique3D's all_models.py references "./ckpt/..." relative paths, so the
+        # ckpt dir must exist under thirdparty/Unique3D. Link it to the downloaded
+        # weights under pretrained/Unique3D if the runtime dir doesn't have it.
+        weights_dir = Path(get_model_weights_dir(self.MODEL_KEY))
+        ckpt_link = Path(unique3d_root) / "ckpt"
+        if not ckpt_link.exists() and (weights_dir / "ckpt").exists():
+            try:
+                ckpt_link.symlink_to(weights_dir / "ckpt", target_is_directory=True)
+            except OSError:  # read-only fs or race — fall back to real copy dir
+                pass
+
         model_zoo.init_models()
         self._zoo = model_zoo
         self.model = model_zoo

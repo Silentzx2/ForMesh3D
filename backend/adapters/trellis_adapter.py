@@ -83,10 +83,9 @@ class _TrellisBaseAdapter(BaseModel):
                 "HuggingFace Hub microsoft/TRELLIS..."
             )
             hf_hub_download(
-                repo_id="microsoft/TRELLIS",
+                repo_id="microsoft/TRELLIS.2-4B",
                 filename="pipeline.json",
                 local_dir=str(weights_dir_path),
-                local_dir_use_symlinks=False,
             )
 
         pipeline = TrellisImageTo3DPipeline.from_pretrained(str(weights_dir))
