@@ -6,7 +6,7 @@ Wraps ``trellis2.pipelines.trellis2_image_to_3d.Trellis2ImageTo3DPipeline`` from
 caller-controlled; inference schedules (steps, guidance, cascade resolution,
 token budget) are adapter-owned and stripped by the scheduler.
 """
-
+# Status - debug
 from __future__ import annotations
 
 import contextlib
@@ -104,7 +104,7 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         if pipeline is None:
             return {"success": False, "error": "TRELLIS.2 pipeline not loaded"}
 
-        image_path = inputs.get("image_path")
+        image_path = inputs.get("image_path") or inputs.get("image")
         if not image_path or not Path(image_path).is_file():
             return {"success": False, "error": f"image not found: {image_path}"}
 

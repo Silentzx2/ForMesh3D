@@ -6,7 +6,7 @@ reference image *and* a coarse mesh, consistent with
 ``models.yaml`` (``supported_inputs: [image, mesh]``). Weights are resolved
 through ``backend.loader.get_model_weights_dir``.
 """
-
+# Status - debug
 from __future__ import annotations
 
 import contextlib
@@ -78,7 +78,7 @@ class Hi3DImageToRawMeshAdapter(BaseModel):
         if pipeline is None:
             return {"success": False, "error": "Hi3D pipeline not loaded"}
 
-        image_path = inputs.get("image_path")
+        image_path = inputs.get("image_path") or inputs.get("image")
         if not image_path or not Path(image_path).is_file():
             return {"success": False, "error": f"image not found: {image_path}"}
 

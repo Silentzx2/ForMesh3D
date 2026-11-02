@@ -6,7 +6,7 @@ Wraps ``hy3dshape.hy3dshape.pipelines.Hunyuan3DDiTFlowMatchingPipeline`` from
 ``backend.loader.get_model_weights_dir``. Inference schedules (steps, guidance,
 octree resolution, chunks) are adapter-owned and stripped by the scheduler.
 """
-
+# Status - debug
 from __future__ import annotations
 
 import contextlib
@@ -56,16 +56,14 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
         # which only has backend/ on sys.path. Model-specific source path setup
         # per TASKS.md §3.3 — not a global patch, not in loader.py.
         # Hunyuan3D-2.1 has a nested layout: Hunyuan3D-2.1/hy3dshape/hy3dshape/.
-        # Add both levels to sys.path with the inner hy3dshape/ first so that
-        # `import hy3dshape` resolves to the inner package (has __init__.py),
-        # making both `hy3dshape.hy3dshape.pipelines` and `hy3dshape.models`
-        # resolve correctly.
+        # The OUTER hy3dshape/ lacks __init__.py and is NOT a package.
+        # The INNER hy3dshape/hy3dshape/ IS the actual package.
+        # Add the inner package root to sys.path so `import hy3dshape` works.
         _hunyuan2_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Hunyuan3D-2.1")
-        _hunyuan2_pkg_root = str(Path(_hunyuan2_root) / "hy3dshape")
-        for _p in (_hunyuan2_pkg_root, _hunyuan2_root):
-            if _p not in sys.path:
-                sys.path.insert(0, _p)
-        from hy3dshape.hy3dshape.pipelines import (
+        _hunyuan2_pkg_root = str(Path(_hunyuan2_root) / "hy3dshape" / "hy3dshape")
+        if _hunyuan2_pkg_root not in sys.path:
+            sys.path.insert(0, _hunyuan2_pkg_root)
+        from hy3dshape.pipelines import (
             Hunyuan3DDiTFlowMatchingPipeline,
         )
 

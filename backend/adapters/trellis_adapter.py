@@ -6,7 +6,7 @@ Wraps ``trellis.pipelines.trellis_image_to_3d.TrellisImageTo3DPipeline`` from
 caller-controlled; inference schedules (steps, guidance, octree resolution,
 samplers) are adapter-owned and stripped by the scheduler before reaching here.
 """
-
+# Status - stable
 from __future__ import annotations
 
 import contextlib
@@ -137,7 +137,7 @@ class _TrellisBaseAdapter(BaseModel):
         if pipeline is None:
             return {"success": False, "error": "TRELLIS pipeline not loaded"}
 
-        image_path = inputs.get("image_path")
+        image_path = inputs.get("image_path") or inputs.get("image")
         if not image_path:
             return {"success": False, "error": "image_path is required"}
         if not Path(image_path).is_file():

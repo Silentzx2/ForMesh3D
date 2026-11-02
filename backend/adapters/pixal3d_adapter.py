@@ -5,7 +5,7 @@ Wraps ``pixal3d.pipelines.Pixal3DImageTo3DPipeline`` from
 ``backend/thirdparty/Pixal3D``. Pixel-aligned 3D generation from a single image
 with PBR textures. Weights resolved through ``backend.loader.get_model_weights_dir``.
 """
-
+# Status - debug
 from __future__ import annotations
 
 import contextlib
@@ -100,7 +100,7 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
         if pipeline is None:
             return {"success": False, "error": "Pixal3D pipeline not loaded"}
 
-        image_path = inputs.get("image_path")
+        image_path = inputs.get("image_path") or inputs.get("image")
         if not image_path or not Path(image_path).is_file():
             return {"success": False, "error": f"image not found: {image_path}"}
 

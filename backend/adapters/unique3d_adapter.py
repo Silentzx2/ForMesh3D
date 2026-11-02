@@ -5,7 +5,7 @@ Wraps ``app.all_models.model_zoo`` from ``backend/thirdparty/Unique3D``.
 High-quality single-image mesh generation. Weights resolved through
 ``backend.loader.get_model_weights_dir``.
 """
-
+# Status - debug
 from __future__ import annotations
 
 import contextlib
@@ -104,7 +104,7 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
         if zoo is None:
             return {"success": False, "error": "Unique3D model zoo not loaded"}
 
-        image_path = inputs.get("image_path")
+        image_path = inputs.get("image_path") or inputs.get("image")
         if not image_path or not Path(image_path).is_file():
             return {"success": False, "error": f"image not found: {image_path}"}
 
@@ -136,6 +136,13 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
                 "error": f"Invalid image for pipeline {image_path}: type={type(image).__name__}, value={image!r}",
             }
 
+        # Guard: ensure image is a valid PIL Image before passing to pipeline
+        if not hasattr(image, "mode") or not hasattr(image, "size"):
+            return {
+                "success": False,
+                "error": f"Image object missing required attributes (mode, size): {type(image).__name__}",
+            }
+
         logger.debug(
             f"DEBUG unique3d: image_path={image_path}, "
             f"image_type={type(image).__name__ if image is not None else 'NoneType'}, "
@@ -146,6 +153,12 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
+            # Final guard: ensure image is still a valid PIL Image
+            if image is None or not isinstance(image, Image.Image):
+                return {
+                    "success": False,
+                    "error": f"Image became invalid before pipeline call: type={type(image).__name__}, value={image!r}",
+                }
             # Official Unique3D inference: multiview diffusion then refinement.
             # ControlNet img2img pipeline requires prompt; pass empty string for
             # unconditional generation. Seed is passed via generator, not as a

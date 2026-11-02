@@ -5,7 +5,7 @@ from ``backend/thirdparty/Paint3D``. Coarse-to-fine UV texture generation
 conditioned on a mesh and optional text/image prompt. Weights resolved through
 ``backend.loader.get_model_weights_dir``.
 """
-
+# Status - debug
 from __future__ import annotations
 
 import contextlib
@@ -80,7 +80,7 @@ class Paint3DAdapter(BaseModel):
         paint3d_root = Path(paint["paint3d_root"])
 
         mesh_path = inputs.get("mesh_path")
-        image_path = inputs.get("image_path")
+        image_path = inputs.get("image_path") or inputs.get("image")
         prompt = inputs.get("text_prompt", "")
         if not mesh_path or not Path(mesh_path).is_file():
             return {"success": False, "error": f"mesh not found: {mesh_path}"}

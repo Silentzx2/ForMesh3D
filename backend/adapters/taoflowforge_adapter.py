@@ -8,7 +8,7 @@ native mesh generator (image -> mesh) whose CLI is
 ``backend.loader.get_model_weights_dir``. Disabled by default in
 ``models.yaml`` (``enabled: false``).
 """
-
+# Status - debug
 from __future__ import annotations
 
 import contextlib
@@ -95,7 +95,7 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
         if pipeline is None:
             return {"success": False, "error": "TaoFlowForge pipeline not loaded"}
 
-        image_path = inputs.get("image_path")
+        image_path = inputs.get("image_path") or inputs.get("image")
         if not image_path or not Path(image_path).is_file():
             return {"success": False, "error": f"image not found: {image_path}"}
 

@@ -6,7 +6,7 @@ through ``backend.loader.get_model_weights_dir``. Only seed + image identity are
 caller-controlled; inference schedules are adapter-owned and stripped by the
 scheduler. Background removal uses the official ``briaai/RMBG-1.4`` weights.
 """
-
+# Status - stable
 from __future__ import annotations
 
 import contextlib
@@ -91,7 +91,7 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
         if pipe is None or rmbg is None:
             return {"success": False, "error": "TripoSG pipeline not loaded"}
 
-        image_path = inputs.get("image_path")
+        image_path = inputs.get("image_path") or inputs.get("image")
         if not image_path or not Path(image_path).is_file():
             return {"success": False, "error": f"image not found: {image_path}"}
 

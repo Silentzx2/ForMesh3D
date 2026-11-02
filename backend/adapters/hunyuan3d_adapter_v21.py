@@ -6,7 +6,7 @@ Wraps ``hy3dgen.shapegen.pipelines.Hunyuan3DDiTFlowMatchingPipeline`` from
 adapter). Legacy aliases route here. Weights resolved through
 ``backend.loader.get_model_weights_dir``.
 """
-
+# Status - debug
 from __future__ import annotations
 
 import contextlib
@@ -93,7 +93,7 @@ class Hunyuan3DV21ImageToRawMeshAdapter(BaseModel):
         if pipeline is None:
             return {"success": False, "error": "Hunyuan3D-2.1 legacy pipeline not loaded"}
 
-        image_path = inputs.get("image_path")
+        image_path = inputs.get("image_path") or inputs.get("image")
         if not image_path or not Path(image_path).is_file():
             return {"success": False, "error": f"image not found: {image_path}"}
 
