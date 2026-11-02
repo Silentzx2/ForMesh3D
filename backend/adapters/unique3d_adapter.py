@@ -69,6 +69,24 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
         _prev_cwd = Path.cwd()
         try:
             os.chdir(str(weights_dir))
+
+            # Check if SD v1-5 base model exists locally to avoid redundant
+            # HF Hub download. load_common_sd15_pipe defaults to
+            # "runwayml/stable-diffusion-v1-5" which always downloads.
+            for _candidate in (
+                weights_dir,
+                weights_dir / "stable-diffusion-v1-5",
+                weights_dir / "sd-v1-5",
+                weights_dir / "v1-5",
+                weights_dir / "runwayml" / "stable-diffusion-v1-5",
+            ):
+                if _candidate.is_dir() and (_candidate / "model_index.json").is_file():
+                    model_zoo.base_model = str(_candidate)
+                    logger.info(
+                        f"Using local SD v1-5 base model: {_candidate}"
+                    )
+                    break
+
             model_zoo.init_models()
         finally:
             os.chdir(str(_prev_cwd))
@@ -112,10 +130,10 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
                 "error": f"Failed to open image {image_path}: {img_err}",
             }
 
-        if image is None:
+        if image is None or not isinstance(image, Image.Image):
             return {
                 "success": False,
-                "error": f"Image.open returned None for {image_path}",
+                "error": f"Invalid image for pipeline {image_path}: type={type(image).__name__}, value={image!r}",
             }
 
         logger.debug(
