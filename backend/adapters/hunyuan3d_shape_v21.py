@@ -61,6 +61,7 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
         # Add the inner package root to sys.path so `import hy3dshape` works.
         _hunyuan2_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Hunyuan3D-2.1")
         _hunyuan2_pkg_root = str(Path(_hunyuan2_root) / "hy3dshape" / "hy3dshape")
+        logger.info(f"Hunyuan3D-2.1: thirdparty root={_hunyuan2_root}, pkg_root={_hunyuan2_pkg_root}, exists={Path(_hunyuan2_pkg_root).exists()}")
         if _hunyuan2_pkg_root not in sys.path:
             sys.path.insert(0, _hunyuan2_pkg_root)
         from hy3dshape.pipelines import (
