@@ -69,6 +69,19 @@ class _TrellisBaseAdapter(BaseModel):
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading TRELLIS pipeline from %s", weights_dir)
+
+        # The vendored Pipeline.from_pretrained treats the path as a HuggingFace
+        # repo_id when pipeline.json is missing locally, which triggers
+        # confusing HF Hub 404/401 errors. Fail fast with a clear message.
+        pipeline_json = Path(weights_dir) / "pipeline.json"
+        if not pipeline_json.is_file():
+            raise RuntimeError(
+                f"TRELLIS weights not found at {weights_dir}: "
+                f"{pipeline_json} is missing. Run "
+                f"'bash backend/scripts/download_models.sh' to download TRELLIS "
+                f"checkpoints, or set MODEL_STORAGE_ROOT to the correct weights root."
+            )
+
         pipeline = TrellisImageTo3DPipeline.from_pretrained(str(weights_dir))
         self._pipeline = pipeline
         self.model = pipeline
