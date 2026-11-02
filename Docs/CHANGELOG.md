@@ -1,6 +1,16 @@
 # ForMesh3D Changelog
 
-## 2026-11-01 — Documentation, ThirdParty Guide & Backend CI Audit
+## 2026-11-02 — Adapter import, weight-download, and inference fixes
+
+- TRELLIS adapter: downloads full `microsoft/TRELLIS.2-4B` weights from HuggingFace Hub when local `pipeline.json` is absent (was downloading only `pipeline.json`, causing the vendored pipeline to corrupt the local path into a fake HF repo_id and 404); moves the pipeline to CUDA (`pipeline.to(device, dtype)`) so xformers memory-efficient attention works instead of failing on CPU float32; also checks `pretrained/TRELLIS/TRELLIS-image-large/` for v1 weights.
+- Unique3D adapter: `chdir`s to `pretrained/Unique3D/` before `model_zoo.init_models()` so `./ckpt/controlnet-tile` resolves against the weights dir, then restores CWD; thirdparty `sd_model_zoo.py` default `device_map` changed from `"auto"` to `"balanced"` (installed diffusers does not support `"auto"`).
+- TripoSG adapter: imports `run_triposg` from `scripts.inference_triposg` (scripts is a sibling dir, not `triposg.scripts` pkg); thirdparty `pipeline_triposg.py` filters `None` mesh entries from `diso` dual-marching-cubes output; `inference_triposg.py` raises a clear `RuntimeError` when diso returns no mesh (pre-Ampere/sm_75 CUDA incompatibility) instead of `AttributeError: 'NoneType' object has no attribute 'astype'`.
+- Both repos pushed: main `dev` and ThirdParty `fix/triposg-diso-cuda`; submodule pointer synced.
+- `Docs/MEMORY.md` integration-audit table: Third-party imports row marked FIXED.
+- `Docs/TASKS.md` implementation-audit note: model-source import setup marked resolved.
+- GPU inference, checkpoint download, and mesh-quality validation remain NOT RUN (no GPU/weights in this review environment).
+
+---
 
 - Added a detailed ThirdParty root README with source-directory inventory, an intended-architecture Mermaid diagram, recursive-submodule workflow, dependency boundaries, and per-model license guidance.
 - Audited current project documentation against the `dev` source tree; removed dead document/license links and corrected unsupported claims about adapter readiness, FastMesh V4K, generated-output rights, and current test coverage.
