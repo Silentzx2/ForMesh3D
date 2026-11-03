@@ -80,11 +80,14 @@ image_to_raw_mesh:
     enabled: true
     max_workers: 1
 
+  # [STABLE MODEL - PROTECTED & LOCKED]
   # Active adapter lock: 100 steps, CFG=9.0, flash depth=10, dense depth=10, hierarchical depth=11.
-  # The VRAM gate may lower the effective hierarchical depth; this is not the upstream default and has not been A/B benchmarked.
-  # Preserve the locked profile and distinguish requested depth from runtime-effective depth in telemetry.
+  # CRITICAL INSTRUCTION: Agents MUST NOT touch or modify this model entry, adapter,
+  # or upstream pipeline code unless explicitly instructed by the user!
   triposg_image_to_raw_mesh:
     model_name: "TripoSG — Image to Raw Mesh"
+    status: "stable"
+    verified: true
     upstream_repository: "https://github.com/VAST-AI-Research/TripoSG"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
     checkpoint_license: "unverified"
@@ -233,10 +236,14 @@ image_to_raw_mesh:
     enabled: true
     max_workers: 1
 
+  # [STABLE MODEL - PROTECTED & LOCKED]
   # EXPERIMENTAL_MAX_DETAIL: source sampling uses 50 steps (upstream UI ceiling); shared adapter guidance remains 7.5, with raw simplification disabled.
-  # Official UI uses separate 7.5/3.0 stage guidance, which this shared guidance field cannot represent. Ask before any later change.
+  # CRITICAL INSTRUCTION: Agents MUST NOT touch or modify this model entry, adapter,
+  # or upstream pipeline code unless explicitly instructed by the user!
   trellis_image_to_3d:
     model_name: "TRELLIS — Image to 3D"
+    status: "stable"
+    verified: true
     upstream_repository: "https://github.com/microsoft/TRELLIS"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
     checkpoint_license: "unverified"

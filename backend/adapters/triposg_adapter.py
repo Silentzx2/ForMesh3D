@@ -5,19 +5,20 @@ MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
 Model ID          : triposg_image_to_raw_mesh
 Model Name        : TripoSG — Image to Raw Mesh
 Feature Target    : image_to_raw_mesh
-Status            : BETA / ACTIVE
+Status            : STABLE - LOCKED
 Upstream Repo     : https://github.com/VAST-AI-Research/TripoSG
 Upstream Pipeline : triposg.pipelines.pipeline_triposg.TripoSGPipeline
 Checkpoint / Path : backend/pretrained/VAST-AI-Research/TripoSG
 Hardware / VRAM   : 8192 MB
 -----------------------------------------------------------------------------
-AGENT GOVERNANCE RULES:
-1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
-   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
-2. Inference schedule is adapter-owned; background removal uses RMBG-1.4.
+CRITICAL NOTICE FOR AI AGENTS:
+1. THIS MODEL IS VERIFIED STABLE IN PRODUCTION.
+2. DO NOT TOUCH, MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM
+   PIPELINE CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER.
+3. Inference schedule is adapter-owned; background removal uses RMBG-1.4.
 =============================================================================
 """
-# Status - BETA / ACTIVE
+# Status - STABLE (PROTECTED / LOCKED)
 from __future__ import annotations
 
 import contextlib

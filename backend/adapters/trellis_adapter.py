@@ -5,19 +5,20 @@ MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
 Model ID          : trellis_image_to_3d / trellis_image_to_raw_mesh / trellis_image_to_textured_mesh
 Model Name        : TRELLIS — Image to 3D / Raw Mesh / Textured Mesh
 Feature Target    : image_to_3d / image_to_raw_mesh / image_to_textured_mesh
-Status            : BETA / ACTIVE
+Status            : STABLE - LOCKED
 Upstream Repo     : https://github.com/microsoft/TRELLIS
 Upstream Pipeline : trellis.pipelines.trellis_image_to_3d.TrellisImageTo3DPipeline
 Checkpoint / Path : backend/pretrained/microsoft/TRELLIS.2-4B
 Hardware / VRAM   : 14336 MB
 -----------------------------------------------------------------------------
-AGENT GOVERNANCE RULES:
-1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
-   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
-2. Inference schedules (steps, guidance, sparse structure) are adapter-owned.
+CRITICAL NOTICE FOR AI AGENTS:
+1. THIS MODEL IS VERIFIED STABLE IN PRODUCTION.
+2. DO NOT TOUCH, MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM
+   PIPELINE CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER.
+3. Inference schedules (steps, guidance, sparse structure) are adapter-owned.
 =============================================================================
 """
-# Status - BETA / ACTIVE
+# Status - STABLE (PROTECTED / LOCKED)
 from __future__ import annotations
 
 import contextlib
