@@ -98,7 +98,7 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
             seed=DEFAULT_SEED,
             offload="auto",
             fill_holes=True,
-            image_size=512,
+            image_size=1024,
             output_dir=Path(tempfile.gettempdir()) / "taoflowforge",
         )
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None and torch and torch.cuda.is_available() else "cpu"
