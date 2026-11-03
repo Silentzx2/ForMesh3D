@@ -132,14 +132,17 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
-            # LOW_PREVIEW_PROFILE: pipeline_type="512", max_num_tokens=16384 for fast execution & low VRAM.
-            # TODO: Once TRELLIS.2 pipeline is confirmed fully stable on GPU, restore to original high-quality:
-            # pipeline_type="1024_cascade", max_num_tokens=49152 (or "1536_cascade")
+            # DEV_FAST_PROFILE: pipeline_type="512", steps=12, max_num_tokens=16384 for fast development testing.
+            # TODO: Once testing is complete and verified stable, restore original high-quality settings:
+            # pipeline_type="1024_cascade", max_num_tokens=49152 (or "1536_cascade") and remove steps overrides.
             meshes = pipeline.run(
                 image,
                 seed=seed,
                 pipeline_type="512",
                 max_num_tokens=16384,
+                sparse_structure_sampler_params={"steps": 12},
+                shape_slat_sampler_params={"steps": 12},
+                tex_slat_sampler_params={"steps": 12},
             )
 
         mesh_list = meshes if isinstance(meshes, list) else [meshes]
