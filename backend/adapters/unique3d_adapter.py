@@ -108,44 +108,18 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
             # Unique3D resolves its ckpt/, config and RealESRGAN paths relative
             # to CWD, and its model modules load checkpoints during import.
             os.chdir(str(weights_dir))
-            from app.all_models import model_zoo
-
-            # Prefer a locally downloaded SD 1.5 checkpoint over a Hub lookup.
-            candidate_paths = [
-                weights_dir,
-                weights_dir / "stable-diffusion-v1-5",
-                weights_dir / "sd-v1-5",
-                weights_dir / "v1-5",
-                weights_dir / "runwayml" / "stable-diffusion-v1-5",
-                weights_dir.parent / "runwayml" / "stable-diffusion-v1-5",
-                weights_dir.parent / "stable-diffusion-v1-5",
-            ]
-            hf_cache_dir = Path.home() / ".cache" / "huggingface" / "hub" / "models--runwayml--stable-diffusion-v1-5" / "snapshots"
-            if hf_cache_dir.is_dir():
-                snapshots = [d for d in hf_cache_dir.iterdir() if d.is_dir() and (d / "model_index.json").is_file()]
-                candidate_paths.extend(snapshots)
-
-            for candidate in candidate_paths:
-                if candidate.is_dir() and (candidate / "model_index.json").is_file():
-                    model_zoo.base_model = str(candidate)
-                    logger.info("Using local Unique3D SD v1.5 base model: %s", candidate)
-                    break
-
-            model_zoo.init_models()
-            # Import the upstream callable only after CWD is set: importing it
-            # initializes the multiview and normal predictors from ./ckpt/.
+            # Import upstream generate3dv2 (uses RealESRGAN + img2mvimg + image2normal).
+            # SD 1.5 refinement is completely bypassed for pure geometry reconstruction.
             from app.gradio_3dgen import generate3dv2
         finally:
             os.chdir(str(previous_cwd))
 
-        self._zoo = model_zoo
         self._generate3d = generate3dv2
         self._weights_dir = weights_dir
-        self.model = model_zoo
-        return model_zoo
+        self.model = generate3dv2
+        return generate3dv2
 
     def _unload_model(self) -> None:
-        self._zoo = None
         self._generate3d = None
         self._weights_dir = None
         self.model = None
@@ -184,6 +158,7 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
                     input_processing=True,
                     seed=seed,
                     render_video=False,
+                    do_refine=False,
                 )
         finally:
             os.chdir(str(previous_cwd))
