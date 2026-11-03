@@ -575,7 +575,7 @@ Frontend rules:
 Output presets in the Generate panel are UI convenience shortcuts. The actual inference schedule remains model-specific and is owned by the adapter; it is resolved at submission time and reported through the backend `/system/models/{model_id}/parameters` endpoint.
 
 Current adapter-owned inference profiles:
-- Hunyuan3D-Shape-v2.1: octree 1300, 150 steps, guidance 5.0
+- Hunyuan3D-Shape-v2.1: octree 512, 50 steps, guidance 7.5
 - Hunyuan3D-DiT-v2-mini-Turbo: octree 768, 20 steps, guidance 7.5
 - TripoSG: 100 steps, guidance 9.0, dense octree depth 10, hierarchical octree depth 11
 - TRELLIS: 100 steps, guidance 7.5

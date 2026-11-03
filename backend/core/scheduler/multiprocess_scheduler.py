@@ -1022,8 +1022,7 @@ def _process_job_in_worker(
                 c_inputs = dict(model_inputs)
                 c_inputs["seed"] = c_seed
                 logger.info(f"[CANDIDATE GENERATION] Running candidate {c_idx + 1}/{total_seeds_to_run} with seed {c_seed}")
-                with torch.no_grad():
-                    c_res = loaded_model.process(c_inputs)
+                c_res = loaded_model.process(c_inputs)
                 if not isinstance(c_res, dict) or not c_res.get("success", True):
                     continue
                 c_mesh = (
@@ -1082,8 +1081,7 @@ def _process_job_in_worker(
                             except Exception:
                                 pass
         else:
-            with torch.no_grad():
-                result = loaded_model.process(model_inputs)
+            result = loaded_model.process(model_inputs)
 
         effective_info = result.get("generation_info") if isinstance(result, dict) else None
         if isinstance(effective_info, dict):

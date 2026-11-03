@@ -9,7 +9,7 @@
 
 # image-conditioned geometry generation
 image_to_raw_mesh:
-  # EXPERIMENTAL_MAX_DETAIL: steps=100 (upstream UI maximum and community-tested experiment), guidance=5.0 (upstream default), octree=1300 (upstream maximum).
+  # MAX_DETAIL: steps=50, guidance=7.5, octree=512 (official Hunyuan3D-2.1 maximum resolution limit).
   # A/B outcome is unverified; raw master remains un-decimated. Ask the user once before later changing this profile.
   hunyuan3d_shape_v21_image_to_raw_mesh:
     model_name: "Hunyuan3D-2.1 Shape — Image to Raw Mesh"
@@ -18,7 +18,7 @@ image_to_raw_mesh:
     checkpoint_license: "unverified"
     capabilities:
       native_topology: false
-      output_resolution: 1300
+      output_resolution: 512
       text_to_3d: false
       image_to_3d: true
       multiview: false
@@ -28,7 +28,7 @@ image_to_raw_mesh:
       mesh_quality_characteristics: [high_detail, thin_feature_sensitive]
       preferred_preprocessing: high_fidelity
       preferred_extraction: dense_marching_cubes
-      preferred_resolution: 1300
+      preferred_resolution: 512
       preferred_face_budget: high
       recommended_postprocess_profile: high_fidelity
       latency_class: balanced

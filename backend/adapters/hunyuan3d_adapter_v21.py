@@ -131,9 +131,9 @@ class Hunyuan3DV21ImageToRawMeshAdapter(BaseModel):
         with ctx:
             outputs = pipeline(
                 image=image_path,
-                num_inference_steps=150,
-                guidance_scale=5.0,
-                octree_resolution=1300,
+                num_inference_steps=50,
+                guidance_scale=7.5,
+                octree_resolution=512,
                 num_chunks=80000,
                 output_type="trimesh",
                 generator=generator,
@@ -156,9 +156,9 @@ class Hunyuan3DV21ImageToRawMeshAdapter(BaseModel):
             "mesh_path": str(out),
             "generation_info": {
                 "seed": seed,
-                "num_inference_steps": 150,
-                "guidance_scale": 5.0,
-                "octree_resolution": 1300,
+                "num_inference_steps": 50,
+                "guidance_scale": 7.5,
+                "octree_resolution": 512,
                 "num_chunks": 80000,
             },
         }
@@ -257,9 +257,9 @@ class Hunyuan3DV21ImageMeshPaintingAdapter(Hunyuan3DV21ImageToRawMeshAdapter):
             "mesh_path": str(out),
             "generation_info": {
                 "seed": seed,
-                "num_inference_steps": 150,
-                "guidance_scale": 5.0,
-                "octree_resolution": 1300,
+                "num_inference_steps": 50,
+                "guidance_scale": 7.5,
+                "octree_resolution": 512,
                 "num_chunks": 80000,
             },
         }

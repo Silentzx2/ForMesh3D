@@ -145,7 +145,7 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
                 image=image_path,
                 num_inference_steps=50,
                 guidance_scale=7.5,
-                octree_resolution=1300,
+                octree_resolution=512,
                 num_chunks=8000,
                 output_type="trimesh",
                 generator=generator,
@@ -184,7 +184,7 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
                 "seed": seed,
                 "num_inference_steps": 50,
                 "guidance_scale": 7.5,
-                "octree_resolution": 1300,
+                "octree_resolution": 512,
                 "num_chunks": 8000,
             },
         }

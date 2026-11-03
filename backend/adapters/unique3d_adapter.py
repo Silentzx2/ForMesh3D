@@ -182,15 +182,17 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
         try:
             # Run inference from unique3d_root so relative paths to app/ and ckpt/ resolve.
             # generate3d includes reconstruct_stage1 and mesh refine stages that optimize vertices
-            # via autograd (loss.backward()); do not wrap in torch.no_grad().
+            # via autograd (loss.backward()); explicitly ensure grad is enabled.
             os.chdir(str(unique3d_root))
-            output_mesh_path, _ = generate3d(
-                preview_img=image,
-                input_processing=True,
-                seed=seed,
-                render_video=False,
-                do_refine=False,
-            )
+            grad_ctx = torch.enable_grad() if torch is not None else contextlib.nullcontext()
+            with grad_ctx:
+                output_mesh_path, _ = generate3d(
+                    preview_img=image,
+                    input_processing=True,
+                    seed=seed,
+                    render_video=False,
+                    do_refine=False,
+                )
         finally:
             os.chdir(str(previous_cwd))
 
