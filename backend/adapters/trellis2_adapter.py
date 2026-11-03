@@ -159,17 +159,26 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         from o_voxel.postprocess import to_glb
 
         out = Path(tempfile.mkdtemp()) / f"trellis2_{seed}.glb"
-        # MeshWithVoxel has no .export() method; use o_voxel.postprocess.to_glb()
-        glb_bytes = to_glb(
-            vertices=mesh.vertices,
-            faces=mesh.faces,
-            attr_volume=mesh.attrs,
-            coords=mesh.coords,
-            attr_layout=mesh.layout,
-            voxel_size=mesh.voxel_size,
-        )
-        with open(str(out), "wb") as f:
-            f.write(glb_bytes)
+        # Try full o_voxel postprocessing (UV unwrap & PBR extraction);
+        # fall back to direct raw trimesh export if cumesh fails (e.g. sm_75 / T4 GPU).
+        try:
+            from o_voxel.postprocess import to_glb
+            glb_bytes = to_glb(
+                vertices=mesh.vertices,
+                faces=mesh.faces,
+                attr_volume=mesh.attrs,
+                coords=mesh.coords,
+                attr_layout=mesh.layout,
+                voxel_size=mesh.voxel_size,
+            )
+            with open(str(out), "wb") as f:
+                f.write(glb_bytes)
+        except Exception as err:
+            logger.warning("to_glb failed (%s); falling back to direct raw geometry export", err)
+            v = mesh.vertices.detach().cpu().numpy()
+            f = mesh.faces.detach().cpu().numpy()
+            raw_mesh = trimesh.Trimesh(vertices=v, faces=f, process=False)
+            raw_mesh.export(str(out))
 
         return {
             "success": True,
