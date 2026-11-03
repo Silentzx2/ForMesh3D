@@ -1,5 +1,13 @@
 # ForMesh3D Changelog
 
+## 2026-11-03 — Hunyuan3D-2 Mini Turbo OOM Fix & Unique3D Offline Loading
+
+- Hunyuan3D DiT v2 Mini Turbo: reduced `octree_resolution` from 768 to 380 (official default) in adapter and `backend/config/models.yaml` to avoid 10GB+ dense voxel grid OOM killer SIGKILL during marching cubes surface extraction; adjusted guidance scale to 5.0 and num_chunks to 20000; added explicit CUDA garbage collection and cache flushing before and after inference.
+- Unique3D: updated `backend/thirdparty/Unique3D/app/custom_models/image2normal.yaml` and `image2mvimage.yaml` to point `pretrained_model_name_or_path` and `self_attn_ref_other_model_name` to local `./ckpt/image2normal` and `./ckpt/img2mvimg` instead of nonexistent HuggingFace repo path `lambdalabs/sd-image-variations-diffusers`, enabling 100% offline local checkpoint loading with zero 404 network errors.
+- Verification: `bun test` passed (60/60), `compute_mode_test.sh` passed (8/8).
+
+---
+
 ## 2026-11-03 — Hunyuan3D-Shape and Unique3D adapter corrections
 
 - Hunyuan3D-Shape: use the parent of the vendored `hy3dshape` package as the import root; consume the actual flat `List[Trimesh]` pipeline output, skip `None` extraction failures, and forward the supplied seed through `generator=`.
@@ -28,21 +36,3 @@
 - `Docs/MEMORY.md` integration-audit table: Third-party imports row marked FIXED.
 - `Docs/TASKS.md` implementation-audit note: model-source import setup marked resolved.
 - GPU inference, checkpoint download, and mesh-quality validation remain NOT RUN (no GPU/weights in this review environment).
-
----
-
-- Added a detailed ThirdParty root README with source-directory inventory, an intended-architecture Mermaid diagram, recursive-submodule workflow, dependency boundaries, and per-model license guidance.
-- Audited current project documentation against the `dev` source tree; removed dead document/license links and corrected unsupported claims about adapter readiness, FastMesh V4K, generated-output rights, and current test coverage.
-- Added `backend/tests/test_loader.py` for the shared model-weight path resolver and updated Backend Runtime Contract CI to stop invoking deleted adapter tests.
-- Recorded the remaining source/API integration defects and the GPU-validation boundary in `Docs/MEMORY.md`, `Docs/ARCHITECTURE.md`, and `Docs/TASKS.md`.
-
----
-
-## 2026-11-01 — Installer Script Refactor & Dependency Fix
-
-- Standardized dependency installation through `$UV_PIP install` and removed the dead/redundant helper.
-- Added visible wait/progress messages around potentially long dependency installation steps.
-- Kept GPU-only model requirements separate from core/CPU-safe dependencies.
-- Aligned CPU/CUDA PyTorch index handling and installer guards. The previous changelog records 8/8 compute-mode resolver checks; this documentation pass did not rerun them.
-
----

@@ -53,7 +53,7 @@ image_to_raw_mesh:
     checkpoint_license: "unverified"
     capabilities:
       native_topology: false
-      output_resolution: 768
+      output_resolution: 380
       text_to_3d: false
       image_to_3d: true
       multiview: false
@@ -63,7 +63,7 @@ image_to_raw_mesh:
       mesh_quality_characteristics: [fine_surface_sampling, dense_marching_cubes]
       preferred_preprocessing: default
       preferred_extraction: dense_marching_cubes
-      preferred_resolution: 768
+      preferred_resolution: 380
       preferred_face_budget: medium
       recommended_postprocess_profile: default
       latency_class: fast

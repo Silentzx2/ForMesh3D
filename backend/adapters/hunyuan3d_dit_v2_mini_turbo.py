@@ -111,7 +111,12 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
 
+        import gc
         import trimesh
+
+        gc.collect()
+        if torch is not None and torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         generator = None
         if torch is not None:
@@ -123,12 +128,16 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
             outputs = pipeline(
                 image=image_path,
                 num_inference_steps=20,
-                guidance_scale=7.5,
-                octree_resolution=768,
-                num_chunks=8000,
+                guidance_scale=5.0,
+                octree_resolution=380,
+                num_chunks=20000,
                 output_type="trimesh",
                 generator=generator,
             )
+
+        gc.collect()
+        if torch is not None and torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         meshes = outputs if isinstance(outputs, list) else [outputs]
         if not meshes:
@@ -148,9 +157,9 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
             "generation_info": {
                 "seed": seed,
                 "num_inference_steps": 20,
-                "guidance_scale": 7.5,
-                "octree_resolution": 768,
-                "num_chunks": 8000,
+                "guidance_scale": 5.0,
+                "octree_resolution": 380,
+                "num_chunks": 20000,
             },
         }
 
