@@ -106,11 +106,8 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(pipeline_path))
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
-        # Disable sequential CPU offload so all models stay on GPU throughout inference.
-        # With pipeline_type="512" the full model fits in ~10GB; Kaggle T4/P100 has 16GB.
-        # CPU offload (low_vram=True) causes bfloat16↔fp16 precision jitter across transfers
-        # and can produce an all-zero decoder output → empty coords crash.
-        pipeline.low_vram = False
+        # low_vram=True (pipeline.json default): sequentially moves each model CPU→GPU→CPU.
+        # One model on GPU at a time → lower peak VRAM, same quality.
         pipeline.to(device)
         self._pipeline = pipeline
         self.model = pipeline
