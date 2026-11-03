@@ -36,6 +36,8 @@ from backend.core.models.base import BaseModel, ModelStatus
 from backend.loader import get_model_weights_dir
 from huggingface_hub import snapshot_download
 
+from .trellis2_mesh_validation import validate_mesh_arrays
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_SEED = 42891  # matches quality.yaml seeds.base_seed / scheduler auto-seed base
@@ -68,8 +70,7 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         # Ensure sparse conv defaults to spconv if flex_gemm is not explicitly requested
         if not os.environ.get("SPARSE_CONV_BACKEND"):
             os.environ["SPARSE_CONV_BACKEND"] = "spconv"
-        # Force xformers sparse attention; flash_attn is not installed on Kaggle T4.
-        # The thirdparty full_attn.py patch handles bfloat16→float16 cast for pre-Ampere.
+        # Prefer xFormers on T4; its TRELLIS.2 attention path uses capability-aware BF16/FP32 dispatch.
         if not os.environ.get("SPARSE_ATTN_BACKEND"):
             os.environ["SPARSE_ATTN_BACKEND"] = "xformers"
 
@@ -158,12 +159,47 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         import trimesh
 
         out = Path(tempfile.mkdtemp()) / f"trellis2_{seed}.glb"
-        # Export raw mesh geometry directly via trimesh, removing any unreferenced grid vertices.
-        v = mesh.vertices.detach().cpu().numpy()
-        f = mesh.faces.detach().cpu().numpy()
-        raw_mesh = trimesh.Trimesh(vertices=v, faces=f, process=True)
+        # Validate model-native arrays before trimesh processing can hide invalid geometry.
+        vertices = mesh.vertices.detach().cpu().numpy()
+        faces = mesh.faces.detach().cpu().numpy()
+        try:
+            decoded_stats = validate_mesh_arrays(vertices, faces, stage="decoded mesh")
+        except ValueError as exc:
+            logger.error("TRELLIS.2 rejected decoded mesh for seed %s: %s", seed, exc)
+            return {"success": False, "error": f"TRELLIS.2 mesh validation failed: {exc}"}
+
+        raw_mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=True)
         raw_mesh.remove_unreferenced_vertices()
-        raw_mesh.export(str(out))
+        try:
+            processed_stats = validate_mesh_arrays(
+                raw_mesh.vertices, raw_mesh.faces, stage="processed mesh"
+            )
+        except ValueError as exc:
+            logger.error("TRELLIS.2 rejected processed mesh for seed %s: %s", seed, exc)
+            return {"success": False, "error": f"TRELLIS.2 mesh processing produced invalid geometry: {exc}"}
+
+        raw_mesh.export(str(out), file_type="glb")
+        try:
+            reloaded_mesh = trimesh.load(str(out), force="mesh", process=False)
+            roundtrip_stats = validate_mesh_arrays(
+                reloaded_mesh.vertices, reloaded_mesh.faces, stage="GLB round-trip"
+            )
+        except Exception as exc:
+            logger.exception("TRELLIS.2 GLB round-trip validation failed for seed %s", seed)
+            return {"success": False, "error": f"TRELLIS.2 exported GLB failed validation: {exc}"}
+
+        logger.info(
+            "TRELLIS.2 raw GLB validated: seed=%s vertices=%s faces=%s degenerate=%s "
+            "bbox_extents=%s bytes=%s decoded_faces=%s roundtrip_faces=%s",
+            seed,
+            processed_stats["vertex_count"],
+            processed_stats["face_count"],
+            processed_stats["degenerate_faces"],
+            processed_stats["bbox_extents"],
+            out.stat().st_size,
+            decoded_stats["face_count"],
+            roundtrip_stats["face_count"],
+        )
 
         return {
             "success": True,

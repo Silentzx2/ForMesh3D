@@ -10,6 +10,8 @@
 > - **Unique3D:** call the vendored `app.gradio_3dgen.generate3dv2` Python entry point, which performs the actual multiview prediction → geometric reconstruction → GLB export flow. Initialize the model zoo and predictor modules while the model weights directory is the working directory because the vendored code uses relative `./ckpt/` paths.
 >
 > The two edited adapters pass `py_compile`. Checkpoint loading, GPU inference, and mesh-quality validation were **NOT RUN**; the unchecked acceptance items below remain open until supported-host runtime verification is completed. The unrelated Pixal3D, Paint3D, UniRig, FastMesh V4K, TRELLIS text-painting, and model-identity findings remain open.
+>
+> **TRELLIS.2 raw-mesh integrity pass — 2026-11-03:** the vendored TRELLIS.2 sparse fallback was removed; finite checks now guard sparse logits, shape SLat, and inference decoder features; xFormers BF16 dispatch is architecture/operator-aware (FP32 compatibility path, no BF16→FP16 downgrade); optional CuMesh failures are logged; and the adapter validates geometry plus a GLB reload before success. A small but valid mesh is accepted and no fixed triangle-count minimum is used. A CPU contract test exists; T4, Ampere, and newer-GPU checkpoint inference remains **NOT RUN**.
 
 
 ---

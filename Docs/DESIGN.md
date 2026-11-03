@@ -579,7 +579,7 @@ Current adapter-owned inference profiles:
 - Hunyuan3D-DiT-v2-mini-Turbo: octree 768, 20 steps, guidance 7.5
 - TripoSG: 100 steps, guidance 9.0, dense octree depth 10, hierarchical octree depth 11
 - TRELLIS: 100 steps, guidance 7.5
-- TRELLIS.2: 512 pipeline, 16384 max tokens (low preview profile; restore to 1024_cascade / 49152 tokens when fully stable)
+- TRELLIS.2: adapter calls `1024_cascade`, `max_num_tokens=49152`, and `generate_texture=False` for raw mesh. The token cap is not a triangle budget or minimum; sparse-structure validity and returned geometry are validated separately. GPU/runtime quality remains unverified until the supported hardware matrix is run.
 - Pixal3D: 1536_cascade pipeline, resolution 2048
 - TaoFlowForge: `fill_holes` enabled, offload `auto`
 - Unique3D: `input_processing` and `do_refine` enabled, expansion weight 0.1

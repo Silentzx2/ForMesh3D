@@ -1,8 +1,8 @@
 # ForMesh3D — Audited Project State
 
 **Audit date:** 2026-11-03  
-**Inspected branch baseline:** `dev` at `a52ade8c8d1104d78f5adeb26d309174cc3a481b` (before the targeted adapter fixes)  
-**Third-party source revision:** `ForMesh3D-ThirdParty` at `b21ada987235b0985ee9dafa2afa6c980eb250d0`  
+**Inspected branch baseline before this change:** `ForMesh3D/dev` at `6f4eb4afd2d167c6aae3d69bf8d7570f0160f464`  
+**Third-party source baseline before this change:** `ForMesh3D-ThirdParty/main` at `b359c0c52ba5fb42131443f4e4517691253e8f8`  
 **Project phase:** Beta  
 **Model readiness:** NOT VERIFIED — registry entries and source directories do not prove successful inference.
 
@@ -30,8 +30,10 @@ The following findings come from reading current adapter, factory, and vendored 
 | UniRig | Subprocess invocation calls official upstream `run.py` two-phase pipeline (skeleton generation -> skinning) instead of nonexistent `system.predict_rig`. | FIXED — CLI pipeline execution |
 | FastMesh | Removed orphan `fastmesh_v4k_retopology` registry/planner entries; `fastmesh_v1k_retopology` remains the sole validated FastMesh model ID matching `FastMesh-V1K`. | FIXED — orphan removed |
 | TRELLIS text painting | Removed `trellis_text_mesh_painting` from `models.yaml`, registry, planner, scheduler profile set, and API router. Text-mesh generation is not supported in the image-to-3d pipeline. | FIXED — removed unsupported text painting |
+| TRELLIS.2 sparse/precision path | Removed the top-1% sparse-occupancy rescue; empty occupancy now fails explicitly. Added finite checks for sparse logits, normalized shape SLat stages, and inference FlexiDualGrid features. BF16 remains native on SM80+ when the installed xFormers operator supports it; pre-Ampere BF16 uses FP32, and newer GPUs retry FP32 only on `NotImplementedError`. No BF16→FP16 cast remains. | SOURCE FIXED — GPU runtime NOT RUN |
+| TRELLIS.2 raw GLB export | Added NumPy-only validation for vertex/face shape, finite coordinates, face-index bounds, non-zero bounds, and degenerate triangles; validate before/after trimesh processing and reload the GLB before success. No face-count minimum or textured `to_glb()` path. | SOURCE FIXED — actual GLB/GPU output NOT RUN |
 | Hi3D | Adapter strictly validates `mesh_path` (requires existing coarse mesh input); returns clear error message when invoked without a valid mesh file. | FIXED — input contract validated |
-| CPU/CI coverage | The checked-in backend workflow referenced four regression tests that are absent from the current `backend/tests/` tree. This update replaces those references with a focused loader contract test. | FIXED IN THIS UPDATE — CI scope |
+| CPU/CI coverage | The checked-in workflow referenced Python regression modules absent from `backend/tests/`. The workflow now runs the checked-in TRELLIS.2 NumPy geometry contract test; it does not imply coverage of other models. | FIXED — CI references match tracked files |
 | Real inference | No model checkpoint load, GPU inference, output mesh inspection, VRAM measurement, or model-quality benchmark was performed in this audit. | NOT RUN |
 | Hunyuan3D-2 Mini Turbo | Adapter subfolder fixed, octree resolution set to 380, CPU offload hooks enabled, pre/post GC added. Verified in live production GPU inference (758,902 faces, 379,430 vertices, 13.0MB GLB, 3.87GB VRAM, 166.75s). Model locked against unauthorized modifications. | VERIFIED PASS — STABLE & LOCKED |
 | Unique3D Lightweight Geometry Mode | Bypassed SD 1.5 texture refinement completely (`do_refine=False`); Unique3D now runs pure geometry inference via native `img2mvimg`, `realesrgan-x4.onnx` super-resolution, and `image2normal` normal prediction. Removed `runwayml/stable-diffusion-v1-5` dependency and download requirements, eliminating extra VRAM and network overhead. Gradio dependency stubbed for headless execution. | FIXED — pure geometry inference & SD1.5 dependency removed |
@@ -39,15 +41,15 @@ The following findings come from reading current adapter, factory, and vendored 
 
 ## Verification boundary
 
-- **Source review:** the current focused review covered both changed adapters and their Hunyuan3D-2.1 / Unique3D upstream call paths, plus the factory, model manifest, task/architecture docs, and existing shared loader contract.
-- **Backend CI before this update:** its model-test command pointed at files absent from the current tree; no successful workflow run was available during the audit.
-- **New backend contract test:** `backend/tests/test_loader.py` covers nested keys, relative-root handling independent of CWD, unsafe keys, and missing directories. It is committed with the corrected workflow; execution result must be taken from the post-push GitHub Actions run.
-- **Changed-file syntax:** `python -m py_compile backend/adapters/hunyuan3d_shape_v21.py backend/adapters/unique3d_adapter.py` — PASS.
+- **Source review:** the focused TRELLIS.2 audit covered the adapter, pinned ThirdParty pipeline, sparse attention dispatch, FlexiDualGrid decoder, mesh cleanup, O-Voxel exporter boundary, submodule pointer, and governing project instructions/docs. Other model adapters were not modified.
+- **Backend CI before this update:** the workflow referenced Python regression modules absent from the tracked `backend/tests/` tree. Its test step now targets the new checked-in TRELLIS.2 NumPy mesh-validation contract; no other model-specific Python regression modules are present in this branch.
+- **TRELLIS.2 CPU contract tests:** `backend/tests/test_trellis2_mesh_validation.py` — **7 passed** in the local CPU-only test run; helper and test modules pass `py_compile`.
+- **Source syntax/runtime boundary:** actual repository compileall and the GitHub Actions run must be checked after push. No local model checkpoint, xFormers CUDA operator, or NVIDIA GPU was available for execution.
 - **GPU Inference Validation:**
   - Hunyuan3D Shape v2.1: PASS (verified live on Kaggle GPU: 935,638 faces, 467,737 vertices, 16.1MB GLB). Status: `STABLE - WORKING / LOCKED`.
   - Hunyuan3D DiT v2 Mini Turbo: PASS (verified live on Kaggle GPU: 758,902 faces, 379,430 vertices, 13.0MB GLB). Status: `STABLE - LOCKED`.
   - Unique3D: PASS (verified live on Kaggle GPU: 54,506 faces, 27,262 vertices, 1.0MB GLB, 394s). Status: `LEGACY / DEPRECATED (WORKING STATE - NOT ACTIVELY USED)` — no further debugging or refactoring planned.
-- **Frontend tests, TypeScript, full backend CI, GPU inference, checkpoint initialization, Blender, and visual mesh quality:** NOT RUN. The two model fixes are source-level corrections, not runtime validation.
+- **T4, Ampere, Ada/Hopper/Blackwell-or-newer inference; checkpoint initialization; exported GLB visual inspection; Blender; and full model-quality comparison:** NOT RUN. These changes are source-level corrections plus CPU array-contract validation, not GPU/runtime proof.
 
 ## Configuration and ownership
 

@@ -4,7 +4,7 @@
 
 
 > **Architecture Version**: 0.1.0 (FastAPI + Next.js 16)
-> **Last Reviewed**: November 3, 2026 (targeted Hunyuan3D-Shape and Unique3D source/API audit)
+> **Last Reviewed**: November 3, 2026 (targeted TRELLIS.2 raw-mesh, Hunyuan3D-Shape, and Unique3D source/API audit)
 > **Target Environments**: Linux (Ubuntu 20.04/22.04/24.04), Cloud GPU / Local Workstations
 
 ---
@@ -307,6 +307,18 @@ The Admin Logs tab treats `logs/master.log` as the canonical source and starts a
 | **Model Adapters** | `backend/adapters/` | 17 adapter modules and registry entries cover TRELLIS, TRELLIS.2, Hunyuan3D, Hi3D, TripoSG, Unique3D, Pixal3D, TaoFlowForge, PartUV, UniRig, FastMesh, ARDY, and Paint3D. This is a registration inventory, not a validated list of working pipelines. Static audit findings and unverified integrations are listed in the Current Model-Native Source Fidelity Contract above and `Docs/MEMORY.md`. |
 | **Raw Geometry Fidelity Contracts** | `backend/adapters/*_adapter.py` | Model-native inference profiles (steps, guidance, octree/depth resolution, chunks, samplers) are adapter-owned and locked inside each adapter implementation. The scheduler strips request-side inference overrides (`_ADAPTER_OWNED_INFERENCE_INPUTS`) and production-only controls (`_POSTPROCESS_ONLY_INPUTS`) before invoking adapters; seed and image identity remain caller-controlled. |
 | **Texture Synthesis Pipeline** | `backend/adapters/hunyuan3d_paint_v21.py` & `backend/adapters/paint3d_adapter.py` | Centralized texture adapters (Paint3D for 1K/2K, Hunyuan3D-Paint for 4K/8K) operating downstream on post-processed raw mesh geometry. RealESRGAN x4+ super-resolution and DifferentiableRenderer for PBR validation. |
+
+### TRELLIS.2 Raw Mesh Integrity Contract — 2026-11-03
+
+The TRELLIS.2 source path and its ForMesh3D adapter now fail closed instead of converting an invalid intermediate into an apparently successful GLB:
+
+- Sparse-structure decoder logits and normalized shape-SLat tensors are checked for NaN/Inf. Empty zero-threshold occupancy and empty cascade coordinates raise explicit errors; the former top-1% coordinate fabrication fallback is removed.
+- xFormers attention preserves BF16 on compute capability 8.0+ when the installed operator supports the actual tensor/mask shape. BF16 inputs on pre-Ampere CUDA GPUs use FP32; modern GPUs retry FP32 only when xFormers reports that no BF16 operator is available. No unconditional BF16-to-FP16 cast remains. If no compatible FP32 operator exists, inference fails with an actionable error instead of producing suspect geometry.
+- The inference FlexiDualGrid decoder checks its raw geometry features before position/intersection channels are decoded. CuMesh cleanup failures emit warnings and preserve the last valid geometry (the existing tensor fallback remains for face removal).
+- The raw adapter validates vertex/face array shape, finiteness, face-index bounds, non-zero spatial extent, and degenerate triangles before and after mesh processing. It reloads and validates the exported GLB before returning success. No minimum triangle count is imposed.
+- The adapter continues to use the native raw mesh and does not call the full textured `o_voxel.postprocess.to_glb()` pipeline or apply an unverified coordinate transform. The viewer is unchanged because its source-side issue is not established.
+
+The current adapter uses `pipeline_type="1024_cascade"` and `max_num_tokens=49152`. That token cap is a cascade budget, not a triangle-count target or minimum. Source/CPU checks do not prove T4, Ampere, or newer-GPU runtime compatibility; the GPU matrix remains **NOT RUN** until the actual checkpoint and installed CUDA/xFormers wheels are exercised.
 
 ### 2.4 Storage Layer
 

@@ -84,8 +84,8 @@ bun test
 bun run lint
 bun run build
 
-# Shared model-weight path contract (same focused test run by backend CI).
-(cd backend && python -m pytest -q tests/test_loader.py)
+# TRELLIS.2 raw geometry validation contract (NumPy-only CPU tests).
+python -m pytest -q backend/tests/test_trellis2_mesh_validation.py
 
 # Verify clean compilation across all Python modules
 python3 -m compileall -q backend/
@@ -94,13 +94,13 @@ python3 -m compileall -q backend/
 bash -n manager.sh backend/scripts/*.sh scripts/*.sh
 ```
 
-The current backend CI covers only source compilation, shell syntax, and the shared loader contract. It does not load model weights or run inference. Blender-stage validation and GPU/model inference require the full `3daigc-api` environment on an appropriate host.
+The current backend CI covers source compilation, shell syntax, and the checked-in TRELLIS.2 raw-mesh validation contract. It does not load model weights or run inference. Other model-specific Python regression modules are not present in this branch's `backend/tests/` tree. Blender-stage validation and GPU/model inference require the full `3daigc-api` environment on an appropriate host.
 
 ### Continuous integration
 
 Two GitHub Actions workflows live under `.github/workflows/`:
 
-- **Backend Runtime Contract CI** (`.github/workflows/backend-runtime-ci.yml`): compiles Python sources, checks shell syntax, and runs `backend/tests/test_loader.py` on Python 3.10. It does not run model-adapter regression tests or GPU inference.
+- **Backend Runtime Contract CI** (`.github/workflows/backend-runtime-ci.yml`): compiles Python sources, checks shell syntax, and runs `backend/tests/test_trellis2_mesh_validation.py` on Python 3.10. This covers raw-mesh array validation only; it does not load checkpoints or prove GPU inference.
 - **Frontend CI** (`.github/workflows/frontend-ci.yml`): installs dependencies with Bun, runs the TypeScript type-check (`bun run test`), all Bun contract tests (`bun test`), and the production build (`bun run build`).
 
 The backend workflow runs on pushes and pull requests targeting `main` and `dev`; the frontend workflow runs on pushes to `dev` and on pull requests targeting `dev` or `main`. Local verification should mirror the CI commands before opening a pull request.

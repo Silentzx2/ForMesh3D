@@ -1,8 +1,11 @@
 # ForMesh3D Changelog
 
-## 2026-11-03 — TRELLIS.2 Raw Mesh Production Profile, Unique3D Deprecation & TaoFlowForge T4 Compat
+## 2026-11-03 — TRELLIS.2 Raw Mesh Integrity, Unique3D Deprecation & TaoFlowForge T4 Compat
 
-- TRELLIS.2: disabled texture generation (`generate_texture=False`) for `trellis2_image_to_raw_mesh`, skipping texture SLat flow and decoder to save VRAM and latency; restored full production `pipeline_type="1024_cascade"` with `max_num_tokens=49152`; added bfloat16->float16 conversion in xformers sparse attention for pre-Ampere T4 compatibility; guarded CuMesh hole-filling and added direct trimesh export with unreferenced vertex removal to eliminate floating grid vertices.
+- TRELLIS.2: retained raw-only `1024_cascade` (`max_num_tokens=49152`, `generate_texture=False`); removed the top-1% sparse-occupancy fallback; added sparse-logit, shape-SLat, decoder-feature, array, bounds, face-index, and GLB round-trip validation. Replaced the unconditional BF16→FP16 xFormers cast with BF16 on supported SM80+ operators and FP32 compatibility/fallback dispatch; cleanup failures now log warnings while preserving the last valid mesh. The token cap is not a triangle minimum.
+- Unique3D: verified end-to-end live GPU inference on Kaggle (394s, 54,506 faces, 27,262 vertices, 1.0MB GLB). Switched nvdiffrast rasterization to `RasterizeCudaContext` with PyTorch3D fallback for headless environments; restored production step parameters. Marked status as `LEGACY / DEPRECATED (WORKING STATE - NOT ACTIVELY USED)` in `backend/config/models.yaml` and `backend/adapters/unique3d_adapter.py`.
+- TaoFlowForge: enabled PyTorch SDPA `[FLASH_ATTENTION, EFFICIENT_ATTENTION, MATH]` fallbacks on Pre-Ampere GPUs; added sequential stage load/unload in pipeline to reduce peak host RAM from 26GB to 18GB; restored 1024 resolution.
+- TRELLIS.2 CPU geometry-validation tests: 7 passed locally. T4/Ampere/newer-GPU checkpoint inference and visual GLB review: NOT RUN.
 - Unique3D: verified end-to-end live GPU inference on Kaggle (394s, 54,506 faces, 27,262 vertices, 1.0MB GLB). Switched nvdiffrast rasterization to `RasterizeCudaContext` with PyTorch3D fallback for headless environments; restored production step parameters. Marked status as `LEGACY / DEPRECATED (WORKING STATE - NOT ACTIVELY USED)` in `backend/config/models.yaml` and `backend/adapters/unique3d_adapter.py`.
 - TaoFlowForge: enabled PyTorch SDPA `[FLASH_ATTENTION, EFFICIENT_ATTENTION, MATH]` fallbacks on Pre-Ampere GPUs; added sequential stage load/unload in pipeline to reduce peak host RAM from 26GB to 18GB; restored 1024 resolution.
 - Verification: `bun test` passed (60/60).

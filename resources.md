@@ -27,7 +27,7 @@ All model source snapshots are tracked in the `backend/thirdparty` Git submodule
 | `pixal3d_adapter.py` | `Pixal3D/` | Image-to-3D with O-Voxel export | `Pixal3D/` | Current adapter has camera/condition-model initialization defects; see `Docs/MEMORY.md` |
 | `taoflowforge_adapter.py` | `Taobao3D/` (TaoFlowForge subdirectory) | Progressive native mesh generation | `Taobao3D/TaoFlowForge/` | Verify source package root and checkpoints before inference |
 | `trellis_adapter.py` | `TRELLIS/` | TRELLIS image-to-3D | `TRELLIS/` | Image-to-3D path; no verified text-painting behavior implied |
-| `trellis2_adapter.py` | `TRELLIS.2/` | TRELLIS.2 image-to-3D | `TRELLIS.2/` | Image-to-3D path; checkpoint and GPU validation not run |
+| `trellis2_adapter.py` | `TRELLIS.2/` | TRELLIS.2 image-to-3D | `TRELLIS.2/` | Source-level sparse/precision/GLB validation fixes applied; checkpoint load and T4/Ampere/newer-GPU inference still NOT RUN |
 | `trellis2_paint_adapter.py` | `TRELLIS.2/` | TRELLIS.2 mesh painting | `TRELLIS.2/` | Separate adapter over the same source directory |
 | `triposg_adapter.py` | `TripoSG/` | Image-to-3D generation | `TripoSG/` | Model source and weight load need validation |
 | `unique3d_adapter.py` | `Unique3D/` | Image-to-3D generation/refinement | `Unique3D/` | Checkpoint layout and source import need validation |

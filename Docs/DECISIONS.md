@@ -30,6 +30,8 @@
 6. In TRELLIS 1 adapter, apply topological hole filling (`fill_holes`, winding, normal repairs) and gentle volume-preserving Taubin smoothing (`filter_taubin(lamb=0.3, nu=-0.34, iterations=2)`).
 7. In `multiprocess_scheduler.py`, extend default `max_load_timeout` for heavy models from 600s to 1800s.
 
+**Superseding correction — 2026-11-03:** Decision item 5 is withdrawn. The checked-in TRELLIS.2 adapter uses `max_num_tokens=49152`; that setting controls shape-cascade token/resolution selection and is not a triangle-count target or guarantee. Do not introduce a guessed `524288` setting or a fixed face-count gate.
+
 ---
 
 ## ADR-098: CPU Mode Skips Model Dependency Installation by Design (2026-10-23)
@@ -63,3 +65,19 @@
 2. Do not describe every enabled model as production-ready unless a supported-host load/inference smoke test and output-quality review are recorded for that model.
 3. Preserve initialization tracebacks in backend logs and expose actionable job/API error states; do not translate load failures into successful/empty mesh results.
 **Consequences:** The available-model catalog remains a capability/manifest listing. Production readiness requires model-specific runtime and geometry evidence; CPU-only CI is not sufficient.
+
+
+## ADR-102: TRELLIS.2 Fail-Closed Sparse Geometry and GPU-Aware Attention (2026-11-03)
+
+**Context:** The TRELLIS.2 source used a top-1% logit fallback when zero-threshold sparse occupancy was empty and unconditionally converted BF16 Q/K/V to FP16 in the xFormers branch. The raw adapter exported `trimesh` geometry without validating the arrays or the serialized GLB. Those behaviors could hide an upstream sampling/numerical failure or report invalid geometry as successful. The original failing GLB and GPU intermediates were not available, so the historical runtime cause is not proven.
+
+**Decision:**
+1. Remove fabricated top-1% sparse coordinates. Empty occupancy and empty cascade coordinates are explicit generation failures.
+2. Reject non-finite sparse logits, normalized shape SLat values, and inference FlexiDualGrid decoder features at the earliest checked stage.
+3. Preserve native BF16 attention on CUDA compute capability 8.0+ when the installed xFormers operator supports the actual input. Use FP32 for BF16 attention on pre-Ampere GPUs, and retry FP32 on newer GPUs only when xFormers raises `NotImplementedError` for the BF16 operator. Never silently cast BF16 to FP16. If the safe operator is unavailable, fail with a clear error.
+4. Log optional CuMesh cleanup failures while preserving the last valid mesh; keep the existing tensor fallback for face removal.
+5. Validate raw mesh arrays before/after `trimesh` processing and validate a GLB reload before reporting success. Accept small valid meshes; do not set an unmeasured face-count or file-size minimum.
+6. Keep the fix isolated to TRELLIS.2 source and adapter code. Do not call the complete textured O-Voxel exporter, alter the viewer without a valid-GLB browser reproduction, or change other model adapters.
+7. Record source/CPU verification separately from GPU inference. T4, Ampere, and newer-GPU support remains unverified until actual checkpoint runs use the deployed PyTorch/CUDA/xFormers versions.
+
+**Consequences:** Invalid intermediate states now fail with a stage-specific error rather than continuing to export a potentially invisible mesh. The FP32 compatibility path can be slower and its availability depends on the installed xFormers build; unsupported configurations fail explicitly. The 49152 cascade token cap remains unchanged and is not a geometry density promise.
