@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -131,11 +132,14 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
+            # LOW_PREVIEW_PROFILE: pipeline_type="512", max_num_tokens=16384 for fast execution & low VRAM.
+            # TODO: Once TRELLIS.2 pipeline is confirmed fully stable on GPU, restore to original high-quality:
+            # pipeline_type="1024_cascade", max_num_tokens=49152 (or "1536_cascade")
             meshes = pipeline.run(
                 image,
                 seed=seed,
-                pipeline_type="1024_cascade",
-                max_num_tokens=49152,
+                pipeline_type="512",
+                max_num_tokens=16384,
             )
 
         mesh_list = meshes if isinstance(meshes, list) else [meshes]
@@ -170,8 +174,8 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
                 "num_inference_steps": "adapter_owned",
                 "guidance_scale": "adapter_owned",
                 "octree_resolution": "adapter_owned",
-                "pipeline_type": "1024_cascade",
-                "max_num_tokens": 49152,
+                "pipeline_type": "512",
+                "max_num_tokens": 16384,
             },
         }
 

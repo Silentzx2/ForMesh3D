@@ -579,7 +579,7 @@ Current adapter-owned inference profiles:
 - Hunyuan3D-DiT-v2-mini-Turbo: octree 768, 20 steps, guidance 7.5
 - TripoSG: 100 steps, guidance 9.0, dense octree depth 10, hierarchical octree depth 11
 - TRELLIS: 100 steps, guidance 7.5
-- TRELLIS.2: 1536_cascade pipeline, 524288 max tokens
+- TRELLIS.2: 512 pipeline, 16384 max tokens (low preview profile; restore to 1024_cascade / 49152 tokens when fully stable)
 - Pixal3D: 1536_cascade pipeline, resolution 2048
 - TaoFlowForge: `fill_holes` enabled, offload `auto`
 - Unique3D: `input_processing` and `do_refine` enabled, expansion weight 0.1

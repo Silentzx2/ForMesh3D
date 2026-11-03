@@ -289,8 +289,9 @@ image_to_raw_mesh:
     enabled: true
     max_workers: 1
 
-  # EXPERIMENTAL_MAX_DETAIL: TRELLIS.2 community quality-first issue profile: 50 steps, SS guidance=8.0, shape=8.5, texture=2.5, 1536 cascade.
-  # Community issue is a user's experiment, not a maintainer guarantee; raw master uses decimation_target=-1 rather than the issue's 800k cap. Ask before changes.
+  # LOW_PREVIEW_PROFILE: pipeline_type="512", max_num_tokens=16384 for fast execution & low VRAM.
+  # TODO: Once TRELLIS.2 pipeline is confirmed fully stable on GPU, restore to original high-quality:
+  # pipeline_type="1024_cascade", max_num_tokens=49152 (or "1536_cascade").
   trellis2_image_to_3d:
     model_name: "TRELLIS.2 — Image to 3D"
     upstream_repository: "https://github.com/microsoft/TRELLIS.2"
@@ -326,8 +327,9 @@ image_to_raw_mesh:
     enabled: true
     max_workers: 1
 
-  # EXPERIMENTAL_MAX_DETAIL: same TRELLIS.2 community sampler profile; 1536 cascade, full token budget, remesh=false and decimation_target=-1.
-  # The community profile is experimental, not proven best for every asset. Ask before future changes.
+  # LOW_PREVIEW_PROFILE: pipeline_type="512", max_num_tokens=16384 for fast execution & low VRAM.
+  # TODO: Once TRELLIS.2 pipeline is confirmed fully stable on GPU, restore to original high-quality:
+  # pipeline_type="1024_cascade", max_num_tokens=49152 (or "1536_cascade").
   trellis2_image_to_raw_mesh:
     model_name: "TRELLIS.2 — Image to Raw Mesh"
     upstream_repository: "https://github.com/microsoft/TRELLIS.2"
