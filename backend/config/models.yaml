@@ -327,9 +327,7 @@ image_to_raw_mesh:
     enabled: true
     max_workers: 1
 
-  # LOW_PREVIEW_PROFILE: pipeline_type="512", max_num_tokens=16384 for fast execution & low VRAM.
-  # TODO: Once TRELLIS.2 pipeline is confirmed fully stable on GPU, restore to original high-quality:
-  # pipeline_type="1024_cascade", max_num_tokens=49152 (or "1536_cascade").
+  # Production profile: pipeline_type="1024_cascade", max_num_tokens=49152, generate_texture=False (pure raw mesh).
   trellis2_image_to_raw_mesh:
     model_name: "TRELLIS.2 — Image to Raw Mesh"
     upstream_repository: "https://github.com/microsoft/TRELLIS.2"

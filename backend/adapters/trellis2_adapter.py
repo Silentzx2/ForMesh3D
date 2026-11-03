@@ -138,14 +138,14 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
-            # pipeline_type="512", steps=12 — these match the official pipeline.json defaults.
-            # TODO: upgrade to pipeline_type="1024_cascade", max_num_tokens=49152 once confirmed
-            # stable on target GPU and VRAM budget allows it.
+            # Full production high-fidelity shape cascade: 1024_cascade, max_num_tokens=49152.
+            # Texture generation is explicitly disabled for raw mesh (no texture SLat sampling or decoding).
             meshes = pipeline.run(
                 image,
                 seed=seed,
-                pipeline_type="512",
-                max_num_tokens=16384,
+                pipeline_type="1024_cascade",
+                max_num_tokens=49152,
+                generate_texture=False,
             )
 
         mesh_list = meshes if isinstance(meshes, list) else [meshes]
@@ -156,29 +156,14 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         import tempfile
         import trimesh
-        from o_voxel.postprocess import to_glb
 
         out = Path(tempfile.mkdtemp()) / f"trellis2_{seed}.glb"
-        # Try full o_voxel postprocessing (UV unwrap & PBR extraction);
-        # fall back to direct raw trimesh export if cumesh fails (e.g. sm_75 / T4 GPU).
-        try:
-            from o_voxel.postprocess import to_glb
-            glb_bytes = to_glb(
-                vertices=mesh.vertices,
-                faces=mesh.faces,
-                attr_volume=mesh.attrs,
-                coords=mesh.coords,
-                attr_layout=mesh.layout,
-                voxel_size=mesh.voxel_size,
-            )
-            with open(str(out), "wb") as f:
-                f.write(glb_bytes)
-        except Exception as err:
-            logger.warning("to_glb failed (%s); falling back to direct raw geometry export", err)
-            v = mesh.vertices.detach().cpu().numpy()
-            f = mesh.faces.detach().cpu().numpy()
-            raw_mesh = trimesh.Trimesh(vertices=v, faces=f, process=False)
-            raw_mesh.export(str(out))
+        # Export raw mesh geometry directly via trimesh, removing any unreferenced grid vertices.
+        v = mesh.vertices.detach().cpu().numpy()
+        f = mesh.faces.detach().cpu().numpy()
+        raw_mesh = trimesh.Trimesh(vertices=v, faces=f, process=True)
+        raw_mesh.remove_unreferenced_vertices()
+        raw_mesh.export(str(out))
 
         return {
             "success": True,
@@ -189,8 +174,9 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
                 "num_inference_steps": "adapter_owned",
                 "guidance_scale": "adapter_owned",
                 "octree_resolution": "adapter_owned",
-                "pipeline_type": "512",
-                "max_num_tokens": 16384,
+                "pipeline_type": "1024_cascade",
+                "max_num_tokens": 49152,
+                "generate_texture": False,
             },
         }
 
