@@ -11,23 +11,6 @@
 text_mesh_painting:
   # EXPERIMENTAL_MAX_DETAIL: TRELLIS supports up to 50 sampling steps; adapter has a shared guidance field, so it cannot express separate upstream SS=7.5 / SLAT=3.0 guidance without an implementation change.
   # Review note: keep raw geometry unsimplified and ask the user once before any future profile change.
-  trellis_text_mesh_painting:
-    model_name: "TRELLIS — Text Mesh Painting"
-    upstream_repository: "https://github.com/microsoft/TRELLIS"
-    upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
-    checkpoint_license: "unverified"
-    capabilities:
-      native_topology: false
-      output_resolution: null
-      text_mesh_painting: true
-      multi_gpu: true
-      multi_gpu_strategy: accelerate_component_dispatch
-    vram_requirement: 11776  # MB
-    supported_inputs: ["mesh", "text"]
-    supported_outputs: ["glb", "obj"]
-    model_path: "backend/pretrained/TRELLIS"
-    enabled: true
-    max_workers: 1
 
 # image-conditioned geometry generation
 image_to_raw_mesh:

@@ -161,7 +161,6 @@ _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS = frozenset({
     "trellis_image_to_3d",
     "trellis_image_to_textured_mesh",
     "trellis_image_mesh_painting",
-    "trellis_text_mesh_painting",
     "trellis2_image_to_raw_mesh",
     "trellis2_image_to_3d",
     "trellis2_image_to_textured_mesh",

@@ -259,7 +259,7 @@ class TextMeshPaintingRequest(BaseModel):
     quality_mode: Optional[str] = Field("high", description="Target quality budget")
     target_polycount: Optional[int] = Field(None, description="Target triangle budget")
     model_preference: str = Field(
-        "trellis_text_mesh_painting", description="Model name for mesh generation"
+        "trellis_image_to_textured_mesh", description="Model name for mesh generation"
     )
     model_parameters: Optional[dict] = Field(
         None,

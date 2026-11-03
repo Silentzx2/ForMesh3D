@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict
@@ -96,7 +97,7 @@ class Paint3DAdapter(BaseModel):
             stage1 = paint3d_root / "pipeline_paint3d_stage1.py"
             out1 = workdir / "stage1"
             cmd = [
-                "python",
+                sys.executable,
                 str(stage1),
                 "--sd_config",
                 str(paint3d_root / "controlnet" / "config" / "depth_based_inpaint_template.yaml"),
@@ -124,7 +125,7 @@ class Paint3DAdapter(BaseModel):
             stage2 = paint3d_root / "pipeline_paint3d_stage2.py"
             out2 = workdir / "stage2"
             cmd2 = [
-                "python",
+                sys.executable,
                 str(stage2),
                 "--sd_config",
                 str(paint3d_root / "controlnet" / "config" / "UV_based_inpaint_template.yaml"),

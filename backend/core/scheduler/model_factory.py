@@ -42,10 +42,6 @@ class ModelFactory:
     # Registry of known adapter modules and classes
     ADAPTER_REGISTRY = {
         # TRELLIS adapters
-        "trellis_text_mesh_painting": {
-            "module": "adapters.trellis_adapter",
-            "class": "TrellisTextMeshPaintingAdapter",
-        },
         "trellis_image_to_textured_mesh": {
             "module": "adapters.trellis_adapter",
             "class": "TrellisImageToRawMeshAdapter",
@@ -132,10 +128,6 @@ class ModelFactory:
         },
         # FastMesh adapters
         "fastmesh_v1k_retopology": {
-            "module": "adapters.fastmesh_adapter",
-            "class": "FastMeshRetopologyAdapter",
-        },
-        "fastmesh_v4k_retopology": {
             "module": "adapters.fastmesh_adapter",
             "class": "FastMeshRetopologyAdapter",
         },

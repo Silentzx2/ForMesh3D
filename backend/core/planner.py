@@ -41,13 +41,11 @@ DEFAULT_ADAPTER_CLASS_MAP = {
     "hunyuan3d_paint_v21_image_mesh_painting": "Hunyuan3DPaintV21ImageMeshPaintingAdapter",
     "trellis_image_mesh_painting": "TrellisImageMeshPaintingAdapter",
     "trellis2_image_mesh_painting": "Trellis2ImageMeshPaintingAdapter",
-    "trellis_text_mesh_painting": "TrellisTextMeshPaintingAdapter",
     "paint3d": "Paint3DAdapter",
     # Auto-Rig
     "unirig_auto_rig": "UniRigAdapter",
     # Retopology
     "fastmesh_v1k_retopology": "FastMeshRetopologyAdapter",
-    "fastmesh_v4k_retopology": "FastMeshRetopologyAdapter",
     # UV
     "partuv_uv_unwrapping": "PartUVUnwrappingAdapter",
     # Motion

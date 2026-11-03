@@ -7,16 +7,12 @@ Weights resolved through ``backend.loader.get_model_weights_dir``.
 
 from __future__ import annotations
 
-import contextlib
 import logging
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict
-
-try:
-    import torch
-except ImportError:  # pragma: no cover - torch optional in CPU-only environments
-    torch = None
 
 from backend.core.models.base import BaseModel, ModelStatus
 from backend.loader import get_model_weights_dir
@@ -51,77 +47,72 @@ class UniRigAdapter(BaseModel):
 
     def _load_model(self) -> Any:
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
-        logger.info("Loading UniRig from %s", weights_dir)
-        # UniRig is a lightning training system; inference uses get_system +
-        # trainer.predict. Import the thirdparty package so its `src/` modules
-        # resolve, then build the system from its config.
-        _unirig_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "UniRig")
-        if _unirig_root not in sys.path:
-            sys.path.insert(0, _unirig_root)
-        from src.system.parse import get_system
-
-        system = get_system(
-            model=None,
-            optimizer_config={},
-            loss_config={},
-            scheduler_config={},
-            steps_per_epoch=1,
-            __target__="ar",  # required by thirdparty parse.py
-        )
-        self._system = system
-        self.model = system
-        return system
+        logger.info("UniRig weights at %s; inference via run.py subprocess", weights_dir)
+        # UniRig inference is a two-phase CLI (skeleton → skin) driven by run.py.
+        # No in-process loading required; store weights_dir for _process_request.
+        self._weights_dir = weights_dir
+        self._unirig_root = Path(__file__).resolve().parents[1] / "thirdparty" / "UniRig"
+        self.model = {"weights_dir": str(weights_dir)}
+        return self.model
 
     def _unload_model(self) -> None:
-        self._system = None
+        self._weights_dir = None
+        self._unirig_root = None
         self.model = None
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        system = self._system
-        if system is None:
-            return {"success": False, "error": "UniRig system not loaded"}
+        if self.model is None:
+            return {"success": False, "error": "UniRig not loaded"}
 
-        mesh_path = inputs.get("mesh_path")
+        mesh_path = inputs.get("mesh_path") or inputs.get("image_path") or inputs.get("image")
         if not mesh_path or not Path(mesh_path).is_file():
             return {"success": False, "error": f"mesh not found: {mesh_path}"}
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
         rig_mode = inputs.get("rig_mode", "full")
 
-        import numpy as np
-        import tempfile
+        unirig_root = self._unirig_root
+        run_py = unirig_root / "run.py"
+        workdir = Path(tempfile.mkdtemp()) / f"unirig_{seed}"
+        workdir.mkdir(parents=True, exist_ok=True)
 
-        # UniRig inference runs through the lightning trainer predict path.
-        # Run a deterministic forward on the input mesh to produce a rig.
-        ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
-        with ctx:
-            try:
-                rig_result = system.predict_rig(mesh_path, seed=seed, mode=rig_mode)
-            except AttributeError:
-                # Fall back: expose that the system is loaded but rig inference
-                # requires the full trainer predict pipeline.
-                return {
-                    "success": False,
-                    "error": "UniRig rig inference requires trainer.predict pipeline",
-                }
+        skeleton_cfg = str(unirig_root / "configs/task/quick_inference_skeleton_articulationxl_ar_256.yaml")
+        skin_cfg = str(unirig_root / "configs/task/quick_inference_unirig_skin.yaml")
 
-        out = Path(tempfile.mkdtemp()) / f"unirig_{seed}.glb"
-        if hasattr(rig_result, "export"):
-            rig_result.export(str(out))
-        else:
-            # No exportable mesh — record the rig metadata instead.
-            out = Path(tempfile.mkdtemp()) / f"unirig_{seed}.npz"
-            np = __import__("numpy")
-            np.savez(str(out), seed=seed, mode=rig_mode)
+        base_cmd = [sys.executable, str(run_py)]
+
+        # Phase 1: skeleton
+        if rig_mode in ("skeleton", "full"):
+            proc = subprocess.run(
+                base_cmd + ["--task", skeleton_cfg, "--input", str(mesh_path),
+                             "--output_dir", str(workdir), "--seed", str(seed)],
+                cwd=str(unirig_root), capture_output=True, text=True,
+            )
+            if proc.returncode != 0:
+                logger.error("UniRig skeleton phase failed: %s", proc.stderr[-2000:])
+                return {"success": False, "error": f"UniRig skeleton failed: {proc.stderr[-500:]}"}
+
+        # Phase 2: skin
+        if rig_mode in ("skin", "full"):
+            proc2 = subprocess.run(
+                base_cmd + ["--task", skin_cfg, "--input_dir", str(workdir),
+                             "--output_dir", str(workdir), "--seed", str(seed)],
+                cwd=str(unirig_root), capture_output=True, text=True,
+            )
+            if proc2.returncode != 0:
+                logger.error("UniRig skin phase failed: %s", proc2.stderr[-2000:])
+                return {"success": False, "error": f"UniRig skin failed: {proc2.stderr[-500:]}"}
+
+        # Locate the result FBX/GLB produced by the writer
+        out_file = next(workdir.rglob("result_fbx*.fbx"), None) or next(workdir.rglob("*.fbx"), None) or next(workdir.rglob("*.glb"), None)
+        if out_file is None:
+            return {"success": False, "error": "UniRig produced no output file"}
 
         return {
             "success": True,
-            "output_mesh_path": str(out),
-            "mesh_path": str(out),
-            "generation_info": {
-                "seed": seed,
-                "rig_mode": rig_mode,
-            },
+            "output_mesh_path": str(out_file),
+            "mesh_path": str(out_file),
+            "generation_info": {"seed": seed, "rig_mode": rig_mode},
         }
 
     def get_supported_formats(self) -> Dict[str, list[str]]:

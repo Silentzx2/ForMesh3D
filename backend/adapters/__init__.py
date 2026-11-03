@@ -37,11 +37,8 @@ _ADAPTER_MAP: dict[str, str] = {
     "trellis2_image_mesh_painting": "backend.adapters.trellis2_adapter",
     "hunyuan3d_paint_v21_image_mesh_painting": "backend.adapters.hunyuan3d_paint_v21",
     "paint3d": "backend.adapters.paint3d_adapter",
-    # ── text-mesh-painting ─────────────────────────────────────────────
-    "trellis_text_mesh_painting": "backend.adapters.trellis_adapter",
     # ── mesh-retopology ────────────────────────────────────────────────
     "fastmesh_v1k_retopology": "backend.adapters.fastmesh_adapter",
-    "fastmesh_v4k_retopology": "backend.adapters.fastmesh_adapter",
     # ── uv-unwrapping ──────────────────────────────────────────────────
     "partuv_uv_unwrapping": "backend.adapters.partuv_adapter",
     # ── auto-rigging ───────────────────────────────────────────────────
