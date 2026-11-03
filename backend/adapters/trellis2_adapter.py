@@ -68,6 +68,10 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         # Ensure sparse conv defaults to spconv if flex_gemm is not explicitly requested
         if not os.environ.get("SPARSE_CONV_BACKEND"):
             os.environ["SPARSE_CONV_BACKEND"] = "spconv"
+        # Force xformers sparse attention; flash_attn is not installed on Kaggle T4.
+        # The thirdparty full_attn.py patch handles bfloat16→float16 cast for pre-Ampere.
+        if not os.environ.get("SPARSE_ATTN_BACKEND"):
+            os.environ["SPARSE_ATTN_BACKEND"] = "xformers"
 
         # Make the vendored TRELLIS.2 source importable in the worker process,
         # which only has backend/ on sys.path. Model-specific source path setup
