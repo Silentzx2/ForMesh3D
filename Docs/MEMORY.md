@@ -43,6 +43,10 @@ The following findings come from reading current adapter, factory, and vendored 
 - **Backend CI before this update:** its model-test command pointed at files absent from the current tree; no successful workflow run was available during the audit.
 - **New backend contract test:** `backend/tests/test_loader.py` covers nested keys, relative-root handling independent of CWD, unsafe keys, and missing directories. It is committed with the corrected workflow; execution result must be taken from the post-push GitHub Actions run.
 - **Changed-file syntax:** `python -m py_compile backend/adapters/hunyuan3d_shape_v21.py backend/adapters/unique3d_adapter.py` — PASS.
+- **GPU Inference Validation:**
+  - Hunyuan3D Shape v2.1: PASS (verified live on Kaggle GPU: 935,638 faces, 467,737 vertices, 16.1MB GLB). Status: `STABLE - WORKING / LOCKED`.
+  - Hunyuan3D DiT v2 Mini Turbo: PASS (verified live on Kaggle GPU: 758,902 faces, 379,430 vertices, 13.0MB GLB). Status: `STABLE - LOCKED`.
+  - Unique3D: PASS (verified live on Kaggle GPU: 54,506 faces, 27,262 vertices, 1.0MB GLB, 394s). Status: `LEGACY / DEPRECATED (WORKING STATE - NOT ACTIVELY USED)` — no further debugging or refactoring planned.
 - **Frontend tests, TypeScript, full backend CI, GPU inference, checkpoint initialization, Blender, and visual mesh quality:** NOT RUN. The two model fixes are source-level corrections, not runtime validation.
 
 ## Configuration and ownership

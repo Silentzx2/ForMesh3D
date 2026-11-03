@@ -5,20 +5,23 @@ MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
 Model ID          : unique3d_image_to_raw_mesh
 Model Name        : Unique3D — Image to Raw Mesh
 Feature Target    : image_to_raw_mesh
-Status            : BETA / ACTIVE
+Status            : LEGACY / DEPRECATED (PIPELINE WORKING - NOT ACTIVELY USED)
 Upstream Repo     : https://github.com/AiuniAI/Unique3D
 Upstream Pipeline : app.gradio_3dgen.generate3dv2 (RealESRGAN + img2mvimg + image2normal)
 Checkpoint / Path : backend/pretrained/Unique3D
 Hardware / VRAM   : 14336 MB
 -----------------------------------------------------------------------------
 AGENT GOVERNANCE RULES:
-1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
-   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
-2. SD 1.5 refinement is bypassed for fast pure geometry reconstruction.
-3. Keep CPU offload, attention slicing, and memory cleanup active.
+1. LEGACY / DEPRECATED: Pipeline is in working state (verified on GPU), but this
+   model is not actively used in production. Do NOT perform further debugging,
+   refactoring, or parameter tuning on this adapter or upstream code.
+2. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER.
+3. SD 1.5 refinement is bypassed for fast pure geometry reconstruction.
+4. Keep CPU offload, attention slicing, and memory cleanup active.
 =============================================================================
 """
-# Status - BETA / ACTIVE
+# Status - LEGACY / DEPRECATED (WORKING STATE - NOT ACTIVELY USED)
 from __future__ import annotations
 
 import contextlib

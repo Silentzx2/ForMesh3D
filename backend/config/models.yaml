@@ -118,8 +118,8 @@ image_to_raw_mesh:
     enabled: true
     max_workers: 1
 
-  # EXPERIMENTAL_MAX_DETAIL: preserve upstream-supported do_refine=true, expansion_weight=0.1, init_type=std and seed=1145.
-  # The adapter exposes no configurable inference steps/guidance control; do not invent unsupported knobs. Ask before changes.
+  # LEGACY / DEPRECATED: Pipeline is in working state (verified on GPU), but this model is not actively used in production.
+  # No further debugging or refactoring will be performed on this model.
   unique3d_image_to_raw_mesh:
     model_name: "Unique3D — Image to Raw Mesh"
     upstream_repository: "https://github.com/AiuniAI/Unique3D"

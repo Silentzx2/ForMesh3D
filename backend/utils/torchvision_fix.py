@@ -368,17 +368,30 @@ def fix_gated_huggingface_repos():
             cls = transformers.AutoModelForImageSegmentation
             orig_from_pretrained = getattr(cls, "from_pretrained", None)
             if orig_from_pretrained is not None and not getattr(orig_from_pretrained, "_gated_fallback_patched", False):
-                def _patched_from_pretrained(pretrained_model_name_or_path, *args, **kwargs):
+                orig_func = getattr(orig_from_pretrained, "__func__", orig_from_pretrained)
+
+                def _patched_from_pretrained(*args, **kwargs):
+                    if len(args) >= 2 and isinstance(args[0], type):
+                        target_cls, model_name = args[0], args[1]
+                        rest_args = args[2:]
+                    elif len(args) >= 1:
+                        target_cls, model_name = cls, args[0]
+                        rest_args = args[1:]
+                    else:
+                        model_name = kwargs.get("pretrained_model_name_or_path")
+                        target_cls = cls
+                        rest_args = ()
+
                     try:
-                        return orig_from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
+                        return orig_func(target_cls, model_name, *rest_args, **kwargs)
                     except Exception as e:
                         err_str = str(e)
                         if "gated repo" in err_str.lower() or "restricted" in err_str.lower() or "401" in err_str or "403" in err_str:
-                            if pretrained_model_name_or_path == "briaai/RMBG-2.0":
+                            if model_name == "briaai/RMBG-2.0":
                                 for fb in ("ZhengPeng7/BiRefNet", "briaai/RMBG-1.4"):
                                     try:
                                         print(f"Retrying image segmentation with ungated fallback: {fb}")
-                                        return orig_from_pretrained(fb, *args, **kwargs)
+                                        return orig_func(target_cls, fb, *rest_args, **kwargs)
                                     except Exception:
                                         continue
                         raise
