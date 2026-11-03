@@ -726,7 +726,7 @@ download_unique3d() {
         print_info "Unique3D SD v1.5 base model already exists and verified"
     else
         print_info "Downloading Stable Diffusion v1.5 base model for Unique3D..."
-        hf_download runwayml/stable-diffusion-v1-5 "$sd_dir" || print_warning "Failed to pre-download SD v1.5; diffusers will fallback to HuggingFace Hub"
+        hf_download runwayml/stable-diffusion-v1-5 --local-dir "$sd_dir" || print_warning "Failed to pre-download SD v1.5; diffusers will fallback to HuggingFace Hub"
     fi
 
     # Clean up legacy misplaced ckpt symlink in project root if present
