@@ -344,11 +344,12 @@ def _is_model_weights_available(model_config: Any) -> bool:
         checkpoint_suffixes = {
             ".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".onnx", ".engine"
         }
-        model_descriptors = {"config.json", "config.yaml", "model_index.json", "pipeline.json"}
+        model_descriptors = {"config.json", "config.yaml", "model_index.json", "pipeline.json", "configuration.json"}
 
         # Known model weight file signatures for models without a config.json/yaml
         known_signatures = (
-            "mp_rank", "hunyuan", "fastmesh", "objaverse", "model.ckpt", "trellis"
+            "mp_rank", "hunyuan", "fastmesh", "objaverse", "model.ckpt", "trellis",
+            "stage", "taoflowforge", "flowforge",
         )
 
         has_checkpoint = False

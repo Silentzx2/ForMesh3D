@@ -123,7 +123,8 @@ class Hunyuan3DV21ImageToRawMeshAdapter(BaseModel):
 
         generator = None
         if torch is not None:
-            generator = torch.Generator(device="cuda" if torch.cuda.is_available() else "cpu")
+            gen_device = getattr(pipeline, "_execution_device", None) or ("cuda" if torch.cuda.is_available() else "cpu")
+            generator = torch.Generator(device=gen_device)
             generator.manual_seed(seed)
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()

@@ -100,7 +100,8 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
                 repo_id="tencent/Hunyuan3D-2.1",
                 local_dir=str(weights_dir_path),
             )
-        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None and torch and torch.cuda.is_available() else "cpu"
+        self.device = device
         pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
             str(weights_dir_path),
             device=device,
@@ -134,8 +135,9 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
             torch.cuda.empty_cache()
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
-        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
-        generator = torch.Generator(device=device).manual_seed(seed) if torch is not None else None
+        exec_device = getattr(pipeline, "_execution_device", None)
+        gen_device = exec_device if exec_device is not None else (f"cuda:{self.gpu_id}" if self.gpu_id is not None and torch and torch.cuda.is_available() else "cpu")
+        generator = torch.Generator(device=gen_device).manual_seed(seed) if torch is not None else None
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
