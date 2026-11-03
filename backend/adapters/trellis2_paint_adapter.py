@@ -64,6 +64,9 @@ class Trellis2ImageMeshPaintingAdapter(BaseModel):
         self._pipeline: Any = None
 
     def _load_model(self) -> Any:
+        if not os.environ.get("SPARSE_CONV_BACKEND"):
+            os.environ["SPARSE_CONV_BACKEND"] = "spconv"
+
         # Make the vendored TRELLIS.2 source importable in the worker process,
         # which only has backend/ on sys.path. Model-specific source path setup
         # per TASKS.md §3.3 — not a global patch, not in loader.py.
