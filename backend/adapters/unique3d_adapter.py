@@ -92,6 +92,17 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
             with contextlib.suppress(OSError):
                 thirdparty_ckpt.symlink_to(actual_ckpt)
 
+        if "gradio" not in sys.modules:
+            try:
+                import gradio  # noqa: F401
+            except ImportError:
+                import types
+                dummy_gr = types.ModuleType("gradio")
+                class _DummyGradioError(Exception):
+                    pass
+                dummy_gr.Error = _DummyGradioError
+                sys.modules["gradio"] = dummy_gr
+
         previous_cwd = Path.cwd()
         try:
             # Unique3D resolves its ckpt/, config and RealESRGAN paths relative
@@ -100,13 +111,21 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
             from app.all_models import model_zoo
 
             # Prefer a locally downloaded SD 1.5 checkpoint over a Hub lookup.
-            for candidate in (
+            candidate_paths = [
                 weights_dir,
                 weights_dir / "stable-diffusion-v1-5",
                 weights_dir / "sd-v1-5",
                 weights_dir / "v1-5",
                 weights_dir / "runwayml" / "stable-diffusion-v1-5",
-            ):
+                weights_dir.parent / "runwayml" / "stable-diffusion-v1-5",
+                weights_dir.parent / "stable-diffusion-v1-5",
+            ]
+            hf_cache_dir = Path.home() / ".cache" / "huggingface" / "hub" / "models--runwayml--stable-diffusion-v1-5" / "snapshots"
+            if hf_cache_dir.is_dir():
+                snapshots = [d for d in hf_cache_dir.iterdir() if d.is_dir() and (d / "model_index.json").is_file()]
+                candidate_paths.extend(snapshots)
+
+            for candidate in candidate_paths:
                 if candidate.is_dir() and (candidate / "model_index.json").is_file():
                     model_zoo.base_model = str(candidate)
                     logger.info("Using local Unique3D SD v1.5 base model: %s", candidate)

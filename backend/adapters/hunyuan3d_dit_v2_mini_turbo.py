@@ -63,8 +63,10 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading Hunyuan3D Mini Turbo pipeline from %s", weights_dir)
         weights_dir_path = Path(weights_dir)
+        subfolder = "hunyuan3d-dit-v2-mini-turbo"
+        subfolder_path = weights_dir_path / subfolder
         is_downloaded = (
-            (weights_dir_path / "hunyuan3d-dit-v2-mini-turbo").is_dir()
+            subfolder_path.is_dir()
             or (weights_dir_path / "config.json").is_file()
         )
         if not is_downloaded:
@@ -80,8 +82,14 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
                 local_dir=str(weights_dir_path),
             )
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
+        use_safetensors = (
+            (subfolder_path / "model.fp16.safetensors").is_file()
+            or (subfolder_path / "model.safetensors").is_file()
+        )
         pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
             str(weights_dir_path),
+            subfolder=subfolder,
+            use_safetensors=use_safetensors,
             device=device,
         )
         self._pipeline = pipeline

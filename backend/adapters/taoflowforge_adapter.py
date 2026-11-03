@@ -70,23 +70,38 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
         )
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
-        logger.info("Loading TaoFlowForge pipeline from %s", weights_dir)
+        weights_path = Path(weights_dir).resolve()
+        logger.info("Loading TaoFlowForge pipeline from %s", weights_path)
+
+        # Strict checkpoint presence check
+        required_checkpoints = ["stage0.pt", "stage1.pt", "stage2.pt"]
+        missing = [f for f in required_checkpoints if not (weights_path / f).is_file()]
+        if missing:
+            raise FileNotFoundError(
+                f"TaoFlowForge checkpoints missing in {weights_path}: {missing}. "
+                "Download them using `bash backend/scripts/download_models.sh -m taoflowforge`."
+            )
+
         config = InferenceConfig(
-            stage0=Stage0Config(checkpoint=weights_dir / "stage0.pt", num_steps=50, cfg_scale=7.5),
-            stage1=Stage1Config(checkpoint=weights_dir / "stage1.pt", num_steps=30, cfg_scale=7.0),
-            stage2=Stage2Config(checkpoint=weights_dir / "stage2.pt", num_steps=50, cfg_scale=3.0),
+            stage0=Stage0Config(checkpoint=weights_path / "stage0.pt", num_steps=50, cfg_scale=7.5),
+            stage1=Stage1Config(checkpoint=weights_path / "stage1.pt", num_steps=30, cfg_scale=7.0),
+            stage2=Stage2Config(checkpoint=weights_path / "stage2.pt", num_steps=50, cfg_scale=3.0),
             seed=DEFAULT_SEED,
             offload="auto",
             fill_holes=True,
             image_size=512,
-            output_dir=str(Path(tempfile.gettempdir()) / "taoflowforge"),
+            output_dir=Path(tempfile.gettempdir()) / "taoflowforge",
         )
-        pipeline = TaoFlowForgePipeline.from_config(config, device=f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu")
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None and torch and torch.cuda.is_available() else "cpu"
+        pipeline = TaoFlowForgePipeline.from_config(config, device=device)
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline
 
     def _unload_model(self) -> None:
+        if self._pipeline is not None:
+            with contextlib.suppress(Exception):
+                self._pipeline.close()
         self._pipeline = None
         self.model = None
 
@@ -101,25 +116,39 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
 
-        import tempfile
+        request_workdir = Path(tempfile.mkdtemp(prefix=f"taoflowforge_{seed}_"))
+        request_workdir.mkdir(parents=True, exist_ok=True)
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
-        with ctx:
-            result = None
-            for update in pipeline.iter_run(image_path, seed=seed, show_progress=False):
-                if update.result is not None:
-                    result = update.result
-            if result is None or not result.glb_path:
-                return {"success": False, "error": "TaoFlowForge produced no mesh"}
+        try:
+            with ctx:
+                result = None
+                for update in pipeline.iter_run(
+                    image_path, output_dir=request_workdir, seed=seed, show_progress=False
+                ):
+                    if update.result is not None:
+                        result = update.result
 
-        out = Path(result.glb_path)
-        if not out.is_file():
-            return {"success": False, "error": f"TaoFlowForge output not found: {out}"}
+                if result is None:
+                    return {"success": False, "error": "TaoFlowForge pipeline terminated without a result"}
+
+            out = Path(result.glb_path) if result.glb_path else None
+            if out is None or not out.is_file():
+                if result.mesh is not None:
+                    out = request_workdir / f"taoflowforge_{seed}.glb"
+                    result.mesh.export(str(out))
+                elif result.final_mesh_path and Path(result.final_mesh_path).is_file():
+                    out = Path(result.final_mesh_path)
+                else:
+                    return {"success": False, "error": "TaoFlowForge produced no exportable mesh output"}
+        except Exception as exc:
+            logger.error("TaoFlowForge inference failed: %s", exc, exc_info=True)
+            return {"success": False, "error": f"TaoFlowForge inference failed: {exc}"}
 
         return {
             "success": True,
-            "output_mesh_path": str(out),
-            "mesh_path": str(out),
+            "output_mesh_path": str(out.resolve()),
+            "mesh_path": str(out.resolve()),
             "generation_info": {
                 "seed": seed,
                 "num_inference_steps": "adapter_owned",

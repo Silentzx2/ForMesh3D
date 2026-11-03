@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { BoxIcon, ArrowLeft01Icon, SparklesIcon } from '@hugeicons/core-free-icons';
+import { BoxIcon, SparklesIcon } from '@hugeicons/core-free-icons';
 import { Button } from '@/components/ui/button';
 
 export default function NotFound() {
@@ -51,16 +51,6 @@ export default function NotFound() {
 
           {/* Buttons */}
           <div className="animate-fade-up delay-500 flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-            <Link href="/" className="w-full sm:w-auto group">
-              <Button 
-                variant="ghost" 
-                className="w-full border border-[hsl(var(--border)/0.5)] hover:bg-[hsl(var(--surface-2))] hover:border-foreground/20 transition-all duration-300 group-hover:-translate-x-1"
-              >
-                <HugeiconsIcon icon={ArrowLeft01Icon} size={16} className="w-4 h-4 mr-2 transition-transform group-hover:-translate-x-1" />
-                Back to Home
-              </Button>
-            </Link>
-            
             <Link href="/workspace" className="w-full sm:w-auto group">
               <Button 
                 className="w-full bg-primary text-[#080808] hover:bg-primary/90 font-bold shadow-sm transition-all duration-300 hover:scale-105"

@@ -377,11 +377,13 @@ image_to_raw_mesh:
       quality_priority: 90
       multi_gpu: false
       paint_autochain: false
-    vram_requirement: 20480 # MB (20 GB VRAM requirement with offload)
+      low_vram_supported: true
+    vram_requirement: 20480 # MB (20 GB resident without offload)
+    low_vram_requirement: 10240 # MB (10 GB with sequential stage offloading)
     supported_inputs: ["image"]
     supported_outputs: ["glb", "obj"]
     model_path: "backend/pretrained/Taobao3D/TaoFlowForge"
-    enabled: false
+    enabled: true
     max_workers: 1
 
   # Hi3D v1.0 Experimental High-Resolution Geometry Refinement

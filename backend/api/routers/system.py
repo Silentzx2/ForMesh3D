@@ -381,8 +381,9 @@ def _model_supports_download(model_id: str) -> bool:
     return any(
         token in model_id
         for token in (
-            "trellis", "triposg",
-            "hunyuan", "fastmesh", "unique3d", "hi3d"
+            "trellis", "triposg", "hunyuan", "fastmesh",
+            "unique3d", "hi3d", "taoflowforge", "pixal3d",
+            "paint3d", "unirig", "partuv", "ardy"
         )
     )
 

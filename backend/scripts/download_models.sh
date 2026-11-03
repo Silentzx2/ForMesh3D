@@ -720,6 +720,15 @@ download_unique3d() {
         return 1
     fi
 
+    # Stable Diffusion v1.5 base model used by Unique3D
+    local sd_dir="$model_dir/stable-diffusion-v1-5"
+    if [ "$FORCE_DOWNLOAD" = false ] && verify_file "$sd_dir/model_index.json" 100; then
+        print_info "Unique3D SD v1.5 base model already exists and verified"
+    else
+        print_info "Downloading Stable Diffusion v1.5 base model for Unique3D..."
+        hf_download runwayml/stable-diffusion-v1-5 "$sd_dir" || print_warning "Failed to pre-download SD v1.5; diffusers will fallback to HuggingFace Hub"
+    fi
+
     # Clean up legacy misplaced ckpt symlink in project root if present
     if [ -L "$PROJECT_ROOT/ckpt" ]; then
         rm -f "$PROJECT_ROOT/ckpt" 2>/dev/null || true
