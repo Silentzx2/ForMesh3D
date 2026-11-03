@@ -88,9 +88,17 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
 
         # Ensure thirdparty Unique3D has ckpt symlink pointing to pretrained weights
         thirdparty_ckpt = unique3d_root / "ckpt"
+        if thirdparty_ckpt.is_symlink() and not thirdparty_ckpt.exists():
+            thirdparty_ckpt.unlink(missing_ok=True)
         if not thirdparty_ckpt.exists() and actual_ckpt.exists():
             with contextlib.suppress(OSError):
                 thirdparty_ckpt.symlink_to(actual_ckpt)
+
+        # Also create app symlink in weights_dir as an extra guard
+        weights_app = weights_dir / "app"
+        if not weights_app.exists() and (unique3d_root / "app").exists():
+            with contextlib.suppress(OSError):
+                weights_app.symlink_to(unique3d_root / "app")
 
         if "gradio" not in sys.modules:
             try:
@@ -103,11 +111,15 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
                 dummy_gr.Error = _DummyGradioError
                 sys.modules["gradio"] = dummy_gr
 
+        self._unique3d_root = unique3d_root
+        self._weights_dir = weights_dir
+
         previous_cwd = Path.cwd()
         try:
-            # Unique3D resolves its ckpt/, config and RealESRGAN paths relative
-            # to CWD, and its model modules load checkpoints during import.
-            os.chdir(str(weights_dir))
+            # Unique3D resolves its app/, ckpt/, config and RealESRGAN paths relative
+            # to its source tree root (unique3d_root), where ./ckpt is symlinked to
+            # the downloaded pretrained weights directory.
+            os.chdir(str(unique3d_root))
             # Import upstream generate3dv2 (uses RealESRGAN + img2mvimg + image2normal).
             # SD 1.5 refinement is completely bypassed for pure geometry reconstruction.
             from app.gradio_3dgen import generate3dv2
@@ -115,19 +127,19 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
             os.chdir(str(previous_cwd))
 
         self._generate3d = generate3dv2
-        self._weights_dir = weights_dir
         self.model = generate3dv2
         return generate3dv2
 
     def _unload_model(self) -> None:
         self._generate3d = None
         self._weights_dir = None
+        self._unique3d_root = None
         self.model = None
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         generate3d = self._generate3d
-        weights_dir = self._weights_dir
-        if generate3d is None or weights_dir is None:
+        unique3d_root = self._unique3d_root or (Path(__file__).resolve().parents[1] / "thirdparty" / "Unique3D")
+        if generate3d is None:
             return {"success": False, "error": "Unique3D inference pipeline not loaded"}
 
         image_path = inputs.get("image_path") or inputs.get("image")
@@ -149,9 +161,8 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         previous_cwd = Path.cwd()
         try:
-            # The upstream function hardcodes ./ckpt and /tmp/gradio rather
-            # than accepting roots. Run it from the model weights directory.
-            os.chdir(str(weights_dir))
+            # Run inference from unique3d_root so relative paths to app/ and ckpt/ resolve.
+            os.chdir(str(unique3d_root))
             with ctx:
                 output_mesh_path, _ = generate3d(
                     preview_img=image,
