@@ -901,16 +901,60 @@ download_taoflowforge() {
 
     print_info "Downloading TaoFlowForge checkpoints from ModelScope (Taobao3D/TaoFlowForge)..."
     local download_success=false
+    local base_url="https://modelscope.cn/models/Taobao3D/TaoFlowForge/resolve/master"
+    local files=("stage0.pt" "stage1.pt" "stage2.pt")
 
-    # 1. Primary: ModelScope CLI if available
-    if command -v modelscope >/dev/null 2>&1; then
-        print_info "Using modelscope CLI..."
+    # 1. Primary: Accelerated multi-threaded download via aria2c (16 connections per file)
+    local aria_cmd=""
+    if command -v aria2c >/dev/null 2>&1; then
+        aria_cmd="aria2c"
+    else
+        print_info "aria2c not found; attempting to install for multi-threaded download acceleration..."
+        if command -v sudo >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq aria2 2>/dev/null || true
+        elif command -v apt-get >/dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y -qq aria2 2>/dev/null || true
+        fi
+        if command -v aria2c >/dev/null 2>&1; then
+            aria_cmd="aria2c"
+            print_success "aria2c installed successfully for accelerated downloads"
+        else
+            print_warning "Could not install aria2c; will use standard download fallback"
+        fi
+    fi
+
+    if [ -n "$aria_cmd" ]; then
+        print_info "Using accelerated multi-threaded download via aria2c (16 parallel connections)..."
+        local aria_failed=false
+
+        for file in "${files[@]}"; do
+            local file_path="$model_dir/$file"
+            if [ -f "$file_path" ] && [ "$FORCE_DOWNLOAD" = false ]; then
+                print_info "$file already exists, skipping."
+                continue
+            fi
+            print_info "Downloading $file via aria2c (16 threads)..."
+            if ! "$aria_cmd" -c -x 16 -s 16 -k 1M --file-allocation=none -d "$model_dir" -o "$file" "$base_url/$file"; then
+                aria_failed=true
+                print_warning "aria2c download failed for $file; falling back to standard download methods..."
+                break
+            fi
+        done
+
+        if [ "$aria_failed" = false ] && [ -f "$model_dir/stage0.pt" ] && [ -f "$model_dir/stage1.pt" ] && [ -f "$model_dir/stage2.pt" ]; then
+            download_success=true
+        fi
+    fi
+
+    # 2. Secondary: ModelScope CLI if available (fallback)
+    if [ "$download_success" = false ] && command -v modelscope >/dev/null 2>&1; then
+        print_info "Using modelscope CLI fallback..."
         if modelscope download --model Taobao3D/TaoFlowForge --local_dir "$model_dir"; then
             download_success=true
         fi
     fi
 
-    # 2. Secondary: Python snapshot_download from modelscope
+    # 3. Tertiary: Python snapshot_download from modelscope (fallback)
     if [ "$download_success" = false ]; then
         local py_bin="${PYTHON_EXEC:-$(command -v python3 || command -v python)}"
         if [ -n "$py_bin" ]; then
@@ -922,11 +966,9 @@ download_taoflowforge() {
         fi
     fi
 
-    # 3. Tertiary: Direct download via wget/curl from ModelScope resolve URLs
+    # 4. Quaternary: Direct download via wget/curl from ModelScope resolve URLs (fallback)
     if [ "$download_success" = false ]; then
-        print_info "Attempting direct download of stage checkpoints from ModelScope..."
-        local base_url="https://modelscope.cn/models/Taobao3D/TaoFlowForge/resolve/master"
-        local files=("stage0.pt" "stage1.pt" "stage2.pt")
+        print_info "Attempting direct download of stage checkpoints via wget/curl..."
         local direct_failed=false
 
         for file in "${files[@]}"; do
