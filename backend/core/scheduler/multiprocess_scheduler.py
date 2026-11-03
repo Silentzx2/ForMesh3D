@@ -3667,6 +3667,11 @@ class MultiprocessModelScheduler:
                         dead_workers.append(worker_id)
 
                 for worker_id in dead_workers:
+                    process = self.workers.get(worker_id)
+                    exitcode = process.exitcode if process is not None else None
+                    logger.error(
+                        f"Worker {worker_id} died unexpectedly (PID {getattr(process, 'pid', 'unknown')}, exitcode {exitcode})"
+                    )
                     try:
                         job_id = self.worker_current_job.get(worker_id)
                         callback_id = self.worker_current_callback.get(worker_id)
@@ -3685,7 +3690,7 @@ class MultiprocessModelScheduler:
                             try:
                                 fut.set_result({
                                     "success": False,
-                                    "error": f"Worker {worker_id} terminated unexpectedly during execution",
+                                    "error": f"Worker {worker_id} terminated unexpectedly (exitcode {exitcode}) during execution",
                                     "job_id": job_id,
                                 })
                             except asyncio.InvalidStateError:
@@ -3699,7 +3704,7 @@ class MultiprocessModelScheduler:
                             try:
                                 await self.job_queue.fail_job(
                                     job_id,
-                                    f"Worker {worker_id} terminated unexpectedly",
+                                    f"Worker {worker_id} terminated unexpectedly (exitcode {exitcode})",
                                 )
                             except Exception as e:
                                 logger.error(
