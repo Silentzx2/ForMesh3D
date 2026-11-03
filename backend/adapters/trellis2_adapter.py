@@ -106,6 +106,11 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(pipeline_path))
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
+        # Disable sequential CPU offload so all models stay on GPU throughout inference.
+        # With pipeline_type="512" the full model fits in ~10GB; Kaggle T4/P100 has 16GB.
+        # CPU offload (low_vram=True) causes bfloat16↔fp16 precision jitter across transfers
+        # and can produce an all-zero decoder output → empty coords crash.
+        pipeline.low_vram = False
         pipeline.to(device)
         self._pipeline = pipeline
         self.model = pipeline
@@ -132,17 +137,14 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
-            # DEV_FAST_PROFILE: pipeline_type="512", steps=12, max_num_tokens=16384 for fast development testing.
-            # TODO: Once testing is complete and verified stable, restore original high-quality settings:
-            # pipeline_type="1024_cascade", max_num_tokens=49152 (or "1536_cascade") and remove steps overrides.
+            # pipeline_type="512", steps=12 — these match the official pipeline.json defaults.
+            # TODO: upgrade to pipeline_type="1024_cascade", max_num_tokens=49152 once confirmed
+            # stable on target GPU and VRAM budget allows it.
             meshes = pipeline.run(
                 image,
                 seed=seed,
                 pipeline_type="512",
                 max_num_tokens=16384,
-                sparse_structure_sampler_params={"steps": 12},
-                shape_slat_sampler_params={"steps": 12},
-                tex_slat_sampler_params={"steps": 12},
             )
 
         mesh_list = meshes if isinstance(meshes, list) else [meshes]
