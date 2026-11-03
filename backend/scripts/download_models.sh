@@ -748,7 +748,6 @@ required = (
     "shape_slat_flow_model_512",
     "shape_slat_flow_model_1024",
     "shape_slat_decoder",
-    "tex_slat_flow_model_512",
     "tex_slat_flow_model_1024",
     "tex_slat_decoder",
 )
@@ -798,7 +797,7 @@ download_pixal3d() {
        verify_directory "$model_dir" 1 && \
        verify_file "$model_dir/pipeline.json" 1000 && \
        pixal3d_checkpoint_complete "$model_dir"; then
-        print_info "Pixal3D model already exists and all eight pipeline checkpoints are verified"
+        print_info "Pixal3D model already exists and all seven pipeline checkpoints are verified"
         return 0
     fi
 
@@ -812,6 +811,9 @@ download_pixal3d() {
         print_warning "The model requires ~18GB of weights. Check your disk space and network connection."
         return 1
     fi
+
+    print_info "Ensuring Pixal3D image conditioning (DinoV3) model is cached..."
+    hf_download camenduru/dinov3-vitl16-pretrain-lvd1689m || true
 
     if ! pixal3d_checkpoint_complete "$model_dir"; then
         print_error "Pixal3D download did not produce all required pipeline checkpoints"
@@ -1155,6 +1157,13 @@ verify_all_models() {
         verify_directory "$PRETRAINED_DIR/Paint3D" 1 || all_verified=false
     else
         print_warning "Paint3D not found (can be downloaded via -m paint3d)"
+    fi
+
+    print_info "Checking Pixal3D..."
+    if [ -d "$PRETRAINED_DIR/Pixal3D" ]; then
+        pixal3d_checkpoint_complete "$PRETRAINED_DIR/Pixal3D" || all_verified=false
+    else
+        print_warning "Pixal3D not found (can be downloaded via -m pixal3d)"
     fi
 
     print_info "Checking TaoFlowForge..."
