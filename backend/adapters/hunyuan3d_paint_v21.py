@@ -63,7 +63,12 @@ class Hunyuan3DPaintV21ImageMeshPaintingAdapter(BaseModel):
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading Hunyuan3D-Paint pipeline from %s", weights_dir)
         weights_dir_path = Path(weights_dir)
-        if not (weights_dir_path / "config.json").is_file():
+        is_downloaded = (
+            (weights_dir_path / "hunyuan3d-paintpbr-v2-1").is_dir()
+            or (weights_dir_path / "hunyuan3d-dit-v2-1").is_dir()
+            or (weights_dir_path / "config.json").is_file()
+        )
+        if not is_downloaded:
             weights_dir_path.mkdir(parents=True, exist_ok=True)
             logger.info(
                 "Hunyuan3D-Paint weights not found locally; downloading all checkpoints "
