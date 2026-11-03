@@ -556,7 +556,7 @@ The active catalog is sourced from `backend/config/models.yaml`. Text-conditione
 | ARDY | `ardy_motion_generation` | Text → Motion | CPU-only; no GPU VRAM reservation |
 | Unique3D | `unique3d_image_to_raw_mesh` | Image → Raw Mesh | ~10 GB |
 | Pixal3D | `pixal3d_image_to_raw_mesh`; `pixal3d_image_to_3d` | Image → Raw Mesh (O-Voxel) | ~18 GB |
-| TaoFlowForge | `taoflowforge_image_to_raw_mesh` | Image → Raw Mesh (progressive native mesh) | ~20 GB; registered but disabled by default |
+| TaoFlowForge | `taoflowforge_image_to_raw_mesh` | Image → Raw Mesh (progressive native mesh) | ~20 GB (10 GB low-VRAM mode) |
 
 **Readiness caveat:** this table describes manifest registration and declared resource budgets, not verified runtime readiness or mesh quality. A registered/enabled model can still fail checkpoint or pipeline initialization, and a completed inference can still produce invalid geometry.
 

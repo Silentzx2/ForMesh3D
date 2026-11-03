@@ -324,6 +324,7 @@ function formatGenerateModel(
   else if (id === 'trellis2_image_to_raw_mesh' || id === 'trellis2_image_to_textured_mesh') cleanLabel = 'TRELLIS 2 (Next-Gen 4B)';
   else if (id === 'trellis_image_to_raw_mesh') cleanLabel = 'TRELLIS (Raw Geometry)';
   else if (id === 'unique3d_image_to_raw_mesh') cleanLabel = 'Unique3D (High-Fidelity Diffusion)';
+  else if (id === 'taoflowforge_image_to_raw_mesh') cleanLabel = 'TaoFlowForge (Progressive Native Mesh)';
   else if (id === 'hi3d_image_to_raw_mesh') cleanLabel = 'Hi3D [Experimental] (High-Res Geometry)';
   else if (id === 'hi3d_image_to_textured_mesh') cleanLabel = 'Hi3D [Experimental] (Refined Mesh)';
 
@@ -497,6 +498,7 @@ export const GeneratePanel: React.FC = () => {
       'hunyuan3d_shape_v21_image_to_raw_mesh',
       'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh',
       'unique3d_image_to_raw_mesh',
+      'taoflowforge_image_to_raw_mesh',
       'hi3d_image_to_raw_mesh',
     ];
     ids = combined.length > 0 ? combined : defaults;

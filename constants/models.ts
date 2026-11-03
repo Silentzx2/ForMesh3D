@@ -206,6 +206,23 @@ export const CANONICAL_MODELS: ModelDefinition[] = [
     experimental: true,
     description: 'Experimental 3-rung progressive sparse-flow geometry refinement (up to 1536^3) using Sparc3D.',
   },
+  {
+    id: 'taoflowforge_image_to_raw_mesh',
+    name: 'TaoFlowForge (Progressive Native Mesh)',
+    category: 'mesh_generation',
+    feature: 'image_to_raw_mesh',
+    featureLabel: 'Image to Geometry',
+    vramMb: 20480,
+    lowVramSupported: true,
+    lowVramMb: 10240,
+    supportsTexture: false,
+    supportedInputs: ['image'],
+    supportedOutputs: ['glb', 'obj'],
+    modelPath: 'backend/pretrained/Taobao3D/TaoFlowForge',
+    enabled: true,
+    status: 'available',
+    description: 'Progressive native mesh generation with direct connectivity and clean topology from Alibaba Taobao3D.',
+  },
 
   // ── TEXTURE STUDIO / MESH PAINTING ───────────────────────────────────────
   {
@@ -413,7 +430,8 @@ export function getModelsByFeature(feature: string): ModelDefinition[] {
 
 export function isMeshGenerationModel(id: string): boolean {
   const model = MODEL_MAP.get(id);
-  return model?.category === 'mesh_generation';
+  if (model) return model.category === 'mesh_generation';
+  return id.endsWith('_image_to_raw_mesh') || id.endsWith('_image_to_textured_mesh') || id.endsWith('_image_to_3d');
 }
 
 export function isTexturePaintingModel(id: string): boolean {
@@ -423,7 +441,8 @@ export function isTexturePaintingModel(id: string): boolean {
 
 export function isRawMeshModel(id: string): boolean {
   const model = MODEL_MAP.get(id);
-  return model?.feature === 'image_to_raw_mesh';
+  if (model) return model.feature === 'image_to_raw_mesh';
+  return id.endsWith('_image_to_raw_mesh');
 }
 
 export function isMotionGenerationModel(id: string): boolean {
