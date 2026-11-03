@@ -1,10 +1,24 @@
-"""Unique3D adapter — thin integration over the official ThirdParty inference
-API.
-
-Calls Unique3D's app.gradio_3dgen.generate3dv2 Python inference entry point
-from backend/thirdparty/Unique3D. Weights are resolved through
-backend.loader.get_model_weights_dir.
 """
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : unique3d_image_to_raw_mesh
+Model Name        : Unique3D — Image to Raw Mesh
+Feature Target    : image_to_raw_mesh
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/AiuniAI/Unique3D
+Upstream Pipeline : app.gradio_3dgen.generate3dv2 (RealESRGAN + img2mvimg + image2normal)
+Checkpoint / Path : backend/pretrained/Unique3D
+Hardware / VRAM   : 14336 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. SD 1.5 refinement is bypassed for fast pure geometry reconstruction.
+3. Keep CPU offload, attention slicing, and memory cleanup active.
+=============================================================================
+"""
+# Status - BETA / ACTIVE
 from __future__ import annotations
 
 import contextlib
@@ -158,6 +172,12 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
         output_dir = Path("/tmp/gradio")
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        import gc
+        gc.collect()
+        if torch is not None and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         previous_cwd = Path.cwd()
         try:
@@ -173,6 +193,10 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
                 )
         finally:
             os.chdir(str(previous_cwd))
+
+        gc.collect()
+        if torch is not None and torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         if not output_mesh_path:
             return {"success": False, "error": "Unique3D produced no mesh path"}

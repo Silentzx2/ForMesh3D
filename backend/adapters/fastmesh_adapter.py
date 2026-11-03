@@ -1,10 +1,23 @@
-"""FastMesh adapter — thin integration over the official ThirdParty inference
-API.
-
-Wraps ``models.MODELS[...].from_pretrained`` from ``backend/thirdparty/FastMesh``.
-Neural quad retopology (V1K/V4K fixed-budget variants). Weights resolved
-through ``backend.loader.get_model_weights_dir``.
 """
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : fastmesh_v1k_retopology
+Model Name        : FastMesh-V1K — Quad Retopology
+Feature Target    : retopology
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/lucas-w-arnold/FastMesh
+Upstream Pipeline : models.MODELS['MeshGen'].from_pretrained
+Checkpoint / Path : backend/pretrained/FastMesh-V1K
+Hardware / VRAM   : 6144 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. Supports FastMesh-V1K fixed-budget quad retopology on GPU.
+=============================================================================
+"""
+# Status - BETA / ACTIVE
 
 from __future__ import annotations
 

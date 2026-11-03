@@ -1,11 +1,23 @@
-"""Hunyuan3D Paint v2.1 adapter — thin integration over the official ThirdParty
-inference API.
-
-Wraps ``hy3dgen.texgen.pipelines.Hunyuan3DPaintPipeline`` from
-``backend/thirdparty/Hunyuan3D-2.1/hy3dpaint``. Paints PBR textures onto an
-existing mesh conditioned on a reference image. Weights resolved through
-``backend.loader.get_model_weights_dir``.
 """
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : hunyuan3d_paint_v21_image_mesh_painting
+Model Name        : Hunyuan3D Paint v2.1 — Image Mesh Painting
+Feature Target    : image_mesh_painting
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1
+Upstream Pipeline : hy3dgen.texgen.pipelines.Hunyuan3DPaintPipeline
+Checkpoint / Path : backend/pretrained/tencent/Hunyuan3D-2.1
+Hardware / VRAM   : 14336 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. Maintain input validation (mesh_path & image_path) and CPU offloading hooks.
+=============================================================================
+"""
+# Status - BETA / ACTIVE
 
 from __future__ import annotations
 
@@ -87,6 +99,11 @@ class Hunyuan3DPaintV21ImageMeshPaintingAdapter(BaseModel):
                 "Hunyuan3D-Paint failed to load (CUDA required): %s", exc
             )
             raise
+        if torch is not None and torch.cuda.is_available() and hasattr(pipeline, "enable_model_cpu_offload"):
+            try:
+                pipeline.enable_model_cpu_offload(gpu_id=self.gpu_id if self.gpu_id is not None else 0)
+            except Exception as offload_err:
+                logger.warning("Could not enable model CPU offload for Hunyuan3D-Paint: %s", offload_err)
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline

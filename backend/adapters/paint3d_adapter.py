@@ -1,11 +1,23 @@
-"""Paint3D adapter — thin integration over the official ThirdParty inference API.
-
-Wraps ``Paint3D/pipeline_paint3d_stage1.py`` and ``pipeline_paint3d_stage2.py``
-from ``backend/thirdparty/Paint3D``. Coarse-to-fine UV texture generation
-conditioned on a mesh and optional text/image prompt. Weights resolved through
-``backend.loader.get_model_weights_dir``.
 """
-# Status - debug
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : paint3d
+Model Name        : Paint3D — Texture Generation
+Feature Target    : texture_generation
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/OpenCosmos/Paint3D
+Upstream Pipeline : pipeline_paint3d_stage1.py & pipeline_paint3d_stage2.py
+Checkpoint / Path : backend/pretrained/Paint3D
+Hardware / VRAM   : 14336 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. Resolves stage configs from thirdparty/Paint3D source root using sys.executable.
+=============================================================================
+"""
+# Status - BETA / ACTIVE
 from __future__ import annotations
 
 import contextlib

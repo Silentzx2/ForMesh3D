@@ -1,11 +1,23 @@
-"""Hunyuan3D-2.1 Shape adapter — thin integration over the official ThirdParty
-inference API.
-
-Wraps hy3dshape.pipelines.Hunyuan3DDiTFlowMatchingPipeline from
-backend/thirdparty/Hunyuan3D-2.1. Weights are resolved through
-backend.loader.get_model_weights_dir. Inference schedules (steps, guidance,
-octree resolution, chunks) are adapter-owned and stripped by the scheduler.
 """
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : hunyuan3d_shape_v21_image_to_raw_mesh
+Model Name        : Hunyuan3D Shape v2.1 — Image to Raw Mesh
+Feature Target    : image_to_raw_mesh
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1
+Upstream Pipeline : hy3dshape.pipelines.Hunyuan3DDiTFlowMatchingPipeline
+Checkpoint / Path : backend/pretrained/tencent/Hunyuan3D-2.1
+Hardware / VRAM   : 14336 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. Adhere strictly to the adapter-owned inference profile and direct patching.
+=============================================================================
+"""
+# Status - BETA / ACTIVE
 from __future__ import annotations
 
 import contextlib
@@ -92,6 +104,11 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
             str(weights_dir_path),
             device=device,
         )
+        if torch is not None and torch.cuda.is_available() and hasattr(pipeline, "enable_model_cpu_offload"):
+            try:
+                pipeline.enable_model_cpu_offload(gpu_id=self.gpu_id if self.gpu_id is not None else 0)
+            except Exception as offload_err:
+                logger.warning("Could not enable model CPU offload for Hunyuan3D Shape v2.1: %s", offload_err)
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline
@@ -108,6 +125,12 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
         image_path = inputs.get("image_path")
         if not image_path or not Path(image_path).is_file():
             return {"success": False, "error": f"image not found: {image_path}"}
+
+        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        import gc
+        gc.collect()
+        if torch is not None and torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
@@ -145,6 +168,10 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
         mesh.export(str(out))
         if not out.is_file():
             return {"success": False, "error": "Hunyuan3D-2.1 mesh export did not create a file"}
+
+        gc.collect()
+        if torch is not None and torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         return {
             "success": True,

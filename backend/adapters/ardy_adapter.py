@@ -1,10 +1,23 @@
-"""ARDY adapter — thin integration over the official ThirdParty inference API.
-
-ARDY is CPU-only (no GPU VRAM reservation). Wraps ``ardy.model.load_model`` and
-``ardy.tools.seed_everything`` from ``backend/thirdparty/ardy``. Autoregressive
-diffusion motion generation from text. Weights resolved through
-``backend.loader.get_model_weights_dir``.
 """
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : ardy_motion_generation
+Model Name        : ARDY — Motion Generation
+Feature Target    : motion_generation
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/GAP-LAB-CUHK-SZ/ARDY
+Upstream Pipeline : ardy.model.load_model & ardy.tools.seed_everything
+Checkpoint / Path : backend/pretrained/ardy
+Hardware / VRAM   : 0 MB (CPU-only inference)
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. Motion generation runs CPU-only; text_encoder=False avoids HF downloads.
+=============================================================================
+"""
+# Status - BETA / ACTIVE
 
 from __future__ import annotations
 

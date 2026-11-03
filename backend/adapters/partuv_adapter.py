@@ -1,10 +1,23 @@
-"""PartUV adapter — thin integration over the official ThirdParty inference API.
-
-Wraps ``partuv.preprocess.preprocess`` and the compiled ``partuv._core``
-extension from ``backend/thirdparty/PartUV``. Part-based UV unwrapping with
-LSCM seam placement and chart packing. Weights resolved through
-``backend.loader.get_model_weights_dir``.
 """
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : partuv_uv_unwrapping
+Model Name        : PartUV — UV Unwrapping
+Feature Target    : uv_unwrapping
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/GAP-LAB-CUHK-SZ/PartUV
+Upstream Pipeline : partuv.preprocess.preprocess (partuv._core)
+Checkpoint / Path : backend/pretrained/PartUV
+Hardware / VRAM   : 4096 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. Unpacks 4-tuple preprocess return (mesh = result[0]) before export.
+=============================================================================
+"""
+# Status - BETA / ACTIVE
 
 from __future__ import annotations
 

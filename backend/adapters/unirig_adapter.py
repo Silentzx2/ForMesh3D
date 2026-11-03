@@ -1,9 +1,23 @@
-"""UniRig adapter — thin integration over the official ThirdParty inference API.
-
-Wraps the lightning-based UniRig training/inference system from
-``backend/thirdparty/UniRig``. Auto-rigging (skeleton + skinning) for a mesh.
-Weights resolved through ``backend.loader.get_model_weights_dir``.
 """
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : unirig_auto_rig
+Model Name        : UniRig — Auto-Rigging
+Feature Target    : auto_rig
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/CyberAgentAILab/UniRig
+Upstream Pipeline : official upstream run.py CLI (skeleton gen -> skinning)
+Checkpoint / Path : backend/pretrained/UniRig
+Hardware / VRAM   : 8192 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. CLI subprocess executes UniRig root run.py with __target__='ar'.
+=============================================================================
+"""
+# Status - BETA / ACTIVE
 
 from __future__ import annotations
 

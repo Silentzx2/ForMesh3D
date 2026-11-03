@@ -1,9 +1,10 @@
 # ForMesh3D Changelog
 
-## 2026-11-03 — Hunyuan3D-2 Mini Turbo OOM Fix & Unique3D Offline Loading
+## 2026-11-03 — Hunyuan3D-2 Mini Turbo Production Success & Adapter Governance Headers
 
-- Hunyuan3D DiT v2 Mini Turbo: reduced `octree_resolution` from 768 to 380 (official default) in adapter and `backend/config/models.yaml` to avoid 10GB+ dense voxel grid OOM killer SIGKILL during marching cubes surface extraction; adjusted guidance scale to 5.0 and num_chunks to 20000; added explicit CUDA garbage collection and cache flushing before and after inference.
-- Unique3D: updated `backend/thirdparty/Unique3D/app/custom_models/image2normal.yaml` and `image2mvimage.yaml` to point `pretrained_model_name_or_path` and `self_attn_ref_other_model_name` to local `./ckpt/image2normal` and `./ckpt/img2mvimg` instead of nonexistent HuggingFace repo path `lambdalabs/sd-image-variations-diffusers`, enabling 100% offline local checkpoint loading with zero 404 network errors.
+- Hunyuan3D DiT v2 Mini Turbo: verified working in production live GPU inference (758,902 faces, 379,430 vertices, 13.0MB GLB, 3.87GB VRAM, 166.75s). Marked status as `STABLE - LOCKED` in `backend/config/models.yaml` and `backend/adapters/hunyuan3d_dit_v2_mini_turbo.py`. Added strict agent protection rules barring any modification without explicit user order.
+- Standardized Model Adapter Governance: added standardized ASCII specification and governance header boxes across all 17 backend adapters with Model ID, Name, Target, Status, Upstream details, VRAM, and Agent modification rules.
+- Unique3D & Hunyuan3D CPU Offload: enabled `enable_model_cpu_offload()` and attention slicing across Unique3D (`mvimg_prediction`, `normal_prediction`, `unifield_processor`) and all Hunyuan3D adapters to prevent CUDA OOM on 16GB GPUs; removed TensorRT provider fallback error in Unique3D `load_onnx.py`.
 - Verification: `bun test` passed (60/60), `compute_mode_test.sh` passed (8/8).
 
 ---

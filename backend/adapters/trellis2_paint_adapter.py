@@ -1,10 +1,23 @@
-"""TRELLIS.2 Paint adapter — thin integration over the official ThirdParty
-inference API.
-
-Wraps ``trellis2.pipelines.trellis2_texturing.Trellis2TexturingPipeline`` from
-``backend/thirdparty/TRELLIS.2``. Shape-conditioned texture generation for a
-mesh. Weights resolved through ``backend.loader.get_model_weights_dir``.
 """
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : trellis2_image_mesh_painting
+Model Name        : TRELLIS.2 Paint — Image Mesh Painting
+Feature Target    : image_mesh_painting
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/microsoft/TRELLIS.2
+Upstream Pipeline : trellis2.pipelines.trellis2_texturing.Trellis2TexturingPipeline
+Checkpoint / Path : backend/pretrained/microsoft/TRELLIS.2-4B
+Hardware / VRAM   : 14336 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. Uses official pipeline.run(mesh=mesh, image=image, seed=seed).
+=============================================================================
+"""
+# Status - BETA / ACTIVE
 
 from __future__ import annotations
 

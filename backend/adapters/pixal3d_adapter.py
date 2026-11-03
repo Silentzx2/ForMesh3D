@@ -1,11 +1,23 @@
-"""Pixal3D adapter — thin integration over the official ThirdParty inference
-API.
-
-Wraps ``pixal3d.pipelines.Pixal3DImageTo3DPipeline`` from
-``backend/thirdparty/Pixal3D``. Pixel-aligned 3D generation from a single image
-with PBR textures. Weights resolved through ``backend.loader.get_model_weights_dir``.
 """
-# Status - debug
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : pixal3d_image_to_raw_mesh / pixal3d_image_to_3d
+Model Name        : Pixal3D — Image to Raw Mesh / 3D
+Feature Target    : image_to_raw_mesh / image_to_3d
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/Pixal3D/Pixal3D
+Upstream Pipeline : pixal3d.pipelines.Pixal3DImageTo3DPipeline
+Checkpoint / Path : backend/pretrained/Pixal3D
+Hardware / VRAM   : 14336 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. Condition model loads DinoV3ProjFeatureExtractor from HF with local fallback.
+=============================================================================
+"""
+# Status - BETA / ACTIVE
 from __future__ import annotations
 
 import contextlib

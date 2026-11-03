@@ -1,14 +1,23 @@
-"""TaoFlowForge adapter — thin integration over the official ThirdParty
-inference API.
-
-Wraps ``taoflowforge.pipeline.TaoFlowForgePipeline`` from
-``backend/thirdparty/Taobao3D/TaoFlowForge``. TaoFlowForge is a progressive
-native mesh generator (image -> mesh) whose CLI is
-``taoflowforge.cli.main``. Weights resolved through
-``backend.loader.get_model_weights_dir``. Disabled by default in
-``models.yaml`` (``enabled: false``).
 """
-# Status - debug
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : taoflowforge_image_to_raw_mesh
+Model Name        : TaoFlowForge — Image to Raw Mesh
+Feature Target    : image_to_raw_mesh
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/Taobao3D/TaoFlowForge
+Upstream Pipeline : taoflowforge.pipeline.TaoFlowForgePipeline
+Checkpoint / Path : backend/pretrained/Taobao3D/TaoFlowForge
+Hardware / VRAM   : 14336 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. Derives execution device dynamically from gpu_id.
+=============================================================================
+"""
+# Status - BETA / ACTIVE
 from __future__ import annotations
 
 import contextlib

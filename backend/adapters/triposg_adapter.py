@@ -1,12 +1,23 @@
-"""TripoSG adapter — thin integration over the official ThirdParty inference API.
-
-Wraps ``triposg.pipelines.pipeline_triposg.TripoSGPipeline`` and the official
-``run_triposg`` helper from ``backend/thirdparty/TripoSG``. Weights resolved
-through ``backend.loader.get_model_weights_dir``. Only seed + image identity are
-caller-controlled; inference schedules are adapter-owned and stripped by the
-scheduler. Background removal uses the official ``briaai/RMBG-1.4`` weights.
 """
-# Status - stable
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : triposg_image_to_raw_mesh
+Model Name        : TripoSG — Image to Raw Mesh
+Feature Target    : image_to_raw_mesh
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/VAST-AI-Research/TripoSG
+Upstream Pipeline : triposg.pipelines.pipeline_triposg.TripoSGPipeline
+Checkpoint / Path : backend/pretrained/VAST-AI-Research/TripoSG
+Hardware / VRAM   : 8192 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. Inference schedule is adapter-owned; background removal uses RMBG-1.4.
+=============================================================================
+"""
+# Status - BETA / ACTIVE
 from __future__ import annotations
 
 import contextlib

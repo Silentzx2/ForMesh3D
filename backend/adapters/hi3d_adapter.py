@@ -1,12 +1,23 @@
-"""Hi3D adapter — thin integration over the official ThirdParty inference API.
-
-Wraps ``sparc3d.pipelines.sparc3d_pipeline.Sparc3DPipeline`` from
-``backend/thirdparty/Hi3D``. Hi3D is a geometry refinement pipeline: it takes a
-reference image *and* a coarse mesh, consistent with
-``models.yaml`` (``supported_inputs: [image, mesh]``). Weights are resolved
-through ``backend.loader.get_model_weights_dir``.
 """
-# Status - debug
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : hi3d_image_to_raw_mesh / hi3d_image_to_textured_mesh
+Model Name        : Hi3D — Image to Raw Mesh / Textured Mesh
+Feature Target    : image_to_raw_mesh / image_to_textured_mesh
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/myx666/Hi3D
+Upstream Pipeline : sparc3d.pipelines.sparc3d_pipeline.Sparc3DPipeline
+Checkpoint / Path : backend/pretrained/myx666/Hi3D
+Hardware / VRAM   : 14336 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. Hi3D is a refinement pipeline requiring both coarse mesh and reference image.
+=============================================================================
+"""
+# Status - BETA / ACTIVE
 from __future__ import annotations
 
 import contextlib

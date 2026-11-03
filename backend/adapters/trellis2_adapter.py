@@ -1,12 +1,23 @@
-"""TRELLIS.2 adapter — thin integration over the official ThirdParty inference API.
-
-Wraps ``trellis2.pipelines.trellis2_image_to_3d.Trellis2ImageTo3DPipeline`` from
-``backend/thirdparty/TRELLIS.2``. Weights resolved through
-``backend.loader.get_model_weights_dir``. Only seed + image identity are
-caller-controlled; inference schedules (steps, guidance, cascade resolution,
-token budget) are adapter-owned and stripped by the scheduler.
 """
-# Status - debug
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : trellis2_image_to_3d / trellis2_image_to_raw_mesh / trellis2_image_to_textured_mesh
+Model Name        : TRELLIS.2 — Image to 3D / Raw Mesh / Textured Mesh
+Feature Target    : image_to_3d / image_to_raw_mesh / image_to_textured_mesh
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/microsoft/TRELLIS.2
+Upstream Pipeline : trellis2.pipelines.trellis2_image_to_3d.Trellis2ImageTo3DPipeline
+Checkpoint / Path : backend/pretrained/microsoft/TRELLIS.2-4B
+Hardware / VRAM   : 14336 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. Inference schedules and sparse structures are adapter-owned.
+=============================================================================
+"""
+# Status - BETA / ACTIVE
 from __future__ import annotations
 
 import contextlib

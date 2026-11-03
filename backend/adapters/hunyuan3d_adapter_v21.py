@@ -1,12 +1,23 @@
-"""Hunyuan3D v2.1 legacy adapter — thin integration over the official
-ThirdParty inference API.
-
-Wraps ``hy3dgen.shapegen.pipelines.Hunyuan3DDiTFlowMatchingPipeline`` from
-``backend/thirdparty/hunyuan3d-2`` (same official pipeline as the Shape v2.1
-adapter). Legacy aliases route here. Weights resolved through
-``backend.loader.get_model_weights_dir``.
 """
-# Status - debug
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : hunyuan3d_adapter_v21 (legacy routing)
+Model Name        : Hunyuan3D v2.1 Legacy Adapter
+Feature Target    : image_to_raw_mesh / legacy routing
+Status            : LEGACY / ACTIVE
+Upstream Repo     : https://github.com/Tencent-Hunyuan/Hunyuan3D-2
+Upstream Pipeline : hy3dgen.shapegen.pipelines.Hunyuan3DDiTFlowMatchingPipeline
+Checkpoint / Path : backend/pretrained/tencent/Hunyuan3D-2
+Hardware / VRAM   : 14336 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. Legacy aliases route here. Maintain backward-compatible adapter interfaces.
+=============================================================================
+"""
+# Status - LEGACY / ACTIVE
 from __future__ import annotations
 
 import contextlib
@@ -84,6 +95,11 @@ class Hunyuan3DV21ImageToRawMeshAdapter(BaseModel):
             str(weights_dir_path),
             device=device,
         )
+        if torch is not None and torch.cuda.is_available() and hasattr(pipeline, "enable_model_cpu_offload"):
+            try:
+                pipeline.enable_model_cpu_offload(gpu_id=self.gpu_id if self.gpu_id is not None else 0)
+            except Exception as offload_err:
+                logger.warning("Could not enable model CPU offload for Hunyuan3D v2.1 Legacy: %s", offload_err)
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline
