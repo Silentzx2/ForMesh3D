@@ -19,6 +19,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(cd "$BACKEND_DIR/.." && pwd)"
+THIRDPARTY_DIR="$PROJECT_ROOT/backend/thirdparty"
 # Shared model-weights root: honors MODEL_STORAGE_ROOT (default backend/pretrained),
 # resolved against the stable project root—not the incidental CWD—so the download
 # manager and backend/loader.py agree on the weights directory for every model.
@@ -719,9 +720,15 @@ download_unique3d() {
         return 1
     fi
 
-    # Symlink ckpt to project root and Unique3D thirdparty dir for runtime compatibility
-    ln -sfn "$model_dir/ckpt" "$PROJECT_ROOT/ckpt" 2>/dev/null || true
-    ln -sfn "$model_dir/ckpt" "$THIRDPARTY_DIR/Unique3D/ckpt" 2>/dev/null || true
+    # Clean up legacy misplaced ckpt symlink in project root if present
+    if [ -L "$PROJECT_ROOT/ckpt" ]; then
+        rm -f "$PROJECT_ROOT/ckpt" 2>/dev/null || true
+    fi
+
+    # Symlink ckpt to Unique3D thirdparty dir for direct script compatibility
+    if [ -d "$THIRDPARTY_DIR/Unique3D" ]; then
+        ln -sfn "$model_dir/ckpt" "$THIRDPARTY_DIR/Unique3D/ckpt" 2>/dev/null || true
+    fi
 
     print_success "Unique3D model downloaded successfully"
 }

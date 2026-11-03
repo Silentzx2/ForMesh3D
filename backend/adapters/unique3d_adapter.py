@@ -62,6 +62,36 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
             sys.path.insert(0, str(unique3d_root))
 
         weights_dir = Path(get_model_weights_dir(self.MODEL_KEY)).resolve()
+        # If checkpoints are placed directly in weights_dir without a ckpt/ folder,
+        # create a local relative symlink within weights_dir so upstream ./ckpt resolves.
+        actual_ckpt = weights_dir / "ckpt" if (weights_dir / "ckpt").exists() else weights_dir
+        if not (weights_dir / "ckpt").exists() and (weights_dir / "controlnet-tile").exists():
+            with contextlib.suppress(OSError):
+                (weights_dir / "ckpt").symlink_to(".")
+                actual_ckpt = weights_dir / "ckpt"
+
+        # Guard: clean up any misplaced symlink at project root to prevent root downloads
+        project_root = Path(__file__).resolve().parents[2]
+        if (project_root / "ckpt").is_symlink():
+            with contextlib.suppress(OSError):
+                (project_root / "ckpt").unlink()
+
+        # Guard: verify required checkpoints exist locally before letting diffusers/Unique3D run,
+        # preventing upstream from attempting to download files into project root or thirdparty root.
+        required_items = ["controlnet-tile", "image2normal", "img2mvimg", "realesrgan-x4.onnx"]
+        missing = [item for item in required_items if not (actual_ckpt / item).exists()]
+        if missing:
+            raise FileNotFoundError(
+                f"Unique3D checkpoints missing from {actual_ckpt}: {missing}. "
+                "Download them via `bash backend/scripts/download_models.sh -m unique3d`."
+            )
+
+        # Ensure thirdparty Unique3D has ckpt symlink pointing to pretrained weights
+        thirdparty_ckpt = unique3d_root / "ckpt"
+        if not thirdparty_ckpt.exists() and actual_ckpt.exists():
+            with contextlib.suppress(OSError):
+                thirdparty_ckpt.symlink_to(actual_ckpt)
+
         previous_cwd = Path.cwd()
         try:
             # Unique3D resolves its ckpt/, config and RealESRGAN paths relative

@@ -7,11 +7,6 @@
 # CHANGE CONTROL: before changing any locked parameter/profile later, ask the user once and wait for explicit confirmation.
 # Evidence, limits, and source links: Docs/EXPERIMENTAL-MODEL-SETTINGS.md
 
-# text-conditioned mesh painting
-text_mesh_painting:
-  # EXPERIMENTAL_MAX_DETAIL: TRELLIS supports up to 50 sampling steps; adapter has a shared guidance field, so it cannot express separate upstream SS=7.5 / SLAT=3.0 guidance without an implementation change.
-  # Review note: keep raw geometry unsimplified and ask the user once before any future profile change.
-
 # image-conditioned geometry generation
 image_to_raw_mesh:
   # EXPERIMENTAL_MAX_DETAIL: steps=100 (upstream UI maximum and community-tested experiment), guidance=5.0 (upstream default), octree=1300 (upstream maximum).
