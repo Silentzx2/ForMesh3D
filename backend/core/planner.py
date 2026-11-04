@@ -545,7 +545,16 @@ def plan_generation(
     if selected_candidate is None:
         if not auto_mode and explicit_model:
             failure_detail = "; ".join(reasons[-2:]) if len(reasons) >= 2 else (reasons[-1] if reasons else "candidate failed capability checks")
-            raise ValueError(f"Explicit model '{explicit_model}' is unavailable: {failure_detail}")
+            # License opt-in rejection on an explicitly-requested model should not
+            # hard-fail the job; fall back to automatic selection so the user can
+            # still generate with another available model.
+            if "license opt-in" in failure_detail:
+                reasons.append(
+                    f"Explicit model '{explicit_model}' requires license opt-in which has not been accepted; "
+                    f"falling back to automatic selection ({fallback_resort_cand['adapter']})"
+                )
+            else:
+                raise ValueError(f"Explicit model '{explicit_model}' is unavailable: {failure_detail}")
         selected_candidate = fallback_resort_cand
         selected_idx = len(candidates) - 1
         reasons.append(

@@ -114,6 +114,45 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         # low_vram=True (pipeline.json default): sequentially moves each model CPU→GPU→CPU.
         # One model on GPU at a time → lower peak VRAM, same quality.
         pipeline.to(device)
+
+        # Multi-GPU: disable low_vram sequential offloading so components stay
+        # on their assigned GPUs, then shard pipeline layers across the GPUs
+        # reserved by the scheduler's resource plan. Falls back silently to the
+        # single-GPU device above if dispatch cannot be applied.
+        resource_plan = self.resource_plan or {}
+        if resource_plan.get("kind") == "multi_gpu":
+            pipeline.low_vram = False
+            try:
+                from backend.core.scheduler.resource_planner import (
+                    ResourcePlan,
+                    dispatch_pipeline_across_gpus,
+                )
+                rp = ResourcePlan(
+                    kind="multi_gpu",
+                    gpu_ids=tuple(int(x) for x in resource_plan.get("gpu_ids", [])),
+                    primary_gpu=resource_plan.get("primary_gpu"),
+                    reservation_mb={
+                        int(k): int(v) for k, v in resource_plan.get("reservation_mb", {}).items()
+                    },
+                    max_memory_mb={
+                        str(k): int(v) for k, v in resource_plan.get("max_memory_mb", {}).items()
+                    },
+                    cpu_threads=int(resource_plan.get("cpu_threads", 1)),
+                    strategy=resource_plan.get("strategy", "accelerate_component_dispatch"),
+                    reason=resource_plan.get("reason", "multi_gpu dispatch"),
+                )
+                dispatch_result = dispatch_pipeline_across_gpus(pipeline, rp)
+                logger.info(
+                    "TRELLIS.2 multi-GPU dispatch: applied=%s strategy=%s gpus=%s",
+                    dispatch_result.get("applied"),
+                    dispatch_result.get("strategy"),
+                    dispatch_result.get("gpu_ids"),
+                )
+            except Exception as dispatch_err:
+                logger.warning(
+                    "TRELLIS.2 multi-GPU dispatch failed (%s); single-GPU inference on %s",
+                    dispatch_err, device,
+                )
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline
@@ -139,14 +178,25 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
-            # Full production high-fidelity shape cascade: 1024_cascade, max_num_tokens=49152.
-            # Texture generation is explicitly disabled for raw mesh (no texture SLat sampling or decoding).
+            # TRELLIS.2 high-quality 1536_cascade (user-requested; no fallback).
+            # steps=50 is the official FlowEulerSampler default — the old dev
+            # profile (steps=12) under-converged the sparse-structure flow model
+            # and produced zero occupied voxels at the zero-logit threshold.
+            # No ThirdParty/model-code edit: only official pipeline params are used.
             meshes = pipeline.run(
                 image,
                 seed=seed,
-                pipeline_type="1024_cascade",
+                pipeline_type="1536_cascade",
                 max_num_tokens=49152,
                 generate_texture=False,
+                sparse_structure_sampler_params={
+                    "steps": 50,
+                    "rescale_t": 1.0,
+                },
+                shape_slat_sampler_params={
+                    "steps": 50,
+                    "rescale_t": 1.0,
+                },
             )
 
         mesh_list = meshes if isinstance(meshes, list) else [meshes]
@@ -207,10 +257,10 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
             "mesh_path": str(out),
             "generation_info": {
                 "seed": seed,
-                "num_inference_steps": "adapter_owned",
+                "num_inference_steps": 50,
                 "guidance_scale": "adapter_owned",
                 "octree_resolution": "adapter_owned",
-                "pipeline_type": "1024_cascade",
+                "pipeline_type": "1536_cascade",
                 "max_num_tokens": 49152,
                 "generate_texture": False,
             },
