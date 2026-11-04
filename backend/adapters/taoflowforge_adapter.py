@@ -132,6 +132,7 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
         logger.info("Loading TaoFlowForge pipeline from %s", weights_path)
 
         # Strict checkpoint presence check
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
         required_checkpoints = ["stage0.pt", "stage1.pt", "stage2.pt"]
         missing = [f for f in required_checkpoints if not (weights_path / f).is_file()]
         if missing:

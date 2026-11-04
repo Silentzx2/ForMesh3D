@@ -73,6 +73,9 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         # Prefer xFormers on T4; its TRELLIS.2 attention path uses capability-aware BF16/FP32 dispatch.
         if not os.environ.get("SPARSE_ATTN_BACKEND"):
             os.environ["SPARSE_ATTN_BACKEND"] = "xformers"
+        # Dense attention backend: SDPA is universal and handles all precisions safely without Ampere-only flash-attn crash
+        if not os.environ.get("ATTN_BACKEND"):
+            os.environ["ATTN_BACKEND"] = "sdpa"
 
         # Make the vendored TRELLIS.2 source importable in the worker process,
         # which only has backend/ on sys.path. Model-specific source path setup
