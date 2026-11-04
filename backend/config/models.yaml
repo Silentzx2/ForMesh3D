@@ -316,11 +316,10 @@ image_to_raw_mesh:
       recommended_postprocess_profile: high_fidelity
       latency_class: quality
       quality_priority: 100
-      multi_gpu: true
-      multi_gpu_strategy: accelerate_component_dispatch
+      multi_gpu: false
       low_vram_supported: true
       max_images: 1
-    vram_requirement: 23552  # MB (23GB, TRELLIS.2); 1536_cascade is heavier — multi-GPU sharding or CPU offload on smaller cards
+    vram_requirement: 23552  # MB (23GB, TRELLIS.2); single-GPU placement — component sharding breaks TRELLIS.2 data flow
     low_vram_requirement: 10240
     supported_inputs: ["image"]
     supported_outputs: ["glb", "obj"]
@@ -330,7 +329,7 @@ image_to_raw_mesh:
 
   # Production profile: pipeline_type="1536_cascade", max_num_tokens=49152,
   # sampler steps=50 (official TRELLIS.2 inference default). Raw mesh only;
-  # texture generation disabled. Multi-GPU sharded via accelerate_component_dispatch.
+  # texture generation disabled. Single-GPU placement.
   trellis2_image_to_raw_mesh:
     model_name: "TRELLIS.2 — Image to Raw Mesh"
     upstream_repository: "https://github.com/microsoft/TRELLIS.2"
@@ -355,11 +354,10 @@ image_to_raw_mesh:
       recommended_postprocess_profile: high_fidelity
       latency_class: quality
       quality_priority: 100
-      multi_gpu: true
-      multi_gpu_strategy: accelerate_component_dispatch
+      multi_gpu: false
       low_vram_supported: true
       max_images: 1
-    vram_requirement: 23552  # MB (23GB, TRELLIS.2); 1536_cascade is heavier — multi-GPU sharding or CPU offload on smaller cards
+    vram_requirement: 23552  # MB (23GB, TRELLIS.2); single-GPU placement — component sharding breaks TRELLIS.2 data flow
     low_vram_requirement: 10240
     supported_inputs: ["image"]
     supported_outputs: ["glb", "obj"]

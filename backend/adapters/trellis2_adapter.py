@@ -123,44 +123,6 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         if pipeline.rembg_model is not None:
             pipeline.rembg_model.to(device)
 
-        # Multi-GPU: disable low_vram sequential offloading so components stay
-        # on their assigned GPUs, then shard pipeline layers across the GPUs
-        # reserved by the scheduler's resource plan. Falls back silently to the
-        # single-GPU device above if dispatch cannot be applied.
-        resource_plan = self.resource_plan or {}
-        if resource_plan.get("kind") == "multi_gpu":
-            pipeline.low_vram = False
-            try:
-                from backend.core.scheduler.resource_planner import (
-                    ResourcePlan,
-                    dispatch_pipeline_across_gpus,
-                )
-                rp = ResourcePlan(
-                    kind="multi_gpu",
-                    gpu_ids=tuple(int(x) for x in resource_plan.get("gpu_ids", [])),
-                    primary_gpu=resource_plan.get("primary_gpu"),
-                    reservation_mb={
-                        int(k): int(v) for k, v in resource_plan.get("reservation_mb", {}).items()
-                    },
-                    max_memory_mb={
-                        str(k): int(v) for k, v in resource_plan.get("max_memory_mb", {}).items()
-                    },
-                    cpu_threads=int(resource_plan.get("cpu_threads", 1)),
-                    strategy=resource_plan.get("strategy", "accelerate_component_dispatch"),
-                    reason=resource_plan.get("reason", "multi_gpu dispatch"),
-                )
-                dispatch_result = dispatch_pipeline_across_gpus(pipeline, rp)
-                logger.info(
-                    "TRELLIS.2 multi-GPU dispatch: applied=%s strategy=%s gpus=%s",
-                    dispatch_result.get("applied"),
-                    dispatch_result.get("strategy"),
-                    dispatch_result.get("gpu_ids"),
-                )
-            except Exception as dispatch_err:
-                logger.warning(
-                    "TRELLIS.2 multi-GPU dispatch failed (%s); single-GPU inference on %s",
-                    dispatch_err, device,
-                )
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline
