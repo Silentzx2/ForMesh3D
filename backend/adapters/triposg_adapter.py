@@ -131,12 +131,16 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
             )
 
         mesh = None
-        if hasattr(scene, "geometry") and scene.geometry:
+        # run_triposg returns a trimesh.Trimesh directly (not a Scene).
+        # Check for Trimesh first, then fall back to Scene .geometry dict.
+        import trimesh
+        if isinstance(scene, trimesh.Trimesh):
+            mesh = scene
+        elif hasattr(scene, "geometry") and scene.geometry:
             mesh = next(iter(scene.geometry.values()))
         if mesh is None:
             return {"success": False, "error": "TripoSG produced no mesh"}
 
-        import trimesh
         import tempfile
 
         if not isinstance(mesh, trimesh.Trimesh):
