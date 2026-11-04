@@ -111,18 +111,29 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(pipeline_path))
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
-        # low_vram=True (pipeline.json default): sequentially moves each model CPU→GPU→CPU.
-        # On pre-Ampere (T4) this causes attention/dtype mismatches in the sparse-structure
-        # flow model, producing max_logit≈-75 (pure noise) and zero occupied voxels.
-        # Disable low_vram so all components stay on GPU; multi-GPU job parallelism is
-        # handled by the scheduler spawning separate workers per GPU.
-        pipeline.low_vram = False
-        pipeline.to(device)
-        # Explicitly move submodules that pipeline.to() may skip, so input and
-        # weights share a device regardless of low_vram setting.
-        pipeline.image_cond_model.to(device)
-        if pipeline.rembg_model is not None:
-            pipeline.rembg_model.to(device)
+        # Try loading everything on GPU first. If OOM (low VRAM card), fall back
+        # to low_vram=True (CPU offload): models stay on CPU and move to GPU only
+        # when needed for inference. This lets TRELLIS.2 run on cards with <16 GB.
+        try:
+            pipeline.low_vram = False
+            pipeline.to(device)
+        except RuntimeError as oom_err:
+            if "CUDA out of memory" not in str(oom_err):
+                raise
+            logger.warning(
+                "TRELLIS.2 GPU load failed (OOM); falling back to low_vram=True "
+                "CPU offload so inference can run on this card: %s", oom_err
+            )
+            pipeline.low_vram = True
+            # low_vram=True skips moving submodules in pipeline.to(); they are
+            # moved individually during inference, so no OOM at load time.
+        # Explicitly move submodules to GPU only when low_vram=False. When
+        # low_vram=True (CPU offload), they stay on CPU and move to GPU
+        # individually during inference, avoiding OOM at load time.
+        if not pipeline.low_vram:
+            pipeline.image_cond_model.to(device)
+            if pipeline.rembg_model is not None:
+                pipeline.rembg_model.to(device)
 
         self._pipeline = pipeline
         self.model = pipeline

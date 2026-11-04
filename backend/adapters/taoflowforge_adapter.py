@@ -112,6 +112,13 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
         _tao_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Taobao3D" / "TaoFlowForge")
         if _tao_root not in sys.path:
             sys.path.insert(0, _tao_root)
+        # TaoFlowForge model-specific patcher: disable FlashAttention on
+        # pre-Ampere GPUs (Tesla T4 sm_75, etc.) so inference falls back to
+        # SDPA instead of crashing with "FlashAttention only supports
+        # Ampere GPUs or newer". Must run before importing the pipeline,
+        # which imports the attention module at load time.
+        from patcher.taoflowforge import apply_patch as _taoflowforge_apply_attn_patch  # noqa: E402
+        _taoflowforge_apply_attn_patch()
         from taoflowforge.pipeline import TaoFlowForgePipeline
         from taoflowforge.config import (
             InferenceConfig,
