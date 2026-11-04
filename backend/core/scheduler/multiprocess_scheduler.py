@@ -2282,8 +2282,12 @@ class MultiprocessModelScheduler:
                 return
 
             # Generation jobs become final only after canonical post-processing.
-            if result.get("success"):
-                final_result = result.get("result") or {}
+            final_result = result.get("result") or {}
+            # The scheduler wrapper success=True only means process() returned
+            # without throwing — the adapter's dict carries the real result.
+            # A failed adapter result (e.g. missing DINO weights) must fail the job,
+            # not complete it with no mesh.
+            if final_result.get("success"):
                 # All adapters write output meshes to tempfile.mkdtemp() (/tmp),
                 # but the download endpoint requires paths under storage_root
                 # (relative_to(storage_root) check per docs/TASKS.md §4.5).

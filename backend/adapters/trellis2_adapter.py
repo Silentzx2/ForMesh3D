@@ -114,6 +114,14 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         # low_vram=True (pipeline.json default): sequentially moves each model CPU→GPU→CPU.
         # One model on GPU at a time → lower peak VRAM, same quality.
         pipeline.to(device)
+        # Ensure all pipeline components are on the target device. With
+        # low_vram=True, pipeline.to() skips moving submodules, which causes
+        # device/dtype mismatches (e.g. BiRefNet CPU weights vs CUDA input
+        # during rembg preprocessing). Move them explicitly so input and
+        # weights share a device regardless of low_vram setting.
+        pipeline.image_cond_model.to(device)
+        if pipeline.rembg_model is not None:
+            pipeline.rembg_model.to(device)
 
         # Multi-GPU: disable low_vram sequential offloading so components stay
         # on their assigned GPUs, then shard pipeline layers across the GPUs
