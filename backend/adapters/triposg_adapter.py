@@ -23,7 +23,10 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import shutil
 import sys
+import tempfile
+import uuid
 from pathlib import Path
 from typing import Any, Dict
 
@@ -34,10 +37,7 @@ except ImportError:  # pragma: no cover - torch optional in CPU-only environment
 
 from backend.core.models.base import BaseModel, ModelStatus
 from backend.loader import get_model_weights_dir
-
-# TripoSG model-specific patcher: ensures output mesh follows the canonical
-# storage system so artifact downloads resolve. Runs only in this worker.
-from patcher.triposg import apply_patch as _triposg_apply_storage_patch  # noqa: E402
+from backend.core.utils.file_utils import get_storage_base_dir
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +94,6 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
         self._pipe = pipe
         self._rmbg = rmbg
         self.model = pipe
-        # Apply model-specific patcher: ensure output mesh follows canonical storage.
-        _triposg_apply_storage_patch()
         return pipe
 
     def _unload_model(self) -> None:
@@ -146,10 +144,27 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
         out = Path(tempfile.mkdtemp()) / f"triposg_{seed}.glb"
         mesh.export(str(out))
 
+        # Copy to canonical storage so artifact downloads resolve.
+        # Temp dirs are cleaned when the job ends, so the mesh must live
+        # under the shared storage root for the download endpoint to find it.
+        try:
+            storage_root = get_storage_base_dir()
+            canonical_dir = storage_root / "models" / "meshes" / "triposg_output"
+            canonical_dir.mkdir(parents=True, exist_ok=True)
+            canonical_path = canonical_dir / f"{uuid.uuid4().hex}_{out.name}"
+            if not canonical_path.exists():
+                shutil.copy2(str(out), str(canonical_path))
+            out = canonical_path
+        except Exception as copy_err:
+            logger.warning(
+                "TripoSG canonical storage copy failed (%s); using temp path",
+                copy_err,
+            )
+
         return {
             "success": True,
-            "output_mesh_path": str(out),
-            "mesh_path": str(out),
+            "output_mesh_path": str(out.resolve()),
+            "mesh_path": str(out.resolve()),
             "generation_info": {
                 "seed": seed,
                 "num_inference_steps": steps,
