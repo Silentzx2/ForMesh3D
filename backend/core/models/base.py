@@ -172,6 +172,18 @@ class BaseModel(ABC):
             if progress_callback:
                 inputs = {**inputs, "progress_callback": progress_callback}
             result = self._process_request(inputs)
+            # Adapters may catch their own exceptions and return an error dict
+            # instead of raising. Respect that contract: a "success": False
+            # result is a real failure, not a success.
+            if isinstance(result, dict) and result.get("success") is False:
+                elapsed = time.time() - start_time
+                error_msg = result.get("error", "Adapter returned failure without exception")
+                self.status = ModelStatus.ERROR
+                logger.error(
+                    f"[MODEL INFERENCE FAILED] model={self.model_id} "
+                    f"elapsed={elapsed:.2f}s error={error_msg}"
+                )
+                return result
             elapsed = time.time() - start_time
             memory = ""
             if self.gpu_id is not None and torch is not None and torch.cuda.is_available():
