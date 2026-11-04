@@ -2608,7 +2608,7 @@ class MultiprocessModelScheduler:
                 await self.job_queue.complete_job(job_id, final_result)
                 logger.info(f"[JOB COMPLETE] job_id={job_id} status=success")
             else:
-                err_msg = result.get("error", "Unknown error")
+                err_msg = final_result.get("error", "Unknown error")
                 await self.job_queue.fail_job(job_id, err_msg)
                 logger.error(f"[JOB FAILED] job_id={job_id} error={err_msg}")
 
