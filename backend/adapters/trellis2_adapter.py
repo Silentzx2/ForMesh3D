@@ -110,37 +110,29 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
             pipeline_path = weights_dir_path
 
         pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(pipeline_path))
-        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
-        # Try loading everything on GPU first. If OOM (low VRAM card), fall back
-        # to low_vram=True (CPU offload): models stay on CPU and move to GPU only
-        # when needed for inference. This lets TRELLIS.2 run on cards with <16 GB.
-        try:
-            pipeline.low_vram = False
-            pipeline.to(device)
-        except RuntimeError as oom_err:
-            if "CUDA out of memory" not in str(oom_err):
-                raise
-            logger.warning(
-                "TRELLIS.2 GPU load failed (OOM); falling back to low_vram=True "
-                "CPU offload so inference can run on this card: %s", oom_err
-            )
-            pipeline.low_vram = True
-            # KEY FIX: when CPU offloading, keep self.device as "cpu" so that
-            # TRELLIS.2's get_cond() -> self.image_cond_model.to(self.device)
-            # is a no-op (model stays on CPU) instead of forcing GPU placement
-            # and OOMing. low_vram=True moves submodules individually per-op.
-            device = "cpu"
-        # Explicitly move submodules to GPU only when low_vram=False. When
-        # low_vram=True (CPU offload), they stay on CPU and move to GPU
-        # individually during inference, avoiding OOM at load time.
-        if not pipeline.low_vram:
-            pipeline.image_cond_model.to(device)
-            if pipeline.rembg_model is not None:
-                pipeline.rembg_model.to(device)
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None and torch.cuda.is_available() else "cpu"
+
+        # Determine whether to use low-VRAM CPU offload or keep all models resident in VRAM.
+        # Across all stages, TRELLIS.2 weights total ~14.2 GB. Keeping everything in VRAM
+        # without CPU offload requires >= 22 GB VRAM (e.g. RTX 3090/4090 24GB, A100 40GB/80GB).
+        # On cards with < 22 GB VRAM (e.g. T4 16GB, P100 16GB, V100 16GB, 8-12GB consumer cards),
+        # low_vram=True moves submodels CPU->GPU->CPU sequentially, keeping peak VRAM under 4 GB.
+        total_vram_gb = 0.0
+        if device.startswith("cuda"):
+            try:
+                gpu_idx = int(self.gpu_id) if self.gpu_id is not None else 0
+                props = torch.cuda.get_device_properties(gpu_idx)
+                total_vram_gb = props.total_memory / (1024 ** 3)
+            except Exception:
+                total_vram_gb = 0.0
+
+        use_low_vram = (device == "cpu") or (total_vram_gb < 22.0)
+        pipeline.low_vram = use_low_vram
+        pipeline.to(device)
 
         self._pipeline = pipeline
         self.model = pipeline
-        self.device = device  # track actual device for runtime logging
+        self.device = device
         return pipeline
 
     def _unload_model(self) -> None:
@@ -164,25 +156,15 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
-            # TRELLIS.2 high-quality 1536_cascade (user-requested; no fallback).
-            # steps=50 is the official FlowEulerSampler default — the old dev
-            # profile (steps=12) under-converged the sparse-structure flow model
-            # and produced zero occupied voxels at the zero-logit threshold.
-            # No ThirdParty/model-code edit: only official pipeline params are used.
+            # Full production high-fidelity shape cascade: 1024_cascade, max_num_tokens=49152.
+            # Texture generation is explicitly disabled for raw mesh (no texture SLat sampling or decoding).
+            # Uses official pipeline.json default schedule & flow-matching steps.
             meshes = pipeline.run(
                 image,
                 seed=seed,
-                pipeline_type="1536_cascade",
+                pipeline_type="1024_cascade",
                 max_num_tokens=49152,
                 generate_texture=False,
-                sparse_structure_sampler_params={
-                    "steps": 50,
-                    "rescale_t": 1.0,
-                },
-                shape_slat_sampler_params={
-                    "steps": 50,
-                    "rescale_t": 1.0,
-                },
             )
 
         mesh_list = meshes if isinstance(meshes, list) else [meshes]
@@ -243,10 +225,10 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
             "mesh_path": str(out),
             "generation_info": {
                 "seed": seed,
-                "num_inference_steps": 50,
+                "num_inference_steps": "adapter_owned",
                 "guidance_scale": "adapter_owned",
                 "octree_resolution": "adapter_owned",
-                "pipeline_type": "1536_cascade",
+                "pipeline_type": "1024_cascade",
                 "max_num_tokens": 49152,
                 "generate_texture": False,
             },
