@@ -156,13 +156,13 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
-            # Full production high-fidelity shape cascade: 1024_cascade, max_num_tokens=49152.
+            # Full production high-fidelity shape cascade: 1536_cascade, max_num_tokens=49152.
             # Texture generation is explicitly disabled for raw mesh (no texture SLat sampling or decoding).
             # Uses official pipeline.json default schedule & flow-matching steps.
             meshes = pipeline.run(
                 image,
                 seed=seed,
-                pipeline_type="1024_cascade",
+                pipeline_type="1536_cascade",
                 max_num_tokens=49152,
                 generate_texture=False,
             )
@@ -228,7 +228,7 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
                 "num_inference_steps": "adapter_owned",
                 "guidance_scale": "adapter_owned",
                 "octree_resolution": "adapter_owned",
-                "pipeline_type": "1024_cascade",
+                "pipeline_type": "1536_cascade",
                 "max_num_tokens": 49152,
                 "generate_texture": False,
             },
