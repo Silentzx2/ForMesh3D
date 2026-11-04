@@ -124,13 +124,42 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         # On cards with < 22 GB VRAM (e.g. T4 16GB, P100 16GB, V100 16GB, 8-12GB consumer cards),
         # low_vram=True moves submodels CPU->GPU->CPU sequentially, keeping peak VRAM under 4 GB.
         total_vram_gb = 0.0
-        if device.startswith("cuda"):
+        is_pre_ampere = False
+        if device.startswith("cuda") and torch is not None and torch.cuda.is_available():
             try:
-                gpu_idx = int(self.gpu_id) if self.gpu_id is not None else 0
+                gpu_idx = int(self.gpu_id) if self.gpu_id is not None else torch.cuda.current_device()
                 props = torch.cuda.get_device_properties(gpu_idx)
                 total_vram_gb = props.total_memory / (1024 ** 3)
+                is_pre_ampere = torch.cuda.get_device_capability(gpu_idx)[0] < 8
             except Exception:
                 total_vram_gb = 0.0
+                is_pre_ampere = False
+
+        # Convert models to FP16 on pre-Ampere GPUs (sm < 80, e.g. Tesla T4).
+        # On pre-Ampere, BF16 has NO hardware Tensor Core support and falls back to
+        # slow scalar emulation (~9s/it) with severe numerical roundoff drift, causing
+        # sparse structure collapse (max_logit ≈ -75). Converting to FP16 enables
+        # native hardware Tensor Cores with zero drift. sm >= 80 remains native BF16.
+        if is_pre_ampere:
+            logger.info(
+                "Pre-Ampere GPU detected (compute capability < 8.0). "
+                "Converting TRELLIS.2 models to FP16 for native Tensor Core acceleration."
+            )
+            for name, model in pipeline.models.items():
+                try:
+                    if hasattr(model, "convert_to"):
+                        model.convert_to(torch.float16)
+                    elif hasattr(model, "convert_to_fp16"):
+                        model.convert_to_fp16()
+                    if hasattr(model, "to"):
+                        model.to(dtype=torch.float16)
+                except Exception as conv_err:
+                    logger.warning("Could not convert %s to FP16: %s", name, conv_err)
+            try:
+                if hasattr(pipeline, "image_cond_model") and hasattr(pipeline.image_cond_model, "model"):
+                    pipeline.image_cond_model.model.to(dtype=torch.float16)
+            except Exception as cond_err:
+                logger.warning("Could not convert image_cond_model to FP16: %s", cond_err)
 
         use_low_vram = (device == "cpu") or (total_vram_gb < 22.0)
         pipeline.low_vram = use_low_vram

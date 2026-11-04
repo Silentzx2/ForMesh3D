@@ -16,7 +16,7 @@ CRITICAL NOTICE FOR AI AGENTS:
 2. DO NOT TOUCH, MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM
    PIPELINE CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER.
 3. Locked profile: steps=50, guidance_scale=7.5, octree_resolution=512,
-   num_chunks=8000. Preserved for high quality and verified stability.
+   num_chunks=8000, max_topology=600000. Preserved for high quality and verified stability.
 =============================================================================
 """
 # Status - STABLE (PROTECTED / LOCKED)
@@ -166,6 +166,32 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
                 "success": False,
                 "error": f"Hunyuan3D-2.1 returned an unsupported mesh result: {type(mesh).__name__}",
             }
+
+        # Cap max topology at 600k faces per user specification
+        MAX_TOPOLOGY_FACES = 600_000
+        face_count = len(mesh.faces) if hasattr(mesh, "faces") else 0
+        if face_count > MAX_TOPOLOGY_FACES:
+            logger.info(
+                "Hunyuan3D Shape mesh has %d faces, exceeding %d cap. Decimating...",
+                face_count,
+                MAX_TOPOLOGY_FACES,
+            )
+            try:
+                import fast_simplification
+                v_red, f_red = fast_simplification.simplify(
+                    mesh.vertices,
+                    mesh.faces,
+                    target_count=MAX_TOPOLOGY_FACES,
+                )
+                import trimesh
+                mesh = trimesh.Trimesh(vertices=v_red, faces=f_red, process=True)
+                mesh.remove_unreferenced_vertices()
+            except Exception:
+                try:
+                    mesh = mesh.simplify_quadric_decimation(face_count=MAX_TOPOLOGY_FACES)
+                    mesh.remove_unreferenced_vertices()
+                except Exception as simp_err:
+                    logger.warning("Could not decimate Hunyuan3D Shape mesh to %d faces: %s", MAX_TOPOLOGY_FACES, simp_err)
 
         import tempfile
 

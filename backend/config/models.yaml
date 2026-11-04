@@ -10,7 +10,7 @@
 # image-conditioned geometry generation
 image_to_raw_mesh:
   # MAX_DETAIL: steps=50, guidance=7.5, octree=512 (official Hunyuan3D-2.1 maximum resolution limit).
-  # A/B outcome is unverified; raw master remains un-decimated. Ask the user once before later changing this profile.
+  # Max topology capped at 600k faces per user specification.
   hunyuan3d_shape_v21_image_to_raw_mesh:
     model_name: "Hunyuan3D-2.1 Shape — Image to Raw Mesh"
     upstream_repository: "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1"
@@ -30,6 +30,7 @@ image_to_raw_mesh:
       preferred_extraction: dense_marching_cubes
       preferred_resolution: 512
       preferred_face_budget: high
+      max_topology: 600000
       recommended_postprocess_profile: high_fidelity
       latency_class: balanced
       quality_priority: 85
