@@ -1,5 +1,5 @@
 # TripoSG model-specific patcher package.
-# Apply the output-to-storage patch when this package is imported.
+# The patcher is applied explicitly from triposg_adapter._load_model()
+# (see backend/adapters/triposg_adapter.py). Do not auto-apply on import
+# to avoid a circular import with the adapter module.
 from .output_to_storage import apply_patch  # noqa: F401
-
-apply_patch()
