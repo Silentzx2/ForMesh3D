@@ -125,8 +125,11 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
                 "CPU offload so inference can run on this card: %s", oom_err
             )
             pipeline.low_vram = True
-            # low_vram=True skips moving submodules in pipeline.to(); they are
-            # moved individually during inference, so no OOM at load time.
+            # KEY FIX: when CPU offloading, keep self.device as "cpu" so that
+            # TRELLIS.2's get_cond() -> self.image_cond_model.to(self.device)
+            # is a no-op (model stays on CPU) instead of forcing GPU placement
+            # and OOMing. low_vram=True moves submodules individually per-op.
+            device = "cpu"
         # Explicitly move submodules to GPU only when low_vram=False. When
         # low_vram=True (CPU offload), they stay on CPU and move to GPU
         # individually during inference, avoiding OOM at load time.
@@ -137,6 +140,7 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         self._pipeline = pipeline
         self.model = pipeline
+        self.device = device  # track actual device for runtime logging
         return pipeline
 
     def _unload_model(self) -> None:
