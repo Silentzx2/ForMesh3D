@@ -903,7 +903,6 @@ download_taoflowforge() {
     local download_success=false
     local base_url="https://modelscope.cn/models/Taobao3D/TaoFlowForge/resolve/master"
     local files=("stage0.pt" "stage1.pt" "stage2.pt")
-
     # 1. Primary: Accelerated multi-threaded download via aria2c (16 connections per file)
     local aria_cmd=""
     if command -v aria2c >/dev/null 2>&1; then
@@ -1007,6 +1006,19 @@ download_taoflowforge() {
 
     if [ -f "$model_dir/stage0.pt" ] && [ -f "$model_dir/stage1.pt" ] && [ -f "$model_dir/stage2.pt" ]; then
         print_success "TaoFlowForge models downloaded successfully"
+        # Download DINOv3 image-conditioner weights required by stage0/stage2
+        # (the stage checkpoints do not embed them).
+        local dino_dir="$PRETRAINED_DIR/dinov3-vitl16-pretrain-lvd1689m"
+        if [ -d "$dino_dir" ] && [ -n "$(ls -A "$dino_dir" 2>/dev/null)" ]; then
+            print_info "DINOv3 weights already present locally."
+        else
+            print_info "Downloading DINOv3 image-conditioner weights (camenduru/dinov3-vitl16-pretrain-lvd1689m)..."
+            if hf_download camenduru/dinov3-vitl16-pretrain-lvd1689m --local-dir "$dino_dir"; then
+                print_success "DINOv3 weights downloaded successfully."
+            else
+                print_warning "DINOv3 download failed; TaoFlowForge will attempt on-demand download at inference time."
+            fi
+        fi
         return 0
     else
         print_error "Failed to download TaoFlowForge models (Taobao3D/TaoFlowForge)"
@@ -1211,6 +1223,13 @@ verify_all_models() {
     print_info "Checking TaoFlowForge..."
     if [ -d "$PRETRAINED_DIR/Taobao3D/TaoFlowForge" ]; then
         verify_directory "$PRETRAINED_DIR/Taobao3D/TaoFlowForge" 3 || all_verified=false
+    fi
+
+    print_info "Checking TaoFlowForge DINOv3 weights..."
+    if [ -d "$PRETRAINED_DIR/dinov3-vitl16-pretrain-lvd1689m" ] && [ -n "$(ls -A "$PRETRAINED_DIR/dinov3-vitl16-pretrain-lvd1689m" 2>/dev/null)" ]; then
+        print_success "✓ DINOv3 weights present ($PRETRAINED_DIR/dinov3-vitl16-pretrain-lvd1689m)"
+    else
+        print_warning "DINOv3 weights missing — will be auto-downloaded at first TaoFlowForge inference."
     fi
 
     print_info "Checking Hi3D..."

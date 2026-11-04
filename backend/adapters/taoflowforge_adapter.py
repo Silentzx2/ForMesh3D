@@ -35,6 +35,48 @@ except ImportError:  # pragma: no cover - torch optional in CPU-only environment
 from backend.core.models.base import BaseModel, ModelStatus
 from backend.loader import get_model_weights_dir
 
+# DINOv3 image-conditioner weights are required by TaoFlowForge stage0/stage2
+# when the stage checkpoints do not embed them. Resolve from local storage,
+# downloading from HuggingFace on demand so inference never crashes with a
+# missing-weight error.
+DINOV3_REPO_ID = "camenduru/dinov3-vitl16-pretrain-lvd1689m"
+DINOV3_LOCAL_DIR_NAME = "dinov3-vitl16-pretrain-lvd1689m"
+
+
+def _resolve_dino_checkpoint(weights_dir: Path) -> Path | None:
+    """Return a local DINOv3 directory, downloading from HF if needed.
+
+    Looks for the DINOv3 weights under the shared weights root first; if absent,
+    downloads them from HuggingFace into <weights_root>/dinov3-vitl16-... so the
+    adapter is self-sufficient and does not require a manual pre-download step.
+    Returns None only when the download fails (inference will then surface the
+    original upstream error).
+    """
+    weights_root = weights_dir.parent  # e.g. backend/pretrained/Taobao3D -> backend/pretrained
+    local_dir = weights_root / DINOV3_LOCAL_DIR_NAME
+    if local_dir.is_dir() and any(local_dir.iterdir()):
+        return local_dir
+
+    try:
+        from huggingface_hub import snapshot_download
+
+        logger.info(
+            "DINOv3 weights not found locally; downloading from %s ...",
+            DINOV3_REPO_ID,
+        )
+        snapshot_download(
+            repo_id=DINOV3_REPO_ID,
+            local_dir=str(local_dir),
+            local_dir_use_symlinks=False,
+        )
+        if local_dir.is_dir() and any(local_dir.iterdir()):
+            return local_dir
+    except Exception as exc:
+        logger.warning(
+            "Could not download DINOv3 weights from %s: %s", DINOV3_REPO_ID, exc
+        )
+    return None
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_SEED = 42891  # matches quality.yaml seeds.base_seed / scheduler auto-seed base
@@ -91,6 +133,10 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
                 "Download them using `bash backend/scripts/download_models.sh -m taoflowforge`."
             )
 
+        # Resolve DINOv3 image-conditioner weights (auto-download from HF if absent).
+        # TaoFlowForge stage0/stage2 need these; the stage checkpoints do not embed them.
+        dino_checkpoint = _resolve_dino_checkpoint(weights_path)
+
         config = InferenceConfig(
             stage0=Stage0Config(checkpoint=weights_path / "stage0.pt", num_steps=50, cfg_scale=7.5),
             stage1=Stage1Config(checkpoint=weights_path / "stage1.pt", num_steps=30, cfg_scale=7.0),
@@ -100,6 +146,7 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
             fill_holes=True,
             image_size=1024,
             output_dir=Path(tempfile.gettempdir()) / "taoflowforge",
+            dino_checkpoint=dino_checkpoint,
         )
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None and torch and torch.cuda.is_available() else "cpu"
         pipeline = TaoFlowForgePipeline.from_config(config, device=device)
