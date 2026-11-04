@@ -67,9 +67,12 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         self._pipeline: Any = None
 
     def _load_model(self) -> Any:
-        # Ensure sparse conv defaults to spconv if flex_gemm is not explicitly requested
+        # Ensure sparse conv defaults to spconv if flex_gemm is not explicitly requested or available
         if not os.environ.get("SPARSE_CONV_BACKEND"):
-            os.environ["SPARSE_CONV_BACKEND"] = "spconv"
+            try:
+                import flex_gemm  # noqa: F401
+            except ImportError:
+                os.environ["SPARSE_CONV_BACKEND"] = "spconv"
         # Prefer xFormers on T4; its TRELLIS.2 attention path uses capability-aware BF16/FP32 dispatch.
         if not os.environ.get("SPARSE_ATTN_BACKEND"):
             os.environ["SPARSE_ATTN_BACKEND"] = "xformers"

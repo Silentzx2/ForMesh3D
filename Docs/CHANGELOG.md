@@ -1,5 +1,14 @@
 # ForMesh3D Changelog
 
+## 2026-11-04 — TRELLIS.2 Hollow Box Elimination & TaoFlowForge Seed Empty Resolution
+
+- TRELLIS.2: eliminated hollow bounding-box mesh generation caused by unconditional top-1% occupancy fallback on negative logit fields (-74.89). Top-1% boundary voxel selection removed; adaptive thresholding only allowed when real foreground activations exist (`max_logit > -5.0`), otherwise raises a clear `RuntimeError`.
+- TRELLIS.2: added device-index safe `_is_pre_ampere()` capability detection in `full_attn.py` with native FP16 (`half()`) dispatch on pre-Ampere GPUs (sm < 80) avoiding SDPA math fallback and type errors, while keeping sm >= 80 native BF16 untouched. Dynamically defaults sparse conv backend to `flex_gemm` if available, falling back to `spconv` when unavailable.
+- TaoFlowForge: resolved `ValueError: Stage 1 seed is empty` crash by adding adaptive occupancy thresholding (`eff_threshold = max(0.1, max_prob * 0.8)`) when foreground peak probability is below default 0.5, and added fallback to `occupied.nonzero()` if `mid_keep` filter produces 0 coordinates.
+- Verification: `bun test` passed (60/60 tests across 11 files). Python syntax check passed across all modified backend files (`py_compile`).
+
+---
+
 ## 2026-11-04 — TaoFlowForge & TRELLIS.2 Pre-Ampere GPU Acceleration and OOM Fixes
 
 - TaoFlowForge: resolved 10-minute (696s) startup lag and 8GB VRAM spike caused by software BF16 emulation on pre-Ampere GPUs (sm < 80, e.g. Tesla T4). Added robust `_is_pre_ampere()` check and `get_compute_dtype()` across `attention.py`, `dino.py`, `ss_flow.py`, `stage0.py`, `stage1.py`, and `stage2.py`, dynamically routing execution to FP16 with native Tensor Cores.
@@ -16,11 +25,3 @@
 - Unique3D: verified end-to-end live GPU inference on Kaggle (394s, 54,506 faces, 27,262 vertices, 1.0MB GLB). Switched nvdiffrast rasterization to `RasterizeCudaContext` with PyTorch3D fallback for headless environments; restored production step parameters. Marked status as `LEGACY / DEPRECATED (WORKING STATE - NOT ACTIVELY USED)` in `backend/config/models.yaml` and `backend/adapters/unique3d_adapter.py`.
 - TaoFlowForge: enabled PyTorch SDPA `[FLASH_ATTENTION, EFFICIENT_ATTENTION, MATH]` fallbacks on Pre-Ampere GPUs; added sequential stage load/unload in pipeline to reduce peak host RAM from 26GB to 18GB; restored 1024 resolution.
 - Verification: `bun test` passed (60/60).
-
----
-
-## 2026-11-03 — Hunyuan3D-2 Mini Turbo & Shape v2.1 Live GPU Verification & Locks
-
-- Hunyuan3D Shape v2.1: verified working in production live GPU inference (935,638 faces, 467,737 vertices, 16.1MB GLB, 563s). Marked status as `STABLE - WORKING / LOCKED` in `backend/adapters/hunyuan3d_shape_v21.py`.
-- Hunyuan3D DiT v2 Mini Turbo: verified working in production live GPU inference (758,902 faces, 379,430 vertices, 13.0MB GLB, 3.87GB VRAM, 166.75s). Marked status as `STABLE - LOCKED` in `backend/config/models.yaml` and `backend/adapters/hunyuan3d_dit_v2_mini_turbo.py`.
-- Standardized Model Adapter Governance: added standardized ASCII specification and governance header boxes across all 17 backend adapters with Model ID, Name, Target, Status, Upstream details, VRAM, and Agent modification rules.
