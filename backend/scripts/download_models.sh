@@ -20,6 +20,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(cd "$BACKEND_DIR/.." && pwd)"
 THIRDPARTY_DIR="$PROJECT_ROOT/backend/thirdparty"
+
+# Load .env before resolving MODEL_STORAGE_ROOT so downloads and backend/loader.py
+# use the same configured weights directory.
+# Load .env if present
+if [[ -f "$PROJECT_ROOT/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$PROJECT_ROOT/.env"
+    set +a
+elif [[ -f "$BACKEND_DIR/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$BACKEND_DIR/.env"
+    set +a
+fi
+
 # Shared model-weights root: honors MODEL_STORAGE_ROOT (default backend/pretrained),
 # resolved against the stable project root—not the incidental CWD—so the download
 # manager and backend/loader.py agree on the weights directory for every model.
@@ -35,19 +51,6 @@ fi
 # Add 3daigc-api virtual environment to PATH if present
 if [[ -d "$PROJECT_ROOT/3daigc-api/bin" ]]; then
     export PATH="$PROJECT_ROOT/3daigc-api/bin:$PATH"
-fi
-
-# Load .env if present
-if [[ -f "$PROJECT_ROOT/.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "$PROJECT_ROOT/.env"
-    set +a
-elif [[ -f "$BACKEND_DIR/.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "$BACKEND_DIR/.env"
-    set +a
 fi
 
 # Color codes for output
