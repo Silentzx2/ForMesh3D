@@ -332,7 +332,7 @@ def _execute_texture_stage(
 
             _check_cancelled(cancel_checker)
             should_unload_t2 = False
-            from core.models.base import ModelStatus
+            from backend.core.models.base import ModelStatus
             if getattr(adapter, "status", None) in (ModelStatus.UNLOADED, ModelStatus.ERROR):
                 gpu_id = getattr(adapter, "gpu_id", None)
                 if gpu_id is None:
