@@ -188,8 +188,8 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         # Retry on hollow-box output: the sparse-structure flow can under-converge
         # on some seeds, emitting a domain-cube instead of the input object.
-        # TEMP TEST CONFIG: max_attempts=1 for faster iteration; restore to 3 after stable.
-        max_attempts = 1
+        # TEMP TEST CONFIG: max_attempts=3 for hollow-box recovery; restore to 3 after stable.
+        max_attempts = 3
         mesh = None
         used_seed = seed
         decoded_stats = None
@@ -197,7 +197,7 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
             attempt_seed = seed + attempt * 1337  # seed_step from quality.yaml
             ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
             with ctx:
-                # TEMP TEST CONFIG: 1024_cascade + 12 steps for faster results.
+                # TEMP TEST CONFIG: 1024_cascade + 10 steps for faster results.
                 # Restore to 1536_cascade + 50 steps after stable.
                 meshes = pipeline.run(
                     image,
@@ -206,13 +206,13 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
                     max_num_tokens=49152,
                     generate_texture=False,
                     sparse_structure_sampler_params={
-                        "steps": 5,
+                        "steps": 10,
                         "guidance_strength": 7.5,
                         "guidance_rescale": 1.0,
                         "rescale_t": 1.0,
                     },
                     shape_slat_sampler_params={
-                        "steps": 5,
+                        "steps": 10,
                         "guidance_strength": 7.5,
                         "guidance_rescale": 1.0,
                         "rescale_t": 1.0,
