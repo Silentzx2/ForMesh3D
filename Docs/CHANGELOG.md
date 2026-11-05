@@ -1,7 +1,8 @@
 # ForMesh3D Changelog
 
-## 2026-11-05 — TRELLIS.2 Timestep Embedding & Layer Input Dtype Dynamic Alignment
+## 2026-11-05 — TaoFlowForge Stage 2 Empty Vertices Resolution & TRELLIS.2 Dtype Alignment
 
+- TaoFlowForge: resolved `ValueError: Stage 2 vertices are empty` by adding top-candidate occupancy fallback (`probs >= top_thresh`) in `stage1.py` when thresholding prunes all octree children. Added parent coordinate scaling fallback if `_expand_children` yields no children, and minimal vertex fallback in `stage2.py` `prepare_vertices`. Normal inference on large GPUs (`probs > 0.5`) remains untouched.
 - TRELLIS.2: resolved `RuntimeError: mat1 and mat2 must have the same dtype, but got Float and Half` in `SparseStructureFlowModel` and `SLatFlowModel`. Cast `timestep_embedding` positional outputs to match `self.mlp` parameter dtype (`next(self.mlp.parameters()).dtype`) in `TimestepEmbedder.forward`.
 - TRELLIS.2: dynamically cast inputs and outputs to match linear layer weights in `SparseStructureFlowModel.forward` (`input_layer`, `pos_emb`, `out_layer`) and `SLatFlowModel.forward`, cast image input to DINOv2 model dtype in `image_feature_extractor.py`, and aligned `slat.feats` with `shape_slat_decoder` dtype in `decode_shape_slat`.
 - Verification: `pytest backend/tests/test_trellis2_mesh_validation.py` passed (7/7). `bun test` passed (60/60 tests across 11 files). `py_compile` syntax checked across all modified files.
