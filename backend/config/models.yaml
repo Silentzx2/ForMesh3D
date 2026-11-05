@@ -7,32 +7,10 @@
 # CHANGE CONTROL: before changing any locked parameter/profile later, ask the user once and wait for explicit confirmation.
 # Evidence, limits, and source links: Docs/EXPERIMENTAL-MODEL-SETTINGS.md
 
-# text-conditioned mesh painting
-text_mesh_painting:
-  # EXPERIMENTAL_MAX_DETAIL: TRELLIS supports up to 50 sampling steps; adapter has a shared guidance field, so it cannot express separate upstream SS=7.5 / SLAT=3.0 guidance without an implementation change.
-  # Review note: keep raw geometry unsimplified and ask the user once before any future profile change.
-  trellis_text_mesh_painting:
-    model_name: "TRELLIS — Text Mesh Painting"
-    upstream_repository: "https://github.com/microsoft/TRELLIS"
-    upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
-    checkpoint_license: "unverified"
-    capabilities:
-      native_topology: false
-      output_resolution: null
-      text_mesh_painting: true
-      multi_gpu: true
-      multi_gpu_strategy: accelerate_component_dispatch
-    vram_requirement: 11776  # MB
-    supported_inputs: ["mesh", "text"]
-    supported_outputs: ["glb", "obj"]
-    model_path: "backend/pretrained/TRELLIS"
-    enabled: true
-    max_workers: 1
-
 # image-conditioned geometry generation
 image_to_raw_mesh:
-  # EXPERIMENTAL_MAX_DETAIL: steps=100 (upstream UI maximum and community-tested experiment), guidance=5.0 (upstream default), octree=1300 (upstream maximum).
-  # A/B outcome is unverified; raw master remains un-decimated. Ask the user once before later changing this profile.
+  # MAX_DETAIL: steps=50, guidance=7.5, octree=512 (official Hunyuan3D-2.1 maximum resolution limit).
+  # Max topology capped at 600k faces per user specification.
   hunyuan3d_shape_v21_image_to_raw_mesh:
     model_name: "Hunyuan3D-2.1 Shape — Image to Raw Mesh"
     upstream_repository: "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1"
@@ -40,7 +18,7 @@ image_to_raw_mesh:
     checkpoint_license: "unverified"
     capabilities:
       native_topology: false
-      output_resolution: 1300
+      output_resolution: 512
       text_to_3d: false
       image_to_3d: true
       multiview: false
@@ -50,8 +28,9 @@ image_to_raw_mesh:
       mesh_quality_characteristics: [high_detail, thin_feature_sensitive]
       preferred_preprocessing: high_fidelity
       preferred_extraction: dense_marching_cubes
-      preferred_resolution: 1300
+      preferred_resolution: 512
       preferred_face_budget: high
+      max_topology: 600000
       recommended_postprocess_profile: high_fidelity
       latency_class: balanced
       quality_priority: 85
@@ -65,17 +44,20 @@ image_to_raw_mesh:
     enabled: true
     max_workers: 1
 
-  # Active adapter lock (not the upstream-trained recipe): octree_resolution=768, 20 steps, CFG=7.5.
-  # This deliberately exceeds the documented distilled 5-step / octree=380 recipe and may OOM or produce artifacts.
-  # This entry describes the active stress-test profile; preserve its numerical values unless the owner approves a change.
+  # [STABLE MODEL - PROTECTED & LOCKED]
+  # Verified working in live GPU inference (758,902 faces, 379,430 vertices, 3.87GB VRAM).
+  # CRITICAL INSTRUCTION: Agents MUST NOT touch or modify this model entry, adapter,
+  # or upstream pipeline code unless explicitly instructed by the user!
   hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh:
     model_name: "Hunyuan3D Mini Turbo — Image to Raw Mesh"
+    status: "stable"
+    verified: true
     upstream_repository: "https://github.com/Tencent-Hunyuan/Hunyuan3D-2"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
     checkpoint_license: "unverified"
     capabilities:
       native_topology: false
-      output_resolution: 768
+      output_resolution: 380
       text_to_3d: false
       image_to_3d: true
       multiview: false
@@ -85,7 +67,7 @@ image_to_raw_mesh:
       mesh_quality_characteristics: [fine_surface_sampling, dense_marching_cubes]
       preferred_preprocessing: default
       preferred_extraction: dense_marching_cubes
-      preferred_resolution: 768
+      preferred_resolution: 380
       preferred_face_budget: medium
       recommended_postprocess_profile: default
       latency_class: fast
@@ -99,11 +81,14 @@ image_to_raw_mesh:
     enabled: true
     max_workers: 1
 
+  # [STABLE MODEL - PROTECTED & LOCKED]
   # Active adapter lock: 100 steps, CFG=9.0, flash depth=10, dense depth=10, hierarchical depth=11.
-  # The VRAM gate may lower the effective hierarchical depth; this is not the upstream default and has not been A/B benchmarked.
-  # Preserve the locked profile and distinguish requested depth from runtime-effective depth in telemetry.
+  # CRITICAL INSTRUCTION: Agents MUST NOT touch or modify this model entry, adapter,
+  # or upstream pipeline code unless explicitly instructed by the user!
   triposg_image_to_raw_mesh:
     model_name: "TripoSG — Image to Raw Mesh"
+    status: "stable"
+    verified: true
     upstream_repository: "https://github.com/VAST-AI-Research/TripoSG"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
     checkpoint_license: "unverified"
@@ -134,8 +119,8 @@ image_to_raw_mesh:
     enabled: true
     max_workers: 1
 
-  # EXPERIMENTAL_MAX_DETAIL: preserve upstream-supported do_refine=true, expansion_weight=0.1, init_type=std and seed=1145.
-  # The adapter exposes no configurable inference steps/guidance control; do not invent unsupported knobs. Ask before changes.
+  # LEGACY / DEPRECATED: Pipeline is in working state (verified on GPU), but this model is not actively used in production.
+  # No further debugging or refactoring will be performed on this model.
   unique3d_image_to_raw_mesh:
     model_name: "Unique3D — Image to Raw Mesh"
     upstream_repository: "https://github.com/AiuniAI/Unique3D"
@@ -178,6 +163,8 @@ image_to_raw_mesh:
   # Keep the raw master non-decimated. Low-VRAM remains false; ask the user once before any later profile edit.
   pixal3d_image_to_raw_mesh:
     model_name: "Pixal3D — Image to Raw Mesh"
+    status: "not_tested"
+    verified: false
     upstream_repository: "https://github.com/TencentARC/Pixal3D"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
     checkpoint_license: "unverified"
@@ -216,6 +203,8 @@ image_to_raw_mesh:
   # EXPERIMENTAL_MAX_DETAIL: legacy alias of pixal3d_image_to_raw_mesh; it must inherit the same 1536 O-Voxel source profile, not an independent lower-resolution profile.
   pixal3d_image_to_3d:
     model_name: "Pixal3D — Image to 3D"
+    status: "not_tested"
+    verified: false
     upstream_repository: "https://github.com/TencentARC/Pixal3D"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
     checkpoint_license: "unverified"
@@ -252,10 +241,14 @@ image_to_raw_mesh:
     enabled: true
     max_workers: 1
 
+  # [STABLE MODEL - PROTECTED & LOCKED]
   # EXPERIMENTAL_MAX_DETAIL: source sampling uses 50 steps (upstream UI ceiling); shared adapter guidance remains 7.5, with raw simplification disabled.
-  # Official UI uses separate 7.5/3.0 stage guidance, which this shared guidance field cannot represent. Ask before any later change.
+  # CRITICAL INSTRUCTION: Agents MUST NOT touch or modify this model entry, adapter,
+  # or upstream pipeline code unless explicitly instructed by the user!
   trellis_image_to_3d:
     model_name: "TRELLIS — Image to 3D"
+    status: "stable"
+    verified: true
     upstream_repository: "https://github.com/microsoft/TRELLIS"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
     checkpoint_license: "unverified"
@@ -301,10 +294,24 @@ image_to_raw_mesh:
     enabled: true
     max_workers: 1
 
-  # EXPERIMENTAL_MAX_DETAIL: TRELLIS.2 community quality-first issue profile: 50 steps, SS guidance=8.0, shape=8.5, texture=2.5, 1536 cascade.
-  # Community issue is a user's experiment, not a maintainer guarantee; raw master uses decimation_target=-1 rather than the issue's 800k cap. Ask before changes.
+  # Production profile: pipeline_type="1536_cascade", max_num_tokens=49152,
+  # sampler steps=50 (official TRELLIS.2 inference default). Raw mesh only;
+  # texture generation disabled. Multi-GPU sharded via accelerate_component_dispatch.
+  #
+  # NOT STABLE: TRELLIS.2 sparse_structure_decoder checkpoint in pipeline.json
+  # references microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16
+  # (original TRELLIS repo) which is NOT compatible with TRELLIS.2's flow model.
+  # It produces all-negative logits (~ -75) -> zero occupied voxels -> hollow box
+  # instead of the input object. See microsoft/TRELLIS.2#160.
+  #
+  # NOTE: TRELLIS.2 works on Hugging Face Spaces demo because Microsoft hosts it
+  # with their own compatible infrastructure. Local self-hosted inference is
+  # currently broken until a compatible sparse_structure_decoder checkpoint is
+  # available or Microsoft fixes pipeline.json.
   trellis2_image_to_3d:
     model_name: "TRELLIS.2 — Image to 3D"
+    status: "not_stable"
+    verified: false
     upstream_repository: "https://github.com/microsoft/TRELLIS.2"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
     checkpoint_license: "unverified"
@@ -330,7 +337,7 @@ image_to_raw_mesh:
       multi_gpu: false
       low_vram_supported: true
       max_images: 1
-    vram_requirement: 23552  # MB (23GB, TRELLIS.2)
+    vram_requirement: 23552  # MB (23GB, TRELLIS.2); single-GPU placement — component sharding breaks TRELLIS.2 data flow
     low_vram_requirement: 10240
     supported_inputs: ["image"]
     supported_outputs: ["glb", "obj"]
@@ -338,10 +345,24 @@ image_to_raw_mesh:
     enabled: true
     max_workers: 1
 
-  # EXPERIMENTAL_MAX_DETAIL: same TRELLIS.2 community sampler profile; 1536 cascade, full token budget, remesh=false and decimation_target=-1.
-  # The community profile is experimental, not proven best for every asset. Ask before future changes.
+  # Production profile: pipeline_type="1536_cascade", max_num_tokens=49152,
+  # sampler steps=50 (official TRELLIS.2 inference default). Raw mesh only;
+  # texture generation disabled. Single-GPU placement.
+  #
+  # NOT STABLE: TRELLIS.2 sparse_structure_decoder checkpoint in pipeline.json
+  # references microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16
+  # (original TRELLIS repo) which is NOT compatible with TRELLIS.2's flow model.
+  # It produces all-negative logits (~ -75) -> zero occupied voxels -> hollow box
+  # instead of the input object. See microsoft/TRELLIS.2#160.
+  #
+  # NOTE: TRELLIS.2 works on Hugging Face Spaces demo because Microsoft hosts it
+  # with their own compatible infrastructure. Local self-hosted inference is
+  # currently broken until a compatible sparse_structure_decoder checkpoint is
+  # available or Microsoft fixes pipeline.json.
   trellis2_image_to_raw_mesh:
     model_name: "TRELLIS.2 — Image to Raw Mesh"
+    status: "not_stable"
+    verified: false
     upstream_repository: "https://github.com/microsoft/TRELLIS.2"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
     checkpoint_license: "unverified"
@@ -367,7 +388,7 @@ image_to_raw_mesh:
       multi_gpu: false
       low_vram_supported: true
       max_images: 1
-    vram_requirement: 23552  # MB (23GB, TRELLIS.2)
+    vram_requirement: 23552  # MB (23GB, TRELLIS.2); single-GPU placement — component sharding breaks TRELLIS.2 data flow
     low_vram_requirement: 10240
     supported_inputs: ["image"]
     supported_outputs: ["glb", "obj"]
@@ -377,12 +398,14 @@ image_to_raw_mesh:
 
   taoflowforge_image_to_raw_mesh:
     model_name: "TaoFlowForge — Progressive Native Mesh Generation"
+    status: "not_tested"
+    verified: false
     upstream_repository: "https://github.com/alibaba/Taobao3D"
     upstream_ref: null
     checkpoint_license: "apache-2.0"
     capabilities:
       native_topology: true
-      output_resolution: 512
+      output_resolution: 1024
       text_to_3d: false
       image_to_3d: true
       multiview: false
@@ -392,18 +415,20 @@ image_to_raw_mesh:
       mesh_quality_characteristics: [clean_topology, native_mesh, direct_connectivity]
       preferred_preprocessing: default
       preferred_extraction: direct_connectivity
-      preferred_resolution: 512
+      preferred_resolution: 1024
       preferred_face_budget: medium
       recommended_postprocess_profile: native_clean
       latency_class: balanced
       quality_priority: 90
       multi_gpu: false
       paint_autochain: false
-    vram_requirement: 20480 # MB (20 GB VRAM requirement with offload)
+      low_vram_supported: true
+    vram_requirement: 20480 # MB (20 GB resident without offload)
+    low_vram_requirement: 10240 # MB (10 GB with sequential stage offloading)
     supported_inputs: ["image"]
     supported_outputs: ["glb", "obj"]
     model_path: "backend/pretrained/Taobao3D/TaoFlowForge"
-    enabled: false
+    enabled: true
     max_workers: 1
 
   # Hi3D v1.0 Experimental High-Resolution Geometry Refinement
@@ -475,6 +500,8 @@ image_to_textured_mesh:
   # EXPERIMENTAL_MAX_DETAIL: deprecated alias of the TRELLIS.2 profile; 1536 cascade and separate 50-step sparse/shape/texture sampler candidate.
   trellis2_image_to_textured_mesh:
     model_name: "TRELLIS.2 — Legacy Textured Mesh Alias"
+    status: "not_stable"
+    verified: false
     upstream_repository: "https://github.com/microsoft/TRELLIS.2"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
     checkpoint_license: "unverified"
@@ -689,28 +716,6 @@ mesh_retopology:
     enabled: true
     max_workers: 1
     
-  # EXPERIMENTAL_MAX_DETAIL: V4K is a fixed ~4k-vertex retopology checkpoint; no supported inference-step/guidance controls exist.
-  fastmesh_v4k_retopology:
-    model_name: "FastMesh — Retopology"
-    upstream_repository: null
-    upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
-    checkpoint_license: "unverified"
-    capabilities:
-      native_topology: false
-      output_resolution: null
-      retopology: true
-      target_variant: "V4K"
-      multi_gpu: true
-      multi_gpu_strategy: accelerate_auto_device_map
-    vram_requirement: 24500  # MB; conservative admission budget, not an upstream-published minimum
-    init_params:
-      variant: "V4K"
-    supported_inputs: ["obj", "glb", "ply", "stl"]
-    supported_outputs: ["obj", "glb", "ply"]
-    model_path: "backend/pretrained/FastMesh-V4K"
-    enabled: true
-    max_workers: 1
-
 # UV unwrapping
 uv_unwrapping:
   # EXPERIMENTAL_MAX_DETAIL: retain official PartUV distortion threshold=1.25; larger thresholds explicitly permit more distortion. Adapter exposes no sampling-step/guidance controls.
@@ -726,7 +731,7 @@ uv_unwrapping:
     vram_requirement: 7168  # MB
     supported_inputs: ["obj", "glb"]
     supported_outputs: ["obj"]
-    model_path: "backend/pretrained/PartUV/model_objaverse.ckpt"
+    model_path: "backend/pretrained/PartUV"
     enabled: true
     max_workers: 1
 

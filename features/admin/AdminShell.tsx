@@ -112,7 +112,7 @@ export function AdminShell({ activeTab, onTabChange, children }: AdminShellProps
         )}
       >
         <div className="flex items-center gap-3 h-16 px-4 border-b border-[hsl(var(--border))] shrink-0">
-          <Link href="/" className="flex items-center gap-2.5 group">
+          <Link href="/workspace" className="flex items-center gap-2.5 group">
             <div className="relative flex items-center justify-center w-9 h-9 rounded-xl bg-primary/10 border border-primary/30 group-hover:border-primary/50 transition-colors">
               <HugeiconsIcon icon={BoxIcon} size={16} className="w-5 h-5 text-primary" />
               <div className="absolute inset-0 rounded-xl bg-primary/5 group-hover:bg-primary/10 transition-colors" />

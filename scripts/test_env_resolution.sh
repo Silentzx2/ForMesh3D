@@ -10,7 +10,10 @@ echo "Testing environment resolution..."
 # Check 1: syntax check
 bash -n "$PROJECT_ROOT/backend/scripts/run_server.sh"
 bash -n "$PROJECT_ROOT/backend/scripts/install.sh"
+bash -n "$PROJECT_ROOT/backend/scripts/python_env.sh"
+bash -n "$PROJECT_ROOT/scripts/test_python_env_resolution.sh"
 echo "✓ Syntax valid"
+bash "$PROJECT_ROOT/scripts/test_python_env_resolution.sh"
 
 # Check 2: run_server fails safely without creating .venv when no env exists
 TMP_TEST_DIR="$(mktemp -d)"
@@ -22,7 +25,8 @@ trap cleanup EXIT
 FAKE_ROOT="$TMP_TEST_DIR/fake_repo"
 mkdir -p "$FAKE_ROOT/backend/scripts" "$FAKE_ROOT/backend/config" "$TMP_TEST_DIR/bin"
 cp "$PROJECT_ROOT/backend/scripts/run_server.sh" "$FAKE_ROOT/backend/scripts/run_server.sh"
-chmod +x "$FAKE_ROOT/backend/scripts/run_server.sh"
+cp "$PROJECT_ROOT/backend/scripts/python_env.sh" "$FAKE_ROOT/backend/scripts/python_env.sh"
+chmod +x "$FAKE_ROOT/backend/scripts/run_server.sh" "$FAKE_ROOT/backend/scripts/python_env.sh"
 
 echo "dummy: true" > "$FAKE_ROOT/backend/config/system.yaml"
 echo "dummy: true" > "$FAKE_ROOT/backend/config/models.yaml"
@@ -51,30 +55,9 @@ fi
 
 echo "✓ Fails safely without creating .venv"
 
-# Check 3: resolves mock conda env 3daigc-api
-MOCK_ENV="$TMP_TEST_DIR/miniconda3/envs/3daigc-api"
-mkdir -p "$MOCK_ENV/bin" "$MOCK_ENV/conda-meta"
-cat << 'EOF' > "$MOCK_ENV/bin/python"
-#!/bin/sh
-if [ "$1" = "-c" ]; then
-    case "$2" in
-        *sys.version_info*) echo "3.10"; exit 0 ;;
-        *fastapi*) exit 0 ;;
-        *) exit 0 ;;
-    esac
-fi
-exit 0
-EOF
-chmod +x "$MOCK_ENV/bin/python"
-
-cat << 'EOF' > "$FAKE_ROOT/backend/scripts/scheduler_service.py"
-#!/bin/sh
-exit 0
-EOF
-chmod +x "$FAKE_ROOT/backend/scripts/scheduler_service.py"
-
-OUT=$(cd "$FAKE_ROOT/backend" && env -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u VIRTUAL_ENV -u PYTHON_EXEC HOME="$TMP_TEST_DIR" PATH="$TMP_TEST_DIR/bin:/usr/bin:/bin" bash scripts/run_server.sh --help 2>&1)
-echo "✓ Conda environment discovery check passed"
+# Check 3: custom venv and Conda environment selection are covered by
+# scripts/test_python_env_resolution.sh above. The old --help probe did not
+# execute the environment resolver and therefore was not a meaningful test.
 
 # Check 4: install.sh halts with non-zero exit code if required apt installation fails
 echo "Testing installer failure handling..."
@@ -102,8 +85,10 @@ chmod +x "$MOCK_APT_DIR/apt-get"
 cat << 'EOF' > "$MOCK_APT_DIR/python"
 #!/bin/sh
 case "$*" in
+    *"sys.prefix"*) echo "$MOCK_PYTHON_PREFIX"; exit 0 ;;
+    *"sys.version_info"*) echo "3.10"; exit 0 ;;
     *"import uv"*) exit 0 ;;
-    *"import sys"*) echo "/usr/bin/python3"; exit 0 ;;
+    *"import sys"*) echo "$MOCK_PYTHON_PREFIX/bin/python"; exit 0 ;;
     *) exit 0 ;;
 esac
 EOF
@@ -130,16 +115,18 @@ chmod +x "$MOCK_APT_DIR/pip"
 
 FAKE_INSTALL_ROOT="$TMP_TEST_DIR/fake_install_repo"
 mkdir -p "$FAKE_INSTALL_ROOT/backend/scripts" "$FAKE_INSTALL_ROOT/3daigc-api/bin"
+: > "$FAKE_INSTALL_ROOT/3daigc-api/pyvenv.cfg"
 cp "$PROJECT_ROOT/backend/scripts/install.sh" "$FAKE_INSTALL_ROOT/backend/scripts/install.sh"
 chmod +x "$FAKE_INSTALL_ROOT/backend/scripts/install.sh"
 cp "$MOCK_APT_DIR/python" "$FAKE_INSTALL_ROOT/3daigc-api/bin/python"
 chmod +x "$FAKE_INSTALL_ROOT/3daigc-api/bin/python"
-cat << 'EOF' > "$FAKE_INSTALL_ROOT/3daigc-api/bin/activate"
-export VIRTUAL_ENV="/fake/venv"
+cat > "$FAKE_INSTALL_ROOT/3daigc-api/bin/activate" <<EOF
+export VIRTUAL_ENV="$FAKE_INSTALL_ROOT/3daigc-api"
+export PATH="\$VIRTUAL_ENV/bin:\$PATH"
 EOF
 
 set +e
-APT_TEST_OUT=$(cd "$FAKE_INSTALL_ROOT/backend" && env -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u PYTHON_EXEC FORMASH3D_ENV_MANAGER="venv" HOME="$TMP_TEST_DIR" PATH="$MOCK_APT_DIR:/usr/bin:/bin" bash scripts/install.sh 2>&1)
+APT_TEST_OUT=$(cd "$FAKE_INSTALL_ROOT/backend" && env -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u PYTHON_EXEC MOCK_PYTHON_PREFIX="$FAKE_INSTALL_ROOT/3daigc-api" FORMASH3D_ENV_MANAGER="venv" HOME="$TMP_TEST_DIR" PATH="$MOCK_APT_DIR:/usr/bin:/bin" bash scripts/install.sh 2>&1)
 APT_TEST_CODE=$?
 set -e
 

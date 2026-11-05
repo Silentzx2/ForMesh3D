@@ -251,6 +251,7 @@ class TextMeshPaintingRequest(BaseModel):
     mesh_file_id: Optional[str] = Field(
         None, description="File ID from upload endpoint"
     )
+    seed: Optional[int] = Field(None, ge=0, description="Random seed for reproducibility")
     texture_resolution: int = Field(
         1024, description="Texture resolution"
     )
@@ -258,7 +259,7 @@ class TextMeshPaintingRequest(BaseModel):
     quality_mode: Optional[str] = Field("high", description="Target quality budget")
     target_polycount: Optional[int] = Field(None, description="Target triangle budget")
     model_preference: str = Field(
-        "trellis_text_mesh_painting", description="Model name for mesh generation"
+        "trellis_image_to_textured_mesh", description="Model name for mesh generation"
     )
     model_parameters: Optional[dict] = Field(
         None,
@@ -355,6 +356,7 @@ class ImageToRawMeshRequest(BaseModel):
     image_file_id: Optional[str] = Field(
         None, description="File ID from upload endpoint"
     )
+    seed: Optional[int] = Field(None, ge=0, description="Random seed for reproducibility")
     texture_resolution: Optional[int] = Field(
         None, description="Optional texture-atlas preset or size; omitted values fall back to the intent preset"
     )
@@ -550,6 +552,7 @@ class ImageToTexturedMeshRequest(BaseModel):
     image_file_id: Optional[str] = Field(
         None, description="File ID from upload endpoint"
     )
+    seed: Optional[int] = Field(None, ge=0, description="Random seed for reproducibility")
     texture_image_path: Optional[str] = Field(
         None, description="Path to the texture image"
     )
@@ -736,6 +739,7 @@ class ImageMeshPaintingRequest(BaseModel):
     mesh_file_id: Optional[str] = Field(
         None, description="File ID from upload endpoint"
     )
+    seed: Optional[int] = Field(None, ge=0, description="Random seed for reproducibility")
     texture_resolution: int = Field(
         1024, description="Texture resolution"
     )
@@ -1290,6 +1294,14 @@ async def image_to_raw_mesh(
         )
         # Filter out None values from model_parameters so pop() fallbacks work correctly
         params = {k: v for k, v in (mesh_request.model_parameters or {}).items() if v is not None}
+        # Top-level seed takes precedence; preserve legacy model_parameters.seed
+        # only when the explicit request field is omitted.
+        model_parameter_seed = params.pop("seed", None)
+        request_seed = (
+            mesh_request.seed
+            if mesh_request.seed is not None
+            else model_parameter_seed
+        )
         for key in (
             "candidate_count",
             "enable_postprocess",
@@ -1436,6 +1448,7 @@ async def image_to_raw_mesh(
                 "slicer_handoff": slicer_handoff,
                 "low_vram": mesh_request.low_vram if mesh_request.low_vram is not None else params.get("low_vram"),
                 **params,
+                **({"seed": request_seed} if request_seed is not None else {}),
             },
             model_preference=model_id,
             priority=1,

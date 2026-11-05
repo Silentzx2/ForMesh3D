@@ -448,7 +448,27 @@ class DINOv3ViTModel(nn.Module):
                     )
                     weights_file = Path(weights_path)
             except Exception as e:
-                logger.warning(f"Could not download DINOv3 weights from HF: {e}")
+                err_str = str(e).lower()
+                if ("401" in err_str or "restricted" in err_str or "gated" in err_str) and "facebook/dinov3" in str(pretrained_model_name_or_path):
+                    logger.info("Retrying DINOv3 download with ungated mirror: camenduru/dinov3-vitl16-pretrain-lvd1689m")
+                    try:
+                        try:
+                            weights_path = hf_hub_download(
+                                repo_id="camenduru/dinov3-vitl16-pretrain-lvd1689m",
+                                filename="model.safetensors",
+                                token=token,
+                            )
+                        except Exception:
+                            weights_path = hf_hub_download(
+                                repo_id="camenduru/dinov3-vitl16-pretrain-lvd1689m",
+                                filename="pytorch_model.bin",
+                                token=token,
+                            )
+                        weights_file = Path(weights_path)
+                    except Exception as mirror_err:
+                        logger.warning(f"Could not download DINOv3 weights from mirror: {mirror_err}")
+                else:
+                    logger.warning(f"Could not download DINOv3 weights from HF: {e}")
 
         if weights_file is not None and weights_file.exists():
             state_dict = {}

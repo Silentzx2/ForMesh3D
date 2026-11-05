@@ -16,4 +16,4 @@ Personal deployments default to simple mode and disable the application rate lim
 
 ## Reporting
 
-Do not publish sensitive vulnerability details in a public issue before the maintainer has had an opportunity to address them. See the root `SECURITY.md` for the project contact and supported-version policy.
+Do not publish sensitive vulnerability details in a public issue. Use GitHub's private vulnerability-reporting channel when it is enabled for this repository. If that channel is unavailable, contact the repository maintainer privately rather than posting exploit details publicly.

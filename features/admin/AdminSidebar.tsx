@@ -189,7 +189,7 @@ export default function AdminSidebar({
             <p className="text-xs font-semibold text-[hsl(var(--muted-foreground))] truncate">ZeroByte</p>
             <p className="text-[10px] text-[hsl(var(--muted-foreground))] truncate">Administrator</p>
           </div>
-          <Link href="/" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--muted-foreground))] transition-colors" title="Back to app">
+          <Link href="/workspace" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--muted-foreground))] transition-colors" title="Back to app">
              <HugeiconsIcon icon={ExternalLinkIcon} size={12} />
           </Link>
         </div>

@@ -19,13 +19,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(cd "$BACKEND_DIR/.." && pwd)"
-PRETRAINED_DIR="$SCRIPT_DIR/../pretrained"
+THIRDPARTY_DIR="$PROJECT_ROOT/backend/thirdparty"
 
-# Add 3daigc-api virtual environment to PATH if present
-if [[ -d "$PROJECT_ROOT/3daigc-api/bin" ]]; then
-    export PATH="$PROJECT_ROOT/3daigc-api/bin:$PATH"
-fi
-
+# Load .env before resolving MODEL_STORAGE_ROOT so downloads and backend/loader.py
+# use the same configured weights directory.
 # Load .env if present
 if [[ -f "$PROJECT_ROOT/.env" ]]; then
     set -a
@@ -37,6 +34,23 @@ elif [[ -f "$BACKEND_DIR/.env" ]]; then
     # shellcheck disable=SC1091
     source "$BACKEND_DIR/.env"
     set +a
+fi
+
+# Shared model-weights root: honors MODEL_STORAGE_ROOT (default backend/pretrained),
+# resolved against the stable project root—not the incidental CWD—so the download
+# manager and backend/loader.py agree on the weights directory for every model.
+if [ -n "${MODEL_STORAGE_ROOT:-}" ]; then
+    case "$MODEL_STORAGE_ROOT" in
+        /*)  PRETRAINED_DIR="$MODEL_STORAGE_ROOT" ;;
+        *)   PRETRAINED_DIR="$PROJECT_ROOT/$MODEL_STORAGE_ROOT" ;;
+    esac
+else
+    PRETRAINED_DIR="$PROJECT_ROOT/backend/pretrained"
+fi
+
+# Add 3daigc-api virtual environment to PATH if present
+if [[ -d "$PROJECT_ROOT/3daigc-api/bin" ]]; then
+    export PATH="$PROJECT_ROOT/3daigc-api/bin:$PATH"
 fi
 
 # Color codes for output
@@ -709,9 +723,15 @@ download_unique3d() {
         return 1
     fi
 
-    # Symlink ckpt to project root and Unique3D thirdparty dir for runtime compatibility
-    ln -sfn "$model_dir/ckpt" "$PROJECT_ROOT/ckpt" 2>/dev/null || true
-    ln -sfn "$model_dir/ckpt" "$THIRDPARTY_DIR/Unique3D/ckpt" 2>/dev/null || true
+    # Clean up legacy misplaced ckpt symlink in project root if present
+    if [ -L "$PROJECT_ROOT/ckpt" ]; then
+        rm -f "$PROJECT_ROOT/ckpt" 2>/dev/null || true
+    fi
+
+    # Symlink ckpt to Unique3D thirdparty dir for direct script compatibility
+    if [ -d "$THIRDPARTY_DIR/Unique3D" ]; then
+        ln -sfn "$model_dir/ckpt" "$THIRDPARTY_DIR/Unique3D/ckpt" 2>/dev/null || true
+    fi
 
     print_success "Unique3D model downloaded successfully"
 }
@@ -731,7 +751,6 @@ required = (
     "shape_slat_flow_model_512",
     "shape_slat_flow_model_1024",
     "shape_slat_decoder",
-    "tex_slat_flow_model_512",
     "tex_slat_flow_model_1024",
     "tex_slat_decoder",
 )
@@ -781,7 +800,7 @@ download_pixal3d() {
        verify_directory "$model_dir" 1 && \
        verify_file "$model_dir/pipeline.json" 1000 && \
        pixal3d_checkpoint_complete "$model_dir"; then
-        print_info "Pixal3D model already exists and all eight pipeline checkpoints are verified"
+        print_info "Pixal3D model already exists and all seven pipeline checkpoints are verified"
         return 0
     fi
 
@@ -795,6 +814,9 @@ download_pixal3d() {
         print_warning "The model requires ~18GB of weights. Check your disk space and network connection."
         return 1
     fi
+
+    print_info "Ensuring Pixal3D image conditioning (DinoV3) model is cached..."
+    hf_download camenduru/dinov3-vitl16-pretrain-lvd1689m || true
 
     if ! pixal3d_checkpoint_complete "$model_dir"; then
         print_error "Pixal3D download did not produce all required pipeline checkpoints"
@@ -882,16 +904,59 @@ download_taoflowforge() {
 
     print_info "Downloading TaoFlowForge checkpoints from ModelScope (Taobao3D/TaoFlowForge)..."
     local download_success=false
+    local base_url="https://modelscope.cn/models/Taobao3D/TaoFlowForge/resolve/master"
+    local files=("stage0.pt" "stage1.pt" "stage2.pt")
+    # 1. Primary: Accelerated multi-threaded download via aria2c (16 connections per file)
+    local aria_cmd=""
+    if command -v aria2c >/dev/null 2>&1; then
+        aria_cmd="aria2c"
+    else
+        print_info "aria2c not found; attempting to install for multi-threaded download acceleration..."
+        if command -v sudo >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq aria2 2>/dev/null || true
+        elif command -v apt-get >/dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y -qq aria2 2>/dev/null || true
+        fi
+        if command -v aria2c >/dev/null 2>&1; then
+            aria_cmd="aria2c"
+            print_success "aria2c installed successfully for accelerated downloads"
+        else
+            print_warning "Could not install aria2c; will use standard download fallback"
+        fi
+    fi
 
-    # 1. Primary: ModelScope CLI if available
-    if command -v modelscope >/dev/null 2>&1; then
-        print_info "Using modelscope CLI..."
+    if [ -n "$aria_cmd" ]; then
+        print_info "Using accelerated multi-threaded download via aria2c (16 parallel connections)..."
+        local aria_failed=false
+
+        for file in "${files[@]}"; do
+            local file_path="$model_dir/$file"
+            if [ -f "$file_path" ] && [ "$FORCE_DOWNLOAD" = false ]; then
+                print_info "$file already exists, skipping."
+                continue
+            fi
+            print_info "Downloading $file via aria2c (16 threads)..."
+            if ! "$aria_cmd" -c -x 16 -s 16 -k 1M --file-allocation=none -d "$model_dir" -o "$file" "$base_url/$file"; then
+                aria_failed=true
+                print_warning "aria2c download failed for $file; falling back to standard download methods..."
+                break
+            fi
+        done
+
+        if [ "$aria_failed" = false ] && [ -f "$model_dir/stage0.pt" ] && [ -f "$model_dir/stage1.pt" ] && [ -f "$model_dir/stage2.pt" ]; then
+            download_success=true
+        fi
+    fi
+
+    # 2. Secondary: ModelScope CLI if available (fallback)
+    if [ "$download_success" = false ] && command -v modelscope >/dev/null 2>&1; then
+        print_info "Using modelscope CLI fallback..."
         if modelscope download --model Taobao3D/TaoFlowForge --local_dir "$model_dir"; then
             download_success=true
         fi
     fi
 
-    # 2. Secondary: Python snapshot_download from modelscope
+    # 3. Tertiary: Python snapshot_download from modelscope (fallback)
     if [ "$download_success" = false ]; then
         local py_bin="${PYTHON_EXEC:-$(command -v python3 || command -v python)}"
         if [ -n "$py_bin" ]; then
@@ -903,11 +968,9 @@ download_taoflowforge() {
         fi
     fi
 
-    # 3. Tertiary: Direct download via wget/curl from ModelScope resolve URLs
+    # 4. Quaternary: Direct download via wget/curl from ModelScope resolve URLs (fallback)
     if [ "$download_success" = false ]; then
-        print_info "Attempting direct download of stage checkpoints from ModelScope..."
-        local base_url="https://modelscope.cn/models/Taobao3D/TaoFlowForge/resolve/master"
-        local files=("stage0.pt" "stage1.pt" "stage2.pt")
+        print_info "Attempting direct download of stage checkpoints via wget/curl..."
         local direct_failed=false
 
         for file in "${files[@]}"; do
@@ -946,6 +1009,19 @@ download_taoflowforge() {
 
     if [ -f "$model_dir/stage0.pt" ] && [ -f "$model_dir/stage1.pt" ] && [ -f "$model_dir/stage2.pt" ]; then
         print_success "TaoFlowForge models downloaded successfully"
+        # Download DINOv3 image-conditioner weights required by stage0/stage2
+        # (the stage checkpoints do not embed them).
+        local dino_dir="$PRETRAINED_DIR/dinov3-vitl16-pretrain-lvd1689m"
+        if [ -d "$dino_dir" ] && [ -n "$(ls -A "$dino_dir" 2>/dev/null)" ]; then
+            print_info "DINOv3 weights already present locally."
+        else
+            print_info "Downloading DINOv3 image-conditioner weights (camenduru/dinov3-vitl16-pretrain-lvd1689m)..."
+            if hf_download camenduru/dinov3-vitl16-pretrain-lvd1689m --local-dir "$dino_dir"; then
+                print_success "DINOv3 weights downloaded successfully."
+            else
+                print_warning "DINOv3 download failed; TaoFlowForge will attempt on-demand download at inference time."
+            fi
+        fi
         return 0
     else
         print_error "Failed to download TaoFlowForge models (Taobao3D/TaoFlowForge)"
@@ -1140,9 +1216,23 @@ verify_all_models() {
         print_warning "Paint3D not found (can be downloaded via -m paint3d)"
     fi
 
+    print_info "Checking Pixal3D..."
+    if [ -d "$PRETRAINED_DIR/Pixal3D" ]; then
+        pixal3d_checkpoint_complete "$PRETRAINED_DIR/Pixal3D" || all_verified=false
+    else
+        print_warning "Pixal3D not found (can be downloaded via -m pixal3d)"
+    fi
+
     print_info "Checking TaoFlowForge..."
     if [ -d "$PRETRAINED_DIR/Taobao3D/TaoFlowForge" ]; then
         verify_directory "$PRETRAINED_DIR/Taobao3D/TaoFlowForge" 3 || all_verified=false
+    fi
+
+    print_info "Checking TaoFlowForge DINOv3 weights..."
+    if [ -d "$PRETRAINED_DIR/dinov3-vitl16-pretrain-lvd1689m" ] && [ -n "$(ls -A "$PRETRAINED_DIR/dinov3-vitl16-pretrain-lvd1689m" 2>/dev/null)" ]; then
+        print_success "✓ DINOv3 weights present ($PRETRAINED_DIR/dinov3-vitl16-pretrain-lvd1689m)"
+    else
+        print_warning "DINOv3 weights missing — will be auto-downloaded at first TaoFlowForge inference."
     fi
 
     print_info "Checking Hi3D..."

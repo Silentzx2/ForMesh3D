@@ -8,6 +8,7 @@ load models without direct imports.
 
 import importlib
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -41,10 +42,6 @@ class ModelFactory:
     # Registry of known adapter modules and classes
     ADAPTER_REGISTRY = {
         # TRELLIS adapters
-        "trellis_text_mesh_painting": {
-            "module": "adapters.trellis_adapter",
-            "class": "TrellisTextMeshPaintingAdapter",
-        },
         "trellis_image_to_textured_mesh": {
             "module": "adapters.trellis_adapter",
             "class": "TrellisImageToRawMeshAdapter",
@@ -134,10 +131,6 @@ class ModelFactory:
             "module": "adapters.fastmesh_adapter",
             "class": "FastMeshRetopologyAdapter",
         },
-        "fastmesh_v4k_retopology": {
-            "module": "adapters.fastmesh_adapter",
-            "class": "FastMeshRetopologyAdapter",
-        },
         # PartUV adapters
         "partuv_uv_unwrapping": {
             "module": "adapters.partuv_adapter",
@@ -169,6 +162,10 @@ class ModelFactory:
         },
         # Pixal3D adapter
         "pixal3d_image_to_raw_mesh": {
+            "module": "adapters.pixal3d_adapter",
+            "class": "Pixal3DImageToRawMeshAdapter",
+        },
+        "pixal3d_image_to_3d": {
             "module": "adapters.pixal3d_adapter",
             "class": "Pixal3DImageToRawMeshAdapter",
         },
@@ -243,6 +240,9 @@ class ModelFactory:
             model_id = config["model_id"]
             feature_type = config.get("feature_type")
 
+            # Validate config structure early.
+            cls.validate_config(config)
+
             # Route legacy image_to_textured_mesh feature to raw geometry
             if feature_type == "image_to_textured_mesh":
                 logger.info(
@@ -296,6 +296,12 @@ class ModelFactory:
 
             # Dynamic import
             try:
+                # Ensure the repo root is importable so backend.* packages
+                # (and the adapters' internal backend.core.* imports) resolve
+                # in the worker subprocess, which only has backend/ on sys.path.
+                _repo_root = str(Path(__file__).resolve().parents[3])
+                if _repo_root not in sys.path:
+                    sys.path.insert(0, _repo_root)
                 module = importlib.import_module(module_name)
 
                 model_class = getattr(module, class_name)
@@ -321,9 +327,11 @@ class ModelFactory:
             model_instance = model_class(**init_params)
 
             # Verify the model has the expected properties
-            if not hasattr(model_instance, "model_id"):
+            # Adapters set model_id in __init__ but may set it to None if not in kwargs.
+            # Use getattr with default to handle both missing attr and None value.
+            if not getattr(model_instance, "model_id", None):
                 model_instance.model_id = model_id
-            if not hasattr(model_instance, "feature_type") and "feature_type" in config:
+            if not getattr(model_instance, "feature_type", None) and "feature_type" in config:
                 model_instance.feature_type = config["feature_type"]
             if config.get("experimental") or getattr(model_instance, "experimental", False):
                 model_instance.experimental = True

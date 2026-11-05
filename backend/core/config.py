@@ -332,7 +332,9 @@ def load_models_config(models_config_path: str) -> Dict[str, Dict[str, ModelConf
             models_data = yaml.safe_load(f)
 
         parsed_models = {}
-        for feature, models in models_data.items():
+        for feature, models in (models_data or {}).items():
+            if not isinstance(models, dict):
+                continue
             parsed_models[feature] = {}
             for model_id, config in models.items():
                 if isinstance(config, dict) and "alias_of" in config:

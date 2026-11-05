@@ -28,9 +28,9 @@ Create a centralized, local AI 3D asset factory that takes a reference image and
 ### 1. Neural Shape Generation
 - **Image-to-3D**: Generate raw untextured meshes from reference images using Hunyuan3D-Shape-v2-1, Hunyuan3D-DiT-v2-mini-Turbo, TRELLIS, TRELLIS.2, TripoSG, Unique3D, Pixal3D
 - **Raw Geometry Output**: Normal shape generation produces raw geometry only, preserving clean topology without model-level texture baking or auto-chaining.
-- **Low-VRAM Path**: Hunyuan3D-DiT-v2-mini-Turbo for 6GB GPUs
+- **Low-VRAM Path**: Hunyuan3D-DiT-v2-mini-Turbo for 6GB GPUs; GPU Doctor compatibility planner (`patcher/doctor.py`) ensuring zero-regression native BF16 FlashAttention on modern GPUs (`sm >= 80`) and query-chunked SDPA on pre-Ampere GPUs (`sm < 80`).
 - **Official-Parity Inference**: Each model uses its own upstream/tuned inference schedule and supported raw extraction ceiling; a generic 75-step contract is not used.
-- **Adapter-Owned Inference Profiles**: Locked schedules live in the adapters, and the UI exposes no step, guidance, sampler, or extraction-resolution controls. Adapters own the values; the scheduler filters request-side overrides. Configured and effective runtime values may differ when the implementation has an explicit safety limit. See `Docs/EXPERIMENTAL-MODEL-SETTINGS.md`; GPU execution and output-quality benchmarking are separate verification requirements.
+- **Adapter-Owned Inference Profiles**: Locked schedules live in the adapters, and the UI exposes no step, guidance, sampler, or extraction-resolution controls. Adapters own the values; the scheduler filters request-side overrides. Configured and effective runtime values may differ when the implementation has an explicit safety limit. GPU execution and output-quality benchmarking are separate verification requirements.
 - **Immutable Source Fidelity**: Raw model-native geometry is captured before production polycount/LOD optimization; hardware safety guards may reduce density only when required for safe VRAM execution.
 - **Central Source-Fidelity Firewall**: The scheduler removes production-only target, decimation, remesh, LOD, physics, and paint orchestration controls before model inference.
 

@@ -36,9 +36,15 @@ All colors and surfaces in ForMesh 3D use HSL CSS variable design tokens. Direct
 
 ### Color Palette Visual Reference
 
-![ForMesh 3D Design Colors](../../assets/colors.jpeg)
+![ForMesh 3D Design Colors](../assets/colors.jpeg)
 
 > The `assets/colors.jpeg` image shows the complete color palette used across the ForMesh 3D UI, including Studio Gold (`#FFCC00`), Matte Black (`#080808`), and all HSL design tokens.
+
+### Studio Workspace UI Visual Reference
+
+![ForMesh 3D Studio Workspace Preview](../assets/formeshed3d-studio-ui.jpg)
+
+> The `assets/formeshed3d-studio-ui.jpg` screenshot shows the live Studio Gold (`#FFCC00`) on Matte Black (`#080808`) dark interface, featuring the continuous 3D Three.js viewport, left Generation Studio panel with Hunyuan3D Shape v2.1, and right asset drawer.
 
 ---
 
@@ -575,11 +581,11 @@ Frontend rules:
 Output presets in the Generate panel are UI convenience shortcuts. The actual inference schedule remains model-specific and is owned by the adapter; it is resolved at submission time and reported through the backend `/system/models/{model_id}/parameters` endpoint.
 
 Current adapter-owned inference profiles:
-- Hunyuan3D-Shape-v2.1: octree 1300, 150 steps, guidance 5.0
+- Hunyuan3D-Shape-v2.1: octree 512, 50 steps, guidance 7.5
 - Hunyuan3D-DiT-v2-mini-Turbo: octree 768, 20 steps, guidance 7.5
 - TripoSG: 100 steps, guidance 9.0, dense octree depth 10, hierarchical octree depth 11
 - TRELLIS: 100 steps, guidance 7.5
-- TRELLIS.2: 1536_cascade pipeline, 524288 max tokens
+- TRELLIS.2: adapter calls `1024_cascade`, `max_num_tokens=49152`, and `generate_texture=False` for raw mesh. The token cap is not a triangle budget or minimum; sparse-structure validity and returned geometry are validated separately. GPU/runtime quality remains unverified until the supported hardware matrix is run.
 - Pixal3D: 1536_cascade pipeline, resolution 2048
 - TaoFlowForge: `fill_holes` enabled, offload `auto`
 - Unique3D: `input_processing` and `do_refine` enabled, expansion weight 0.1

@@ -160,10 +160,6 @@ mesh:
   decimation_trigger_vertices: 300000
   decimation_trigger_faces: 600000
 
-  # Crease angle for edge-preserving decimation (shared SSOT)
-  shared:
-    feature_edge_angle_deg: 35.0
-
   # Immutable raw mesh protection
   immutable_master: true
   master_path: "master/source.glb"

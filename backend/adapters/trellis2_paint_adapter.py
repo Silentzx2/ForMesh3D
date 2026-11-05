@@ -1,279 +1,169 @@
 """
-TRELLIS.2 model adapter for mesh painting / texturing.
-
-Takes an existing untextured or raw 3D mesh and a reference image to generate
-high-fidelity PBR textures using the TRELLIS.2 texturing pipeline.
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : trellis2_image_mesh_painting
+Model Name        : TRELLIS.2 Paint — Image Mesh Painting
+Feature Target    : image_mesh_painting
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/microsoft/TRELLIS.2
+Upstream Pipeline : trellis2.pipelines.trellis2_texturing.Trellis2TexturingPipeline
+Checkpoint / Path : backend/pretrained/microsoft/TRELLIS.2-4B
+Hardware / VRAM   : 14336 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. Uses official pipeline.run(mesh=mesh, image=image, seed=seed).
+=============================================================================
 """
+# Status - BETA / ACTIVE
 
+from __future__ import annotations
+
+import contextlib
 import logging
-from copy import deepcopy
+import os
+import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
-import torch
+try:
+    import torch
+except ImportError:  # pragma: no cover - torch optional in CPU-only environments
+    torch = None
 
-from core.models.base import ModelStatus
-from core.models.mesh_models import ImageToMeshModel
-from core.utils.file_utils import OutputPathGenerator
-from core.utils.mesh_utils import MeshProcessor
-from core.utils.thumbnail_utils import generate_mesh_thumbnail
+from backend.core.models.base import BaseModel, ModelStatus
+from backend.loader import get_model_weights_dir
 
 logger = logging.getLogger(__name__)
 
-# LOCKED / ACTIVE: values used by inference for TRELLIS.2 painting.
-# BASELINE: previous effective runtime values (tex_slat_sampler_params: steps=50, guidance_strength=3.5, guidance_rescale=0.5, rescale_t=8.0, texture_size=4096)
-# SUPPORTED BY: TRELLIS.2 painting adapter, EXPERIMENTAL-MODEL-SETTINGS.md section "TRELLIS.2 (raw/image geometry aliases)".
-_LOCKED_INFERENCE_PROFILE = {
-    "tex_slat_sampler_params": {
-        "steps": 50,
-        "guidance_strength": 3.5,
-        "guidance_rescale": 0.5,
-        "rescale_t": 8.0,
-    },
-    "texture_size": 4096,
-}
+DEFAULT_SEED = 42891  # matches quality.yaml seeds.base_seed / scheduler auto-seed base
 
 
-class Trellis2ImageMeshPaintingAdapter(ImageToMeshModel):
-    """
-    Adapter for TRELLIS.2 image-guided mesh texturing / painting.
-    
-    Uses TRELLIS.2 to apply high-resolution textures to raw meshes based on reference images.
-    """
-    
+class Trellis2ImageMeshPaintingAdapter(BaseModel):
+    """TRELLIS.2 — Image Mesh Painting."""
+
+    MODEL_KEY = "TRELLIS.2"
     FEATURE_TYPE = "image_mesh_painting"
-    MODEL_ID = "trellis2_image_mesh_painting"
-    
-    def __init__(
-        self,
-        model_path: Optional[str] = None,
-        vram_requirement: Optional[int] = None,
-        trellis2_root: Optional[str] = None,
-    ):
-        if vram_requirement is None:
-            vram_requirement = 16000
-        # Set default paths
-        if model_path is None:
-            model_path = str(Path(__file__).resolve().parents[1] / "pretrained" / "TRELLIS.2")
-        
-        if trellis2_root is None:
-            trellis2_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "TRELLIS.2")
-        
-        super().__init__(
-            model_id=self.MODEL_ID,
-            model_path=model_path,
-            vram_requirement=vram_requirement,
-            supported_output_formats=["glb", "obj"],
-            feature_type=self.FEATURE_TYPE,
-        )
-        
-        self.trellis2_root = Path(trellis2_root)
-        self.model_path = Path(model_path)
-        self.runner: Optional[Any] = None
-        self.mesh_processor = MeshProcessor()
-        self.path_generator = OutputPathGenerator(base_output_dir="outputs")
-    
-    def _load_model(self):
-        """Load the TRELLIS.2 texturing pipeline."""
-        try:
-            logger.info(f"Loading TRELLIS.2 texturing pipeline from {self.trellis2_root}")
 
-            # Apply runtime compatibility fixes (transformers, dinov3, numba, etc.)
+    def __init__(self, vram_requirement: int, **kwargs: Any):
+        self.model_id = kwargs.get("model_id")
+        self.model_path: Path | None = None
+        self.vram_requirement = vram_requirement
+        self.feature_type = kwargs.get("feature_type", self.FEATURE_TYPE)
+        self.status = ModelStatus.UNLOADED
+        self.gpu_id: int | None = None
+        self.gpu_ids: list[int] = []
+        self.resource_plan: dict[str, Any] = {}
+        self.native_topology = False
+        self.model: Any = None
+        self.device = "cpu"
+        self.dtype = None
+        self.version = "1.0"
+        self.experimental = False
+        self._pipeline: Any = None
+
+    def _load_model(self) -> Any:
+        # Keep sparse-convolution selection local to this TRELLIS.2 worker and
+        # base pre-Ampere fallback on the GPU actually assigned by the scheduler.
+        device_is_pre_ampere = False
+        if torch is not None and torch.cuda.is_available():
             try:
-                from utils.torchvision_fix import apply_fix
-                apply_fix()
-            except Exception as fix_err:
-                logger.debug(f"apply_fix notice: {fix_err}")
-            
-            if not torch.cuda.is_available():
-                raise RuntimeError("TRELLIS.2 requires CUDA; CPU inference is not supported.")
-            device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cuda:0"
+                gpu_idx = int(self.gpu_id) if self.gpu_id is not None else torch.cuda.current_device()
+                device_is_pre_ampere = torch.cuda.get_device_capability(gpu_idx)[0] < 8
+            except Exception:
+                device_is_pre_ampere = False
 
-            is_low_vram = False
-            if self.resource_plan:
-                strategy = str(self.resource_plan.get("strategy", ""))
-                if "low_vram" in strategy:
-                    is_low_vram = True
-            if not is_low_vram and torch.cuda.is_available():
+        if not os.environ.get("SPARSE_CONV_BACKEND"):
+            if device_is_pre_ampere:
+                os.environ["SPARSE_CONV_BACKEND"] = "spconv"
+            else:
                 try:
-                    target_gpu = self.gpu_id if self.gpu_id is not None else 0
-                    total_mb = torch.cuda.get_device_properties(target_gpu).total_memory / (1024 * 1024)
-                    if total_mb < 20480:
-                        is_low_vram = True
-                except Exception:
-                    pass
+                    import flex_gemm  # noqa: F401
+                except ImportError:
+                    os.environ["SPARSE_CONV_BACKEND"] = "spconv"
 
-            # Initialize TRELLIS.2 runner
-            from utils.trellis2_utils import Trellis2Runner
-            self.runner = Trellis2Runner(
-                trellis2_root=str(self.trellis2_root),
-                model_cache_dir=str(self.model_path),
-                device=device,
-                resource_plan=self.resource_plan,
-                low_vram=is_low_vram,
-            )
-            
-            # Pre-load the texturing pipeline
-            self.runner._load_texturing_pipeline()
-            
-            logger.info("TRELLIS.2 texturing pipeline loaded successfully")
-            return self.runner
-        
-        except Exception as e:
-            logger.error(f"Failed to load TRELLIS.2 texturing pipeline: {str(e)}")
-            raise Exception(f"Failed to load TRELLIS.2 texturing pipeline: {str(e)}")
-    
-    def _unload_model(self):
-        """Unload the TRELLIS.2 texturing model."""
-        try:
-            if self.runner is not None:
-                self.runner.cleanup()
-                self.runner = None
-            
-            # Clear CUDA cache
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            
-            logger.info("TRELLIS.2 texturing model unloaded successfully")
-        
-        except Exception as e:
-            logger.error(f"Error unloading TRELLIS.2 texturing model: {str(e)}")
-    
+        # Make the vendored TRELLIS.2 source importable in the worker process,
+        # which only has backend/ on sys.path. Model-specific source path setup
+        # per TASKS.md §3.3 — not a global patch, not in loader.py.
+        _trellis2_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "TRELLIS.2")
+        if _trellis2_root not in sys.path:
+            sys.path.insert(0, _trellis2_root)
+        from trellis2.pipelines.trellis2_texturing import Trellis2TexturingPipeline
+
+        weights_dir = get_model_weights_dir(self.MODEL_KEY)
+        logger.info("Loading TRELLIS.2 texturing pipeline from %s", weights_dir)
+        pipeline = Trellis2TexturingPipeline.from_pretrained(str(weights_dir))
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
+        pipeline.to(device)
+        self._pipeline = pipeline
+        self.model = pipeline
+        return pipeline
+
+    def _unload_model(self) -> None:
+        self._pipeline = None
+        self.model = None
+
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Process image-guided mesh texturing using TRELLIS.2.
-        
-        Args:
-            inputs: Dictionary containing:
-                - mesh_path: Path to input mesh (required)
-                - image_path: Path to reference image (required)
-                - output_format: Output format (default: "glb")
-                - extension_webp: Use WebP extension in GLB (default: True)
-        
-        Returns:
-            Dictionary with textured mesh information
-        """
-        inputs = {**inputs, **deepcopy(_LOCKED_INFERENCE_PROFILE)}
-        try:
-            if self.runner is None:
-                raise ValueError("TRELLIS.2 texturing model is not loaded")
-            
-            # Validate inputs
-            output_format = self._validate_common_inputs(inputs)
-            
-            # Extract parameters
-            mesh_path = inputs.get("mesh_path")
-            image_path = inputs["image_path"]
-            extension_webp = inputs.get("extension_webp", True)
-            
-            if not mesh_path:
-                raise ValueError("mesh_path is required for mesh painting")
-            
-            logger.info(f"Texturing mesh with TRELLIS.2: mesh={mesh_path}, image={image_path}")
-            low_vram = inputs.get("low_vram") if inputs.get("low_vram") is not None else inputs.get("low_vram_mode")
-            
-            # Apply texture to mesh
-            textured_mesh = self.runner.texture_mesh(
-                mesh_path=mesh_path,
-                image_path=image_path,
-                output_format=output_format,
-                extension_webp=extension_webp,
-                low_vram=low_vram,
-            )
-            
-            # Save mesh in requested format
-            output_path = self._generate_output_path(mesh_path, output_format, is_prompt=False)
-            self.mesh_processor.save_mesh(textured_mesh, output_path, do_normalise=False)
-            
-            # Generate thumbnail
-            thumbnail_path = self._generate_thumbnail_path(output_path)
-            thumbnail_generated = generate_mesh_thumbnail(
-                str(output_path), str(thumbnail_path)
-            )
-            
-            # Create response
-            response = self._create_common_response(inputs, output_format)
-            response.update({
-                "output_mesh_path": str(output_path),
-                "thumbnail_path": str(thumbnail_path) if thumbnail_generated else None,
-                "generation_info": {
-                    "model": "TRELLIS.2-Texturing",
-                    "mesh_path": mesh_path,
-                    "image_path": image_path,
-                    "vertex_count": len(textured_mesh.vertices),
-                    "face_count": len(textured_mesh.faces),
-                    "extension_webp": extension_webp,
-                    "low_vram": getattr(getattr(self.runner, "texturing_pipeline", None), "low_vram", low_vram),
-                    "thumbnail_generated": thumbnail_generated,
-                }
-            })
-            
-            logger.info(f"TRELLIS.2 mesh texturing completed: {output_path}")
-            self.status = ModelStatus.LOADED
-            return response
-        
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            self.status = ModelStatus.ERROR
-            logger.error(f"TRELLIS.2 mesh texturing failed: {str(e)}")
-            raise Exception(f"TRELLIS.2 mesh texturing failed: {str(e)}")
-    
-    def _get_output_mesh_path(self, safe_name: str, output_format: str) -> Path:
-        return Path(
-            self.path_generator.generate_mesh_path(
-                self.model_id, safe_name, output_format
-            )
-        )
+        pipeline = self._pipeline
+        if pipeline is None:
+            return {"success": False, "error": "TRELLIS.2 texturing pipeline not loaded"}
 
-    def _generate_output_path(
-        self, prompt: str, output_format: str, is_prompt: bool = True
-    ) -> Path:
-        """Generate output file path based on input and format."""
-        if is_prompt:
-            safe_name = "".join(
-                c for c in prompt[:50] if c.isalnum() or c in (" ", "_")
-            ).strip().replace(" ", "_")
+        mesh_path = inputs.get("mesh_path")
+        image_path = inputs.get("image_path")
+        if not mesh_path or not Path(mesh_path).is_file():
+            return {"success": False, "error": f"mesh not found: {mesh_path}"}
+        if not image_path or not Path(image_path).is_file():
+            return {"success": False, "error": f"image not found: {image_path}"}
+
+        seed = int(inputs.get("seed", DEFAULT_SEED))
+
+        import trimesh
+        from PIL import Image
+
+        mesh = trimesh.load(mesh_path, process=False)
+        image = Image.open(image_path).convert("RGB")
+
+        ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
+        with ctx:
+            textured = pipeline.run(
+                mesh=mesh,
+                image=image,
+                seed=seed,
+            )
+
+        import tempfile
+
+        out = Path(tempfile.mkdtemp()) / f"trellis2_paint_{seed}.glb"
+        if hasattr(textured, "export"):
+            textured.export(str(out))
         else:
-            safe_name = Path(prompt).stem[:50]
+            return {"success": False, "error": "Texturing pipeline returned non-exportable object"}
 
-        return self._get_output_mesh_path(safe_name or "mesh", output_format)
+        return {
+            "success": True,
+            "output_mesh_path": str(out),
+            "mesh_path": str(out),
+            "generation_info": {
+                "seed": seed,
+                "num_inference_steps": "adapter_owned",
+                "guidance_scale": "adapter_owned",
+            },
+        }
 
-    def _generate_thumbnail_path(self, mesh_path: Path) -> Path:
-        """Generate thumbnail file path based on mesh path."""
-        thumbnail_dir = Path(self.path_generator.base_output_dir) / "thumbnails"
-        thumbnail_dir.mkdir(parents=True, exist_ok=True)
-        return thumbnail_dir / (mesh_path.stem + "_thumb.png")
+    def get_supported_formats(self) -> Dict[str, list[str]]:
+        return {"input": ["glb", "obj", "png", "jpg"], "output": ["glb", "obj"]}
 
-    def _get_thumbnail_path(self, filename: str) -> Path:
-        thumbnail_dir = Path(self.path_generator.base_output_dir) / "thumbnails"
-        thumbnail_dir.mkdir(parents=True, exist_ok=True)
-        return thumbnail_dir / filename
-    
-    def get_supported_formats(self) -> Dict[str, List[str]]:
-        """Return supported input/output formats for TRELLIS.2 texturing."""
-        return {"input": ["mesh", "image"], "output": ["glb", "obj"]}
-    
     def get_parameter_schema(self) -> Dict[str, Any]:
-        """
-        Return JSON Schema describing model-specific parameters.
-        
-        Returns:
-            Parameter schema dictionary
-        """
         return {
             "parameters": {
-                "extension_webp": {
-                    "type": "boolean",
-                    "description": "Use WebP extension for textures in GLB format",
-                    "default": True,
-                    "required": False
+                "seed": {
+                    "type": "integer",
+                    "description": "Random seed for reproducibility",
+                    "default": DEFAULT_SEED,
+                    "minimum": 0,
+                    "required": False,
                 }
             }
         }
-
-
-# Aliases
-Trellis2PaintAdapter = Trellis2ImageMeshPaintingAdapter
-TRELLIS2ImageMeshPaintingAdapter = Trellis2ImageMeshPaintingAdapter
-TRELLIS2PaintAdapter = Trellis2ImageMeshPaintingAdapter

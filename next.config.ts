@@ -35,6 +35,11 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       {
+        source: '/',
+        destination: '/workspace',
+        permanent: false,
+      },
+      {
         source: '/setting',
         destination: '/admin',
         permanent: false,

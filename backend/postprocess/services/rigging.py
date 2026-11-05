@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 def is_rigging_available() -> bool:
     """Check if UniRig model weights and code dependencies are present."""
     try:
-        from adapters.unirig_adapter import UniRigAdapter
+        from backend.adapters.unirig_adapter import UniRigAdapter
         return True
     except Exception:
         return False

@@ -1,15 +1,107 @@
 # ── Model-only dependencies (GPU/CUDA mode) ───────────────────
+# UNIFIED model dependencies file.
 # Installed only when compute mode is cuda. These are heavy ML packages
-# required by model adapters (TRELLIS, Hunyuan3D, TripoSG, Unique3D, etc.).
-transformers==4.44.2
-diffusers==0.30.3
-huggingface_hub>=0.25.0,<0.26.0
-datasets==3.6.0
-safetensors>=0.4.4
-einops>=0.8.0
-rembg>=2.0.60
-timm>=1.0.0
-kornia>=0.6.0
-realesrgan==0.3.0
-peft==0.17.1
+# required by model adapters (TRELLIS, Hunyuan3D, TripoSG, Unique3D, Pixal3D,
+# UniRig, PartUV, FastMesh, ARDY, TaoFlowForge, Hi3D, Paint3D).
+#
+# Version policy: only packages NOT already in requirements.txt go here.
+# Shared packages (numpy, scipy, trimesh, pillow, fastapi, uvicorn, pydantic,
+# opencv-python-headless, scikit-image, imageio, omegaconf, pyyaml, etc.) are
+# owned by requirements.txt — do NOT duplicate them here. Conflicting
+# model-version requests are noted in comments and resolved per-model in
+# install.sh instead of overriding core.
+#
+# Source key:
+#   [HUNYUAN] backend/thirdparty/Hunyuan3D-2.1/requirements.txt
+#   [PIXAL3D] backend/thirdparty/Pixal3D/requirements.txt
+#   [UNIQUE3D] backend/thirdparty/Unique3D/requirements.txt
+#   [TRIPOSG] backend/thirdparty/TripoSG/requirements.txt
+#   [UNIRIG] backend/thirdparty/UniRig/requirements.txt
+#   [PARTUV] backend/thirdparty/PartUV/requirements.txt
+#   [FASTMESH] backend/thirdparty/FastMesh/models/miche/requirements.txt
+#   [TRELLIS] backend/thirdparty/TRELLIS.2
+
+# ── ML-only packages (not in core) ────────────────────────────
+transformers==4.44.2        # [HUNYUAN]==4.46.0 [PIXAL3D]==4.57.3 [UNIQUE3D]==4.39.3 [UNIRIG]==4.51.3 [FASTMESH]==4.30.2
+diffusers==0.30.3           # [HUNYUAN]==0.30.0 [PIXAL3D]==0.37.1 [UNIQUE3D]>=0.26.3 [FASTMESH]==0.18.2
+huggingface_hub>=0.25.0,<0.26.0  # [HUNYUAN]==0.30.2 [UNIRIG] [FASTMESH]==0.16.4
+datasets==3.6.0             # [UNIQUE3D]
+safetensors>=0.4.4          # [HUNYUAN]==0.4.4 [FASTMESH]==0.3.1
+einops>=0.8.0               # [HUNYUAN]==0.8.0 [PIXAL3D] [PARTUV] [TRIPOSG] [FASTMESH]==0.6.0
+rembg>=2.0.60               # [HUNYUAN]==2.0.65 [UNIQUE3D][gpu]
+timm>=1.0.0                 # [HUNYUAN] [PIXAL3D]==1.0.22 [UNIRIG] [FASTMESH]==0.9.2
+kornia>=0.6.0               # [PIXAL3D]==0.8.2
+realesrgan==0.3.0           # [HUNYUAN]
+peft==0.17.1                # [UNIQUE3D]==0.10.0 [TRIPOSG] [FASTMESH]
 pyfqmr>=0.4.0
+
+# ── Hunyuan3D-2.1 (packages not in core) ──────────────────────
+basicsr==1.4.2              # [HUNYUAN]
+configargparse==1.7         # [HUNYUAN]
+cupy-cuda12x==13.4.1        # [HUNYUAN] CUDA-specific GPU package
+# gradio==5.33.0 removed: it requires huggingface-hub>=0.28.1, which conflicts
+# with huggingface-hub<0.26.0 pinned here. ForMesh3D uses FastAPI + Next.js,
+# not Gradio, so it is not needed for this stack.
+onnxruntime==1.16.3         # [HUNYUAN] ([FASTMESH] wants ==1.15.1; baseline keeps 1.16.3)
+opencv-python==4.10.0.84    # [HUNYUAN] [TRIPOSG] [UNIQUE3D] (non-headless variant; core has headless)
+pandas==2.2.2               # [HUNYUAN]
+pygltflib==1.16.3           # [HUNYUAN] [UNIQUE3D] unpinned
+pytorch-lightning==1.9.5    # [HUNYUAN] [UNIRIG] (different from `lightning`)
+torchdiffeq                 # [HUNYUAN] no version pinned upstream
+torchmetrics==1.6.0         # [HUNYUAN] [FASTMESH]==0.11.1
+tqdm==4.66.5                # [HUNYUAN] [PIXAL3D]==4.67.1 [UNIQUE3D] unpinned
+deepspeed                   # [HUNYUAN] ([FASTMESH] ==0.8.1)
+
+# ── TRELLIS extra native deps (from install.sh) ───────────────
+pymeshfix                   # [TRELLIS] install.sh line 480
+igraph                      # [TRELLIS] install.sh line 480
+
+# ── Pixal3D (packages not in core) ────────────────────────────
+easydict==1.13              # [PIXAL3D]
+zstandard==0.25.0           # [PIXAL3D]
+plyfile==1.1.3              # [PIXAL3D] [PARTUV] unpinned
+utils3d                     # [PIXAL3D] install.sh line 826
+# natten removed: source build fails (curand_kernel.h missing during CUDA
+# compile) and no prebuilt natten wheel exists in the wheel house. Add it back
+# with a verified cp310+cu124 wheel if Pixal3D requires it.
+
+# ── Unique3D (packages not in core) ───────────────────────────
+fire                        # [UNIQUE3D]
+jaxtyping                   # [UNIQUE3D] [TRIPOSG]
+numba                       # [UNIQUE3D]
+onnxruntime-gpu             # [UNIQUE3D] GPU variant
+ort-nightly-gpu             # [UNIQUE3D] nightly GPU variant
+typeguard                   # [UNIQUE3D] [TRIPOSG]
+wandb                       # [UNIQUE3D] [UNIRIG] ([FASTMESH] ==0.13.10)
+xformers                    # [UNIQUE3D]
+
+# ── TripoSG (packages not in core) ────────────────────────────
+
+# ── UniRig (packages not in core) ─────────────────────────────
+lightning                   # [UNIRIG] (different from pytorch-lightning)
+# bpy==4.2 removed: bpy 4.2.0 only ships cp311 wheels, but this env is cp310,
+# so the pin is unsatisfiable. bpy is provided by the Blender installation
+# (install.sh ensure_blender()), not via PyPI — keeping it here breaks every
+# cp310 CUDA install.
+addict                      # [UNIRIG] [FASTMESH]
+fast-simplification         # [UNIRIG]
+partuv                      # [UNIRIG] install.sh line 655
+blenderproc                 # [UNIRIG] install.sh line 662
+pyrender                    # [UNIRIG]
+
+# ── PartUV (packages not in core) ─────────────────────────────
+h5py                        # [PARTUV]
+boto3                       # [PARTUV]
+libigl                      # [PARTUV]
+seaborn                     # [PARTUV]
+
+# ── TaoFlowForge extra deps (from requirements.txt) ───────────
+plotly==6.8.0               # [TAOFLOWFORGE] requirements.txt
+
+# ── FastMesh (packages not in core) ───────────────────────────
+absl-py==1.4.0              # [FASTMESH]
+opencv-contrib-python==4.8.0.74  # [FASTMESH]
+pythreejs==2.4.2            # [FASTMESH] ([HUNYUAN] unpinned)
+pytz==2022.7.1              # [FASTMESH]
+starlette==0.27.0           # [FASTMESH]
+triton>=1.1.1               # [FASTMESH] (relaxed: ==1.1.1 wheels only go up to cp39; env is cp310)

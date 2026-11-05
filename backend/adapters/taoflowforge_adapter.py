@@ -1,403 +1,274 @@
 """
-TaoFlowForge model adapter for progressive native mesh generation.
-
-Integrates Alibaba Taobao3D TaoFlowForge 3-stage flow matching pipeline
-for generating native-topology raw 3D meshes directly from images.
+=============================================================================
+MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
+=============================================================================
+Model ID          : taoflowforge_image_to_raw_mesh
+Model Name        : TaoFlowForge — Image to Raw Mesh
+Feature Target    : image_to_raw_mesh
+Status            : BETA / ACTIVE
+Upstream Repo     : https://github.com/Taobao3D/TaoFlowForge
+Upstream Pipeline : taoflowforge.pipeline.TaoFlowForgePipeline
+Checkpoint / Path : backend/pretrained/Taobao3D/TaoFlowForge
+Hardware / VRAM   : 14336 MB
+-----------------------------------------------------------------------------
+AGENT GOVERNANCE RULES:
+1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
+   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
+2. Derives execution device dynamically from gpu_id.
+=============================================================================
 """
-
+# Status - BETA / ACTIVE
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
-import shutil
 import sys
+import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict
+
+import numpy as np
+import trimesh
 
 try:
     import torch
-except ImportError:
+except ImportError:  # pragma: no cover - torch optional in CPU-only environments
     torch = None
 
-from core.models.base import ModelStatus
-from core.models.mesh_models import ImageToMeshModel
-from core.utils.file_utils import OutputPathGenerator
-from core.utils.mesh_utils import MeshProcessor
+from backend.core.models.base import BaseModel, ModelStatus
+from backend.loader import get_model_weights_dir
+from .trellis2_mesh_validation import validate_mesh_arrays
+
+# DINOv3 image-conditioner weights are required by TaoFlowForge stage0/stage2
+# when the stage checkpoints do not embed them. Resolve from local storage,
+# downloading from HuggingFace on demand so inference never crashes with a
+# missing-weight error.
+DINOV3_REPO_ID = "camenduru/dinov3-vitl16-pretrain-lvd1689m"
+DINOV3_LOCAL_DIR_NAME = "dinov3-vitl16-pretrain-lvd1689m"
+
+
+def _resolve_dino_checkpoint(weights_dir: Path) -> Path | None:
+    """Return a local DINOv3 directory, downloading from HF if needed.
+
+    Looks for the DINOv3 weights under the shared weights root first; if absent,
+    downloads them from HuggingFace into <weights_root>/dinov3-vitl16-... so the
+    adapter is self-sufficient and does not require a manual pre-download step.
+    Returns None only when the download fails (inference will then surface the
+    original upstream error).
+    """
+    weights_root = weights_dir.parent  # e.g. backend/pretrained/Taobao3D -> backend/pretrained
+    local_dir = weights_root / DINOV3_LOCAL_DIR_NAME
+    if local_dir.is_dir() and any(local_dir.iterdir()):
+        return local_dir
+
+    try:
+        from huggingface_hub import snapshot_download
+
+        logger.info(
+            "DINOv3 weights not found locally; downloading from %s ...",
+            DINOV3_REPO_ID,
+        )
+        snapshot_download(
+            repo_id=DINOV3_REPO_ID,
+            local_dir=str(local_dir),
+            local_dir_use_symlinks=False,
+        )
+        if local_dir.is_dir() and any(local_dir.iterdir()):
+            return local_dir
+    except Exception as exc:
+        logger.warning(
+            "Could not download DINOv3 weights from %s: %s", DINOV3_REPO_ID, exc
+        )
+    return None
 
 logger = logging.getLogger(__name__)
 
-# LOCKED / ACTIVE: values used by inference.
-# BASELINE: previous effective runtime values (fill_holes=true, offload="auto")
-# EXPERIMENTAL: selected experimental values, snapshot (2026-10-20) for stress-test; use only for benchmarking.
-# SUPPORTED BY: TaoFlowForge adapter, EXPERIMENTAL-MODEL-SETTINGS.md section "UniRig".
-# ROLLBACK: previous effective values; scheduler strips frontend overrides before adapter applies lock.
-_LOCKED_INFERENCE_PROFILE = {
-    "fill_holes": True,
-    "offload": "auto",
-}
+DEFAULT_SEED = 42891  # matches quality.yaml seeds.base_seed / scheduler auto-seed base
 
 
-class TaoFlowForgeImageToRawMeshAdapter(ImageToMeshModel):
-    """
-    Adapter for TaoFlowForge progressive native mesh generation.
+class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
+    """TaoFlowForge — Image to Raw Mesh (progressive native mesh)."""
 
-    Generates native-topology raw 3D meshes (GLB/OBJ) from a single image
-    using a 3-stage progressive flow matching pipeline.
-    """
-
+    MODEL_KEY = "Taobao3D/TaoFlowForge"
     FEATURE_TYPE = "image_to_raw_mesh"
-    MODEL_ID = "taoflowforge_image_to_raw_mesh"
 
-    def __init__(
-        self,
-        model_id: str = "taoflowforge_image_to_raw_mesh",
-        model_path: Optional[str] = None,
-        vram_requirement: Optional[int] = None,
-        taoflowforge_root: Optional[Union[str, Path]] = None,
-        stage0_checkpoint: Optional[Union[str, Path]] = None,
-        stage1_checkpoint: Optional[Union[str, Path]] = None,
-        stage2_checkpoint: Optional[Union[str, Path]] = None,
-        dino_checkpoint: Optional[Union[str, Path]] = None,
-        offload: str = "auto",
-        fill_holes: bool = True,
-        **kwargs: Any,
-    ):
-        backend_dir = Path(__file__).resolve().parents[1]
+    def __init__(self, vram_requirement: int, **kwargs: Any):
+        self.model_id = kwargs.get("model_id")
+        self.model_path: Path | None = None
+        self.vram_requirement = vram_requirement
+        self.feature_type = kwargs.get("feature_type", self.FEATURE_TYPE)
+        self.status = ModelStatus.UNLOADED
+        self.gpu_id: int | None = None
+        self.gpu_ids: list[int] = []
+        self.resource_plan: dict[str, Any] = {}
+        self.native_topology = True
+        self.model: Any = None
+        self.device = "cpu"
+        self.dtype = None
+        self.version = "1.0"
+        self.experimental = False
+        self._pipeline: Any = None
 
-        if taoflowforge_root is None:
-            candidates = [
-                backend_dir / "thirdparty" / "Taobao3D" / "TaoFlowForge",
-                backend_dir / "thirdparty" / "TaoFlowForge",
-            ]
-            taoflowforge_root = next((c for c in candidates if c.exists()), candidates[0])
-        self.taoflowforge_root = Path(taoflowforge_root).resolve()
-
-        if model_path is None:
-            model_path = str((backend_dir / "pretrained" / "Taobao3D" / "TaoFlowForge").resolve())
-        else:
-            p = Path(model_path)
-            if not p.is_absolute():
-                parts = list(p.parts)
-                if parts and parts[0] == "backend":
-                    p = Path(*parts[1:])
-                for candidate in [backend_dir / p, backend_dir.parent / p, Path.cwd() / p]:
-                    if candidate.exists():
-                        p = candidate
-                        break
-                else:
-                    p = backend_dir / p
-            model_path = str(p.resolve())
-        self.model_path = Path(model_path)
-
-        if vram_requirement is None:
-            vram_requirement = 20480
-
-        super().__init__(
-            model_id=model_id,
-            model_path=str(self.model_path),
-            vram_requirement=vram_requirement,
-            supported_output_formats=["glb", "obj"],
-            feature_type=self.FEATURE_TYPE,
+    def _load_model(self) -> Any:
+        # Make the vendored TaoFlowForge source importable in the worker process,
+        # which only has backend/ on sys.path. Model-specific source path setup
+        # per TASKS.md §3.3 — not a global patch, not in loader.py.
+        _tao_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Taobao3D" / "TaoFlowForge")
+        if _tao_root not in sys.path:
+            sys.path.insert(0, _tao_root)
+        # TaoFlowForge model-specific patcher: disable FlashAttention on
+        # pre-Ampere GPUs (Tesla T4 sm_75, etc.) so inference falls back to
+        # SDPA instead of crashing with "FlashAttention only supports
+        # Ampere GPUs or newer". Must run before importing the pipeline,
+        # which imports the attention module at load time.
+        from patcher.taoflowforge import apply_patch as _taoflowforge_apply_attn_patch  # noqa: E402
+        _taoflowforge_apply_attn_patch()
+        from taoflowforge.pipeline import TaoFlowForgePipeline
+        from taoflowforge.config import (
+            InferenceConfig,
+            Stage0Config,
+            Stage1Config,
+            Stage2Config,
         )
 
-        self.native_topology: bool = True
+        weights_dir = get_model_weights_dir(self.MODEL_KEY)
+        weights_path = Path(weights_dir).resolve()
+        logger.info("Loading TaoFlowForge pipeline from %s", weights_path)
 
-        # Checkpoints
-        self.stage0_checkpoint = (
-            Path(stage0_checkpoint).resolve()
-            if stage0_checkpoint is not None
-            else (self.model_path / "stage0.pt").resolve()
-        )
-        self.stage1_checkpoint = (
-            Path(stage1_checkpoint).resolve()
-            if stage1_checkpoint is not None
-            else (self.model_path / "stage1.pt").resolve()
-        )
-        self.stage2_checkpoint = (
-            Path(stage2_checkpoint).resolve()
-            if stage2_checkpoint is not None
-            else (self.model_path / "stage2.pt").resolve()
-        )
-        self.dino_checkpoint = (
-            Path(dino_checkpoint).resolve()
-            if dino_checkpoint is not None
-            else (
-                (self.model_path / "dino.pt").resolve()
-                if (self.model_path / "dino.pt").exists()
-                else None
-            )
-        )
-
-        self.offload = _LOCKED_INFERENCE_PROFILE["offload"]
-        self.fill_holes = _LOCKED_INFERENCE_PROFILE["fill_holes"]
-        self.pipeline = None
-        self.mesh_processor = MeshProcessor()
-        self.path_generator = OutputPathGenerator(base_output_dir="outputs")
-
-    def is_installed(self) -> bool:
-        """Check if TaoFlowForge thirdparty code is present."""
-        init_file = self.taoflowforge_root / "taoflowforge" / "__init__.py"
-        return self.taoflowforge_root.exists() and init_file.is_file()
-
-    def is_available(self) -> bool:
-        """Check if model is installed, torch with CUDA is available, and checkpoints exist on disk."""
-        if not self.is_installed():
-            return False
-
-        torch_module = torch
-        if torch_module is None:
-            try:
-                import torch as _torch
-                torch_module = _torch
-            except ImportError:
-                return False
-
-        if not torch_module.cuda.is_available():
-            return False
-
-        return (
-            self.stage0_checkpoint.is_file()
-            and self.stage1_checkpoint.is_file()
-            and self.stage2_checkpoint.is_file()
-        )
-
-    def _load_model(self):
-        """
-        Load TaoFlowForge pipeline and required weights.
-        """
-        root_str = str(self.taoflowforge_root)
-        if root_str not in sys.path:
-            sys.path.insert(0, root_str)
-
-        missing = []
-        for stage_idx, ckpt in [
-            (0, self.stage0_checkpoint),
-            (1, self.stage1_checkpoint),
-            (2, self.stage2_checkpoint),
-        ]:
-            if not ckpt.is_file():
-                missing.append(f"Stage {stage_idx} checkpoint ({ckpt})")
-
+        # Strict checkpoint presence check
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+        required_checkpoints = ["stage0.pt", "stage1.pt", "stage2.pt"]
+        missing = [f for f in required_checkpoints if not (weights_path / f).is_file()]
         if missing:
             raise FileNotFoundError(
-                f"TaoFlowForge checkpoints missing: {', '.join(missing)}. "
-                f"Please download stage0.pt, stage1.pt, and stage2.pt to '{self.model_path}' "
-                f"from https://github.com/alibaba/Taobao3D."
+                f"TaoFlowForge checkpoints missing in {weights_path}: {missing}. "
+                "Download them using `bash backend/scripts/download_models.sh -m taoflowforge`."
             )
 
-        torch_module = torch
-        if torch_module is None:
-            try:
-                import torch as _torch
-                torch_module = _torch
-            except ImportError as e:
-                raise RuntimeError("PyTorch is required to run TaoFlowForge.") from e
+        # Resolve DINOv3 image-conditioner weights (auto-download from HF if absent).
+        # TaoFlowForge stage0/stage2 need these; the stage checkpoints do not embed them.
+        dino_checkpoint = _resolve_dino_checkpoint(weights_path)
 
-        device = (
-            f"cuda:{self.gpu_id}"
-            if self.gpu_id is not None
-            else ("cuda:0" if torch_module.cuda.is_available() else "cpu")
+        config = InferenceConfig(
+            stage0=Stage0Config(checkpoint=weights_path / "stage0.pt", num_steps=50, cfg_scale=7.5),
+            stage1=Stage1Config(checkpoint=weights_path / "stage1.pt", num_steps=30, cfg_scale=7.0),
+            stage2=Stage2Config(checkpoint=weights_path / "stage2.pt", num_steps=50, cfg_scale=3.0),
+            seed=DEFAULT_SEED,
+            offload="on",
+            fill_holes=True,
+            image_size=1024,
+            output_dir=Path(tempfile.gettempdir()) / "taoflowforge",
+            dino_checkpoint=dino_checkpoint,
         )
-        if device.startswith("cuda") and not torch_module.cuda.is_available():
-            raise RuntimeError("TaoFlowForge requires CUDA; no GPU is available.")
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None and torch and torch.cuda.is_available() else "cpu"
+        self.device = device
+        pipeline = TaoFlowForgePipeline.from_config(config, device=device)
+        self._pipeline = pipeline
+        self.model = pipeline
+        return pipeline
 
-        try:
-            from taoflowforge.config import InferenceConfig, Stage0Config, Stage1Config, Stage2Config
-            from taoflowforge.pipeline import TaoFlowForgePipeline
-        except ImportError as e:
-            raise RuntimeError(
-                f"Failed to import TaoFlowForge pipeline components from {self.taoflowforge_root}: {e}"
-            ) from e
-
-        logger.info("Initializing TaoFlowForgePipeline on device=%s, offload=%s", device, self.offload)
-        inference_config = InferenceConfig(
-            stage0=Stage0Config(checkpoint=self.stage0_checkpoint),
-            stage1=Stage1Config(checkpoint=self.stage1_checkpoint),
-            stage2=Stage2Config(checkpoint=self.stage2_checkpoint),
-            dino_checkpoint=self.dino_checkpoint,
-            offload=self.offload,
-            fill_holes=self.fill_holes,
-        )
-        self.pipeline = TaoFlowForgePipeline.from_config(inference_config, device=device)
-        return self.pipeline
-
-    def _unload_model(self):
-        """Clean up pipeline and release GPU memory."""
-        if self.pipeline is not None:
-            try:
-                if hasattr(self.pipeline, "close"):
-                    self.pipeline.close()
-            except Exception as e:
-                logger.warning("Error closing TaoFlowForge pipeline: %s", e)
-            self.pipeline = None
-
-        torch_module = torch
-        if torch_module is not None:
-            try:
-                if torch_module.cuda.is_available():
-                    torch_module.cuda.empty_cache()
-            except Exception:
-                pass
-        logger.info("TaoFlowForge model unloaded successfully")
+    def _unload_model(self) -> None:
+        if self._pipeline is not None:
+            with contextlib.suppress(Exception):
+                self._pipeline.close()
+        self._pipeline = None
+        self.model = None
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Process image-to-raw-mesh generation request with TaoFlowForge.
+        pipeline = self._pipeline
+        if pipeline is None:
+            return {"success": False, "error": "TaoFlowForge pipeline not loaded"}
 
-        Inputs:
-            - image_paths: List of file paths or single file path
-            - image_path: Single file path
-            - image: Path or PIL Image / Tensor
-            - output_format: 'glb' or 'obj' (default: 'glb')
-            - seed: Optional random seed (default: 42)
-            - fill_holes: Optional bool (default: self.fill_holes)
-            - show_progress: Optional bool (default: False)
-        """
-        inputs = {**inputs, **_LOCKED_INFERENCE_PROFILE}
+        image_path = inputs.get("image_path") or inputs.get("image")
+        if not image_path or not Path(image_path).is_file():
+            return {"success": False, "error": f"image not found: {image_path}"}
+
+        seed = int(inputs.get("seed", DEFAULT_SEED))
+
+        request_workdir = Path(tempfile.mkdtemp(prefix=f"taoflowforge_{seed}_"))
+        request_workdir.mkdir(parents=True, exist_ok=True)
+
+        ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         try:
-            self.status = ModelStatus.PROCESSING
+            with ctx:
+                result = None
+                for update in pipeline.iter_run(
+                    image_path, output_dir=request_workdir, seed=seed, show_progress=True
+                ):
+                    if update.message:
+                        logger.info("[TaoFlowForge] %s", update.message)
+                    if update.result is not None:
+                        result = update.result
 
-            image_input = inputs.get("image_path")
-            if not image_input and "image_paths" in inputs:
-                paths = inputs["image_paths"]
-                image_input = paths[0] if isinstance(paths, list) else paths
-            if not image_input and "image" in inputs:
-                image_input = inputs["image"]
+                if result is None:
+                    return {"success": False, "error": "TaoFlowForge pipeline terminated without a result"}
 
-            if not image_input:
-                raise ValueError("image_path, image_paths, or image is required for TaoFlowForge generation")
+            if result.mesh is None:
+                return {"success": False, "error": "TaoFlowForge produced no mesh"}
 
-            if isinstance(image_input, (str, Path)):
-                input_file = Path(image_input)
-                if not input_file.exists():
-                    raise FileNotFoundError(f"Input image not found: {input_file}")
-                input_for_pipeline = str(input_file)
-                stem = input_file.stem
-            else:
-                input_for_pipeline = image_input
-                stem = "image"
-
-            output_format = inputs.get("output_format", "glb").lower()
-            if output_format not in self.supported_output_formats:
-                raise ValueError(
-                    f"Unsupported output format: {output_format}. Must be one of {self.supported_output_formats}"
+            vertices = np.asarray(result.mesh.vertices)
+            faces = np.asarray(result.mesh.faces)
+            try:
+                decoded_stats = validate_mesh_arrays(vertices, faces, stage="decoded mesh")
+                logger.info(
+                    "[TaoFlowForge] Decoded mesh validated: vertices=%d, faces=%d",
+                    decoded_stats["vertex_count"],
+                    decoded_stats["face_count"],
                 )
+            except ValueError as exc:
+                logger.error("TaoFlowForge mesh validation failed for seed %s: %s", seed, exc)
+                return {"success": False, "error": f"TaoFlowForge mesh validation failed: {exc}"}
 
-            if self.pipeline is None:
-                self._load_model()
+            out = Path(result.glb_path) if result.glb_path else None
+            if out is None or not out.is_file():
+                if result.mesh is not None:
+                    out = request_workdir / f"taoflowforge_{seed}.glb"
+                    result.mesh.export(str(out))
+                elif result.final_mesh_path and Path(result.final_mesh_path).is_file():
+                    out = Path(result.final_mesh_path)
+                else:
+                    return {"success": False, "error": "TaoFlowForge produced no exportable mesh output"}
 
-            seed = int(inputs.get("seed", 42))
-            fill_holes = bool(inputs.get("fill_holes", self.fill_holes))
-            show_progress = bool(inputs.get("show_progress", False))
+            if not out.is_file() or out.stat().st_size <= 256:
+                return {
+                    "success": False,
+                    "error": f"TaoFlowForge produced an empty or invalid GLB file ({out.stat().st_size if out.is_file() else 0} bytes)",
+                }
 
-            output_mesh_path = Path(
-                self.path_generator.generate_mesh_path(
-                    self.model_id, stem, output_format
-                )
-            )
-            output_mesh_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                reloaded = trimesh.load(str(out), force="mesh", process=False)
+                validate_mesh_arrays(reloaded.vertices, reloaded.faces, stage="GLB round-trip")
+            except Exception as exc:
+                return {"success": False, "error": f"TaoFlowForge GLB validation failed: {exc}"}
+        except Exception as exc:
+            logger.error("TaoFlowForge inference failed: %s", exc, exc_info=True)
+            return {"success": False, "error": f"TaoFlowForge inference failed: {exc}"}
 
-            run_dir = output_mesh_path.parent / f"_tff_{stem}_{seed}"
-            run_dir.mkdir(parents=True, exist_ok=True)
-
-            result = self.pipeline.run(
-                input_for_pipeline,
-                output_dir=run_dir,
-                seed=seed,
-                fill_holes=fill_holes,
-                show_progress=show_progress,
-            )
-
-            if output_format == "glb" and result.glb_path is not None and Path(result.glb_path).exists():
-                shutil.copy2(str(result.glb_path), str(output_mesh_path))
-            elif output_format == "obj" and result.final_mesh_path is not None and Path(result.final_mesh_path).exists():
-                shutil.copy2(str(result.final_mesh_path), str(output_mesh_path))
-            elif result.mesh is not None:
-                self.mesh_processor.save_mesh(result.mesh, output_mesh_path)
-            else:
-                raise RuntimeError("TaoFlowForge pipeline finished without producing a valid mesh.")
-
-            if not output_mesh_path.exists() or output_mesh_path.stat().st_size == 0:
-                raise RuntimeError(f"Output mesh file was not created or is empty: {output_mesh_path}")
-
-            metadata: Dict[str, Any] = {}
-            if result.metadata_path is not None and Path(result.metadata_path).exists():
-                try:
-                    import json
-                    with open(result.metadata_path, "r", encoding="utf-8") as f:
-                        metadata = json.load(f)
-                except Exception as e:
-                    logger.warning("Could not read TaoFlowForge metadata json: %s", e)
-
-            vertex_count = len(result.mesh.vertices) if result.mesh is not None else 0
-            face_count = len(result.mesh.faces) if result.mesh is not None else 0
-
-            metadata.update({
-                "model_id": self.model_id,
-                "feature_type": self.FEATURE_TYPE,
-                "native_topology": True,
-                "output_format": output_format,
-                "output_mesh_path": str(output_mesh_path),
+        return {
+            "success": True,
+            "output_mesh_path": str(out.resolve()),
+            "mesh_path": str(out.resolve()),
+            "generation_info": {
                 "seed": seed,
-                "fill_holes": fill_holes,
-                "vertex_count": vertex_count,
-                "face_count": face_count,
-                "native_vertex_count": vertex_count,
-                "native_face_count": face_count,
-                "raw_mesh_path": str(result.raw_mesh_path) if result.raw_mesh_path else None,
-                "glb_path": str(result.glb_path) if result.glb_path else None,
-            })
+                "num_inference_steps": "adapter_owned",
+                "guidance_scale": "adapter_owned",
+                "octree_resolution": "adapter_owned",
+            },
+        }
 
-            self.status = ModelStatus.LOADED
-            logger.info("TaoFlowForge mesh generation completed: %s", output_mesh_path)
-
-            return {
-                "output_mesh_path": str(output_mesh_path),
-                "success": True,
-                "metadata": metadata,
-                "generation_info": metadata,
-            }
-
-        except Exception as e:
-            self.status = ModelStatus.ERROR
-            logger.error("TaoFlowForge generation failed: %s", e, exc_info=True)
-            raise RuntimeError(f"TaoFlowForge generation failed: {e}") from e
-
-    def get_supported_formats(self) -> Dict[str, List[str]]:
-        """Return supported input/output formats."""
-        return {"input": self.supported_input_formats, "output": self.supported_output_formats}
+    def get_supported_formats(self) -> Dict[str, list[str]]:
+        return {"input": ["png", "jpg", "jpeg", "webp"], "output": ["glb", "obj"]}
 
     def get_parameter_schema(self) -> Dict[str, Any]:
-        """Return parameter schema for TaoFlowForge generation."""
         return {
             "parameters": {
                 "seed": {
                     "type": "integer",
-                    "description": "Random seed for deterministic generation",
-                    "default": 42,
+                    "description": "Random seed for reproducibility",
+                    "default": DEFAULT_SEED,
+                    "minimum": 0,
                     "required": False,
-                },
-                "fill_holes": {
-                    "type": "boolean",
-                    "description": "Apply postprocessing mesh repair and hole filling",
-                    "default": _LOCKED_INFERENCE_PROFILE["fill_holes"],
-                    "readOnly": True,
-                    "required": False,
-                },
-                "offload": {
-                    "type": "string",
-                    "description": "Memory offloading mode across pipeline stages ('auto', 'on', 'off')",
-                    "default": _LOCKED_INFERENCE_PROFILE["offload"],
-                    "enum": ["auto", "on", "off"],
-                    "readOnly": True,
-                    "required": False,
-                },
-                "output_format": {
-                    "type": "string",
-                    "description": "Format for output 3D mesh ('glb' or 'obj')",
-                    "default": "glb",
-                    "enum": ["glb", "obj"],
-                    "required": False,
-                },
+                }
             }
         }

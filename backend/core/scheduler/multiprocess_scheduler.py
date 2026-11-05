@@ -48,7 +48,6 @@ import logging
 import multiprocessing as mp
 import os
 import queue
-import random
 import shutil
 import threading
 import tempfile
@@ -162,7 +161,6 @@ _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS = frozenset({
     "trellis_image_to_3d",
     "trellis_image_to_textured_mesh",
     "trellis_image_mesh_painting",
-    "trellis_text_mesh_painting",
     "trellis2_image_to_raw_mesh",
     "trellis2_image_to_3d",
     "trellis2_image_to_textured_mesh",
@@ -175,6 +173,8 @@ _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS = frozenset({
     "hi3d_image_to_raw_mesh",
     "hi3d_image_to_textured_mesh",
     "hi3d",
+    "paint3d",
+    "paint3d_image_mesh_painting",
 })
 _ADAPTER_OWNED_INFERENCE_INPUTS = frozenset({
     "source_quality", "requested_quality", "quality", "meshQuality", "mesh_quality",
@@ -366,6 +366,16 @@ def model_worker_process(
     gpu_ids = list(worker_config.gpu_ids)
     cpu_only = (worker_config.resource_plan or {}).get("kind") == "cpu"
     device_label = "CPU" if cpu_only else f"GPU {gpu_id}"
+    # Clear stale __pycache__ so worker always loads latest adapter code
+    # (prevents old .pyc from being used after a code update without full restart)
+    import shutil as _shutil
+    from pathlib import Path as _Path
+    _repo_root = _Path(__file__).resolve().parents[3]
+    for _cache_dir in _repo_root.glob("backend/**/__pycache__"):
+        try:
+            _shutil.rmtree(_cache_dir)
+        except Exception:
+            pass
     if cpu_only:
         # Dedicated worker process: hide CUDA before any runtime code can initialize it.
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -902,8 +912,8 @@ def _process_job_in_worker(
         from core.config import get_quality_config
         from core.planner import get_planner_apply_config, resolve_seed_plan
         seeds_cfg = dict(get_quality_config()["seeds"])
-        if model_inputs.get("seed") is None and request_inputs.get("seed") is None:
-            seeds_cfg["base_seed"] = random.randint(10000, 999999)
+        # base_seed from quality.yaml (42891) is the default when no seed is
+        # supplied; resolve_seed_plan handles the fallback. Do not clobber it.
         seed_plan = resolve_seed_plan(
             request_inputs,
             model_inputs,
@@ -1012,8 +1022,7 @@ def _process_job_in_worker(
                 c_inputs = dict(model_inputs)
                 c_inputs["seed"] = c_seed
                 logger.info(f"[CANDIDATE GENERATION] Running candidate {c_idx + 1}/{total_seeds_to_run} with seed {c_seed}")
-                with torch.no_grad():
-                    c_res = loaded_model.process(c_inputs)
+                c_res = loaded_model.process(c_inputs)
                 if not isinstance(c_res, dict) or not c_res.get("success", True):
                     continue
                 c_mesh = (
@@ -1072,8 +1081,7 @@ def _process_job_in_worker(
                             except Exception:
                                 pass
         else:
-            with torch.no_grad():
-                result = loaded_model.process(model_inputs)
+            result = loaded_model.process(model_inputs)
 
         effective_info = result.get("generation_info") if isinstance(result, dict) else None
         if isinstance(effective_info, dict):
@@ -2274,8 +2282,33 @@ class MultiprocessModelScheduler:
                 return
 
             # Generation jobs become final only after canonical post-processing.
-            if result.get("success"):
-                final_result = result.get("result") or {}
+            final_result = result.get("result") or {}
+            # The scheduler wrapper success=True only means process() returned
+            # without throwing — the adapter's dict carries the real result.
+            # A failed adapter result (e.g. missing DINO weights) must fail the job,
+            # not complete it with no mesh.
+            if final_result.get("success"):
+                # All adapters write output meshes to tempfile.mkdtemp() (/tmp),
+                # but the download endpoint requires paths under storage_root
+                # (relative_to(storage_root) check per docs/TASKS.md §4.5).
+                # Copy into the canonical asset workspace so downloads work.
+                _out_mesh_path = (
+                    final_result.get("output_mesh_path")
+                    or final_result.get("mesh_path")
+                    or final_result.get("output_path")
+                    or final_result.get("file_path")
+                )
+                if _out_mesh_path:
+                    _src = Path(_out_mesh_path)
+                    if _src.is_file():
+                        _storage_root = get_storage_base_dir()
+                        _mesh_dir = _storage_root / "models" / "meshes" / f"{job_id}"
+                        _mesh_dir.mkdir(parents=True, exist_ok=True)
+                        _dst = _mesh_dir / _src.name
+                        if not _dst.exists():
+                            shutil.copy2(str(_src), str(_dst))
+                        final_result["output_mesh_path"] = str(_dst)
+                        final_result["mesh_path"] = str(_dst)
                 if job_request.feature in ("image_mesh_painting", "text_mesh_painting"):
                     postprocess_mode = "manual_mesh_tool"
                     enable_postprocess = False
@@ -2575,7 +2608,7 @@ class MultiprocessModelScheduler:
                 await self.job_queue.complete_job(job_id, final_result)
                 logger.info(f"[JOB COMPLETE] job_id={job_id} status=success")
             else:
-                err_msg = result.get("error", "Unknown error")
+                err_msg = final_result.get("error", "Unknown error")
                 await self.job_queue.fail_job(job_id, err_msg)
                 logger.error(f"[JOB FAILED] job_id={job_id} error={err_msg}")
 
@@ -2910,6 +2943,24 @@ class MultiprocessModelScheduler:
             resource_plan = self.resource_planner.plan(
                 model_config,
                 active_workers=self.resource_planner.cpu_worker_limit(len(self.workers)),
+            )
+        # CPU offload: if the planner flagged this heavy model for CPU offload
+        # (insufficient single-GPU VRAM), force the worker onto CPU regardless
+        # of GPU placement. The worker process hides CUDA when kind == "cpu".
+        job_plan = (job_request.inputs or {}).get("plan", {}) or {}
+        if job_plan.get("cpu_offload"):
+            resource_plan = ResourcePlan(
+                kind="cpu",
+                gpu_ids=(),
+                primary_gpu=None,
+                reservation_mb={},
+                max_memory_mb={"cpu_mb": int(model_config.get("vram_requirement", 0))},
+                cpu_threads=int((job_request.inputs or {}).get("cpu_threads", os.cpu_count() or 8)),
+                strategy="cpu_offload",
+                reason=job_plan.get(
+                    "offload_reason",
+                    f"CPU offload: insufficient single-GPU VRAM for {target_model_id}",
+                ),
             )
         if resource_plan is None:
             logger.info("No supported resource placement for model %s; job will wait", target_model_id)
@@ -3503,17 +3554,17 @@ class MultiprocessModelScheduler:
                                 self._mark_worker_available(worker_id)
                                 logger.debug(f"Marked worker {worker_id} as available")
 
-                                # If worker experienced a fatal CUDA error or crashed, destroy it to release GPU state
+                                # If worker experienced any failure during load or inference,
+                                # destroy it to release GPU memory immediately so another model can load
                                 if not success and isinstance(result, dict):
-                                    err_str = str(result.get("error", "")).lower()
-                                    if any(kw in err_str for kw in ["out of memory", "cuda error", "illegal memory access", "all cuda-capable devices are busy"]):
-                                        logger.warning(
-                                            f"Worker {worker_id} encountered fatal CUDA error; destroying worker to release resources: {err_str}"
+                                    err_str = str(result.get("error", ""))
+                                    logger.warning(
+                                        f"Worker {worker_id} encountered failure; destroying worker to release GPU: {err_str}"
+                                    )
+                                    if self.main_event_loop:
+                                        self.main_event_loop.call_soon_threadsafe(
+                                            lambda wid=worker_id: asyncio.create_task(self._destroy_worker(wid))
                                         )
-                                        if self.main_event_loop:
-                                            self.main_event_loop.call_soon_threadsafe(
-                                                lambda wid=worker_id: asyncio.create_task(self._destroy_worker(wid))
-                                            )
 
                                 # Set result in event loop
                                 if self.main_event_loop and not future.done():
@@ -3620,6 +3671,11 @@ class MultiprocessModelScheduler:
                         dead_workers.append(worker_id)
 
                 for worker_id in dead_workers:
+                    process = self.workers.get(worker_id)
+                    exitcode = process.exitcode if process is not None else None
+                    logger.error(
+                        f"Worker {worker_id} died unexpectedly (PID {getattr(process, 'pid', 'unknown')}, exitcode {exitcode})"
+                    )
                     try:
                         job_id = self.worker_current_job.get(worker_id)
                         callback_id = self.worker_current_callback.get(worker_id)
@@ -3638,7 +3694,7 @@ class MultiprocessModelScheduler:
                             try:
                                 fut.set_result({
                                     "success": False,
-                                    "error": f"Worker {worker_id} terminated unexpectedly during execution",
+                                    "error": f"Worker {worker_id} terminated unexpectedly (exitcode {exitcode}) during execution",
                                     "job_id": job_id,
                                 })
                             except asyncio.InvalidStateError:
@@ -3652,7 +3708,7 @@ class MultiprocessModelScheduler:
                             try:
                                 await self.job_queue.fail_job(
                                     job_id,
-                                    f"Worker {worker_id} terminated unexpectedly",
+                                    f"Worker {worker_id} terminated unexpectedly (exitcode {exitcode})",
                                 )
                             except Exception as e:
                                 logger.error(

@@ -1,24 +1,16 @@
-## 2026-10-19 Texture, UV and Rigging Contract Update
+# ForMesh3D — System Blueprint
 
-- Paint3D/Hunyuan3D-Paint requests reject user-supplied localized UV masks until an adapter actually wires them into inference; full-mesh texturing remains available.
-- The UV inspector requests the selected channel from the live viewport mesh, draws sampled triangle edges and shows only measurable counts/bounds. UV-island count, overlap and texel density are not claimed without analysis code.
-- PartUV honors the requested distortion threshold and individual-part output flag; a failed/missing pack artifact fails the operation instead of returning a false packed result.
-- UniRig UI sends no unsupported topology/IK/weight overrides. Manual symmetry remains editor-only, and persistence failures block the legacy inspector's success navigation.
+> **Document role:** Architecture notes and dated design history. Historical entries explain intended or previously implemented behavior; they are not a guarantee that the current branch still implements it.
+>
+> **Current status (2026-11-05):** Use [MEMORY.md](MEMORY.md) for the latest source audit and [ARCHITECTURE.md](ARCHITECTURE.md) for current responsibility boundaries. Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D (geometry mode) are verified working on live GPU (status: STABLE & LOCKED). GPU Doctor is implemented in `patcher/doctor.py` as a standalone hardware planner and error recovery coordinator. TaoFlowForge Stage 1 incorporates query-chunked SDPA (eliminating 10.06 GiB OOM) and stage-wise offloading. TRELLIS.2 incorporates adaptive top-k percentile voxel fallback and rembg zero-alpha guard.
 
-## 2026-09-30 Review Audit Runtime Contracts
-
-- Redis control-plane data uses noeviction; result payloads use dedicated TTL keys.
-- Scheduler SQLite persistence is offloaded from the async event loop.
-- Processing jobs are recovered after backend restart.
-- Timeout and cancellation terminate the owning worker before the job becomes terminal.
-- Client filesystem paths are root-restricted and upload/base64 ingestion is bounded.
-- Resource-blocked jobs rotate instead of globally blocking compatible work.
+---
 
 # 🏛️ ForMesh 3D — Complete System Architecture & Pipeline Blueprint
 
-> **System Version**: 0.1.0 (FastAPI + Next.js 16, Python 3.10)
+> **System Version**: 0.2.0 (FastAPI + Next.js 16, Python 3.10, GPU Doctor)
 > **Target Deployments**: Single- or multi-GPU Linux / Cloud GPU / Local Workstations
-> **Last Verified**: October 19, 2026
+> **Last Verified**: November 5, 2026
 > **Design Tokens**: Studio Gold `#FFCC00` (`48 100% 50%`) on Matte Black `#080808`
 
 ---
@@ -30,15 +22,16 @@ ForMesh 3D is an end-to-end generative 3D reconstruction and asset optimization 
 ### Core Stack
 - **Frontend**: Next.js 16 (React 19, TypeScript, Three.js, React Three Fiber, Tailwind CSS)
 - **API Gateway**: FastAPI (Python 3.10, Conda env `3daigc-api`, Pydantic V2, AsyncIO)
-- **Model Adapters**: Python adapters for TRELLIS, TRELLIS.2, Hunyuan3D-2.1 (Shape/Paint/Mini Turbo), Paint3D, PartUV, UniRig, FastMesh, TripoSG, Unique3D, ARDY, Pixal3D and TaoFlowForge
+- **GPU Doctor & Compatibility Engine**: Standalone hardware planner (`patcher/doctor.py`), precision router, query-chunked SDPA (diff = 0.0), Accelerate offload, and bounded error recovery.
+- **Model Adapters**: 17 adapter modules and registry entries connecting the application to TRELLIS, TRELLIS.2, Hunyuan3D, Paint3D, PartUV, UniRig, FastMesh, TripoSG, Unique3D, ARDY, Pixal3D, TaoFlowForge, and Hi3D. Live GPU verified and locked: Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D. See `Docs/MEMORY.md`.
 - **Scheduler**: VRAM-aware multiprocess scheduler with GPU monitoring
 - **Queue/Broker**: Redis 7 (optional, multi-worker mode only)
 - **File Storage**: Local filesystem + Redis FileStore (multi-worker mode)
 
 ### Model-Native Source Fidelity Contract
-1. The frontend sends no model-specific inference schedule; numeric inference profiles (steps, guidance, octree/depth resolution, samplers) are owned by each adapter's `_LOCKED_INFERENCE_PROFILE`. Only the seed and the image identity stay caller-controlled.
+1. Model-native inference settings must be confirmed against each current adapter and upstream API. The frontend must not expose a setting unless it is consumed by that adapter. Do not copy unverified profile numbers into this blueprint; current adapters do not all expose a consistent locked-profile implementation.
 2. Scheduler removes post-process-only target, extraction/decimation/remesh, LOD, physics, and paint controls before model inference, and also strips adapter-owned inference keys.
-3. Adapter extraction and inference profiles are adapter-owned; the canonical values live in the adapter implementations and must not be copied into a second documentation table. Configured requests and effective runtime values are not interchangeable; see `Docs/EXPERIMENTAL-MODEL-SETTINGS.md` for known limits and the verification boundary.
+3. Adapter extraction and inference profiles are adapter-owned; the canonical values live in the adapter implementations and must not be copied into a second documentation table. Configured requests and effective runtime values are not interchangeable.
 4. Source texture settings are model-owned and separate from downstream production atlas resolution.
 5. master/source.glb is immutable; derived retopo, UV, LOD, collision, and bake artifacts cannot rewrite it.
 
@@ -71,7 +64,7 @@ Intent presets (`backend/config/smart_presets.yaml`, version 1) define the defau
 
 ### GPU Placement & Derived Artifact Contract
 - The scheduler combines tracked reservations with live per-device free memory. Aggregate VRAM is admitted only for adapters that actually shard model layers or place independent components on multiple GPUs.
-- FastMesh uses Accelerate automatic device mapping and rejects a multi-GPU plan if its map does not use at least two selected GPUs. Hunyuan3D-Paint uses bounded row-chunk raster work and separate renderer/super-resolution and multiview diffusion devices when a multi-GPU plan is supplied.
+- FastMesh multi-GPU placement is not a verified current capability: the manifest exposes V1K only and the shared adapter is hard-coded to the V1K checkpoint key. Hunyuan3D-Paint's source-level placement logic still requires supported-host validation before treating its multi-GPU behavior as production-ready.
 - Paint3D child-stage processes remain single-GPU and are not declared multi-GPU capable. UniRig, PartUV, and ARDY retain their existing single-device inference paths until their own adapters implement and verify actual sharding.
 - Rigging stores native FBX plus a GLB viewport artifact. The viewer obeys canonical artifact-format query values, and rigged geometry invalidates the previous thumbnail.
 

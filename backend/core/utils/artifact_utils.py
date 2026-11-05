@@ -1,4 +1,5 @@
 import hashlib
+import os
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -32,7 +33,16 @@ def resolve_manifest_path(model_path: str | Path | None) -> Optional[Path]:
         return path if path.exists() else None
 
     repo_root = Path(__file__).resolve().parents[3]
-    for candidate in (repo_root / path, repo_root / "backend" / path, Path.cwd() / path):
+    candidates = [repo_root / path, repo_root / "backend" / path, Path.cwd() / path]
+
+    storage_root = os.environ.get("MODEL_STORAGE_ROOT")
+    if storage_root:
+        s_path = Path(storage_root).expanduser()
+        candidates.append(s_path / path)
+        sub = str(model_path).replace("backend/pretrained/", "").replace("pretrained/", "")
+        candidates.append(s_path / sub)
+
+    for candidate in candidates:
         if candidate.exists():
             return candidate.resolve()
     return None

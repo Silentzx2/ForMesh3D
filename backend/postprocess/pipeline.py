@@ -325,14 +325,14 @@ def _execute_texture_stage(
 
             if adapter is None:
                 try:
-                    from adapters.trellis2_paint_adapter import Trellis2ImageMeshPaintingAdapter
+                    from backend.adapters.trellis2_paint_adapter import Trellis2ImageMeshPaintingAdapter
                     adapter = Trellis2ImageMeshPaintingAdapter(vram_requirement=16000)
                 except Exception as exc:
                     raise RuntimeError(f"TRELLIS.2 paint adapter could not be loaded: {exc}")
 
             _check_cancelled(cancel_checker)
             should_unload_t2 = False
-            from core.models.base import ModelStatus
+            from backend.core.models.base import ModelStatus
             if getattr(adapter, "status", None) in (ModelStatus.UNLOADED, ModelStatus.ERROR):
                 gpu_id = getattr(adapter, "gpu_id", None)
                 if gpu_id is None:
@@ -384,19 +384,12 @@ def _execute_texture_stage(
                 logger.debug("ModelFactory Paint3D lookup: %s", e)
 
             if adapter is None:
-                for mod_name, cls_name in [
-                    ("adapters.paint3d_adapter", "Paint3DImageMeshPaintingAdapter"),
-                    ("adapters.paint3d_adapter", "Paint3DAdapter"),
-                ]:
-                    try:
-                        import importlib
-                        mod = importlib.import_module(mod_name)
-                        cls = getattr(mod, cls_name, None)
-                        if cls:
-                            adapter = cls(vram_requirement=12000)
-                            break
-                    except Exception as e:
-                        logger.debug("Paint3D direct import %s.%s: %s", mod_name, cls_name, e)
+                import importlib
+
+                mod = importlib.import_module("backend.adapters.paint3d_adapter")
+                cls = getattr(mod, "Paint3DAdapter", None)
+                if cls:
+                    adapter = cls(vram_requirement=12000)
 
             if adapter is None:
                 raise RuntimeError("Paint3D texture adapter is not yet registered or installed.")
@@ -455,7 +448,7 @@ def _execute_texture_stage(
 
             if adapter is None:
                 try:
-                    from adapters.hunyuan3d_paint_v21 import Hunyuan3DPaintV21ImageMeshPaintingAdapter
+                    from backend.adapters.hunyuan3d_paint_v21 import Hunyuan3DPaintV21ImageMeshPaintingAdapter
                     adapter = Hunyuan3DPaintV21ImageMeshPaintingAdapter(vram_requirement=21000)
                 except Exception as exc:
                     raise RuntimeError(f"Hunyuan3D-Paint-v2.1 adapter could not be loaded: {exc}")
@@ -1929,7 +1922,9 @@ def run_postprocess_job(
 
     # Enforce raw mesh size cap — NO model may exceed 500K vertices / 1M faces
     # in the immutable master. Decimate post-extraction if the adapter produced
-    # an oversized mesh (e.g. TripoSG ~3.4M vertices).
+    # an oversized mesh (e.g. TripoSG ~3.4M vertices). This is the single write
+    # to master/source.glb after adapter output; the hash below becomes the
+    # canonical master hash for immutability checks.
     _raw_mesh = load_mesh(str(raw_path), Path(raw_path).name)
     _enforced_mesh = _enforce_mesh_limits(_raw_mesh, job_inputs.get("model_preference", "unknown"))
     if len(_enforced_mesh.vertices) < len(_raw_mesh.vertices) or len(_enforced_mesh.faces) < len(

@@ -74,11 +74,9 @@ This shape is returned by the custom exception handlers (`BaseAPIException`, `Va
 
 ## Authentication
 
-The API supports simple mode and optional authentication, controlled by `P3D_USER_AUTH_ENABLED` and `security.api_key_required`:
+Authentication has been removed entirely from backend and frontend (personal/self-hosted use, no paid SaaS). All endpoints are unauthenticated by default. The API-level request-rate limit is disabled by default in personal deployment (`rate_limit_enabled: false`, `rate_limit_per_minute: 0`) so local frontend polling is never blocked.
 
-- **Simple Mode**: endpoints do not require a bearer credential, but the API-level request-rate limit still applies.
-- **Authenticated Mode**: user tokens are checked against the Redis-backed auth store, including active status and expiry.
-- **Server API key**: set the secret environment variable `P3D_API_KEY` when `security.api_key_required: true`. Send it as `Authorization: Bearer <P3D_API_KEY>`. The key is compared in constant time and must never be committed to the repository. If API-key protection is required but neither a configured server key nor usable user auth service is available, protected endpoints fail closed rather than accepting an arbitrary token.
+Optional rate limiting remains available via `security.rate_limit_enabled` and `security.rate_limit_per_minute` in `backend/config/system.yaml` for remote deployments behind a perimeter proxy.
 
 ### Rate limiting
 
@@ -677,9 +675,9 @@ GET /api/v1/system/models
 }
 ```
 
-Only models with `enabled: true` in `backend/config/models.yaml` are listed; `taoflowforge_image_to_raw_mesh` is registered but disabled. `GET /api/v1/system/models?feature=<feature>` narrows the response to one feature, and `GET /api/v1/system/features` lists the supported features with their model counts.
+Only models with `enabled: true` in `backend/config/models.yaml` are listed. `GET /api/v1/system/models?feature=<feature>` narrows the response to one feature, and `GET /api/v1/system/features` lists the supported features with their model counts.
 
-> **Important:** this endpoint is a manifest/catalog view. An entry in `available_models` or a positive weights indicator is not proof that all runtime dependencies are importable, the full checkpoint can load, the model fits the current GPU, or the produced geometry passes quality checks. Some model pipelines are reported to fail during initialization/loading; some others can return broken geometry. See [MODEL-STATUS.md](MODEL-STATUS.md) before treating a catalog entry as production-ready.
+> **Important:** this endpoint is a manifest/catalog view. An entry in `available_models` or a positive weights indicator is not proof that all runtime dependencies are importable, the full checkpoint can load, the model fits the current GPU, or the produced geometry passes quality checks. Some model pipelines are reported to fail during initialization/loading; some others can return broken geometry.
 
 ### Production generation controls
 
