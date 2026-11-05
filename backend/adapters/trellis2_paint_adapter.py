@@ -65,8 +65,24 @@ class Trellis2ImageMeshPaintingAdapter(BaseModel):
         self._pipeline: Any = None
 
     def _load_model(self) -> Any:
+        # Keep sparse-convolution selection local to this TRELLIS.2 worker and
+        # base pre-Ampere fallback on the GPU actually assigned by the scheduler.
+        device_is_pre_ampere = False
+        if torch is not None and torch.cuda.is_available():
+            try:
+                gpu_idx = int(self.gpu_id) if self.gpu_id is not None else torch.cuda.current_device()
+                device_is_pre_ampere = torch.cuda.get_device_capability(gpu_idx)[0] < 8
+            except Exception:
+                device_is_pre_ampere = False
+
         if not os.environ.get("SPARSE_CONV_BACKEND"):
-            os.environ["SPARSE_CONV_BACKEND"] = "spconv"
+            if device_is_pre_ampere:
+                os.environ["SPARSE_CONV_BACKEND"] = "spconv"
+            else:
+                try:
+                    import flex_gemm  # noqa: F401
+                except ImportError:
+                    os.environ["SPARSE_CONV_BACKEND"] = "spconv"
 
         # Make the vendored TRELLIS.2 source importable in the worker process,
         # which only has backend/ on sys.path. Model-specific source path setup
