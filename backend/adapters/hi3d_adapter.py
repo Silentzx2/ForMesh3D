@@ -93,14 +93,13 @@ class Hi3DImageToRawMeshAdapter(BaseModel):
         if not image_path or not Path(image_path).is_file():
             return {"success": False, "error": f"image not found: {image_path}"}
 
-        # Hi3D refines an existing coarse mesh; for a raw generation request the
-        # caller may supply one via inputs["mesh_path"], otherwise we cannot
-        # refine and report a clear error rather than fabricating geometry.
-        mesh_path = inputs.get("mesh_path")
+        # The dedicated /refine-mesh route sends coarse_mesh_path; retain
+        # mesh_path as the adapter's existing direct-call contract.
+        mesh_path = inputs.get("mesh_path") or inputs.get("coarse_mesh_path")
         if not mesh_path or not Path(mesh_path).is_file():
             return {
                 "success": False,
-                "error": "Hi3D requires a coarse mesh input (inputs['mesh_path'])",
+                "error": "Hi3D requires a coarse mesh input (inputs['mesh_path'] or inputs['coarse_mesh_path'])",
             }
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
