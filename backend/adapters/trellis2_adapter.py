@@ -88,7 +88,11 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         if device_is_pre_ampere:
             # On pre-Ampere (T4 sm_75), prefer xFormers for sparse and SDPA for dense attention
             if not os.environ.get("SPARSE_ATTN_BACKEND"):
-                os.environ["SPARSE_ATTN_BACKEND"] = "xformers"
+                try:
+                    import xformers  # noqa: F401
+                    os.environ["SPARSE_ATTN_BACKEND"] = "xformers"
+                except ImportError:
+                    pass
             if not os.environ.get("ATTN_BACKEND"):
                 os.environ["ATTN_BACKEND"] = "sdpa"
 
@@ -147,30 +151,9 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
                 total_vram_gb = 0.0
                 is_pre_ampere = False
 
-        # Convert models to FP16 on pre-Ampere GPUs (sm < 80, e.g. Tesla T4).
-        # On pre-Ampere, BF16 has NO hardware Tensor Core support and falls back to
-        # slow scalar emulation (~9s/it) with severe numerical roundoff drift, causing
-        # sparse structure collapse (max_logit ≈ -75). Converting to FP16 enables
-        # native hardware Tensor Cores with zero drift. sm >= 80 remains native BF16.
-        if is_pre_ampere:
-            logger.info(
-                "Pre-Ampere GPU detected (compute capability < 8.0). "
-                "Converting TRELLIS.2 models to FP16 for native Tensor Core acceleration."
-            )
-            for name, model in pipeline.models.items():
-                try:
-                    if hasattr(model, "convert_to"):
-                        model.convert_to(torch.float16)
-                    elif hasattr(model, "convert_to_fp16"):
-                        model.convert_to_fp16()
-                    if hasattr(model, "to"):
-                        model.to(dtype=torch.float16)
-                except Exception as conv_err:
-                    logger.warning("Could not convert %s to FP16: %s", name, conv_err)
-            # Note: image_cond_model (DINOv3 ViT) is preserved in native precision
-            # (BF16/FP32). ViT RoPE attention patterns suffer severe roundoff distortion in FP16.
-            # DINOv3 runs only once (~0.3s) and is offloaded to CPU under low_vram=True.
-
+        # Note: TRELLIS.2 models and conditioning remain in their native trained precision
+        # (BFloat16 for DiT flow models, FP16 for decoders). full_attn.py handles SDPA
+        # pre-Ampere acceleration safely at the kernel level without weight conversion drift.
         use_low_vram = (device == "cpu") or (total_vram_gb < 22.0)
         pipeline.low_vram = use_low_vram
         pipeline.to(device)
@@ -198,6 +181,10 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         from PIL import Image
 
         image = Image.open(image_path)
+        if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in getattr(image, "info", {})):
+            image = image.convert("RGBA")
+        elif image.mode != "RGB":
+            image = image.convert("RGB")
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
@@ -327,7 +314,11 @@ class Trellis2ImageMeshPaintingAdapter(Trellis2ImageToRawMeshAdapter):
         from PIL import Image
 
         mesh = trimesh.load(mesh_path, process=False)
-        image = Image.open(image_path).convert("RGB")
+        image = Image.open(image_path)
+        if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in getattr(image, "info", {})):
+            image = image.convert("RGBA")
+        elif image.mode != "RGB":
+            image = image.convert("RGB")
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
