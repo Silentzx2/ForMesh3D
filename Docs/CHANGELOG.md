@@ -1,6 +1,12 @@
 # ForMesh3D Changelog
 
-## 2026-11-05 — TRELLIS.2 Square Box Resolution: FP32 SDPA Dynamic Range Fix, Bounding Box Artifact Elimination & Pre-Ampere CuMesh Guard
+## 2026-11-05 — Mark TRELLIS.2, Pixal3D, TaoFlowForge as not_tested
+
+- **TRELLIS.2**: Marked `status: "not_tested"`, `verified: false` in models.yaml. Root cause identified: `sparse_structure_decoder` checkpoint in `pipeline.json` references `microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16` (original TRELLIS repo, not compatible with TRELLIS.2 flow model). Produces all-negative logits (~ -75) → zero occupied voxels → hollow box output. See microsoft/TRELLIS.2#160. Works on HF Spaces demo (Microsoft-hosted infrastructure); local self-hosted broken until compatible decoder checkpoint available.
+- **Pixal3D**: Marked `status: "not_tested"`, `verified: false` in models.yaml. Shares TRELLIS.2 sparse_structure_decoder checkpoint lineage; same decoder incompatibility risk applies. No top-k fallback in Pixal3D decoder path → empty mesh risk on incompatible decoder.
+- **TaoFlowForge**: Marked `status: "not_tested"`, `verified: false` in models.yaml. Stage 2 topology decoding hits CUDA OOM (6.71 GiB allocation attempt, 280 MiB free) on pre-Ampere GPUs due to SDPA MATH backend fallback. Patcher `patcher/taoflowforge/` provides float16 + query-chunked SDPA fix; requires clean worker restart to activate.
+- All three models marked `not_tested` because no live GPU inference has been run in this environment.
+
 
 - **Root Cause Resolution for Square Box Mesh**: Investigated user logs showing `max_logit=-75.0331`, top-327 voxel fallback, and `bbox_extents=[0.9994, 0.9987, 0.9994]`. Discovered that on pre-Ampere GPUs (`sm < 80`, e.g. Tesla T4 sm_75), dense attention in `trellis2/modules/attention/full_attn.py` was forcibly downcasting `bfloat16` inputs to `half()` (FP16). In a 30-block 1.3B parameter DiT with CFG scale 7.5, FP16 exponent limit (65,504) caused catastrophic exponent overflow and cancellation, causing Euler flow-matching sampling to diverge and `SparseStructureDecoder` to output all-negative logits.
 - **FP32 Pre-Ampere Attention Alignment**: In `trellis2/modules/attention/full_attn.py`, updated both `xformers` and `sdpa` branches on `_is_pre_ampere` devices to cast `bfloat16` inputs to `float()` (FP32), matching the existing pattern in `sparse/attention/full_attn.py` (`# Pre-Ampere GPUs (including T4 / sm_75) use FP32, never a range-losing FP16 cast`). Preserves full $10^{38}$ dynamic range throughout all Euler steps.

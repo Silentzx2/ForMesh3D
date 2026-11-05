@@ -110,12 +110,16 @@ Built-in profiles are registered for:
 ## 5. Model-Specific Patchers
 
 ### `patcher/taoflowforge/`
-- **Problem addressed**: Pre-Ampere GPUs (`sm < 80`) lack hardware FlashAttention 2/3. PyTorch's default SDPA falls back to `SDPBackend.MATH` during Stage 1 refinement (15,000+ tokens on a 64->128 lattice), allocating a 10.06 GiB dense attention matrix and causing immediate CUDA OOM crashes.
+- **Problem addressed**: Pre-Ampere GPUs (`sm < 80`) lack hardware FlashAttention 2/3. PyTorch's default SDPA falls back to `SDPBackend.MATH` during Stage 1 refinement (15,000+ tokens), allocating a 10.06 GiB dense attention matrix and causing immediate CUDA OOM crashes.
 - **Fix applied**: Routes pre-Ampere attention requests through memory-efficient xFormers or query-chunked SDPA (`chunk_size=1024`), computing attention in slices with mathematical exactness (`diff = 0.0`). Modern GPUs (`sm >= 80`) continue running official native FlashAttention with zero overhead.
 
 ### `patcher/triposg/`
 - **Problem addressed**: Multi-process worker isolation requires the generated mesh to be delivered deterministically to the canonical job workspace directory without colliding with other worker processes.
 - **Fix applied**: Wraps request processing to ensure output artifacts are mirrored to the designated job storage path upon successful generation.
+
+### `patcher/trellis2/`
+- **Problem addressed**: `sparse_structure_decoder` checkpoint in `pipeline.json` references `microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16` (original TRELLIS repo), not compatible with TRELLIS.2's flow model. Produces all-negative logits (~ -75) → zero occupied voxels → hollow box output instead of input object.
+- **Fix applied**: Monkey-patches `sample_sparse_structure` to print debug stats after `z_s` and raw logits computation, detect incompatible decoder (all logits negative), and raise a clear actionable error referencing microsoft/TRELLIS.2#160 instead of silently producing a hollow box.
 
 ---
 
