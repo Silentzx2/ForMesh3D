@@ -293,8 +293,21 @@ image_to_raw_mesh:
   # Production profile: pipeline_type="1536_cascade", max_num_tokens=49152,
   # sampler steps=50 (official TRELLIS.2 inference default). Raw mesh only;
   # texture generation disabled. Multi-GPU sharded via accelerate_component_dispatch.
+  #
+  # NOT STABLE: TRELLIS.2 sparse_structure_decoder checkpoint in pipeline.json
+  # references microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16
+  # (original TRELLIS repo) which is NOT compatible with TRELLIS.2's flow model.
+  # It produces all-negative logits (~ -75) -> zero occupied voxels -> hollow box
+  # instead of the input object. See microsoft/TRELLIS.2#160.
+  #
+  # NOTE: TRELLIS.2 works on Hugging Face Spaces demo because Microsoft hosts it
+  # with their own compatible infrastructure. Local self-hosted inference is
+  # currently broken until a compatible sparse_structure_decoder checkpoint is
+  # available or Microsoft fixes pipeline.json.
   trellis2_image_to_3d:
     model_name: "TRELLIS.2 — Image to 3D"
+    status: "not_stable"
+    verified: false
     upstream_repository: "https://github.com/microsoft/TRELLIS.2"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
     checkpoint_license: "unverified"
@@ -331,8 +344,21 @@ image_to_raw_mesh:
   # Production profile: pipeline_type="1536_cascade", max_num_tokens=49152,
   # sampler steps=50 (official TRELLIS.2 inference default). Raw mesh only;
   # texture generation disabled. Single-GPU placement.
+  #
+  # NOT STABLE: TRELLIS.2 sparse_structure_decoder checkpoint in pipeline.json
+  # references microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16
+  # (original TRELLIS repo) which is NOT compatible with TRELLIS.2's flow model.
+  # It produces all-negative logits (~ -75) -> zero occupied voxels -> hollow box
+  # instead of the input object. See microsoft/TRELLIS.2#160.
+  #
+  # NOTE: TRELLIS.2 works on Hugging Face Spaces demo because Microsoft hosts it
+  # with their own compatible infrastructure. Local self-hosted inference is
+  # currently broken until a compatible sparse_structure_decoder checkpoint is
+  # available or Microsoft fixes pipeline.json.
   trellis2_image_to_raw_mesh:
     model_name: "TRELLIS.2 — Image to Raw Mesh"
+    status: "not_stable"
+    verified: false
     upstream_repository: "https://github.com/microsoft/TRELLIS.2"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
     checkpoint_license: "unverified"
@@ -468,6 +494,8 @@ image_to_textured_mesh:
   # EXPERIMENTAL_MAX_DETAIL: deprecated alias of the TRELLIS.2 profile; 1536 cascade and separate 50-step sparse/shape/texture sampler candidate.
   trellis2_image_to_textured_mesh:
     model_name: "TRELLIS.2 — Legacy Textured Mesh Alias"
+    status: "not_stable"
+    verified: false
     upstream_repository: "https://github.com/microsoft/TRELLIS.2"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
     checkpoint_license: "unverified"

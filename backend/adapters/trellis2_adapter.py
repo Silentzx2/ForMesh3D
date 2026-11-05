@@ -161,6 +161,15 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         self._pipeline = pipeline
         self.model = pipeline
         self.device = device
+        # Apply TRELLIS.2 model-specific patcher (sparse_structure_decoder
+        # compatibility, debug logging after z_s). Runs only in this worker
+        # process; never affects other models.
+        try:
+            from patcher.trellis2 import apply_patch as _trellis2_apply_patch
+
+            _trellis2_apply_patch()
+        except Exception as exc:  # pragma: no cover - patcher failure is non-fatal
+            logger.warning("TRELLIS.2 patcher could not be applied: %s", exc)
         return pipeline
 
     def _unload_model(self) -> None:
