@@ -190,13 +190,25 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         with ctx:
             # Full production high-fidelity shape cascade: 1536_cascade, max_num_tokens=49152.
             # Texture generation is explicitly disabled for raw mesh (no texture SLat sampling or decoding).
-            # Uses official pipeline.json default schedule & flow-matching steps.
+            # Sampler schedule follows the official TRELLIS.2 reference (app.py); overridable via .env.
             meshes = pipeline.run(
                 image,
                 seed=seed,
                 pipeline_type="1536_cascade",
                 max_num_tokens=49152,
                 generate_texture=False,
+                sparse_structure_sampler_params={
+                    "steps": int(os.getenv("TRELLIS2_SPARSE_STEPS", "50")),
+                    "guidance_strength": float(os.getenv("TRELLIS2_SPARSE_GUIDANCE_STRENGTH", "7.5")),
+                    "guidance_rescale": float(os.getenv("TRELLIS2_SPARSE_GUIDANCE_RESCALE", "1.0")),
+                    "rescale_t": float(os.getenv("TRELLIS2_SPARSE_RESCALE_T", "1.0")),
+                },
+                shape_slat_sampler_params={
+                    "steps": int(os.getenv("TRELLIS2_SHAPE_STEPS", "50")),
+                    "guidance_strength": float(os.getenv("TRELLIS2_SHAPE_GUIDANCE_STRENGTH", "7.5")),
+                    "guidance_rescale": float(os.getenv("TRELLIS2_SHAPE_GUIDANCE_RESCALE", "1.0")),
+                    "rescale_t": float(os.getenv("TRELLIS2_SHAPE_RESCALE_T", "1.0")),
+                },
             )
 
         mesh_list = meshes if isinstance(meshes, list) else [meshes]
