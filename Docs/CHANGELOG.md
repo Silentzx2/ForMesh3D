@@ -1,5 +1,16 @@
 # ForMesh3D Changelog
 
+## 2026-11-05 — PR #80 review follow-ups
+
+- Scoped TRELLIS.2 sparse-convolution fallback selection to the adapter worker's assigned GPU; the global hardware helper no longer forces spconv on every worker. The painting adapter follows the same per-GPU selection and preserves the upstream FlexGEMM path on modern GPUs when available.
+- Unified the TRELLIS.2 painting adapter status check with the adapter's backend.core.models.base.ModelStatus enum.
+- Hi3D now accepts both mesh_path and the coarse_mesh_path key emitted by /refine-mesh.
+- The model downloader loads the project/backend .env before resolving MODEL_STORAGE_ROOT.
+- Image-to-raw-mesh jobs now forward the top-level seed; it takes precedence over legacy model_parameters.seed.
+- Verification: source-level fixes only in this commit; CI and GPU inference are pending rerun.
+
+---
+
 ## 2026-11-05 — Mark TRELLIS.2, Pixal3D, TaoFlowForge as not_tested
 
 - **TRELLIS.2**: Marked `status: "not_tested"`, `verified: false` in models.yaml. Root cause identified: `sparse_structure_decoder` checkpoint in `pipeline.json` references `microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16` (original TRELLIS repo, not compatible with TRELLIS.2 flow model). Produces all-negative logits (~ -75) → zero occupied voxels → hollow box output. See microsoft/TRELLIS.2#160. Works on HF Spaces demo (Microsoft-hosted infrastructure); local self-hosted broken until compatible decoder checkpoint available.
