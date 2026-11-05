@@ -78,12 +78,17 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
             except Exception:
                 device_is_pre_ampere = False
 
-        # Ensure sparse conv defaults to spconv if flex_gemm is not explicitly requested or available
+        # Select sparse-convolution fallback for this worker's assigned GPU only.
+        # Never let a different visible GPU force the A100/4090/H100 worker off the
+        # upstream FlexGEMM path. Respect an explicit backend override.
         if not os.environ.get("SPARSE_CONV_BACKEND"):
-            try:
-                import flex_gemm  # noqa: F401
-            except ImportError:
+            if device_is_pre_ampere:
                 os.environ["SPARSE_CONV_BACKEND"] = "spconv"
+            else:
+                try:
+                    import flex_gemm  # noqa: F401
+                except ImportError:
+                    os.environ["SPARSE_CONV_BACKEND"] = "spconv"
 
         if device_is_pre_ampere:
             # On pre-Ampere (T4 sm_75), prefer xFormers for sparse and SDPA for dense attention
