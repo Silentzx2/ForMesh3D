@@ -151,9 +151,9 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
         dino_checkpoint = _resolve_dino_checkpoint(weights_path)
 
         config = InferenceConfig(
-            stage0=Stage0Config(checkpoint=weights_path / "stage0.pt", num_steps=50, cfg_scale=7.5),
-            stage1=Stage1Config(checkpoint=weights_path / "stage1.pt", num_steps=30, cfg_scale=7.0),
-            stage2=Stage2Config(checkpoint=weights_path / "stage2.pt", num_steps=50, cfg_scale=3.0),
+            stage0=Stage0Config(checkpoint=weights_path / "stage0.pt", num_steps=10, cfg_scale=7.5),  # TEMP TEST CONFIG: was 50, restore to 50 after stable
+            stage1=Stage1Config(checkpoint=weights_path / "stage1.pt", num_steps=10, cfg_scale=7.0),  # TEMP TEST CONFIG: was 30, restore to 30 after stable
+            stage2=Stage2Config(checkpoint=weights_path / "stage2.pt", num_steps=10, cfg_scale=3.0),  # TEMP TEST CONFIG: was 50, restore to 50 after stable
             seed=DEFAULT_SEED,
             offload="on",
             fill_holes=True,
