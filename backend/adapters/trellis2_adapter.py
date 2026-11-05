@@ -186,50 +186,68 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         elif image.mode != "RGB":
             image = image.convert("RGB")
 
-        ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
-        with ctx:
-            # Full production high-fidelity shape cascade: 1536_cascade, max_num_tokens=49152.
-            # Texture generation is explicitly disabled for raw mesh (no texture SLat sampling or decoding).
-            # Sampler schedule follows the official TRELLIS.2 reference (app.py).
-            meshes = pipeline.run(
-                image,
-                seed=seed,
-                pipeline_type="1536_cascade",
-                max_num_tokens=49152,
-                generate_texture=False,
-                sparse_structure_sampler_params={
-                    "steps": 50,
-                    "guidance_strength": 7.5,
-                    "guidance_rescale": 1.0,
-                    "rescale_t": 1.0,
-                },
-                shape_slat_sampler_params={
-                    "steps": 50,
-                    "guidance_strength": 7.5,
-                    "guidance_rescale": 1.0,
-                    "rescale_t": 1.0,
-                },
-            )
+        # Retry on hollow-box output: the sparse-structure flow can under-converge
+        # on some seeds, emitting a domain-cube instead of the input object.
+        max_attempts = 3
+        mesh = None
+        used_seed = seed
+        decoded_stats = None
+        for attempt in range(max_attempts):
+            attempt_seed = seed + attempt * 1337  # seed_step from quality.yaml
+            ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
+            with ctx:
+                # Full production high-fidelity shape cascade: 1536_cascade, max_num_tokens=49152.
+                # Texture generation is explicitly disabled for raw mesh (no texture SLat sampling or decoding).
+                # Sampler schedule follows the official TRELLIS.2 reference (app.py).
+                meshes = pipeline.run(
+                    image,
+                    seed=attempt_seed,
+                    pipeline_type="1536_cascade",
+                    max_num_tokens=49152,
+                    generate_texture=False,
+                    sparse_structure_sampler_params={
+                        "steps": 50,
+                        "guidance_strength": 7.5,
+                        "guidance_rescale": 1.0,
+                        "rescale_t": 1.0,
+                    },
+                    shape_slat_sampler_params={
+                        "steps": 50,
+                        "guidance_strength": 7.5,
+                        "guidance_rescale": 1.0,
+                        "rescale_t": 1.0,
+                    },
+                )
 
-        mesh_list = meshes if isinstance(meshes, list) else [meshes]
-        if not mesh_list:
-            return {"success": False, "error": "TRELLIS.2 produced no mesh"}
+            mesh_list = meshes if isinstance(meshes, list) else [meshes]
+            if not mesh_list:
+                continue
 
-        mesh = mesh_list[0]
+            candidate = mesh_list[0]
+            vertices = candidate.vertices.detach().cpu().numpy()
+            faces = candidate.faces.detach().cpu().numpy()
+            try:
+                decoded_stats = validate_mesh_arrays(vertices, faces, stage="decoded mesh")
+                mesh = candidate
+                used_seed = attempt_seed
+                break
+            except ValueError as exc:
+                if "hollow domain bounding box" not in str(exc) or attempt == max_attempts - 1:
+                    logger.error("TRELLIS.2 rejected decoded mesh for seed %s: %s", attempt_seed, exc)
+                    return {"success": False, "error": f"TRELLIS.2 mesh validation failed: {exc}"}
+                logger.warning("TRELLIS.2 hollow box for seed %s, retrying with seed %s", attempt_seed, attempt_seed + 1337)
+
+        if mesh is None:
+            return {"success": False, "error": "TRELLIS.2 failed to produce valid mesh after all attempts"}
+        assert decoded_stats is not None
 
         import tempfile
         import trimesh
 
-        out = Path(tempfile.mkdtemp()) / f"trellis2_{seed}.glb"
+        out = Path(tempfile.mkdtemp()) / f"trellis2_{used_seed}.glb"
         # Validate model-native arrays before trimesh processing can hide invalid geometry.
         vertices = mesh.vertices.detach().cpu().numpy()
         faces = mesh.faces.detach().cpu().numpy()
-        try:
-            decoded_stats = validate_mesh_arrays(vertices, faces, stage="decoded mesh")
-        except ValueError as exc:
-            logger.error("TRELLIS.2 rejected decoded mesh for seed %s: %s", seed, exc)
-            return {"success": False, "error": f"TRELLIS.2 mesh validation failed: {exc}"}
-
         raw_mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=True)
         raw_mesh.remove_unreferenced_vertices()
         try:
@@ -237,7 +255,7 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
                 raw_mesh.vertices, raw_mesh.faces, stage="processed mesh"
             )
         except ValueError as exc:
-            logger.error("TRELLIS.2 rejected processed mesh for seed %s: %s", seed, exc)
+            logger.error("TRELLIS.2 rejected processed mesh for seed %s: %s", used_seed, exc)
             return {"success": False, "error": f"TRELLIS.2 mesh processing produced invalid geometry: {exc}"}
 
         raw_mesh.export(str(out), file_type="glb")
@@ -247,13 +265,13 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
                 reloaded_mesh.vertices, reloaded_mesh.faces, stage="GLB round-trip"
             )
         except Exception as exc:
-            logger.exception("TRELLIS.2 GLB round-trip validation failed for seed %s", seed)
+            logger.exception("TRELLIS.2 GLB round-trip validation failed for seed %s", used_seed)
             return {"success": False, "error": f"TRELLIS.2 exported GLB failed validation: {exc}"}
 
         logger.info(
             "TRELLIS.2 raw GLB validated: seed=%s vertices=%s faces=%s degenerate=%s "
             "bbox_extents=%s bytes=%s decoded_faces=%s roundtrip_faces=%s",
-            seed,
+            used_seed,
             processed_stats["vertex_count"],
             processed_stats["face_count"],
             processed_stats["degenerate_faces"],
@@ -268,7 +286,7 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
             "output_mesh_path": str(out),
             "mesh_path": str(out),
             "generation_info": {
-                "seed": seed,
+                "seed": used_seed,
                 "num_inference_steps": "adapter_owned",
                 "guidance_scale": "adapter_owned",
                 "octree_resolution": "adapter_owned",
