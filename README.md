@@ -13,7 +13,7 @@
   <em>Text-to-Motion • Image-to-3D • Quad Retopology • PBR Material Painting • Auto-Rigging • Automated LODs • Game Engine Ready</em>
 </p>
 
-<!-- ===================== CLEAN BADGE BAR ===================== -->
+<!-- ===================== DEVELOPER BADGE BAR ===================== -->
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=flat-square" alt="License Apache 2.0"></a>
@@ -33,71 +33,46 @@
 
 ## 📑 Table of Contents
 
-- [Overview & Product Vision](#-overview--product-vision)
-- [Studio Workspace Showcase](#️-studio-workspace-showcase)
-- [Core Capability Map](#-core-capability-map)
-- [End-to-End Asset Generation Pipeline](#-end-to-end-asset-generation-pipeline)
-- [System Architecture](#️-system-architecture)
-- [GPU Doctor & Hardware Compatibility](#-gpu-doctor--hardware-execution-planner)
-- [Supported Model Catalog](#-supported-model-catalog)
-- [Production Post-Processing Engine](#️-production-post-processing-engine)
-- [Technology Stack](#️-technology-stack)
-- [Installation & Quick Start](#-installation--quick-start)
-- [Studio Workspace Modules](#-studio-workspace-modules)
-- [API Endpoints Reference](#-api-endpoints-reference)
-- [Verification & Test Suite](#️-verification--test-suite)
-- [Frequently Asked Questions (FAQ)](#-frequently-asked-questions-faq)
-- [Documentation Index](#-documentation-index)
-- [License & Legal Attribution](#-license--attribution)
+- [1. Overview & Core Mission](#1-overview--core-mission)
+- [2. Core Capability Matrix](#2-core-capability-matrix)
+- [3. End-to-End Asset Generation Pipeline](#3-end-to-end-asset-generation-pipeline)
+- [4. System Architecture](#4-system-architecture)
+- [5. Supported AI Model Catalog](#5-supported-ai-model-catalog)
+- [6. GPU Doctor & Hardware Execution Planner](#6-gpu-doctor--hardware-execution-planner)
+- [7. Studio Workspace & Interactive 3D Viewport](#7-studio-workspace--interactive-3d-viewport)
+- [8. Production Post-Processing Engine](#8-production-post-processing-engine)
+- [9. Technology Stack](#9-technology-stack)
+- [10. Installation & Quick Start](#10-installation--quick-start)
+- [11. REST & Streaming API Reference](#11-rest--streaming-api-reference)
+- [12. Verification & Test Suite](#12-verification--test-suite)
+- [13. Frequently Asked Questions (FAQ)](#13-frequently-asked-questions-faq)
+- [14. Technical Documentation Index](#14-technical-documentation-index)
+- [15. License & Legal Attribution](#15-license--legal-attribution)
 
 ---
 
-## 🌟 Overview & Product Vision
+## 1. Overview & Core Mission
 
 > [!NOTE]
 > **Phase: BETA** — ForMesh3D core studio, API gateway, and post-processing pipeline are active and stabilizing. Breaking changes may land before 1.0.
 
 **ForMesh3D** is an open-source, self-hosted generative 3D asset creation and mesh-finishing platform. It bridges modern open research neural models into a single, cohesive studio running entirely on your local workstation or private GPU cluster.
 
-ForMesh3D unifies neural 3D generation, asset finishing, validation, and export into one self-hosted workflow:
+Traditional AI 3D generators typically output dense, raw, untextured "triangle soups" that require hours of manual cleanup in external 3D software. ForMesh3D solves this by integrating neural generation directly with a complete production finishing pipeline:
+
 - **100% Private & Self-Hosted**: Run neural inference locally on NVIDIA GPUs without cloud subscriptions, usage queues, or uploading proprietary concept art to external services.
 - **Immutable Source Preservation**: Raw model-native generation is snapshotted at `master/source.glb` with SHA-256 validation before any downstream production decimation or retopology.
 - **Production Asset Finishing**: Complete post-processing engine forked and customized from **[3DGenStudio](https://github.com/visualbruno/3DGenStudio)**, delivering watertight repair, conformal UV unwrapping, PBR material baking, quad retopology, multi-tier LOD cascades, and CoACD convex collision hulls.
 - **Hardware-Adaptive GPU Doctor**: Standalone hardware compatibility and memory execution planner ([`patcher/doctor.py`](patcher/doctor.py)), guaranteeing 100% native BFloat16 FlashAttention on modern GPUs (`sm >= 80`) and mathematically exact query-chunked SDPA on pre-Ampere GPUs (`sm < 80`).
 
----
+### Choose Your Contributor Path
 
-## 🖥️ Studio Workspace Showcase
-
-<div align="center">
-  <a href="assets/formeshed3d-studio-ui.jpg">
-    <img src="assets/formeshed3d-studio-ui.jpg" alt="ForMesh3D Studio Workspace — Live 3D Mesh Generation & Finishing Viewport" width="94%" style="border-radius: 8px; border: 1px solid #30363d; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);">
-  </a>
-  <p align="center">
-    <sub><b>Figure 1:</b> ForMesh3D unified Studio UI — live interactive Three.js viewport, real-time geometry telemetry HUD (faces, vertices, physical bounding dimensions), model adapter selector with hardware VRAM admission, and automated production post-processing toggles.</sub>
-  </p>
-</div>
-
-### 🎨 Key Studio Features at a Glance:
-- **Interactive Three.js Viewport**: Real-time orbital navigation, wireframe toggle, matcap shading, and multi-mesh staging.
-- **Geometry Telemetry HUD**: Live metrics display (topology type, face/vertex count, bounding box dimensions $W \times H \times D$, watertightness status).
-- **Hardware-Aware Model Selection**: Dynamic VRAM estimation and capability verification before generation starts.
-- **Production Post-Processing Controls**: Non-destructive toggles for automated quad retopology, hole repair, conformal UV unwrapping, normal baking, and collision hull generation.
-
----
-
-## 📊 Core Capability Map
-
-| Capability | ForMesh3D Implementation |
+| No GPU (CPU-Only Contributor) | GPU Workstation (NVIDIA CUDA 12.4+) |
 |---|---|
-| **Neural 3D Generation** | Image-to-3D adapters with model-specific inference contracts |
-| **Source Preservation** | Immutable `master/source.glb` checkpoint before production processing |
-| **Production Optimization** | Post-process-only polycount, retopology, UV, LOD, collision, and bake controls |
-| **PBR Materials** | Full-mesh Paint3D / Hunyuan3D texturing with 1K/2K/4K atlas generation |
-| **Smart Generation** | One-click image-only intents with deterministic model selection and scheduler-backed execution |
-| **Generation Experiments** | Save local profiles, edit schema-driven parameters, test through the existing queue, and import/export JSON |
-| **QA & Diagnostics** | Geometry, UV/material, and production-budget quality tracing (0–100 score) |
-| **Game Engine Export** | GLB/FBX game-ready packages plus LOD cascades and CoACD collision assets |
+| • Studio UI/UX, React Three Fiber Viewport | • Model Adapters (TRELLIS.2, Hunyuan3D, TaoFlowForge, TripoSG) |
+| • API Gateway routers, job queues, SQLite sync | • GPU Doctor hardware execution planning & attention routing |
+| • Mesh algorithms, contract tests & documentation | • Live GPU inference validation & production quality gates |
+| 🔗 **[Explore Task Tracker & Roadmap →](Docs/TASKS.md)** | 🔗 **[Review System Architecture →](Docs/ARCHITECTURE.md)** |
 
 > [!WARNING]
 > ### ⚖️ Licensing, Commercial & SaaS Advisory (Important)
@@ -108,25 +83,42 @@ ForMesh3D unifies neural 3D generation, asset finishing, validation, and export 
 > 4. **Notice for Commercial & SaaS Implementors**:
 >    - The Apache 2.0 license applies **strictly to ForMesh3D's original code**. We do **not** own or re-license underlying third-party models, research weights, or ported submodules.
 >    - The ported `3DGenStudio` post-processing pipeline prohibits hosting the software as a paid public/private commercial SaaS service without explicit written consent from the upstream author (`visualbruno`).
->    - Individual model source snapshots and checkpoints have their own terms. Read the `backend/thirdparty/LICENSE` file inside the submodule for exact terms.
+>    - Individual model source snapshots and checkpoints have their own terms. Read the **[`backend/thirdparty/LICENSE`](backend/thirdparty/LICENSE)** directory for complete license details.
 >    - **Do NOT blindly deploy or redistribute ForMesh3D as a paid commercial product or SaaS** without auditing and complying with the respective licenses of each integrated model and component!
 
 ---
 
-## 🔄 End-to-End Asset Generation Pipeline
+## 2. Core Capability Matrix
+
+| Capability | Technical Implementation | Output Deliverable |
+|---|---|---|
+| **Neural 3D Generation** | Upstream model adapters with locked native inference contracts | Immutable `master/source.glb` |
+| **Source Preservation** | SHA-256 lineage tracking before any destructive modifications | Canonical source snapshot |
+| **Production Decimation** | Feature-preserving QEM decimation protecting crease edges ($>35^\circ$) | Targeted budget polygon count |
+| **Quad Retopology** | FastMesh V1K / V4K neural quad-dominant edge-loop reconstruction | Clean animatable quad mesh |
+| **Conformal UV Unwrapping** | Automated GPU PartUV routing with CPU/GPU xatlas fallback ($0\%$ overlap) | Single/Multi-chart UV atlas |
+| **PBR Material Baking** | Tangent-space normal baking (OpenGL Y+ convention) & packed RMA maps | Complete 5-channel PBR material maps |
+| **LOD Generation** | Cascaded LOD0 to LOD3 with `meshoptimizer` vertex-cache optimization | Multi-tier `lods/lod[0-3].glb` |
+| **Physics Collision Hulls** | CoACD approximate convex decomposition with mass & inertia tensors | Watertight `collision.glb` & `physics.json` |
+| **Automated Rigging & Motion** | UniRig automated bipedal armature generation & ARDY motion synthesis | Rigged FBX/GLB & playable motion JSON |
+| **Game Engine Packages** | Structured directory packaging for Unreal Engine 5, Unity, and Godot 4 | Complete engine-ready ZIP archive |
+
+---
+
+## 3. End-to-End Asset Generation Pipeline
 
 ForMesh3D enforces an **immutable master preservation architecture**. The raw neural model output is immediately snapshotted at `master/source.glb` before any downstream finishing operations, guaranteeing zero accidental loss of fine surface detail:
 
 ```mermaid
 flowchart LR
-    %% Styling Definitions
+    %% High-Contrast Styling
     classDef input fill:#262213,stroke:#eab308,stroke-width:2px,color:#fef08a;
     classDef neural fill:#211833,stroke:#a855f7,stroke-width:2px,color:#e9d5ff;
     classDef master fill:#0d242a,stroke:#06b6d4,stroke-width:2px,color:#a5f3fc;
     classDef post fill:#0d271c,stroke:#10b981,stroke-width:2px,color:#a7f3d0;
     classDef export fill:#181c24,stroke:#64748b,stroke-width:2px,color:#f1f5f9;
 
-    IMG["Input Image<br/>(Single Reference)"]:::input
+    IMG["Input Concept Image<br/>(Single Reference)"]:::input
     MODEL["Neural Model Adapter<br/>TRELLIS.2 / Hunyuan3D / TripoSG"]:::neural
     MASTER["master/source.glb<br/>Immutable Raw Mesh<br/>(SHA-256 Verified)"]:::master
 
@@ -154,7 +146,7 @@ flowchart LR
 
 ---
 
-## 🏗️ System Architecture
+## 4. System Architecture
 
 The following diagram illustrates the multi-tier system architecture connecting the Next.js studio frontend, FastAPI control plane, VRAM scheduler, neural adapters, and post-processing pipeline:
 
@@ -247,7 +239,32 @@ flowchart TD
 
 ---
 
-## 🩺 GPU Doctor & Hardware Execution Planner
+## 5. Supported AI Model Catalog
+
+The model registry is dynamically configured via `backend/config/models.yaml` and loaded lazily:
+
+| Model Architecture | Registered Model ID | Category / Task | VRAM Budget | Key Technical Capabilities & Live Audit Status |
+|---|---|---|:---:|---|
+| **Hunyuan3D-Shape-v2.1** | `hunyuan3d_shape_v21_image_to_raw_mesh` | Raw Mesh | ~10 GB | 3.3B shape model, official 2.1 pipeline, octree res 1300. **Status: VERIFIED PASS / LOCKED** (live Kaggle GPU verified: 935k faces, 16.1MB GLB). |
+| **Hunyuan3D-DiT-v2-mini-Turbo** | `hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh` | Raw Mesh | ~6 GB | 0.6B low-VRAM step-distilled shape model. **Status: VERIFIED PASS / LOCKED** (live Kaggle GPU: 758k faces, 13.0MB GLB, 3.87GB VRAM). |
+| **Unique3D** | `unique3d_image_to_raw_mesh` | Raw Mesh | ~10 GB | Multi-view geometry reconstruction, SD1.5 dependency bypassed. **Status: VERIFIED PASS / LOCKED** (live Kaggle GPU: 54k faces, 1.0MB GLB). |
+| **TRELLIS.2** | `trellis2_image_to_3d` / `trellis2_image_to_raw_mesh` | Raw Mesh | 23.5 GB | High-fidelity FlexiCubes geometry; FP32 attention on pre-Ampere prevents logit collapse; adaptive top-k percentile voxel fallback; rembg zero-alpha guard. |
+| **TaoFlowForge** | `taoflowforge_image_to_raw_mesh` | Raw Mesh | 20 GB (10 GB low-VRAM) | Progressive native-mesh generation. Stage 1 query chunking SDPA (diff=0.0) eliminates 10.06 GiB OOM; stage offload enforced. |
+| **Pixal3D** | `pixal3d_image_to_raw_mesh` / `pixal3d_image_to_3d` | Raw Mesh | ~18 GB configured reservation | Pixel-aligned O-Voxel source; DinoV3 feature extractor condition models initialized. |
+| **Hunyuan3D-Paint-v2.1** | `hunyuan3d_paint_v21_image_mesh_painting` | PBR Texture | ~12 GB configured reservation | 2B PBR texture checkpoint, internal RealESRGAN, exported 4K/8K atlas validation. |
+| **Paint3D** | `paint3d` | PBR Texture | ~12 GB | Centralized texturing stage for 1K/2K atlas targets. |
+| **TripoSG** | `triposg_image_to_raw_mesh` | Image/Scribble to 3D | 8 GB | High-fidelity image and scribble guided 3D geometry; model-specific patcher in `patcher/triposg/`. |
+| **FastMesh (V1K)** | `fastmesh_v1k_retopology` | Mesh Retopology | 16 GB configured reservation | V1K manifest entry; quad-dominant retopology engine. |
+| **UniRig** | `unirig_auto_rig` | Auto-Rigging | 9 GB | Automated bipedal skeletal armature generation. |
+| **ARDY** | `ardy_motion_generation` | Motion AI | CPU-only | Interactive autoregressive text-to-motion generation; CPU/RAM-bound. |
+| **PartUV** | `partuv_uv_unwrapping` | UV Unwrapping | 7 GB | Automated seam placement and GPU UV chart packing. |
+| **TRELLIS** | `trellis_image_to_3d` / `trellis_image_to_raw_mesh` | Raw Mesh | 11.5 GB | Raw FlexiCubes geometry; optional texture generation is a separate stage. |
+
+> **Registry source of truth:** the catalog above mirrors `backend/config/models.yaml`. Only entries with `enabled: true` are exposed by `GET /api/v1/system/models`. `backend/config/smart_presets.yaml` holds the intent presets (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`; `native` is a backend-only sentinel).
+
+---
+
+## 6. GPU Doctor & Hardware Execution Planner
 
 ForMesh3D features **GPU Doctor** ([`patcher/doctor.py`](patcher/doctor.py)), a lightweight, non-invasive hardware compatibility, precision routing, and memory management subsystem. Built strictly following **Ponytail Ultra** principles (single compact file, zero unnecessary dependencies, native PyTorch + Hugging Face Accelerate), GPU Doctor resolves hardware heterogeneity between modern cloud GPUs and budget pre-Ampere workstations:
 
@@ -279,39 +296,48 @@ flowchart TD
     ERR -->|Max Retries Exceeded| FAIL["Safe Terminal Error Report"]:::preAmpere
 ```
 
-### Core Architecture Principles:
-1. **Top Priority Rule 1 (Zero Modern GPU Regression)**: On modern GPUs (`sm >= 80`, e.g. A100, RTX 3090/4090, H100), GPU Doctor preserves 100% native BF16 precision and native FlashAttention with zero fallbacks, zero performance penalties, and official README parity.
+### Core Architecture Invariants:
+1. **Rule 1 Priority (Zero Modern GPU Regression)**: On modern GPUs (`sm >= 80`, e.g. A100, RTX 3090/4090, H100), GPU Doctor preserves 100% native BF16 precision and native FlashAttention with zero fallbacks, zero performance penalties, and official README parity.
 2. **Mathematically Exact Query-Chunked SDPA**: On pre-Ampere GPUs (`sm < 80`), large token sequences (e.g. 15,000+ tokens in TaoFlowForge Stage 1) trigger PyTorch SDPA Math fallback, causing 10.06 GiB OOM crashes. GPU Doctor slices query tokens along the sequence dimension (`chunk_size=1024`) while evaluating against all key/value tokens. Because softmax normalizes along the key dimension, the output is mathematically identical (`diff = 0.0`) while peak attention memory drops from 10.06 GiB to ~30 MB across both 3D and 4D tensors.
 3. **Structured Diagnostics & Bounded Recovery**: Tracks stage-by-stage timings, peak VRAM allocations, and classifies exceptions into 7 actionable categories (`cuda_oom`, `unsupported_precision`, `dtype_mismatch`, `device_mismatch`, `attention_backend_failure`, `sparse_empty_voxels`, `unknown`) with a strict retry limit (`max_retries=2`) to prevent infinite failure loops.
 
 ---
 
-## 🤖 Supported Model Catalog
+<!-- ===================== STUDIO WORKSPACE SHOWCASE (MIDDLE OF README) ===================== -->
 
-The model registry is dynamically configured via `backend/config/models.yaml` and loaded lazily:
+## 7. Studio Workspace & Interactive 3D Viewport
 
-| Model Architecture | Registered Model ID | Category / Task | VRAM Budget | Key Technical Capabilities & Live Audit Status |
-|---|---|---|:---:|---|
-| **Hunyuan3D-Shape-v2.1** | `hunyuan3d_shape_v21_image_to_raw_mesh` | Raw Mesh | ~10 GB | 3.3B shape model, official 2.1 pipeline, octree res 1300. **Status: VERIFIED PASS / LOCKED** (live Kaggle GPU verified: 935k faces, 16.1MB GLB). |
-| **Hunyuan3D-DiT-v2-mini-Turbo** | `hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh` | Raw Mesh | ~6 GB | 0.6B low-VRAM step-distilled shape model. **Status: VERIFIED PASS / LOCKED** (live Kaggle GPU: 758k faces, 13.0MB GLB, 3.87GB VRAM). |
-| **Unique3D** | `unique3d_image_to_raw_mesh` | Raw Mesh | ~10 GB | Multi-view geometry reconstruction, SD1.5 dependency bypassed. **Status: VERIFIED PASS / LOCKED** (live Kaggle GPU: 54k faces, 1.0MB GLB). |
-| **TRELLIS.2** | `trellis2_image_to_3d` / `trellis2_image_to_raw_mesh` | Raw Mesh | 23.5 GB | High-fidelity FlexiCubes geometry; FP32 attention on pre-Ampere prevents logit collapse; adaptive top-k percentile voxel fallback; rembg zero-alpha guard. |
-| **TaoFlowForge** | `taoflowforge_image_to_raw_mesh` | Raw Mesh | 20 GB (10 GB low-VRAM) | Progressive native-mesh generation. Stage 1 query chunking SDPA (diff=0.0) eliminates 10.06 GiB OOM; stage offload enforced. |
-| **Pixal3D** | `pixal3d_image_to_raw_mesh` / `pixal3d_image_to_3d` | Raw Mesh | ~18 GB configured reservation | Pixel-aligned O-Voxel source; DinoV3 feature extractor condition models initialized. |
-| **Hunyuan3D-Paint-v2.1** | `hunyuan3d_paint_v21_image_mesh_painting` | PBR Texture | ~12 GB configured reservation | 2B PBR texture checkpoint, internal RealESRGAN, exported 4K/8K atlas validation. |
-| **Paint3D** | `paint3d` | PBR Texture | ~12 GB | Centralized texturing stage for 1K/2K atlas targets. |
-| **TripoSG** | `triposg_image_to_raw_mesh` | Image/Scribble to 3D | 8 GB | High-fidelity image and scribble guided 3D geometry; model-specific patcher in `patcher/triposg/`. |
-| **FastMesh (V1K)** | `fastmesh_v1k_retopology` | Mesh Retopology | 16 GB configured reservation | V1K manifest entry; quad-dominant retopology engine. |
-| **UniRig** | `unirig_auto_rig` | Auto-Rigging | 9 GB | Automated bipedal skeletal armature generation. |
-| **ARDY** | `ardy_motion_generation` | Motion AI | CPU-only | Interactive autoregressive text-to-motion generation; CPU/RAM-bound. |
-| **PartUV** | `partuv_uv_unwrapping` | UV Unwrapping | 7 GB | Automated seam placement and GPU UV chart packing. |
-| **TRELLIS** | `trellis_image_to_3d` / `trellis_image_to_raw_mesh` | Raw Mesh | 11.5 GB | Raw FlexiCubes geometry; optional texture generation is a separate stage. |
+<div align="center">
+  <a href="assets/formeshed3d-studio-ui.jpg">
+    <img src="assets/formeshed3d-studio-ui.jpg" alt="ForMesh3D Studio Workspace — Live 3D Mesh Generation & Finishing Viewport" width="94%" style="border-radius: 8px; border: 1px solid #30363d; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);">
+  </a>
+  <p align="center">
+    <sub><b>Figure 1:</b> ForMesh3D unified Studio Workspace — live interactive Three.js viewport, real-time geometry telemetry HUD, model adapter selector with hardware VRAM admission, and automated production post-processing toggles.</sub>
+  </p>
+</div>
 
-> **Registry source of truth:** the catalog above mirrors `backend/config/models.yaml`. Only entries with `enabled: true` are exposed by `GET /api/v1/system/models`. `backend/config/smart_presets.yaml` holds the intent presets (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`; `native` is a backend-only sentinel).
+The ForMesh3D Studio UI integrates neural generation and mesh finishing into a cohesive desktop-grade web application:
+
+### 🎮 Viewport & Generation Controls:
+- **Interactive Three.js Viewport**: Smooth orbital camera controls, perspective/orthographic toggle, wireframe overlay, PBR matcap rendering, and continuous WebGL staging.
+- **Real-Time Geometry Telemetry HUD**: Direct in-viewport telemetry tracking triangle count, vertex count, watertight manifold status, physical bounding box dimensions ($W \times H \times D$), and quality score.
+- **Hardware-Aware Model Selector**: Real-time VRAM estimator comparing model memory reservations with live GPU telemetry (`torch.cuda.mem_get_info`) to prevent out-of-memory crashes before jobs are queued.
+- **Production Post-Processing Controls**: Toggle automated quad retopology, hole repair, conformal UV unwrapping, normal baking, and collision hull generation without mutating the immutable `master/source.glb`.
+
+### 🧰 Creative Workspace Modules:
+- **Generate Studio (`/workspace`)**: Image-to-3D generation with reference image intake, model selector, unified Target Polycount, and Output Presets (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`, `native`).
+- **Texture Studio (`/workspace/texture`)**: Multi-view PBR texture painting and PBR map inspection/export (Albedo, Normal, Roughness, Metallic, AO). Paint3D handles 1K/2K, while Hunyuan3D-Paint runs internal RealESRGAN enhancement for 4K/8K.
+- **Retopology & Remesh (`/workspace/remesh`)**: FastMesh quad-dominant retopology with V1K and V4K target presets.
+- **UV Unwrapping (`/workspace/uv`)**: Automated conformal seam placement and atlas chart packing.
+- **Mesh Segmentation (`/workspace/segment`)**: Semantic part decomposition interface.
+- **Animation & Motion (`/animation`)**: UniRig bipedal armature generation and ARDY motion synthesis.
+- **Jobs & Run Inspector (`/workspace/jobs`)**: Real-time progress tracking, step telemetry, and VRAM monitoring.
+- **Admin & Model Registry (`/admin?tab=models`)**: Live GPU health, temperature, and adapter configuration.
+- **Database Administration (`/admin?tab=database`)**: Cross-store statistics (SQLite/Redis/queue/file-metadata/disk), read-only Redis key inspector, and paginated jobs table with per-row cancel/delete.
 
 ---
 
-## ⚙️ Production Post-Processing Engine
+## 8. Production Post-Processing Engine
 
 Raw AI generative meshes typically suffer from non-manifold triangles, missing UV layouts, dense topological noise, and absence of physics colliders. ForMesh3D's post-processing engine (ported and enhanced from [3DGenStudio](https://github.com/visualbruno/3DGenStudio)) automates asset finishing:
 
@@ -346,7 +372,7 @@ backend/storage/models/meshes/<asset_name>_<job_id>/
 
 ---
 
-## 🛠️ Technology Stack
+## 9. Technology Stack
 
 | Component | Technology | Rationale |
 |---|---|---|
@@ -363,7 +389,7 @@ backend/storage/models/meshes/<asset_name>_<job_id>/
 
 ---
 
-## 📦 Installation & Quick Start
+## 10. Installation & Quick Start
 
 ### Prerequisites
 - **OS**: Linux (Ubuntu 20.04, 22.04, or 24.04 recommended) or Windows WSL2.
@@ -415,23 +441,7 @@ docker compose -f docker-compose.yml up --build -d
 
 ---
 
-## 🎮 Studio Workspace Modules
-
-The ForMesh3D workspace provides a comprehensive suite of creative 3D tools:
-
-- **Generate Studio (`/workspace`)**: Image-to-3D generation with reference image intake, model selector with real-time VRAM estimator & hardware readiness, unified Target Polycount & Output Presets (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`, `native`), and genuine production post-processing options (candidates 1–4, quad/tri topology, UV unwrapping, normal baking, LODs, repair, physics colliders).
-- **Texture Studio (`/workspace/texture`)**: Multi-view PBR texture painting and PBR map inspection/export (Albedo, Normal, Roughness, Metallic, AO). Paint3D handles 1K/2K, while Hunyuan3D-Paint runs its internal RealESRGAN enhancement for 4K/8K.
-- **Retopology & Remesh (`/workspace/remesh`)**: FastMesh quad-dominant retopology with V1K and V4K target presets.
-- **UV Unwrapping (`/workspace/uv`)**: Automated conformal seam placement and atlas chart packing.
-- **Mesh Segmentation (`/workspace/segment`)**: Semantic part decomposition interface.
-- **Animation & Motion (`/animation`)**: UniRig bipedal armature generation and ARDY motion synthesis.
-- **Jobs & Run Inspector (`/workspace/jobs`)**: Real-time progress tracking, step telemetry, and VRAM monitoring.
-- **Admin & Model Registry (`/admin?tab=models`)**: Live GPU health, temperature, and adapter configuration.
-- **Database Administration (`/admin?tab=database`)**: Cross-store statistics (SQLite/Redis/queue/file-metadata/disk), read-only Redis key inspector, paginated jobs table with per-row cancel/delete, and bulk clear actions.
-
----
-
-## 🔌 API Endpoints Reference
+## 11. REST & Streaming API Reference
 
 The FastAPI backend exposes comprehensive REST and SSE streaming endpoints:
 
@@ -456,7 +466,7 @@ The FastAPI backend exposes comprehensive REST and SSE streaming endpoints:
 
 ---
 
-## 🛠️ Verification & Test Suite
+## 12. Verification & Test Suite
 
 ForMesh3D maintains rigorous unit, integration, and regression test suites across frontend and backend:
 
@@ -488,7 +498,7 @@ bash -n manager.sh backend/scripts/*.sh scripts/*.sh
 
 ---
 
-## 🔍 Frequently Asked Questions (FAQ)
+## 13. Frequently Asked Questions (FAQ)
 
 <details>
 <summary><strong>How does ForMesh3D protect source quality?</strong></summary>
@@ -533,7 +543,7 @@ ForMesh3D exports standard **GLB / glTF 2.0**, **OBJ**, **STL**, and **FBX** (vi
 
 ---
 
-## 📚 Documentation Index
+## 14. Technical Documentation Index
 
 | Documentation Guide | Description |
 |---|---|
@@ -552,7 +562,7 @@ ForMesh3D exports standard **GLB / glTF 2.0**, **OBJ**, **STL**, and **FBX** (vi
 
 ---
 
-## 📄 License & Attribution
+## 15. License & Legal Attribution
 
 - **ForMesh3D Core**: Licensed under the **[Apache License 2.0](LICENSE)**.
 - **Post-Processing Pipeline**: Ported and adapted from **[visualbruno/3DGenStudio](https://github.com/visualbruno/3DGenStudio)** under the **3D Gen Studio Community License**. See **[backend/postprocess/THIRD_PARTY_LICENSE.md](backend/postprocess/THIRD_PARTY_LICENSE.md)**.
