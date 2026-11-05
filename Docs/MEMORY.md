@@ -6,6 +6,16 @@
 **Project phase:** Beta  
 **Model readiness:** NOT VERIFIED — registry entries and source directories do not prove successful inference.
 
+## 2026-11-05 — PR #80 review follow-ups
+
+- TRELLIS.2 sparse-convolution fallback is selected within each TRELLIS.2 adapter using the scheduler-assigned GPU; the global compatibility helper no longer applies spconv process-wide. Modern GPU workers retain FlexGEMM when available.
+- TRELLIS.2 paint status checks use the same backend.core.models.base.ModelStatus enum as the adapter.
+- Hi3D accepts the coarse_mesh_path input emitted by /refine-mesh as well as the existing mesh_path key.
+- download_models.sh sources .env before resolving MODEL_STORAGE_ROOT.
+- image_to_raw_mesh forwards the top-level seed, with top-level seed taking precedence over model_parameters.seed.
+- These are source-level fixes; CI rerun and live GPU inference remain pending.
+
+
 ## What is present
 
 - `backend/loader.py` provides `get_model_weights_dir(model_key)`. It resolves `MODEL_STORAGE_ROOT/<model_key>`, anchors a relative root to the repository (not the process CWD), rejects absolute and `..` model keys, and fails when the model directory does not exist.
