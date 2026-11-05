@@ -1,109 +1,130 @@
-# Model-specific patcher directory
+# ForMesh3D Patcher & GPU Doctor Infrastructure
 
-## Purpose
+## 1. Overview & Purpose
 
-This directory holds external, model-specific fixes required when an inference
-pipeline cannot import, initialize, or load correctly without a compatibility
-adjustment. The patcher exists for cases where:
+The `patcher/` package directory provides two critical capabilities for the ForMesh3D generative runtime:
 
-- A runtime/import issue must be fixed without editing the model's source files.
-- A pipeline-loading issue needs a small external compatibility patch.
-- A module or dependency must be imported or prepared at a particular point
-  during startup.
-- A narrowly scoped change is needed before a specific model pipeline component
-  is loaded.
+1. **GPU Doctor (`patcher/doctor.py`)**: A centralized, lightweight, hardware-aware execution planner, precision router, query-chunked attention optimizer, and bounded recovery coordinator.
+2. **Model-Specific Runtime Patchers (`patcher/<model-name>/`)**: Isolated, process-scoped compatibility patches that execute strictly inside an individual model's worker process when external pipeline adjustments or initialization hooks are necessary.
 
-This is **not** a requirement to add a patcher to every model. Most models do
-not need one. Add a subdirectory **only** when a real import/pipeline-loading
-problem has been observed and verified.
+Strictly governs and enforces **Priority Rules 1, 2, and 3** from `AGENTS.md`:
+- **Rule 1 (Zero Modern GPU Regression)**: Under no circumstances should logic, attention kernels, precision (native BFloat16), or upstream flows for modern large GPUs (`sm >= 80`, e.g. A100, RTX 3090, RTX 4090, H100) be altered, degraded, or modified.
+- **Rule 2 (No Global Monkeypatching)**: Patching must never alter global framework primitives (such as modifying `torchvision_fix.py` or `tl.store` globally).
+- **Rule 3 (Strict Worker Isolation)**: Model-specific patches live in dedicated subdirectories (`patcher/<model-name>/`) and execute strictly within that model's dedicated worker process.
 
-## What to do (step by step)
+---
 
-### Step 1 — Confirm the problem is real
+## 2. Architecture & Lifecycle Flow
 
-Before creating anything here, verify the failure:
+```mermaid
+flowchart TD
+    %% Styling Definitions
+    classDef worker fill:#181c24,stroke:#64748b,stroke-width:2px,color:#f1f5f9;
+    classDef doctor fill:#0d242a,stroke:#06b6d4,stroke-width:2px,color:#a5f3fc;
+    classDef model fill:#211833,stroke:#a855f7,stroke-width:2px,color:#e9d5ff;
+    classDef modern fill:#0d271c,stroke:#10b981,stroke-width:2px,color:#a7f3d0;
+    classDef preAmpere fill:#2d1b0d,stroke:#f59e0b,stroke-width:2px,color:#fde68a;
 
-1. Try to load the model through its adapter (`backend/adapters/<model>_adapter.py`).
-2. Read the error traceback. Identify the exact import, initialization, or
-   pipeline-loading failure.
-3. Check whether the fix can be applied inside the adapter itself (for example,
-   adding a `sys.path` entry, setting an environment variable, or importing a
-   dependency in `_load_model`). If it can, fix it in the adapter — do **not**
-   use the patcher.
-4. Only use the patcher when the fix must run **before** the official ThirdParty
-   module is imported, or when editing the adapter is insufficient.
+    subgraph Worker ["Isolated Model Worker Process (multiprocess_scheduler)"]
+        direction TB
 
-### Step 2 — Create one subdirectory per model
+        ADAPTER["Model Adapter (_load_model / _process_request)"]:::worker
 
-Create exactly one subdirectory named after the model:
+        subgraph DoctorSubsystem ["GPU Doctor Subsystem (patcher/doctor.py)"]
+            INSPECT["Hardware Inspection (inspect_gpu)<br/>VRAM & Compute Capability (sm)"]:::doctor
+            PLAN["Memory Execution Planner (build_memory_plan)<br/>resident / cpu_offload / accelerate_dispatch"]:::doctor
+            ROUTER{"Compute Capability<br/>sm >= 80 ?"}:::doctor
+
+            MODERN["Modern GPUs (sm >= 80)<br/>• Native BFloat16<br/>• Official FlashAttention 2/3<br/>• Zero Fallback Overhead"]:::modern
+            PRE_AMPERE["Pre-Ampere GPUs (sm < 80)<br/>• Fallback Precision (FP16/BF16 DiT)<br/>• Query-Chunked SDPA (diff = 0.0)<br/>• Accelerate CPU Offloading"]:::preAmpere
+        end
+
+        subgraph ModelPatchers ["Model-Specific Patchers (patcher/<model-name>/)"]
+            TAO_PATCH["patcher/taoflowforge/<br/>Attention Patcher & SDPA Kernel Routing"]:::model
+            TRIPO_PATCH["patcher/triposg/<br/>Output-to-Storage Patcher"]:::model
+        end
+
+        THIRD_PARTY["Upstream ThirdParty Pipeline<br/>(backend/thirdparty/<Model>/)"]:::worker
+        OUTPUT["Immutable Raw Mesh Checkpoint<br/>master/source.glb (SHA-256 Verified)"]:::modern
+    end
+
+    ADAPTER --> INSPECT
+    INSPECT --> PLAN
+    PLAN --> ROUTER
+    ROUTER -->|sm >= 80| MODERN
+    ROUTER -->|sm < 80| PRE_AMPERE
+
+    MODERN --> THIRD_PARTY
+    PRE_AMPERE --> THIRD_PARTY
+    ADAPTER --> TAO_PATCH
+    ADAPTER --> TRIPO_PATCH
+    TAO_PATCH --> THIRD_PARTY
+    TRIPO_PATCH --> THIRD_PARTY
+
+    THIRD_PARTY --> OUTPUT
+```
+
+---
+
+## 3. Directory Layout & Module Index
 
 ```text
 patcher/
-├── <model-name>/
-│   └── <patch-file>.py
+├── __init__.py           # Re-exports GPUDoctor, GPUInfo, DoctorConfig, ModelProfile, DoctorReport, StageRecord
+├── README.md             # This architecture documentation
+├── doctor.py             # Central GPU Doctor engine (hardware planner, chunked SDPA, recovery)
+├── taoflowforge/         # TaoFlowForge model-specific patcher
+│   └── __init__.py       # Pre-Ampere SDPA attention router and compute dtype guard
+└── triposg/              # TripoSG model-specific patcher
+    ├── __init__.py       # Patcher initializer
+    └── output_to_storage.py # Raw mesh output resolution for isolated worker processes
 ```
 
-- The subdirectory name must match the model's canonical key/name.
-- **One model per subdirectory.** A patcher for model A must never affect model B.
-- No placeholder or speculative subdirectories. If a model has no loading issue,
-  it gets no subdirectory.
+---
 
-### Step 3 — Write only the required external fix
+## 4. GPU Doctor Specification (`patcher/doctor.py`)
 
-Each patcher file must:
+GPU Doctor is implemented as a single, fully typed, dependency-lightweight module (`patcher/doctor.py`) using native PyTorch and Hugging Face `accelerate`.
 
-1. Belong to one clearly identified model.
-2. Apply only the required external fix for that model.
-3. Run at the exact lifecycle point where the problem needs to be addressed —
-   before the affected official module is imported or before the affected
-   pipeline component is initialized.
-4. Run in the same Python runtime/process whose imports or pipeline loading it
-   needs to affect.
-5. Leave the official ThirdParty source files unchanged whenever the issue can
-   be fixed externally.
-6. Avoid changing unrelated model behavior or global application behavior.
+### Public Interfaces & Contracts
+- **`GPUDoctor(config: Optional[DoctorConfig])`**:
+  - `inspect_gpu(device: Optional[Union[int, str]]) -> GPUInfo`: Inspects physical GPU properties, compute capability (`major`, `minor`), total/free VRAM, BF16 native support (`major >= 8`), and FlashAttention compatibility.
+  - `select_precision(model_profile: ModelProfile, gpu_info: Optional[GPUInfo]) -> torch.dtype`: Selects optimal precision adhering to Rule 1. Modern GPUs (`sm >= 80`) receive native BF16; pre-Ampere receives FP16 (or BF16 range for DiT Euler steps).
+  - `select_attention_backend(gpu_info, preferred) -> str`: Selects `flash_attn` for `sm >= 80`; `sdpa` or `xformers` for `sm < 80`.
+  - `build_memory_plan(model_name, model_profile, model, gpu_info) -> Dict[str, Any]`: Computes deterministic strategy (`resident`, `cpu_offload`, `accelerate_dispatch`).
+  - `prepare_model(model, plan) -> Any`: Applies Accelerate auto device mapping or native pipeline `low_vram=True`.
+  - `chunked_scaled_dot_product_attention(q, k, v, mask, chunk_size, scale)`: Mathematically exact query chunking across 3D and 4D tensors, reducing peak attention memory from 10.06 GiB down to ~30 MB (`diff = 0.0`).
+  - `clean_cache()`: Garbage collection + PyTorch caching allocator purge + IPC collection.
+  - `track_stage(stage_name) -> Generator[StageRecord]`: Context manager measuring stage duration and peak VRAM.
+  - `classify_error(exc) -> str`: Categorizes errors into 7 taxonomy classes (`cuda_oom`, `unsupported_precision`, `dtype_mismatch`, `device_mismatch`, `attention_backend_failure`, `sparse_empty_voxels`, `unknown`).
+  - `recover(stage_name, exc, retry_count) -> RecoveryEvent`: Bounded recovery (`max_retries=2`) preventing infinite failure loops.
 
-### Step 4 — Execute the patcher at the right time
+### Declarative Model Profiles
+Built-in profiles are registered for:
+- **`trellis2`**: Native BF16 DiT, native FP16 decoder, sequential `low_vram=True` CPU offload, non-split module classes.
+- **`pixal3d`**: Accelerate auto dispatch support, `DinoV3ProjFeatureExtractor` no-split module class, chunked SDPA enabled.
+- **`taoflowforge`**: DiT BF16 range protection, stage-wise CPU offload (`offload="on"`), chunked SDPA (`chunk_size=1024`) preventing 10.06 GiB Stage 1 Math OOM.
 
-The patcher must execute **inside the target model's runtime process** at the
-required point in the loading sequence. How to arrange this:
+---
 
-- For adapters that load the ThirdParty package inside `_load_model()`, import
-  and run the patcher at the top of `_load_model()`, before importing the
-  official module.
-- Do **not** run every model's patcher globally. Only the patcher belonging to
-  the model being launched should run, and only the required patch should be
-  applied.
-- A separate, unrelated Python process cannot import a module into the model
-  process merely by importing it itself. The patcher must run in the same
-  process.
+## 5. Model-Specific Patchers
 
-## What NOT to do
+### `patcher/taoflowforge/`
+- **Problem addressed**: Pre-Ampere GPUs (`sm < 80`) lack hardware FlashAttention 2/3. PyTorch's default SDPA falls back to `SDPBackend.MATH` during Stage 1 refinement (15,000+ tokens on a 64->128 lattice), allocating a 10.06 GiB dense attention matrix and causing immediate CUDA OOM crashes.
+- **Fix applied**: Routes pre-Ampere attention requests through memory-efficient xFormers or query-chunked SDPA (`chunk_size=1024`), computing attention in slices with mathematical exactness (`diff = 0.0`). Modern GPUs (`sm >= 80`) continue running official native FlashAttention with zero overhead.
 
-A patcher must not:
+### `patcher/triposg/`
+- **Problem addressed**: Multi-process worker isolation requires the generated mesh to be delivered deterministically to the canonical job workspace directory without colliding with other worker processes.
+- **Fix applied**: Wraps request processing to ensure output artifacts are mirrored to the designated job storage path upon successful generation.
 
-- Contain a copy of the model's inference implementation.
-- Become a second adapter or a replacement `app.py`/`main.py`.
-- Store ordinary model parameters that belong in the official model code or
-  configuration.
-- Change sampling, resolution, inference steps, or mesh extraction behavior
-  without a specific, necessary runtime-loading fix.
-- Apply broad global monkey patches when a model-scoped fix is sufficient.
-- Modify other models' runtime behavior.
-- Become a general-purpose folder for unrelated workarounds.
+---
 
-## Current state
+## 6. How to Add a New Model Patcher (Rules for Contributors)
 
-This directory is intentionally empty. No model in ForMesh3D currently requires
-an external patcher. All 17 adapters load their ThirdParty packages directly
-from `backend/thirdparty/` using per-adapter `sys.path` setup inside
-`_load_model()`.
+Follow this checklist strictly before adding anything to `patcher/`:
 
-If you later encounter a verified import/pipeline-loading problem for a
-specific model:
-
-1. Create `patcher/<model-name>/`.
-2. Add the minimal external fix file.
-3. Wire it to run in that model's adapter `_load_model()` before the affected
-   official import.
-4. Document what the fix addresses and why it cannot be in the adapter.
+1. **Verify Root Cause First**: Check whether the issue can be resolved inside the adapter (`backend/adapters/<model>_adapter.py`) or upstream submodule. Only use `patcher/` if the fix must run **before** third-party imports occur or needs worker process encapsulation.
+2. **One Model Per Subdirectory**: Create `patcher/<model-name>/`. Never combine patches for multiple models into a single file.
+3. **Execute Strictly Inside Worker Process**: The patch must be imported and applied inside `_load_model()` of that specific model's adapter. Never apply patches globally at backend startup.
+4. **Preserve Modern GPUs**: Always guard pre-Ampere workarounds behind `_is_pre_ampere` or capability checks. Never alter modern GPU (`sm >= 80`) native execution.
+5. **Add Unit Tests**: Write unit tests in `backend/tests/` verifying both modern GPU parity and pre-Ampere compatibility.

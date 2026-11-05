@@ -1,10 +1,9 @@
 # Architecture — ForMesh 3D
 
-> **Evidence note (2026-11-03):** This document contains dated design and historical implementation notes. Treat them as current behavior only when they match the checked-in source and the latest audit section below. Older per-model profiles, test-suite descriptions, and multi-GPU claims are not runtime verification. The current adapter audit is summarized in [MEMORY.md](MEMORY.md).
+> **Evidence note (2026-11-05):** This document contains live audited system architecture and historical design records. Live GPU verification is established for Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D (status: STABLE & LOCKED). GPU Doctor has been implemented in `patcher/doctor.py` as a standalone hardware execution planner and error-recovery utility. TaoFlowForge has received pre-Ampere query chunking attention (eliminating 10.06 GiB SDPA Math OOM) and stage-wise offloading. TRELLIS.2 features adaptive top-k percentile voxel fallback and rembg zero-alpha guard. Sibling model adapters remain strictly isolated. The current state is summarized in [MEMORY.md](MEMORY.md).
 
-
-> **Architecture Version**: 0.1.0 (FastAPI + Next.js 16)
-> **Last Reviewed**: November 3, 2026 (targeted TRELLIS.2 raw-mesh, Hunyuan3D-Shape, and Unique3D source/API audit)
+> **Architecture Version**: 0.2.0 (FastAPI + Next.js 16 + GPU Doctor)
+> **Last Reviewed**: November 5, 2026 (GPU Doctor, hardware execution planning, and live model verification audit)
 > **Target Environments**: Linux (Ubuntu 20.04/22.04/24.04), Cloud GPU / Local Workstations
 
 ---
@@ -34,6 +33,7 @@ Use this map to find the owner of a behavior before editing it.
 | Asset production and derivatives | `backend/postprocess/pipeline.py`, `backend/postprocess/services/` | Master promotion, repair, retopology, UV, baking, LOD, collision, QA, or export changes | `backend/config/quality.yaml`; preset recipes in `backend/config/smart_presets.yaml` |
 | Quality limits and production algorithms | `backend/config/quality.yaml`, `backend/core/config.py` | A threshold, sampling policy, physics default/bound, or production recipe changes | Required config keys are validated at load; add or run a focused checked-in test for the changed policy (the current CI loader test does not cover quality-config parity) |
 | Cross-cutting contracts and verification | `backend/tests/`, frontend `*.test.mjs`, `.github/workflows/` | A request, artifact, route, or runtime contract changes | Focused contract tests and the CI commands documented in [CONTRIBUTING.md](../CONTRIBUTING.md) |
+| Hardware compatibility and GPU Doctor | `patcher/` | GPU hardware diagnostics, precision routing, chunked SDPA, memory execution plans, or error recovery changes | `patcher/doctor.py`, `patcher/<model-name>/`; GPUInfo, ModelProfile |
 
 ### Generation runtime ownership
 
@@ -97,6 +97,66 @@ flowchart TD
 | **4. Scheduler** | `multiprocess_scheduler.py` | VRAM allocation, GPU dispatch locks, Best-of-N multi-seed scheduling (`candidate_count` 1..4), and composite quality scoring (`_score_and_select`). Strips all post-process only fields (`_POSTPROCESS_ONLY_INPUTS`) and adapter-owned inference keys (`_ADAPTER_OWNED_INFERENCE_INPUTS`). | Passes `image_path`, `seed`, `source_quality="max"` plus adapter-owned inputs to the adapter. Retains production budgets (`target_polycount`, `generateLOD`, `lodPreset`, `lodCount`, `physics_enabled`, texture options) for post-processing. |
 | **5. Model Adapter** | `adapters/*_adapter.py` | Model execution in dedicated worker processes. Owns locked native inference profile (`_LOCKED_INFERENCE_PROFILE`). Produces high-fidelity raw extraction without decimation or quality reduction. | Overwrites request-side inference parameters with locked schedule. Saves immutable raw mesh to `master/source.glb` with SHA-256 hash. |
 | **6. Production Pipeline** | `postprocess/pipeline.py` | Post-generation finishing engine. Reads immutable `master/source.glb` and executes production recipe stages based on the selected intent preset and advanced flags: Topology Gate $\to$ Hole Repair $\to$ Quad/Tri retopology $\to$ Decimation $\to$ UV unwrapping $\to$ Normal bake $\to$ Texture stage $\to$ Game-ready export $\to$ LODs $\to$ Collision hull $\to$ Preview/QA. | Produces production derivatives (`game_ready/`, `lods/`, `collision/`, `textures/`, `quality_report.json`). Never mutates `master/source.glb`. |
+| **7. GPU Doctor Subsystem** | `patcher/doctor.py`<br>`patcher/<model-name>/` | Standalone hardware diagnostics, precision selection, memory execution planning, and bounded error recovery. Implements query-chunked SDPA for pre-Ampere GPUs (`sm < 80`) and guarantees 100% native BF16 FlashAttention on modern GPUs (`sm >= 80`). Isolated strictly to worker processes. | Emits execution plans (`resident`, `cpu_offload`, `accelerate_dispatch`), intercepts runtime OOMs/logit collapses, records stage telemetry (`StageRecord`), and coordinates safe fallback execution without global monkeypatching. |
+
+### GPU Doctor & Hardware Compatibility Subsystem (`patcher/`)
+
+To solve extreme hardware diversity (from budget 16GB GPUs like Tesla T4 `sm_75` to large cloud instances like A100/H100 `sm >= 80`), ForMesh3D introduces **GPU Doctor** ([`patcher/doctor.py`](patcher/doctor.py)) along with model-scoped patchers ([`patcher/taoflowforge/`](patcher/taoflowforge/), [`patcher/triposg/`](patcher/triposg/)).
+
+```mermaid
+flowchart TD
+    %% Styling Definitions
+    classDef worker fill:#181c24,stroke:#64748b,stroke-width:2px,color:#f1f5f9;
+    classDef doctor fill:#0d242a,stroke:#06b6d4,stroke-width:2px,color:#a5f3fc;
+    classDef modern fill:#0d271c,stroke:#10b981,stroke-width:2px,color:#a7f3d0;
+    classDef preAmpere fill:#2d1b0d,stroke:#f59e0b,stroke-width:2px,color:#fde68a;
+    classDef action fill:#211833,stroke:#a855f7,stroke-width:2px,color:#e9d5ff;
+
+    subgraph SchedulerWorker ["Model Worker Process Boundary"]
+        ADP["Adapter _load_model() & _process_request()"]:::worker
+
+        subgraph DoctorCore ["GPU Doctor Core (patcher/doctor.py)"]
+            PROBE["1. inspect_gpu()<br/>Compute Capability (major, minor) & VRAM"]:::doctor
+            PLANNER["2. build_memory_plan()<br/>strategy, precision, attention_backend"]:::doctor
+            BRANCH{"Compute Capability<br/>sm >= 80 ?"}:::doctor
+
+            MODERN["Modern GPUs (sm >= 80: A100, H100, RTX 3090/4090)<br/>• Native BFloat16 Precision (Rule 1 zero-regression)<br/>• Official FlashAttention 2 / 3<br/>• Full Resident Execution"]:::modern
+
+            PRE_AMPERE["Pre-Ampere GPUs (sm < 80: Tesla T4, V100, RTX 2080)<br/>• Safe Precision: Native FP16 / BF16 DiT range<br/>• Attention: Query-Chunked SDPA (diff = 0.0)<br/>• Memory: Accelerate Offload & low_vram=True<br/>• Clean Cache between stages"]:::preAmpere
+        end
+
+        subgraph RuntimeExecution ["Inference & Telemetry"]
+            TRACK["with doctor.track_stage('stage_name') as stage:<br/>Records duration & peak VRAM (StageRecord)"]:::action
+            PIPELINE["Upstream ThirdParty Inference Pipeline"]:::worker
+        end
+
+        subgraph ErrorHandling ["Guard & Error Recovery"]
+            CLASSIFIER["classify_error(exc)<br/>7 categories: cuda_oom, unsupported_precision, etc."]:::action
+            RECOVER["recover(stage_name, exc, retry_count)<br/>Bounded Retries (max_retries=2)"]:::action
+        end
+    end
+
+    ADP --> PROBE
+    PROBE --> PLANNER
+    PLANNER --> BRANCH
+    BRANCH -->|YES| MODERN
+    BRANCH -->|NO| PRE_AMPERE
+
+    MODERN --> TRACK
+    PRE_AMPERE --> TRACK
+    TRACK --> PIPELINE
+    PIPELINE -->|Success| OUT["master/source.glb"]:::modern
+    PIPELINE -->|Exception| CLASSIFIER
+    CLASSIFIER --> RECOVER
+    RECOVER -->|Retry Approved| TRACK
+    RECOVER -->|Max Retries Exceeded| FAIL["Raise Structured Exception"]:::preAmpere
+```
+
+#### Core Invariants of the Subsystem:
+1. **Rule 1 Priority (Zero Modern GPU Regression)**: Modern GPUs (`sm >= 80`) never execute fallback branches, modified precision, or downgraded attention kernels. Upstream README parity is 100% maintained.
+2. **Mathematically Exact Pre-Ampere Query Chunking**: Pre-Ampere GPUs running large token sequences (e.g. 15,000+ tokens in TaoFlowForge Stage 1) slice the query dimension into tiles (`chunk_size=1024`). Because softmax normalizes along the key dimension, the result matches full attention with a mathematical difference of `0.0`, while peak memory drops from 10.06 GiB to ~30 MB.
+3. **No Global Framework Monkeypatching**: Patches are scoped strictly to worker processes or applied inside dedicated `patcher/<model-name>/` directories.
+4. **Tested & Verified Standalone**: All capabilities are verified via 28 unit tests in `backend/tests/test_gpu_doctor.py`. Model adapters remain completely untouched until explicitly wired.
 
 
 

@@ -42,6 +42,11 @@ def test_accepts_small_valid_mesh_without_face_count_minimum():
             np.array([[0, 1, 2]], dtype=np.int32),
             "every triangle is degenerate",
         ),
+        (
+            np.array([[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]]),
+            np.array([[0, 1, 2]], dtype=np.int32),
+            "hollow domain bounding box",
+        ),
     ],
 )
 def test_rejects_invalid_geometry(vertices, faces, message):

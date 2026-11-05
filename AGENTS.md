@@ -99,7 +99,6 @@ Bug fix = root cause, not symptom: a report names a symptom. Grep every caller o
   - Recent history (keep only the last three entries): `Docs/CHANGELOG.md`
   - System blueprint: `Docs/SYSTEM-BLUEPRINT.md`
   - HTTP API reference: `Docs/api-documentation.md`
-  - Model source and checkpoint links: `resources.md`
   - Main overview: `README.md`
   - Third-party source collection guide: `backend/thirdparty/README.md` (inside the submodule)
   - Workspace how-to pages: `features/wiki/content/content/*.md`

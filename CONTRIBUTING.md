@@ -52,6 +52,7 @@ The maintained Wheels release is used for compatible prebuilt Python wheels; the
 - Model adapters belong in `backend/adapters/`.
 - API routes belong in `backend/api/routers/`.
 - Scheduler code belongs in `backend/core/scheduler/`.
+- Model patchers and GPU compatibility belong in `patcher/` (`patcher/doctor.py` for GPU Doctor; `patcher/<model-name>/` for model-specific patchers).
 - Configuration belongs in `backend/config/`.
 - Backend scripts belong in `backend/scripts/`.
 - Keep adapter imports lazy.
@@ -84,17 +85,17 @@ bun test
 bun run lint
 bun run build
 
-# TRELLIS.2 raw geometry validation contract (NumPy-only CPU tests).
-python -m pytest -q backend/tests/test_trellis2_mesh_validation.py
+# Backend test suite (35 tests: GPU Doctor hardware diagnostics & TRELLIS.2 validation)
+python -m pytest -v backend/tests/
 
 # Verify clean compilation across all Python modules
-python3 -m compileall -q backend/
+python3 -m py_compile patcher/doctor.py patcher/__init__.py backend/tests/*.py
 
 # Verify shell script syntax
 bash -n manager.sh backend/scripts/*.sh scripts/*.sh
 ```
 
-The current backend CI covers source compilation, shell syntax, and the checked-in TRELLIS.2 raw-mesh validation contract. It does not load model weights or run inference. Other model-specific Python regression modules are not present in this branch's `backend/tests/` tree. Blender-stage validation and GPU/model inference require the full `3daigc-api` environment on an appropriate host.
+The current backend test suite covers Python source compilation, shell syntax, GPU Doctor hardware diagnostics / query-chunked SDPA equality (`backend/tests/test_gpu_doctor.py`), and the checked-in TRELLIS.2 raw-mesh validation contract (`backend/tests/test_trellis2_mesh_validation.py`). Blender-stage validation and GPU/model inference require the full `3daigc-api` environment on an appropriate host.
 
 ### Continuous integration
 

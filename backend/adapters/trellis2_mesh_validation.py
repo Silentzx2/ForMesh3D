@@ -39,6 +39,14 @@ def validate_mesh_arrays(vertices: Any, faces: Any, *, stage: str) -> dict[str, 
         raise ValueError(f"{stage}: bounding box contains NaN or Inf")
     if not np.isfinite(bbox_diagonal) or not np.any(extents > 0):
         raise ValueError(f"{stage}: geometry has zero or invalid spatial extent")
+    if (
+        np.all(extents >= 0.99)
+        and np.all(bounds_min <= -0.49)
+        and np.all(bounds_max >= 0.49)
+    ):
+        raise ValueError(
+            f"{stage}: geometry is a hollow domain bounding box ({extents.tolist()}) from empty sparse structure"
+        )
 
     # Convert bounded face batches, not the full vertex array, to float64.
     degenerate_faces = 0

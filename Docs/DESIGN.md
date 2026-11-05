@@ -36,9 +36,15 @@ All colors and surfaces in ForMesh 3D use HSL CSS variable design tokens. Direct
 
 ### Color Palette Visual Reference
 
-![ForMesh 3D Design Colors](../../assets/colors.jpeg)
+![ForMesh 3D Design Colors](../assets/colors.jpeg)
 
 > The `assets/colors.jpeg` image shows the complete color palette used across the ForMesh 3D UI, including Studio Gold (`#FFCC00`), Matte Black (`#080808`), and all HSL design tokens.
+
+### Studio Workspace UI Visual Reference
+
+![ForMesh 3D Studio Workspace Preview](../assets/formeshed3d-studio-ui.jpg)
+
+> The `assets/formeshed3d-studio-ui.jpg` screenshot shows the live Studio Gold (`#FFCC00`) on Matte Black (`#080808`) dark interface, featuring the continuous 3D Three.js viewport, left Generation Studio panel with Hunyuan3D Shape v2.1, and right asset drawer.
 
 ---
 

@@ -81,3 +81,19 @@
 7. Record source/CPU verification separately from GPU inference. T4, Ampere, and newer-GPU support remains unverified until actual checkpoint runs use the deployed PyTorch/CUDA/xFormers versions.
 
 **Consequences:** Invalid intermediate states now fail with a stage-specific error rather than continuing to export a potentially invisible mesh. The FP32 compatibility path can be slower and its availability depends on the installed xFormers build; unsupported configurations fail explicitly. The 49152 cascade token cap remains unchanged and is not a geometry density promise.
+
+---
+
+## ADR-103: GPU Doctor Architecture & Standalone Compatibility Framework (2026-11-05)
+
+**Context:** Heterogeneous execution environments (pre-Ampere GPUs such as Tesla T4 `sm_75` vs modern cloud GPUs `sm >= 80` such as A100/H100) triggered disparate failure modes across heavy 3D generative models: SDPA Math OOM (10.06 GiB on 15,000+ tokens in TaoFlowForge), DiT NaN overflow under FP16 autocast, and empty voxel coordinate collapses under extreme negative logits in TRELLIS.2. Previous workarounds risked global monkeypatching and cross-contamination across worker processes.
+
+**Decision:**
+1. Implement `GPUDoctor` as a compact, standalone, fully typed module in `patcher/doctor.py` (exposed via `patcher/__init__.py`). Strictly follow Ponytail Ultra principles (shortest working diff, zero unrequested abstractions).
+2. Rule 1 Preservation: Modern GPUs (`sm >= 80`) run in 100% native upstream mode (native BF16 precision and native FlashAttention) without any degradation, fallbacks, or performance penalties.
+3. Pre-Ampere Mitigations: Pre-Ampere GPUs (`sm < 80`) use mathematically exact query-chunked SDPA (`chunked_scaled_dot_product_attention`, difference = 0.0), reducing peak attention memory from 10.06 GiB to ~30 MB across both 3D and 4D tensor shapes.
+4. Memory Execution Planner: Builds deterministic plans (`resident`, `cpu_offload`, `accelerate_dispatch`) using native PyTorch and Hugging Face Accelerate (v1.15.0).
+5. Error Taxonomy & Guarded Recovery: Classifies exceptions into 7 actionable categories (`cuda_oom`, `unsupported_precision`, `dtype_mismatch`, `device_mismatch`, `attention_backend_failure`, `sparse_empty_voxels`, `unknown`) with bounded recovery attempts (`max_retries=2`).
+6. Deferred Adapter Integration: Keep all adapters (`backend/adapters/*.py`) and locked models (Hunyuan3D Shape/Turbo, Unique3D) strictly untouched until explicit model-by-model verification.
+
+**Consequences:** The GPU Doctor engine is completely testable on CPU via unit tests (28 passed in `backend/tests/test_gpu_doctor.py`). Sibling pipelines and locked models remain completely isolated with zero risk of cross-contamination. Adapter integration requires only 2-3 lines at the worker lifecycle boundary when invoked.

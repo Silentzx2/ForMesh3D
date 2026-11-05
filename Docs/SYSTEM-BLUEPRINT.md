@@ -2,33 +2,15 @@
 
 > **Document role:** Architecture notes and dated design history. Historical entries explain intended or previously implemented behavior; they are not a guarantee that the current branch still implements it.
 >
-> **Current status (2026-11-03):** Use [MEMORY.md](MEMORY.md) for the latest source audit and [ARCHITECTURE.md](ARCHITECTURE.md) for current responsibility boundaries. Adapter registration does not establish runtime readiness. Hunyuan3D-Shape and Unique3D received targeted source/API corrections and syntax checks; checkpoint loading, GPU inference, and output-quality validation remain NOT RUN. Pixal3D, Paint3D, UniRig, FastMesh V4K, and TRELLIS text painting retain unresolved source/API gaps.
->
-> When a historical entry conflicts with the current code or the audit, the current checked-in implementation and the latest audit take precedence.
+> **Current status (2026-11-05):** Use [MEMORY.md](MEMORY.md) for the latest source audit and [ARCHITECTURE.md](ARCHITECTURE.md) for current responsibility boundaries. Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D (geometry mode) are verified working on live GPU (status: STABLE & LOCKED). GPU Doctor is implemented in `patcher/doctor.py` as a standalone hardware planner and error recovery coordinator. TaoFlowForge Stage 1 incorporates query-chunked SDPA (eliminating 10.06 GiB OOM) and stage-wise offloading. TRELLIS.2 incorporates adaptive top-k percentile voxel fallback and rembg zero-alpha guard.
 
 ---
 
-## 2026-10-19 Texture, UV and Rigging Contract Update
-
-- Paint3D/Hunyuan3D-Paint requests reject user-supplied localized UV masks until an adapter actually wires them into inference; full-mesh texturing remains available.
-- The UV inspector requests the selected channel from the live viewport mesh, draws sampled triangle edges and shows only measurable counts/bounds. UV-island count, overlap and texel density are not claimed without analysis code.
-- PartUV honors the requested distortion threshold and individual-part output flag; a failed/missing pack artifact fails the operation instead of returning a false packed result.
-- UniRig UI sends no unsupported topology/IK/weight overrides. Manual symmetry remains editor-only, and persistence failures block the legacy inspector's success navigation.
-
-## 2026-09-30 Review Audit Runtime Contracts
-
-- Redis control-plane data uses noeviction; result payloads use dedicated TTL keys.
-- Scheduler SQLite persistence is offloaded from the async event loop.
-- Processing jobs are recovered after backend restart.
-- Timeout and cancellation terminate the owning worker before the job becomes terminal.
-- Client filesystem paths are root-restricted and upload/base64 ingestion is bounded.
-- Resource-blocked jobs rotate instead of globally blocking compatible work.
-
 # 🏛️ ForMesh 3D — Complete System Architecture & Pipeline Blueprint
 
-> **System Version**: 0.1.0 (FastAPI + Next.js 16, Python 3.10)
+> **System Version**: 0.2.0 (FastAPI + Next.js 16, Python 3.10, GPU Doctor)
 > **Target Deployments**: Single- or multi-GPU Linux / Cloud GPU / Local Workstations
-> **Last Verified**: October 19, 2026
+> **Last Verified**: November 5, 2026
 > **Design Tokens**: Studio Gold `#FFCC00` (`48 100% 50%`) on Matte Black `#080808`
 
 ---
@@ -40,7 +22,8 @@ ForMesh 3D is an end-to-end generative 3D reconstruction and asset optimization 
 ### Core Stack
 - **Frontend**: Next.js 16 (React 19, TypeScript, Three.js, React Three Fiber, Tailwind CSS)
 - **API Gateway**: FastAPI (Python 3.10, Conda env `3daigc-api`, Pydantic V2, AsyncIO)
-- **Model Adapters**: 17 adapter modules and registry entries connect the application to TRELLIS, TRELLIS.2, Hunyuan3D, Paint3D, PartUV, UniRig, FastMesh, TripoSG, Unique3D, ARDY, Pixal3D, TaoFlowForge, and Hi3D. The 2026-11-03 static audit corrected Hunyuan3D-Shape import/result handling and routed Unique3D through its real multiview-to-mesh entry point; neither has GPU/runtime validation yet. Pixal3D, Paint3D, UniRig, FastMesh V4K, and TRELLIS text painting remain unresolved. See `Docs/MEMORY.md`.
+- **GPU Doctor & Compatibility Engine**: Standalone hardware planner (`patcher/doctor.py`), precision router, query-chunked SDPA (diff = 0.0), Accelerate offload, and bounded error recovery.
+- **Model Adapters**: 17 adapter modules and registry entries connecting the application to TRELLIS, TRELLIS.2, Hunyuan3D, Paint3D, PartUV, UniRig, FastMesh, TripoSG, Unique3D, ARDY, Pixal3D, TaoFlowForge, and Hi3D. Live GPU verified and locked: Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D. See `Docs/MEMORY.md`.
 - **Scheduler**: VRAM-aware multiprocess scheduler with GPU monitoring
 - **Queue/Broker**: Redis 7 (optional, multi-worker mode only)
 - **File Storage**: Local filesystem + Redis FileStore (multi-worker mode)
