@@ -163,6 +163,8 @@ image_to_raw_mesh:
   # Keep the raw master non-decimated. Low-VRAM remains false; ask the user once before any later profile edit.
   pixal3d_image_to_raw_mesh:
     model_name: "Pixal3D — Image to Raw Mesh"
+    status: "not_tested"
+    verified: false
     upstream_repository: "https://github.com/TencentARC/Pixal3D"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
     checkpoint_license: "unverified"
@@ -201,6 +203,8 @@ image_to_raw_mesh:
   # EXPERIMENTAL_MAX_DETAIL: legacy alias of pixal3d_image_to_raw_mesh; it must inherit the same 1536 O-Voxel source profile, not an independent lower-resolution profile.
   pixal3d_image_to_3d:
     model_name: "Pixal3D — Image to 3D"
+    status: "not_tested"
+    verified: false
     upstream_repository: "https://github.com/TencentARC/Pixal3D"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
     checkpoint_license: "unverified"
@@ -394,6 +398,8 @@ image_to_raw_mesh:
 
   taoflowforge_image_to_raw_mesh:
     model_name: "TaoFlowForge — Progressive Native Mesh Generation"
+    status: "not_tested"
+    verified: false
     upstream_repository: "https://github.com/alibaba/Taobao3D"
     upstream_ref: null
     checkpoint_license: "apache-2.0"
