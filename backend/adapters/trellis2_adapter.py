@@ -67,18 +67,30 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         self._pipeline: Any = None
 
     def _load_model(self) -> Any:
+        # Pre-Ampere detection (sm < 80, e.g. Tesla T4 sm_75):
+        # Configure fallback attention backends ONLY on pre-Ampere GPUs.
+        # Modern GPUs (sm >= 80, e.g. A100, RTX 4090, H100) MUST preserve native FlashAttention!
+        device_is_pre_ampere = False
+        if torch is not None and torch.cuda.is_available():
+            try:
+                gpu_idx = int(self.gpu_id) if self.gpu_id is not None else torch.cuda.current_device()
+                device_is_pre_ampere = torch.cuda.get_device_capability(gpu_idx)[0] < 8
+            except Exception:
+                device_is_pre_ampere = False
+
         # Ensure sparse conv defaults to spconv if flex_gemm is not explicitly requested or available
         if not os.environ.get("SPARSE_CONV_BACKEND"):
             try:
                 import flex_gemm  # noqa: F401
             except ImportError:
                 os.environ["SPARSE_CONV_BACKEND"] = "spconv"
-        # Prefer xFormers on T4; its TRELLIS.2 attention path uses capability-aware BF16/FP32 dispatch.
-        if not os.environ.get("SPARSE_ATTN_BACKEND"):
-            os.environ["SPARSE_ATTN_BACKEND"] = "xformers"
-        # Dense attention backend: SDPA is universal and handles all precisions safely without Ampere-only flash-attn crash
-        if not os.environ.get("ATTN_BACKEND"):
-            os.environ["ATTN_BACKEND"] = "sdpa"
+
+        if device_is_pre_ampere:
+            # On pre-Ampere (T4 sm_75), prefer xFormers for sparse and SDPA for dense attention
+            if not os.environ.get("SPARSE_ATTN_BACKEND"):
+                os.environ["SPARSE_ATTN_BACKEND"] = "xformers"
+            if not os.environ.get("ATTN_BACKEND"):
+                os.environ["ATTN_BACKEND"] = "sdpa"
 
         # Make the vendored TRELLIS.2 source importable in the worker process,
         # which only has backend/ on sys.path. Model-specific source path setup
@@ -155,11 +167,9 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
                         model.to(dtype=torch.float16)
                 except Exception as conv_err:
                     logger.warning("Could not convert %s to FP16: %s", name, conv_err)
-            try:
-                if hasattr(pipeline, "image_cond_model") and hasattr(pipeline.image_cond_model, "model"):
-                    pipeline.image_cond_model.model.to(dtype=torch.float16)
-            except Exception as cond_err:
-                logger.warning("Could not convert image_cond_model to FP16: %s", cond_err)
+            # Note: image_cond_model (DINOv3 ViT) is preserved in native precision
+            # (BF16/FP32). ViT RoPE attention patterns suffer severe roundoff distortion in FP16.
+            # DINOv3 runs only once (~0.3s) and is offloaded to CPU under low_vram=True.
 
         use_low_vram = (device == "cpu") or (total_vram_gb < 22.0)
         pipeline.low_vram = use_low_vram
