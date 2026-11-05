@@ -206,14 +206,14 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
                     max_num_tokens=49152,
                     generate_texture=False,
                     sparse_structure_sampler_params={
-                        "steps": 50,
+                        "steps": 12,
                         "guidance_strength": 7.5,
                         "guidance_rescale": 0.7,
                         "guidance_interval": [0.6, 1.0],
                         "rescale_t": 5.0,
                     },
                     shape_slat_sampler_params={
-                        "steps": 50,
+                        "steps": 12,
                         "guidance_strength": 7.5,
                         "guidance_rescale": 0.5,
                         "guidance_interval": [0.6, 1.0],
