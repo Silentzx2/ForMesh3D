@@ -1,10 +1,10 @@
 # ForMesh3D Changelog
 
-## 2026-11-05 — TaoFlowForge Stage 2 Empty Vertices Resolution & TRELLIS.2 Dtype Alignment
+## 2026-11-05 — TRELLIS.2 LayerNorm/GroupNorm Dtype Alignment & TaoFlowForge Empty Vertices Resolution
 
-- TaoFlowForge: resolved `ValueError: Stage 2 vertices are empty` by adding top-candidate occupancy fallback (`probs >= top_thresh`) in `stage1.py` when thresholding prunes all octree children. Added parent coordinate scaling fallback if `_expand_children` yields no children, and minimal vertex fallback in `stage2.py` `prepare_vertices`. Normal inference on large GPUs (`probs > 0.5`) remains untouched.
-- TRELLIS.2: resolved `RuntimeError: mat1 and mat2 must have the same dtype, but got Float and Half` in `SparseStructureFlowModel` and `SLatFlowModel`. Cast `timestep_embedding` positional outputs to match `self.mlp` parameter dtype (`next(self.mlp.parameters()).dtype`) in `TimestepEmbedder.forward`.
-- TRELLIS.2: dynamically cast inputs and outputs to match linear layer weights in `SparseStructureFlowModel.forward` (`input_layer`, `pos_emb`, `out_layer`) and `SLatFlowModel.forward`, cast image input to DINOv2 model dtype in `image_feature_extractor.py`, and aligned `slat.feats` with `shape_slat_decoder` dtype in `decode_shape_slat`.
+- TRELLIS.2: resolved `RuntimeError: expected scalar type Float but found Half` in `LayerNorm32`, `GroupNorm32`, `SparseLayerNorm32`, and `SparseGroupNorm32`. Dynamically align input tensor dtype with `self.weight.dtype` before `super().forward(x)` so normalization runs natively in FP16 on converted models without hardcoded float32 mismatch.
+- TRELLIS.2: resolved `RuntimeError: mat1 and mat2 must have the same dtype, but got Float and Half` by casting `timestep_embedding` positional outputs to `self.mlp` parameter dtype, and casting inputs/outputs to match layer weights in `sparse_structure_flow.py`, `structured_latent_flow.py`, `image_feature_extractor.py`, and `decode_shape_slat`.
+- TaoFlowForge: resolved `ValueError: Stage 2 vertices are empty` by adding top-candidate occupancy fallback (`probs >= top_thresh`) in `stage1.py` when thresholding prunes all octree children, parent coordinate scaling fallback in `_expand_children`, and minimal vertex fallback in `stage2.py` `prepare_vertices`.
 - Verification: `pytest backend/tests/test_trellis2_mesh_validation.py` passed (7/7). `bun test` passed (60/60 tests across 11 files). `py_compile` syntax checked across all modified files.
 
 ---
