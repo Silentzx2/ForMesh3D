@@ -28,6 +28,9 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict
 
+import numpy as np
+import trimesh
+
 try:
     import torch
 except ImportError:  # pragma: no cover - torch optional in CPU-only environments
@@ -35,6 +38,7 @@ except ImportError:  # pragma: no cover - torch optional in CPU-only environment
 
 from backend.core.models.base import BaseModel, ModelStatus
 from backend.loader import get_model_weights_dir
+from .trellis2_mesh_validation import validate_mesh_arrays
 
 # DINOv3 image-conditioner weights are required by TaoFlowForge stage0/stage2
 # when the stage checkpoints do not embed them. Resolve from local storage,
@@ -158,6 +162,7 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
             dino_checkpoint=dino_checkpoint,
         )
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None and torch and torch.cuda.is_available() else "cpu"
+        self.device = device
         pipeline = TaoFlowForgePipeline.from_config(config, device=device)
         self._pipeline = pipeline
         self.model = pipeline
@@ -189,13 +194,31 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
             with ctx:
                 result = None
                 for update in pipeline.iter_run(
-                    image_path, output_dir=request_workdir, seed=seed, show_progress=False
+                    image_path, output_dir=request_workdir, seed=seed, show_progress=True
                 ):
+                    if update.message:
+                        logger.info("[TaoFlowForge] %s", update.message)
                     if update.result is not None:
                         result = update.result
 
                 if result is None:
                     return {"success": False, "error": "TaoFlowForge pipeline terminated without a result"}
+
+            if result.mesh is None:
+                return {"success": False, "error": "TaoFlowForge produced no mesh"}
+
+            vertices = np.asarray(result.mesh.vertices)
+            faces = np.asarray(result.mesh.faces)
+            try:
+                decoded_stats = validate_mesh_arrays(vertices, faces, stage="decoded mesh")
+                logger.info(
+                    "[TaoFlowForge] Decoded mesh validated: vertices=%d, faces=%d",
+                    decoded_stats["vertex_count"],
+                    decoded_stats["face_count"],
+                )
+            except ValueError as exc:
+                logger.error("TaoFlowForge mesh validation failed for seed %s: %s", seed, exc)
+                return {"success": False, "error": f"TaoFlowForge mesh validation failed: {exc}"}
 
             out = Path(result.glb_path) if result.glb_path else None
             if out is None or not out.is_file():
@@ -206,6 +229,18 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
                     out = Path(result.final_mesh_path)
                 else:
                     return {"success": False, "error": "TaoFlowForge produced no exportable mesh output"}
+
+            if not out.is_file() or out.stat().st_size <= 256:
+                return {
+                    "success": False,
+                    "error": f"TaoFlowForge produced an empty or invalid GLB file ({out.stat().st_size if out.is_file() else 0} bytes)",
+                }
+
+            try:
+                reloaded = trimesh.load(str(out), force="mesh", process=False)
+                validate_mesh_arrays(reloaded.vertices, reloaded.faces, stage="GLB round-trip")
+            except Exception as exc:
+                return {"success": False, "error": f"TaoFlowForge GLB validation failed: {exc}"}
         except Exception as exc:
             logger.error("TaoFlowForge inference failed: %s", exc, exc_info=True)
             return {"success": False, "error": f"TaoFlowForge inference failed: {exc}"}
