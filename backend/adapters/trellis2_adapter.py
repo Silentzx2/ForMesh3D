@@ -188,7 +188,6 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
         # Retry on hollow-box output: the sparse-structure flow can under-converge
         # on some seeds, emitting a domain-cube instead of the input object.
-        # TEMP TEST CONFIG: max_attempts=3 for hollow-box recovery; restore to 3 after stable.
         max_attempts = 3
         mesh = None
         used_seed = seed
@@ -197,25 +196,28 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
             attempt_seed = seed + attempt * 1337  # seed_step from quality.yaml
             ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
             with ctx:
-                # TEMP TEST CONFIG: 1024_cascade + 10 steps for faster results.
-                # Restore to 1536_cascade + 50 steps after stable.
+                # Full production high-fidelity shape cascade: 1536_cascade, max_num_tokens=49152.
+                # Texture generation is explicitly disabled for raw mesh (no texture SLat sampling or decoding).
+                # Sampler schedule follows the official TRELLIS.2 pipeline.json defaults (microsoft/TRELLIS.2-4B).
                 meshes = pipeline.run(
                     image,
                     seed=attempt_seed,
-                    pipeline_type="1024_cascade",
+                    pipeline_type="1536_cascade",
                     max_num_tokens=49152,
                     generate_texture=False,
                     sparse_structure_sampler_params={
-                        "steps": 10,
+                        "steps": 50,
                         "guidance_strength": 7.5,
-                        "guidance_rescale": 1.0,
-                        "rescale_t": 1.0,
+                        "guidance_rescale": 0.7,
+                        "guidance_interval": [0.6, 1.0],
+                        "rescale_t": 5.0,
                     },
                     shape_slat_sampler_params={
-                        "steps": 10,
+                        "steps": 50,
                         "guidance_strength": 7.5,
-                        "guidance_rescale": 1.0,
-                        "rescale_t": 1.0,
+                        "guidance_rescale": 0.5,
+                        "guidance_interval": [0.6, 1.0],
+                        "rescale_t": 3.0,
                     },
                 )
 
@@ -290,7 +292,7 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
                 "num_inference_steps": "adapter_owned",
                 "guidance_scale": "adapter_owned",
                 "octree_resolution": "adapter_owned",
-                "pipeline_type": "1024_cascade",
+                "pipeline_type": "1536_cascade",
                 "max_num_tokens": 49152,
                 "generate_texture": False,
             },
