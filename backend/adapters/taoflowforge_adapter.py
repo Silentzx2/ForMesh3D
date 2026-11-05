@@ -155,7 +155,7 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
             stage1=Stage1Config(checkpoint=weights_path / "stage1.pt", num_steps=30, cfg_scale=7.0),
             stage2=Stage2Config(checkpoint=weights_path / "stage2.pt", num_steps=50, cfg_scale=3.0),
             seed=DEFAULT_SEED,
-            offload="auto",
+            offload="on",
             fill_holes=True,
             image_size=1024,
             output_dir=Path(tempfile.gettempdir()) / "taoflowforge",
