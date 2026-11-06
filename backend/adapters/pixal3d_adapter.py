@@ -66,6 +66,25 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
 
     def _load_model(self) -> Any:
         os.environ.setdefault("SPARSE_CONV_BACKEND", "none")  # skip flex_gemm/triton autotune crash
+        # Pixal3D's representations/mesh/base.py hardcodes
+        # `from flex_gemm.ops.grid_sample import grid_sample_3d`, which ignores
+        # SPARSE_CONV_BACKEND and crashes on triton autotune. Stub flex_gemm so
+        # the hardcoded import succeeds; grid_sample_3d is only used inside
+        # MeshWithVoxel.query_attrs(), never at import time.
+        import types as _types
+        for _mod in ("flex_gemm", "flex_gemm.ops", "flex_gemm.ops.grid_sample"):
+            if _mod not in sys.modules:
+                sys.modules[_mod] = _types.ModuleType(_mod)
+        fg = sys.modules["flex_gemm"]
+        ops = sys.modules["flex_gemm.ops"]
+        gs = sys.modules["flex_gemm.ops.grid_sample"]
+        fg.ops = ops
+        ops.grid_sample = gs
+
+        def _grid_sample_3d_stub(*_a, **_k):
+            raise RuntimeError("flex_gemm/triton disabled; MeshWithVoxel.query_attrs is unavailable (SPARSE_CONV_BACKEND=none)")
+
+        gs.grid_sample_3d = _grid_sample_3d_stub
         _pixal3d_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Pixal3D")
         if _pixal3d_root not in sys.path:
             sys.path.insert(0, _pixal3d_root)

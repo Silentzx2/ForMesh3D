@@ -545,14 +545,6 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     echo "[INFO] Installing spconv-cu124..."
     install_local_wheel "spconv_cu124-*.whl" "spconv-cu124" || { echo "[ERROR] spconv-cu124 wheel not found in $WHEEL_DIR"; exit 1; }
 
-    # flex_gemm — prebuilt wheel only, no source build (Pixal3D sparse conv backend).
-    # Try wheel-house fast path first; fall back to direct URL wheel if absent.
-    echo "[INFO] Installing flex_gemm..."
-    if ! install_local_wheel "flex_gemm-*.whl" "flex_gemm"; then
-        echo "[WARN] flex_gemm not in $WHEEL_DIR; installing from direct URL..."
-        $UV_PIP install "https://github.com/JeffreyXiang/Storages/releases/download/Space_Wheels_251210/flex_gemm-0.0.1-cp310-cp310-linux_x86_64.whl" || echo "[ERROR] flex_gemm install failed — Pixal3D sparse conv will fall back to 'none' via SPARSE_CONV_BACKEND env."
-    fi
-
     echo "[SUCCESS] Model dependencies installed."
 else
     echo "[INFO] Skipping model dependencies (no GPU detected)."
