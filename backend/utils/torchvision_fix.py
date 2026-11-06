@@ -933,6 +933,29 @@ def _patch_flex_gemm_sources():
                     if "tl.tensor|None" in new_text:
                         new_text = new_text.replace("tl.tensor|None", "None")
 
+                    if file == "utils.py":
+                        # Kaggle / pre-Ampere / unsupported GPU fallback for autotune configs
+                        old_raise = 'raise ValueError("No autotune configuration found for the current platform and device.")'
+                        if old_raise in new_text:
+                            new_text = new_text.replace(
+                                old_raise,
+                                "if platform and 'cuda' in platform:\n            return platform['cuda']\n        if platform:\n            return next(iter(platform.values()))\n        if device:\n            return next(iter(device.values()))\n        return []"
+                            )
+                        if "def get_platform_name():" in new_text and "name = get_gpu_name()" in new_text:
+                            new_text = re.sub(
+                                r"def get_platform_name\(\):.*?(?=\ndef \w+|\Z)",
+                                "def get_platform_name():\n    try:\n        name = get_gpu_name()\n        if 'AMD' in name or 'hip' in str(name).lower():\n            return 'hip'\n        return 'cuda'\n    except Exception:\n        return 'cuda'\n",
+                                new_text,
+                                flags=re.DOTALL,
+                            )
+                        if "def get_gpu_name():" in new_text and "return torch.cuda.get_device_name()" in new_text:
+                            new_text = re.sub(
+                                r"def get_gpu_name\(\):.*?(?=\ndef \w+|\Z)",
+                                "def get_gpu_name():\n    try:\n        return torch.cuda.get_device_name()\n    except Exception:\n        return ''\n",
+                                new_text,
+                                flags=re.DOTALL,
+                            )
+
                     # In hashmap.py, query vectors in TRELLIS.2 are already 32-bit integer coords.
                     # Bypassing the multi-width bit packing helper avoids unsupported dtype.itemsize AST checks.
                     if file == "hashmap.py" and "_vec_pack_little_endian_to_int32" in new_text:
@@ -1118,13 +1141,34 @@ def fix_flex_gemm():
     except Exception:
         pass
     try:
-        from utils.flex_gemm_fallback import install_flex_gemm_shim
-        return install_flex_gemm_shim()
+        if "flex_gemm.kernels.triton.utils" in sys.modules:
+            fg_utils = sys.modules["flex_gemm.kernels.triton.utils"]
+            if hasattr(fg_utils, "get_autotune_config"):
+                orig_autotune = fg_utils.get_autotune_config
+                def _safe_get_autotune_config(default=None, platform=None, device=None):
+                    try:
+                        return orig_autotune(default=default, platform=platform, device=device)
+                    except ValueError:
+                        if platform and "cuda" in platform:
+                            return platform["cuda"]
+                        if platform:
+                            return next(iter(platform.values()))
+                        if device:
+                            return next(iter(device.values()))
+                        return []
+                fg_utils.get_autotune_config = _safe_get_autotune_config
     except Exception:
+        pass
+
+    install_fn = None
+    try:
+        from utils.flex_gemm_fallback import install_flex_gemm_shim
+        install_fn = install_flex_gemm_shim
+    except (ImportError, ModuleNotFoundError):
         try:
             from backend.utils.flex_gemm_fallback import install_flex_gemm_shim
-            return install_flex_gemm_shim()
-        except Exception:
+            install_fn = install_flex_gemm_shim
+        except (ImportError, ModuleNotFoundError):
             try:
                 import sys
                 from pathlib import Path
@@ -1132,11 +1176,17 @@ def fix_flex_gemm():
                 if backend_dir not in sys.path:
                     sys.path.insert(0, backend_dir)
                 from utils.flex_gemm_fallback import install_flex_gemm_shim
-                return install_flex_gemm_shim()
-            except Exception as e:
-                import traceback
-                print(f"Failed to apply flex_gemm fix: {e}\n{traceback.format_exc()}")
-                return False
+                install_fn = install_flex_gemm_shim
+            except Exception:
+                pass
+
+    if install_fn is not None:
+        try:
+            return install_fn()
+        except Exception as e:
+            logger.debug("Failed to apply flex_gemm shim: %s", e)
+            return False
+    return False
 
 
 def get_grid_sample_3d():
