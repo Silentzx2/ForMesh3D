@@ -2098,7 +2098,7 @@ class MultiprocessModelScheduler:
         child_job_id: str,
         base_result: Dict[str, Any],
     ) -> None:
-        """Wait for UniRig, persist the durable rigged artifact, then finalize the parent job."""
+        """Wait for SkinTokens auto-rigging, persist the durable rigged artifact, then finalize the parent job."""
         try:
             while True:
                 parent_job = await self.job_queue.get_job(parent_job_id)
@@ -2143,7 +2143,7 @@ class MultiprocessModelScheduler:
                 child_path = child_result.get("output_mesh_path")
                 child_fbx_path = child_result.get("output_fbx_path")
                 if not child_path or not Path(child_path).is_file() or Path(child_path).suffix.lower() != ".glb":
-                    raise RuntimeError("UniRig completed without a durable output_mesh_path")
+                    raise RuntimeError("SkinTokens auto-rigging completed without a durable output_mesh_path")
 
                 asset_root = Path(result["asset_root"]).resolve()
                 storage_root = (get_storage_base_dir() / "models" / "meshes").resolve()

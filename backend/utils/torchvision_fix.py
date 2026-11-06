@@ -1215,7 +1215,7 @@ def fix_pixal3d_modules():
 
 def fix_torch_cluster():
     """
-    Ensure torch_cluster.fps is importable for UniRig.
+    Ensure torch_cluster.fps is importable for auto-rigging.
     If torch_cluster is not installed (e.g. Kaggle/minimal CUDA env),
     installs a pure-PyTorch Farthest Point Sampling fallback into sys.modules.
     """
