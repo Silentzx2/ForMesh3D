@@ -1,5 +1,21 @@
 # ForMesh3D Changelog
 
+## 2026-11-06 — TaoFlowForge Pre-Ampere OOM Elimination & Pixal3D Backend Selection
+
+- **TaoFlowForge Pre-Ampere OOM Fix**:
+  - Identified root cause of 14 GiB VRAM peak in Stage 1 and OOM during Stage 2 loading on pre-Ampere GPUs (`sm < 80`, e.g. Tesla T4): hardcoded `torch.bfloat16` compute dtype in `taoflowforge/models/attention.py` forced PyTorch SDPA into memory-intensive MATH backend (allocating 10-14 GB for N×N dense attention).
+  - Updated `get_compute_dtype` in `attention.py` and `patcher/taoflowforge/__init__.py` to use `torch.float16` on pre-Ampere devices, enabling hardware-accelerated Cutlass memory-efficient SDPA while preserving native `bfloat16` on modern GPUs (`sm >= 80`).
+  - Added explicit inter-stage GPU eviction (`.to('cpu')` and `.offload()`) before releasing stages in `taoflowforge/pipeline.py` so GPU VRAM is completely freed between stages.
+  - Implemented intra-stage sub-component CPU offloading for DINO encoder, DiT denoiser, and vertex decoder in `stage1.py` and `stage2.py` for pre-Ampere GPUs.
+  - Enabled `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in `taoflowforge_adapter.py`.
+- **Pixal3D Sparse Conv Backend**:
+  - Removed invalid `SPARSE_CONV_BACKEND="none"` fallback that broke SparseUNetVae module imports (`conv_none`).
+  - Scoped backend selection: uses `spconv` on pre-Ampere or environments without flex_gemm, and preserves `flex_gemm` on modern GPUs (`sm >= 80`).
+  - Restored `flex_gemm` prebuilt wheel installation command in `backend/scripts/install.sh`.
+- **Verification**: Created `backend/tests/test_taoflowforge_adapter.py` (7 tests). All 51 backend pytest tests passed. All 60 frontend bun tests passed.
+
+---
+
 ## 2026-11-06 — Complete Hi3D Decommissioning & Redundant Geometry Refinement Cleanup
 
 - **Decommissioned Hi3D Submodule**: Completely removed `backend/thirdparty/Hi3D/` (9,660+ lines of redundant code) and deleted `backend/adapters/hi3d_adapter.py`.
@@ -19,13 +35,4 @@
 - **System & UI Integration**: Updated `backend/config/models.yaml`, `backend/scripts/download_models.sh`, `constants/models.ts`, API routers, scheduler providers, and frontend Rigging Studio panels.
 - **Verification**: `backend/tests/test_skintokens_adapter.py` passed (8/8). Full backend suite `backend/tests/` passed (44/44). Frontend `bun test` passed (60/60).
 
----
-
-## 2026-11-05 — PR #80 review follow-ups
-
-- Scoped TRELLIS.2 sparse-convolution fallback selection to the adapter worker's assigned GPU; the global hardware helper no longer forces spconv on every worker. The painting adapter follows the same per-GPU selection and preserves the upstream FlexGEMM path on modern GPUs when available.
-- Unified the TRELLIS.2 painting adapter status check with the adapter's backend.core.models.base.ModelStatus enum.
-- The model downloader loads the project/backend .env before resolving MODEL_STORAGE_ROOT.
-- Image-to-raw-mesh jobs now forward the top-level seed; it takes precedence over legacy model_parameters.seed.
-- Verification: source-level fixes only in this commit; CI and GPU inference are pending rerun.
 

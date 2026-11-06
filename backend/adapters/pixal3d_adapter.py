@@ -65,29 +65,63 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
         self._pipeline: Any = None
 
     def _load_model(self) -> Any:
-        os.environ.setdefault("SPARSE_CONV_BACKEND", "none")  # skip flex_gemm/triton autotune crash
-        # Pixal3D's representations/mesh/base.py hardcodes
-        # `from flex_gemm.ops.grid_sample import grid_sample_3d`, which ignores
-        # SPARSE_CONV_BACKEND and crashes on triton autotune. Stub flex_gemm so
-        # the hardcoded import succeeds; grid_sample_3d is only used inside
-        # MeshWithVoxel.query_attrs(), never at import time.
-        import types as _types
-        for _mod in ("flex_gemm", "flex_gemm.ops", "flex_gemm.ops.grid_sample"):
-            if _mod not in sys.modules:
-                sys.modules[_mod] = _types.ModuleType(_mod)
-        fg = sys.modules["flex_gemm"]
-        ops = sys.modules["flex_gemm.ops"]
-        gs = sys.modules["flex_gemm.ops.grid_sample"]
-        fg.ops = ops
-        ops.grid_sample = gs
+        # Determine whether worker is on pre-Ampere GPU (e.g. Tesla T4)
+        device_is_pre_ampere = False
+        if torch is not None and torch.cuda.is_available() and self.gpu_id is not None:
+            try:
+                major, _ = torch.cuda.get_device_capability(self.gpu_id)
+                device_is_pre_ampere = major < 8
+            except Exception:
+                pass
 
-        def _grid_sample_3d_stub(*_a, **_k):
-            raise RuntimeError("flex_gemm/triton disabled; MeshWithVoxel.query_attrs is unavailable (SPARSE_CONV_BACKEND=none)")
+        # Select sparse-convolution backend. Never use 'none' because Pixal3D
+        # has no conv_none backend and will fail to instantiate SparseUNetVae.
+        # On pre-Ampere (T4 sm_75), prefer spconv; on Ampere+ (sm >= 80), prefer flex_gemm.
+        current_backend = os.environ.get("SPARSE_CONV_BACKEND", "")
+        if not current_backend or current_backend == "none":
+            if device_is_pre_ampere:
+                os.environ["SPARSE_CONV_BACKEND"] = "spconv"
+            else:
+                try:
+                    import flex_gemm  # noqa: F401
+                    os.environ["SPARSE_CONV_BACKEND"] = "flex_gemm"
+                except Exception:
+                    os.environ["SPARSE_CONV_BACKEND"] = "spconv"
 
-        gs.grid_sample_3d = _grid_sample_3d_stub
+        if device_is_pre_ampere:
+            if not os.environ.get("SPARSE_ATTN_BACKEND"):
+                try:
+                    import xformers  # noqa: F401
+                    os.environ["SPARSE_ATTN_BACKEND"] = "xformers"
+                except ImportError:
+                    pass
+            if not os.environ.get("ATTN_BACKEND"):
+                os.environ["ATTN_BACKEND"] = "sdpa"
+
+        # Apply compatibility shims (flex_gemm autotune/fallback, cumesh, dinov3)
+        try:
+            from utils.torchvision_fix import apply_fix
+            apply_fix()
+        except Exception:
+            try:
+                from backend.utils.torchvision_fix import apply_fix
+                apply_fix()
+            except Exception:
+                pass
+
         _pixal3d_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Pixal3D")
         if _pixal3d_root not in sys.path:
             sys.path.insert(0, _pixal3d_root)
+
+        # Synchronize Pixal3D sparse config with chosen environment setting
+        try:
+            import pixal3d.modules.sparse.config as sparse_config
+            sparse_config.set_conv_backend(os.environ["SPARSE_CONV_BACKEND"])
+            if os.environ.get("SPARSE_ATTN_BACKEND"):
+                sparse_config.set_attn_backend(os.environ["SPARSE_ATTN_BACKEND"])
+        except Exception:
+            pass
+
         from pixal3d.pipelines import Pixal3DImageTo3DPipeline
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)

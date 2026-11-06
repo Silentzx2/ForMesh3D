@@ -31,6 +31,8 @@ from typing import Any, Dict
 import numpy as np
 import trimesh
 
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 try:
     import torch
 except ImportError:  # pragma: no cover - torch optional in CPU-only environments
