@@ -27,11 +27,9 @@ _ADAPTER_MAP: dict[str, str] = {
     "trellis2_image_to_3d": "backend.adapters.trellis2_adapter",
     "trellis2_image_to_raw_mesh": "backend.adapters.trellis2_adapter",
     "taoflowforge_image_to_raw_mesh": "backend.adapters.taoflowforge_adapter",
-    "hi3d_image_to_raw_mesh": "backend.adapters.hi3d_adapter",
     # ── legacy textured-mesh aliases ───────────────────────────────────
     "trellis_image_to_textured_mesh": "backend.adapters.trellis_adapter",
     "trellis2_image_to_textured_mesh": "backend.adapters.trellis2_adapter",
-    "hi3d_image_to_textured_mesh": "backend.adapters.hi3d_adapter",
     # ── image-mesh-painting ────────────────────────────────────────────
     "trellis_image_mesh_painting": "backend.adapters.trellis_adapter",
     "trellis2_image_mesh_painting": "backend.adapters.trellis2_adapter",

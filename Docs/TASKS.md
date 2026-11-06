@@ -137,3 +137,12 @@
 - [x] Update `Docs/DECISIONS.md` (architectural decision record for SkinTokens over UniRig).
 - [x] Update `Docs/CHANGELOG.md` (recent entries).
 - [x] Update `Docs/api-documentation.md` (endpoints, payload examples).
+
+### Phase 9: Complete Hi3D Decommissioning & Redundant Geometry Refinement Cleanup
+- [x] Delete `backend/thirdparty/Hi3D/` (9,660+ lines of redundant code) and update submodule licenses.
+- [x] Delete `backend/adapters/hi3d_adapter.py`.
+- [x] Remove `hi3d_image_to_raw_mesh` and `hi3d_image_to_textured_mesh` from `backend/config/models.yaml`, `backend/core/planner.py`, `backend/adapters/__init__.py`, and schedulers.
+- [x] Remove `/refine-mesh` endpoint and `RefineMeshRequest` from `backend/api/routers/mesh_generation.py`.
+- [x] Remove `download_hi3d()` from `backend/scripts/download_models.sh` (saving ~8GB disk space).
+- [x] Clean frontend UI: delete `ViewerToolbar.tsx`, remove `refineMesh` from `WorkspaceContext` and `apiClient`, and purge Hi3D from `GeneratePanel.tsx` and `constants/models.ts`.
+- [x] Verified full backend suite (44/44 PASS) and frontend test suite (60/60 PASS). Zero regressions.

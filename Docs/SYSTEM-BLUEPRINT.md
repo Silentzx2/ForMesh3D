@@ -23,7 +23,7 @@ ForMesh 3D is an end-to-end generative 3D reconstruction and asset optimization 
 - **Frontend**: Next.js 16 (React 19, TypeScript, Three.js, React Three Fiber, Tailwind CSS)
 - **API Gateway**: FastAPI (Python 3.10, Conda env `3daigc-api`, Pydantic V2, AsyncIO)
 - **GPU Doctor & Compatibility Engine**: Standalone hardware planner (`patcher/doctor.py`), precision router, query-chunked SDPA (diff = 0.0), Accelerate offload, and bounded error recovery.
-- **Model Adapters**: 17 adapter modules and registry entries connecting the application to TRELLIS, TRELLIS.2, Hunyuan3D, Paint3D, PartUV, SkinTokens, FastMesh, TripoSG, Unique3D, ARDY, Pixal3D, TaoFlowForge, and Hi3D. Live GPU verified and locked: Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D. See `Docs/MEMORY.md`.
+- **Model Adapters**: 15 adapter modules and registry entries connecting the application to TRELLIS, TRELLIS.2, Hunyuan3D, Paint3D, PartUV, SkinTokens, FastMesh, TripoSG, Unique3D, ARDY, Pixal3D, and TaoFlowForge. Live GPU verified and locked: Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D. See `Docs/MEMORY.md`.
 - **Scheduler**: VRAM-aware multiprocess scheduler with GPU monitoring
 - **Queue/Broker**: Redis 7 (optional, multi-worker mode only)
 - **File Storage**: Local filesystem + Redis FileStore (multi-worker mode)

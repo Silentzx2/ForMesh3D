@@ -178,19 +178,6 @@ class ModelFactory:
             "module": "adapters.taoflowforge_adapter",
             "class": "TaoFlowForgeImageToRawMeshAdapter",
         },
-        # Hi3D experimental adapters
-        "hi3d_image_to_raw_mesh": {
-            "module": "adapters.hi3d_adapter",
-            "class": "Hi3DImageToRawMeshAdapter",
-        },
-        "hi3d_image_to_textured_mesh": {
-            "module": "adapters.hi3d_adapter",
-            "class": "Hi3DImageToTexturedMeshAdapter",
-        },
-        "hi3d": {
-            "module": "adapters.hi3d_adapter",
-            "class": "Hi3DImageToRawMeshAdapter",
-        },
     }
 
     LEGACY_IMAGE_TO_RAW_ALIASES = {

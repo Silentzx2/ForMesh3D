@@ -170,9 +170,6 @@ _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS = frozenset({
     "unique3d_image_to_raw_mesh",
     "taoflowforge_image_to_raw_mesh",
     "hunyuan3d_paint_v21_image_mesh_painting",
-    "hi3d_image_to_raw_mesh",
-    "hi3d_image_to_textured_mesh",
-    "hi3d",
     "paint3d",
     "paint3d_image_mesh_painting",
 })

@@ -119,7 +119,7 @@ VERIFY_ONLY=false
 FORCE_DOWNLOAD=false
 
 # Available models
-AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "partuv" "fastmesh" "triposg" "ardy" "unique3d" "paint3d" "pixal3d" "taoflowforge" "hi3d" "misc" "all")
+AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "partuv" "fastmesh" "triposg" "ardy" "unique3d" "paint3d" "pixal3d" "taoflowforge" "misc" "all")
 
 show_help() {
     cat << EOF
@@ -152,7 +152,6 @@ Available models:
     paint3d            - Paint3D 1K/2K UV texture diffusion model
     pixal3d            - Pixal3D pixel-aligned image to 3D generation model
     taoflowforge       - TaoFlowForge progressive native mesh generation model (Alibaba)
-    hi3d               - Hi3D v1.0 high-resolution refinement model (Experimental)
     misc               - Miscellaneous utility models (RealESRGAN, DINOv2)
     all                - All core models (excluding optional normal ControlNet)
 
@@ -1032,88 +1031,6 @@ download_taoflowforge() {
     fi
 }
 
-# Function to download Hi3D model
-download_hi3d() {
-    print_info "========================================"
-    print_info "Downloading Hi3D Model (Experimental)"
-    print_info "========================================"
-
-    local model_dir="$PRETRAINED_DIR/Hi3D"
-    local weights_complete=false
-
-    if [ "$FORCE_DOWNLOAD" = false ] && \
-       verify_directory "$model_dir" 1 && \
-       verify_file "$model_dir/model_index.json" 100 && \
-       verify_file "$model_dir/scheduler/scheduler_config.json" 10 && \
-       verify_file "$model_dir/vae/config.json" 100 && \
-       verify_file "$model_dir/vae/model.safetensors" 1000000 && \
-       verify_file "$model_dir/transformer_512/config.json" 100 && \
-       verify_file "$model_dir/transformer_512/model.safetensors" 1000000 && \
-       verify_file "$model_dir/transformer_1024/config.json" 100 && \
-       verify_file "$model_dir/transformer_1024/model.safetensors" 1000000; then
-        weights_complete=true
-    fi
-
-    if [ "$weights_complete" = true ]; then
-        print_info "Hi3D checkpoint files already exist and are verified"
-    else
-        mkdir -p "$model_dir" 2>/dev/null || true
-        ensure_writable_model_dir "$model_dir" || return 1
-
-        print_info "Downloading Hi3D model from Hugging Face (hi3d-official/Hi3Dv1.0)..."
-        if ! hf_download hi3d-official/Hi3Dv1.0 --local-dir "$model_dir"; then
-            print_error "Failed to download Hi3D model"
-            print_warning "Hi3D requires ~8GB of weights. Check your disk space and network connection."
-            return 1
-        fi
-
-        if ! verify_file "$model_dir/model_index.json" 100 || \
-           ! verify_file "$model_dir/scheduler/scheduler_config.json" 10 || \
-           ! verify_file "$model_dir/vae/config.json" 100 || \
-           ! verify_file "$model_dir/vae/model.safetensors" 1000000 || \
-           ! verify_file "$model_dir/transformer_512/config.json" 100 || \
-           ! verify_file "$model_dir/transformer_512/model.safetensors" 1000000 || \
-           ! verify_file "$model_dir/transformer_1024/config.json" 100 || \
-           ! verify_file "$model_dir/transformer_1024/model.safetensors" 1000000; then
-            print_error "Hi3D download is incomplete; the custom Sparc3D loader requires all listed artifacts"
-            return 1
-        fi
-    fi
-
-    # Encoder downloads are mandatory for the local-only inference setup.
-    local dino_dir="$PRETRAINED_DIR/dinov2-large"
-    if ! hf_encoder_weights_present "$dino_dir"; then
-        mkdir -p "$dino_dir" 2>/dev/null || true
-        ensure_writable_model_dir "$dino_dir" || return 1
-        print_info "Downloading DINOv2-large vision encoder..."
-        if ! hf_download facebook/dinov2-large --local-dir "$dino_dir"; then
-            print_error "Failed to download DINOv2-large vision encoder"
-            return 1
-        fi
-    fi
-    if ! hf_encoder_weights_present "$dino_dir"; then
-        print_error "DINOv2-large download is incomplete"
-        return 1
-    fi
-
-    local clip_dir="$PRETRAINED_DIR/clip-vit-large-patch14"
-    if ! hf_encoder_weights_present "$clip_dir"; then
-        mkdir -p "$clip_dir" 2>/dev/null || true
-        ensure_writable_model_dir "$clip_dir" || return 1
-        print_info "Downloading CLIP-large vision encoder..."
-        if ! hf_download openai/clip-vit-large-patch14 --local-dir "$clip_dir"; then
-            print_error "Failed to download CLIP-large vision encoder"
-            return 1
-        fi
-    fi
-    if ! hf_encoder_weights_present "$clip_dir"; then
-        print_error "CLIP-large download is incomplete"
-        return 1
-    fi
-
-    print_success "Hi3D checkpoint weights and vision encoders verified successfully"
-}
-
 # Function to download miscellaneous models
 download_misc() {
     print_info "========================================"
@@ -1237,11 +1154,6 @@ verify_all_models() {
         print_warning "DINOv3 weights missing — will be auto-downloaded at first TaoFlowForge inference."
     fi
 
-    print_info "Checking Hi3D..."
-    if [ -d "$PRETRAINED_DIR/Hi3D" ]; then
-        verify_directory "$PRETRAINED_DIR/Hi3D" 2 || all_verified=false
-    fi
-    
     if [ "$all_verified" = true ]; then
         print_success "All required models are present and verified!"
     else
@@ -1330,9 +1242,6 @@ for model in "${MODELS_ARRAY[@]}"; do
             ;;
         "taoflowforge")
             download_taoflowforge
-            ;;
-        "hi3d")
-            download_hi3d
             ;;
         "misc")
             download_misc

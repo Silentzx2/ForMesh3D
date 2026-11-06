@@ -10,7 +10,6 @@
 
 - TRELLIS.2 sparse-convolution fallback is selected within each TRELLIS.2 adapter using the scheduler-assigned GPU; the global compatibility helper no longer applies spconv process-wide. Modern GPU workers retain FlexGEMM when available.
 - TRELLIS.2 paint status checks use the same backend.core.models.base.ModelStatus enum as the adapter.
-- Hi3D accepts the coarse_mesh_path input emitted by /refine-mesh as well as the existing mesh_path key.
 - download_models.sh sources .env before resolving MODEL_STORAGE_ROOT.
 - image_to_raw_mesh forwards the top-level seed, with top-level seed taking precedence over model_parameters.seed.
 - These are source-level fixes; CI rerun and live GPU inference remain pending.
@@ -20,8 +19,8 @@
 
 - `backend/loader.py` provides `get_model_weights_dir(model_key)`. It resolves `MODEL_STORAGE_ROOT/<model_key>`, anchors a relative root to the repository (not the process CWD), rejects absolute and `..` model keys, and fails when the model directory does not exist.
 - `backend/scripts/download_models.sh` uses `MODEL_STORAGE_ROOT` with the default `backend/pretrained` root. The downloader and resolver follow the same root convention by source inspection; actual downloads were not run.
-- The main repository records `backend/thirdparty` as a Git submodule. The submodule contains 14 top-level model-source directories and now has a root README describing the source layout, integration boundaries, setup, and per-model licensing.
-- The backend model factory contains registrations for the current adapter IDs. There are 17 adapter modules, but factory registration is only a catalog/dispatch mapping.
+- The main repository records `backend/thirdparty` as a Git submodule. The submodule contains 13 top-level model-source directories and now has a root README describing the source layout, integration boundaries, setup, and per-model licensing.
+- The backend model factory contains registrations for the current adapter IDs. There are 15 adapter modules, but factory registration is only a catalog/dispatch mapping.
 - The current installer installs the O-Voxel component from the TRELLIS.2 source tree. It does not establish or editable-install every model source package in one generic step.
 - `patcher/` directory contains model-specific runtime patching. Current patchers:
   - `patcher/doctor.py` — GPU Doctor core (hardware planner, chunked SDPA, recovery). Tested standalone on CPU (28 unit tests passing).
@@ -48,7 +47,7 @@ The following findings come from reading current adapter, factory, and vendored 
 | TRELLIS.2 sparse/precision path | Fixed palette transparency (`mode == 'P'`) and zero-alpha rembg fallback in `preprocess_image`. Retained native BF16 DiT and FP16 decoder precision; harmonized SDPA/xFormers attention dtypes in `full_attn.py`. Replaced rigid logit gates with adaptive top-k percentile voxel fallback in `sample_sparse_structure` to prevent empty coordinate crashes. Large GPUs (`sm >= 80`) remain 100% native FlashAttention. **NOT TESTED — `sparse_structure_decoder` checkpoint in `pipeline.json` references `microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16` (original TRELLIS repo), not compatible with TRELLIS.2 flow model. Produces all-negative logits (~ -75) → zero occupied voxels → hollow box. See microsoft/TRELLIS.2#160.** | SOURCE FIXED — actual GLB/GPU output NOT RUN |
 | TaoFlowForge pre-Ampere acceleration & OOM elimination | Configured `bfloat16` compute dtype to prevent Stage 0 DiT NaN overflow. Eliminated 10.06 GiB SDPA Math OOM in Stage 1 refinement (15,000+ tokens) via query chunking (`chunk_size=1024`) and xFormers memory-efficient attention in `_sdpa_dense` and `_sdpa_masked`. Enforced stage-wise VRAM offload (`offload="on"`) and cache cleanup between stages. **NOT TESTED — Stage 2 topology decoding hits CUDA OOM on pre-Ampere GPUs due to SDPA MATH backend fallback; `patcher/taoflowforge/` provides float16 + query-chunked SDPA fix, requires clean worker restart to activate.** | FIXED — source/runtime contract and syntax |
 | TRELLIS.2 raw GLB export | Added NumPy-only validation for vertex/face shape, finite coordinates, face-index bounds, non-zero bounds, and degenerate triangles; validate before/after trimesh processing and reload the GLB before success. No face-count minimum or textured `to_glb()` path. | SOURCE FIXED — actual GLB/GPU output NOT RUN |
-| Hi3D | Adapter strictly validates `mesh_path` (requires existing coarse mesh input); returns clear error message when invoked without a valid mesh file. | FIXED — input contract validated |
+| Hi3D | Decommissioned and completely eliminated across codebase; replaced by native single-stage models (TRELLIS.2 and TaoFlowForge). | DECOMMISSIONED & REMOVED |
 | CPU/CI coverage | The checked-in workflow referenced Python regression modules absent from `backend/tests/`. The workflow now runs the checked-in TRELLIS.2 NumPy geometry contract test; it does not imply coverage of other models. | FIXED — CI references match tracked files |
 | Real inference | No model checkpoint load, GPU inference, output mesh inspection, VRAM measurement, or model-quality benchmark was performed in this audit. | NOT RUN |
 | Hunyuan3D-2 Mini Turbo | Adapter subfolder fixed, octree resolution set to 380, CPU offload hooks enabled, pre/post GC added. Verified in live production GPU inference (758,902 faces, 379,430 vertices, 13.0MB GLB, 3.87GB VRAM, 166.75s). Model locked against unauthorized modifications. | VERIFIED PASS — STABLE & LOCKED |

@@ -21,7 +21,6 @@ import { requireUploadFileId } from '../lib/uploadResponse';
 import { getUploadPercent } from '../lib/uploadProgress';
 import { createPointCloudFromImage, disposePointCloud } from './ImagePointCloud';
 import { GenerationLoadingPreview } from './GenerationLoadingPreview';
-import { ViewerToolbar } from '../components/MeshViewer/ViewerToolbar';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
@@ -5939,8 +5938,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({
               </button>
             </div>
           )}
-          {/* Refine with Hi3D — stays visible while the refinement job runs */}
-          <ViewerToolbar />
         </>
       )}
     </div>
