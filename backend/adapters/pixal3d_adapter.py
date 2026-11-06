@@ -136,35 +136,49 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
         try:
             from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import DinoV3ProjFeatureExtractor
 
+            # Resolve local DINOv3 directory if present to avoid redundant HF download
+            weights_root = weights_path.parent
+            local_dino_dir = weights_root / "dinov3-vitl16-pretrain-lvd1689m"
+            if not (local_dino_dir.is_dir() and any(local_dino_dir.iterdir())):
+                fallback_local = Path("/kaggle/working/ForMash3D/backend/pretrained/dinov3-vitl16-pretrain-lvd1689m")
+                if fallback_local.is_dir() and any(fallback_local.iterdir()):
+                    local_dino_dir = fallback_local
+            dino_model_name = str(local_dino_dir) if (local_dino_dir.is_dir() and any(local_dino_dir.iterdir())) else "camenduru/dinov3-vitl16-pretrain-lvd1689m"
+
             def _build(cfg: dict):
+                cfg["model_name"] = dino_model_name
                 m = DinoV3ProjFeatureExtractor(**cfg)
                 m.eval()
-                return m.to(device, dtype)
+                try:
+                    m.to(device, dtype)
+                except (TypeError, ValueError):
+                    m.to(device)
+                return m
 
             pipeline.image_cond_model_ss = _build({
-                "model_name": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
                 "image_size": 512, "grid_resolution": 16,
             })
             pipeline.image_cond_model_shape_512 = _build({
-                "model_name": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
                 "image_size": 512, "grid_resolution": 32,
                 "use_naf_upsample": True, "naf_target_size": 512,
             })
             pipeline.image_cond_model_shape_1024 = _build({
-                "model_name": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
                 "image_size": 1024, "grid_resolution": 64,
                 "use_naf_upsample": True, "naf_target_size": 512,
             })
             pipeline.image_cond_model_tex_1024 = _build({
-                "model_name": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
                 "image_size": 1024, "grid_resolution": 64,
                 "use_naf_upsample": True, "naf_target_size": 1024,
             })
         except Exception as exc:  # pragma: no cover - optional cond models
-            logger.warning(
+            logger.error(
                 "Pixal3D image_cond_model_* not loaded: %s; pipeline.run() "
-                "will fail unless these are set externally.", exc
+                "will fail unless these are set externally.", exc,
+                exc_info=True,
             )
+            raise RuntimeError(
+                f"Failed to initialize Pixal3D image condition models: {exc}"
+            ) from exc
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline
