@@ -26,8 +26,78 @@ logger = logging.getLogger(__name__)
 
 
 def apply_patch() -> None:
-    """Apply TaoFlowForge pre-Ampere compatibility patches."""
+    """Apply TaoFlowForge pre-Ampere compatibility patches and Stage 2 topology resilience."""
     _patch_attention_backend()
+    _patch_stage2_topology_decoder()
+
+
+def _patch_stage2_topology_decoder() -> None:
+    """Patch Stage2Model.decode_mesh with adaptive threshold fallback.
+
+    If the requested edge_threshold (default 0.5) produces 0 faces, tries lower thresholds
+    (0.4, 0.3, 0.2, 0.1) before failing, preventing catastrophic job failures
+    on low-step schedules or sparse vertex distributions.
+    """
+    try:
+        from taoflowforge.models.stage2 import Stage2Model
+    except Exception as exc:
+        logger.warning(
+            "TaoFlowForge patcher could not import Stage2Model: %s",
+            exc,
+        )
+        return
+
+    if getattr(Stage2Model, "_taoflowforge_topology_patched", False):
+        return
+
+    orig_decode_mesh = Stage2Model.decode_mesh
+
+    def _resilient_decode_mesh(
+        self: Any,
+        denormalized_latent: Any,
+        sorted_vertices: Any,
+        *,
+        edge_threshold: float = 0.5,
+    ) -> Any:
+        try:
+            return orig_decode_mesh(
+                self,
+                denormalized_latent,
+                sorted_vertices,
+                edge_threshold=edge_threshold,
+            )
+        except RuntimeError as exc:
+            err_str = str(exc)
+            if "produced 0 faces" not in err_str and "produced 0 valid faces" not in err_str:
+                raise
+            fallback_thresholds = [0.4, 0.3, 0.2, 0.1]
+            logger.warning(
+                "TaoFlowForge Stage 2 topology extraction produced 0 faces at threshold=%.2f. "
+                "Attempting adaptive fallback thresholds %s ...",
+                edge_threshold,
+                fallback_thresholds,
+            )
+            for fallback_thresh in fallback_thresholds:
+                try:
+                    mesh = orig_decode_mesh(
+                        self,
+                        denormalized_latent,
+                        sorted_vertices,
+                        edge_threshold=fallback_thresh,
+                    )
+                    logger.info(
+                        "TaoFlowForge Stage 2 topology extraction succeeded with adaptive threshold=%.2f (%d faces).",
+                        fallback_thresh,
+                        len(mesh.faces),
+                    )
+                    return mesh
+                except RuntimeError:
+                    continue
+            raise
+
+    Stage2Model.decode_mesh = _resilient_decode_mesh
+    Stage2Model._taoflowforge_topology_patched = True
+    logger.info("TaoFlowForge Stage 2 topology decoder resilience patch applied.")
 
 
 def _patch_attention_backend() -> None:

@@ -110,3 +110,16 @@ def test_pixal3d_unload_cleanup():
     adapter._unload_model()
     assert adapter._pipeline is None
     assert adapter.model is None
+
+
+def test_pixal3d_load_model_weights_dir_resolution():
+    adapter = Pixal3DImageToRawMeshAdapter(vram_requirement=18432)
+    mock_pipeline = MagicMock()
+    with patch("backend.adapters.pixal3d_adapter.get_model_weights_dir") as mock_get_weights, \
+         patch("backend.adapters.pixal3d_adapter.Pixal3DImageTo3DPipeline") as mock_pipe_cls, \
+         patch("pixal3d.trainers.flow_matching.mixins.image_conditioned_proj.DinoV3ProjFeatureExtractor"):
+        mock_get_weights.return_value = Path("/dummy/pretrained/Pixal3D")
+        mock_pipe_cls.from_pretrained.return_value = mock_pipeline
+        loaded = adapter._load_model()
+        assert loaded is mock_pipeline
+        assert adapter._pipeline is mock_pipeline

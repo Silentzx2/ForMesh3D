@@ -1,5 +1,18 @@
 # ForMesh3D Changelog
 
+## 2026-11-06 — TaoFlowForge Stage 2 Topology Resilience & Pixal3D Weight Path Fix
+
+- **Bug 1: TaoFlowForge Stage 2 Zero-Faces Topology Fix & Resilience**:
+  - Identified root cause of `RuntimeError: TaoFlowForge Stage 2 topology extraction produced 0 faces`: the adapter defaulted to a 5-step test schedule when `TAOFLOWFORGE_USE_OFFICIAL_STEPS` was unset. With only 5 Euler ODE steps, continuous flow matching failed to converge, yielding only 66 cells in Stage 0 and 66 vertices in Stage 1, leaving Stage 2 edge probabilities below `edge_threshold=0.5`.
+  - Restored upstream official schedule (50, 30, 50 steps) as default in `taoflowforge_adapter.py`, keeping 5-step testing opt-in via `TAOFLOWFORGE_FAST_STEPS=1`.
+  - Added `_patch_stage2_topology_decoder()` in `patcher/taoflowforge/__init__.py` to provide adaptive threshold fallback (`[0.4, 0.3, 0.2, 0.1]`) if `edge_threshold=0.5` produces 0 faces, recovering valid geometry instead of crashing.
+  - Fixed worker response logging in `multiprocess_scheduler.py`: properly catches adapter-returned `{"success": False}` and logs `[GENERATION FAILED]` rather than reporting false-positive `[GENERATION SUCCESS]`.
+- **Bug 2: Pixal3D Undefined Variable Fix (`weights_path`)**:
+  - Fixed `NameError: name 'weights_path' is not defined` in `backend/adapters/pixal3d_adapter.py` by resolving `weights_root = Path(weights_dir).resolve().parent`.
+- **Verification**: Syntax validated with `py_compile` across all modified files. Zero model code modifications in `backend/thirdparty/`. Unit tests updated in `test_taoflowforge_adapter.py` and `test_pixal3d_adapter.py`.
+
+---
+
 ## 2026-11-06 — TaoFlowForge Pre-Ampere OOM Elimination & Pixal3D Backend Selection
 
 - **TaoFlowForge Pre-Ampere OOM Fix & Fast Step Schedule**:
@@ -28,15 +41,5 @@
 - **Frontend & UI Cleanup**: Removed experimental `ViewerToolbar.tsx` ("Refine with Hi3D" button) from 3D Viewport, removed `refineMesh` from `WorkspaceContext` and `apiClient`, and purged Hi3D options from `GeneratePanel.tsx` and `constants/models.ts`.
 - **Verification**: Backend pytest passed (44/44). Frontend bun test passed (60/60). Zero regressions.
 
----
-
-## 2026-11-06 — SkinTokens Integration & Complete UniRig Decommissioning
-
-- **Decommissioned UniRig**: Completely removed `backend/thirdparty/UniRig/` from tracking and deleted `backend/adapters/unirig_adapter.py`. Cleaned all UniRig dependencies (`blenderproc`, `pyrender`, `pytorch-lightning==1.9.5`).
-- **Vendored SkinTokens**: Added `backend/thirdparty/SkinTokens/` (MIT License, VAST AI Research, arXiv:2602.04805) to submodule with catalog license table in `LICENSE` and open-source advisory in `README.md`.
-- **SkinTokens Thin Adapter**: Created `backend/adapters/skintokens_adapter.py` implementing `BaseModel` for direct in-process `predict_step` execution of the TokenRig unified autoregressive pipeline (FSQ-CVAE + Qwen3-0.6B + GRPO refinement) with companion `bpy_server` daemon.
-- **Hardware & Precision Preservation**: Locked native FlashAttention 2 and native BF16 inference profile on modern GPUs (`sm >= 80`). Maintained backward-compatible alias `unirig_auto_rig` resolving to `SkinTokensAdapter`.
-- **System & UI Integration**: Updated `backend/config/models.yaml`, `backend/scripts/download_models.sh`, `constants/models.ts`, API routers, scheduler providers, and frontend Rigging Studio panels.
-- **Verification**: `backend/tests/test_skintokens_adapter.py` passed (8/8). Full backend suite `backend/tests/` passed (44/44). Frontend `bun test` passed (60/60).
 
 

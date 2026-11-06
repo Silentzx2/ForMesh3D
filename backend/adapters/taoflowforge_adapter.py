@@ -152,12 +152,15 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
         # TaoFlowForge stage0/stage2 need these; the stage checkpoints do not embed them.
         dino_checkpoint = _resolve_dino_checkpoint(weights_path)
 
-        # Fast-iteration step schedule (default 5 steps per stage as requested;
-        # set TAOFLOWFORGE_USE_OFFICIAL_STEPS=1 or configure via env to restore 50/30/50).
-        use_official_steps = os.environ.get("TAOFLOWFORGE_USE_OFFICIAL_STEPS", "").lower() in ("1", "true")
-        s0_steps = 50 if use_official_steps else int(os.environ.get("TAOFLOWFORGE_STAGE0_STEPS", "5"))
-        s1_steps = 30 if use_official_steps else int(os.environ.get("TAOFLOWFORGE_STAGE1_STEPS", "5"))
-        s2_steps = 50 if use_official_steps else int(os.environ.get("TAOFLOWFORGE_STAGE2_STEPS", "5"))
+        # Upstream official schedule: Stage 0 (50), Stage 1 (30), Stage 2 (50).
+        # Fast testing schedule (e.g. 5 steps) is opt-in via TAOFLOWFORGE_FAST_STEPS=1 or per-stage env vars.
+        use_fast_steps = (
+            os.environ.get("TAOFLOWFORGE_FAST_STEPS", "").lower() in ("1", "true")
+            or os.environ.get("TAOFLOWFORGE_USE_OFFICIAL_STEPS", "1").lower() in ("0", "false")
+        )
+        s0_steps = int(os.environ.get("TAOFLOWFORGE_STAGE0_STEPS", "5" if use_fast_steps else "50"))
+        s1_steps = int(os.environ.get("TAOFLOWFORGE_STAGE1_STEPS", "5" if use_fast_steps else "30"))
+        s2_steps = int(os.environ.get("TAOFLOWFORGE_STAGE2_STEPS", "5" if use_fast_steps else "50"))
 
         config = InferenceConfig(
             stage0=Stage0Config(checkpoint=weights_path / "stage0.pt", num_steps=s0_steps, cfg_scale=7.5),

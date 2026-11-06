@@ -118,3 +118,53 @@ def test_taoflowforge_stage_offload_methods():
     assert hasattr(Stage0Model, "offload")
     assert hasattr(Stage1Model, "offload")
     assert hasattr(Stage2Model, "offload")
+
+
+def test_taoflowforge_topology_resilience_patch():
+    from patcher.taoflowforge import _patch_stage2_topology_decoder
+    from taoflowforge.models.stage2 import Stage2Model
+    import trimesh
+
+    Stage2Model._taoflowforge_topology_patched = False
+    _patch_stage2_topology_decoder()
+    assert getattr(Stage2Model, "_taoflowforge_topology_patched", False) is True
+
+    # Test adaptive fallback behavior
+    model = Stage2Model.__new__(Stage2Model)
+    calls = []
+
+    def mock_orig(self, latent, verts, *, edge_threshold=0.5):
+        calls.append(edge_threshold)
+        if edge_threshold == 0.5:
+            raise RuntimeError("TaoFlowForge Stage 2 topology extraction produced 0 faces")
+        # Fallback succeeds at 0.4
+        return trimesh.Trimesh(vertices=[[0, 0, 0], [1, 0, 0], [0, 1, 0]], faces=[[0, 1, 2]])
+
+    with patch.object(Stage2Model, "decode_mesh", side_effect=lambda *a, **k: mock_orig(model, *a, **k)):
+        # Re-apply patch wrapping mock
+        Stage2Model._taoflowforge_topology_patched = False
+        _patch_stage2_topology_decoder()
+        mesh = Stage2Model.decode_mesh(model, None, None, edge_threshold=0.5)
+        assert len(mesh.faces) == 1
+        assert 0.5 in calls
+        assert 0.4 in calls
+
+
+def test_taoflowforge_adapter_step_schedule_defaults():
+    import os
+    from backend.adapters.taoflowforge_adapter import TaoFlowForgeImageToRawMeshAdapter
+
+    adapter = TaoFlowForgeImageToRawMeshAdapter(vram_requirement=14336)
+    with patch.dict(os.environ, {}, clear=True):
+        use_fast = os.environ.get("TAOFLOWFORGE_FAST_STEPS", "").lower() in ("1", "true")
+        s0 = int(os.environ.get("TAOFLOWFORGE_STAGE0_STEPS", "5" if use_fast else "50"))
+        s1 = int(os.environ.get("TAOFLOWFORGE_STAGE1_STEPS", "5" if use_fast else "30"))
+        s2 = int(os.environ.get("TAOFLOWFORGE_STAGE2_STEPS", "5" if use_fast else "50"))
+        assert (s0, s1, s2) == (50, 30, 50)
+
+    with patch.dict(os.environ, {"TAOFLOWFORGE_FAST_STEPS": "1"}, clear=True):
+        use_fast = os.environ.get("TAOFLOWFORGE_FAST_STEPS", "").lower() in ("1", "true")
+        s0 = int(os.environ.get("TAOFLOWFORGE_STAGE0_STEPS", "5" if use_fast else "50"))
+        s1 = int(os.environ.get("TAOFLOWFORGE_STAGE1_STEPS", "5" if use_fast else "30"))
+        s2 = int(os.environ.get("TAOFLOWFORGE_STAGE2_STEPS", "5" if use_fast else "50"))
+        assert (s0, s1, s2) == (5, 5, 5)

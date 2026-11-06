@@ -137,7 +137,7 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
             from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import DinoV3ProjFeatureExtractor
 
             # Resolve local DINOv3 directory if present to avoid redundant HF download
-            weights_root = weights_path.parent
+            weights_root = Path(weights_dir).resolve().parent
             local_dino_dir = weights_root / "dinov3-vitl16-pretrain-lvd1689m"
             if not (local_dino_dir.is_dir() and any(local_dino_dir.iterdir())):
                 fallback_local = Path("/kaggle/working/ForMash3D/backend/pretrained/dinov3-vitl16-pretrain-lvd1689m")
