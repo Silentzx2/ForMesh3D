@@ -129,25 +129,35 @@ def test_taoflowforge_topology_resilience_patch():
     _patch_stage2_topology_decoder()
     assert getattr(Stage2Model, "_taoflowforge_topology_patched", False) is True
 
-    # Test adaptive fallback behavior
-    model = Stage2Model.__new__(Stage2Model)
-    calls = []
+    # Test adaptive threshold extraction
+    model = MagicMock()
+    model.latent_dim = 32
+    latent = torch.zeros(1, 10, 32)
+    verts = torch.tensor([
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+    ] + [[float(i), float(i), float(i)] for i in range(3, 10)])
 
-    def mock_orig(self, latent, verts, *, edge_threshold=0.5):
-        calls.append(edge_threshold)
-        if edge_threshold == 0.5:
-            raise RuntimeError("TaoFlowForge Stage 2 topology extraction produced 0 faces")
-        # Fallback succeeds at 0.4
-        return trimesh.Trimesh(vertices=[[0, 0, 0], [1, 0, 0], [0, 1, 0]], faces=[[0, 1, 2]])
+    called_thresholds = []
 
-    with patch.object(Stage2Model, "decode_mesh", side_effect=lambda *a, **k: mock_orig(model, *a, **k)):
-        # Re-apply patch wrapping mock
-        Stage2Model._taoflowforge_topology_patched = False
-        _patch_stage2_topology_decoder()
-        mesh = Stage2Model.decode_mesh(model, None, None, edge_threshold=0.5)
-        assert len(mesh.faces) == 1
-        assert 0.5 in calls
-        assert 0.4 in calls
+    def mock_extract(edge_logits, *, threshold=0.5, **kwargs):
+        called_thresholds.append(threshold)
+        if threshold >= 0.5:
+            return []  # 0 faces
+        # Threshold 0.4 succeeds with a triangle
+        return [[0, 1, 2]]
+
+    model.vertex_decoder.return_value = {
+        "edge_logits": torch.zeros(1, 10, 10),
+        "normal_pred": torch.zeros(1, 10, 3),
+    }
+    model.vertex_decoder.extract_mesh = mock_extract
+
+    mesh = Stage2Model.decode_mesh(model, latent, verts, edge_threshold=0.5)
+    assert len(mesh.faces) == 1
+    assert 0.5 in called_thresholds
+    assert 0.4 in called_thresholds
 
 
 def test_taoflowforge_adapter_step_schedule_defaults():

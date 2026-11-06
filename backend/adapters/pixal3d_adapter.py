@@ -128,7 +128,6 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
         logger.info("Loading Pixal3D pipeline from %s", weights_dir)
         pipeline = Pixal3DImageTo3DPipeline.from_pretrained(str(weights_dir))
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
-        dtype = torch.float16 if torch is not None and torch.cuda.is_available() else torch.float32
         pipeline.to(device)
         # Pixal3D's image_cond_model_* attributes must be loaded externally
         # (DinoV3ProjFeatureExtractor instances). Mirror upstream inference.py
@@ -149,9 +148,7 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
                 cfg["model_name"] = dino_model_name
                 m = DinoV3ProjFeatureExtractor(**cfg)
                 m.eval()
-                try:
-                    m.to(device, dtype)
-                except (TypeError, ValueError):
+                if not getattr(pipeline, "low_vram", True):
                     m.to(device)
                 return m
 
@@ -170,6 +167,17 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
                 "image_size": 1024, "grid_resolution": 64,
                 "use_naf_upsample": True, "naf_target_size": 1024,
             })
+
+            if getattr(pipeline, "low_vram", False):
+                for attr in [
+                    "image_cond_model_ss",
+                    "image_cond_model_shape_512",
+                    "image_cond_model_shape_1024",
+                    "image_cond_model_tex_1024",
+                ]:
+                    m = getattr(pipeline, attr, None)
+                    if m is not None and getattr(m, "use_naf_upsample", False):
+                        m._load_naf()
         except Exception as exc:  # pragma: no cover - optional cond models
             logger.error(
                 "Pixal3D image_cond_model_* not loaded: %s; pipeline.run() "

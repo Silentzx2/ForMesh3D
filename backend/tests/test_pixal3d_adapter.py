@@ -113,13 +113,45 @@ def test_pixal3d_unload_cleanup():
 
 
 def test_pixal3d_load_model_weights_dir_resolution():
+    import types
     adapter = Pixal3DImageToRawMeshAdapter(vram_requirement=18432)
     mock_pipeline = MagicMock()
+    mock_pipe_cls = MagicMock()
+    mock_pipe_cls.from_pretrained.return_value = mock_pipeline
+    mock_pipelines_mod = types.ModuleType("pixal3d.pipelines")
+    mock_pipelines_mod.Pixal3DImageTo3DPipeline = mock_pipe_cls
     with patch("backend.adapters.pixal3d_adapter.get_model_weights_dir") as mock_get_weights, \
-         patch("backend.adapters.pixal3d_adapter.Pixal3DImageTo3DPipeline") as mock_pipe_cls, \
+         patch.dict(sys.modules, {"pixal3d.pipelines": mock_pipelines_mod}), \
          patch("pixal3d.trainers.flow_matching.mixins.image_conditioned_proj.DinoV3ProjFeatureExtractor"):
         mock_get_weights.return_value = Path("/dummy/pretrained/Pixal3D")
-        mock_pipe_cls.from_pretrained.return_value = mock_pipeline
         loaded = adapter._load_model()
         assert loaded is mock_pipeline
         assert adapter._pipeline is mock_pipeline
+
+
+def test_pixal3d_project_points_to_image_batch_mixed_precision():
+    from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import (
+        project_points_to_image_batch,
+        sample_features,
+    )
+
+    B, N = 1, 16
+    points_3d = torch.randn(B, N, 3, dtype=torch.float32)
+    # Front-view transform matrix in float16 (simulating mixed precision / half buffer)
+    transform_matrix = torch.eye(4, dtype=torch.float16).unsqueeze(0).expand(B, -1, -1)
+    camera_angle_x = torch.tensor([0.8575], dtype=torch.float32)
+
+    # Must not raise "RuntimeError: expected scalar type Half but found Float"
+    points_2d, depth, valid_mask = project_points_to_image_batch(
+        points_3d, transform_matrix, camera_angle_x, resolution=512
+    )
+    assert points_2d.shape == (B, N, 2)
+    assert depth.shape == (B, N)
+    assert valid_mask.shape == (B, N)
+
+    # Test sample_features with float16 fmap and float32 points
+    fmap = torch.randn(B, 64, 32, 32, dtype=torch.float16)
+    queries = (points_2d / 512.0) * 2 - 1  # float32
+    feat = sample_features(fmap, queries)
+    assert feat.shape == (B, 64, N)
+    assert feat.dtype == torch.float16

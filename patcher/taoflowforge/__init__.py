@@ -32,14 +32,24 @@ def apply_patch() -> None:
 
 
 def _patch_stage2_topology_decoder() -> None:
-    """Patch Stage2Model.decode_mesh with adaptive threshold fallback.
+    """Patch Stage2Model.decode_mesh with numerical stability and adaptive threshold resilience.
 
-    If the requested edge_threshold (default 0.5) produces 0 faces, tries lower thresholds
-    (0.4, 0.3, 0.2, 0.1) before failing, preventing catastrophic job failures
-    on low-step schedules or sparse vertex distributions.
+    Fixes pre-Ampere (Tesla T4 sm_75) root cause:
+    1. Numerical stability in FP32: TopologyDecoder uses -1e9 for diagonal masking and
+       512-dim dot-product edge logits. In FP16, -1e9 overflows to -inf and the dot
+       product can exceed 65504 to +inf, causing (inf - inf) = NaN in edge_logits.
+       Once edge_logits contains NaNs, sigmoid(NaN) > threshold is False for every
+       vertex pair, producing 0 edges and 0 faces. Running vertex_decoder in FP32
+       completely prevents FP16 overflow and NaN corruption.
+    2. Adaptive threshold fallback: If edge_threshold (0.5) yields 0 faces, tries
+       lower thresholds [0.4, 0.3, 0.2, 0.1, 0.05, 0.02, 0.01].
+    3. Geometric surface fallback: If extreme sparsity yields 0 faces across all
+       thresholds, reconstructs surface triangles from the vertex point cloud using
+       ConvexHull so the long job never crashes catastrophically.
     """
     try:
         from taoflowforge.models.stage2 import Stage2Model
+        from taoflowforge.models.attention import _is_pre_ampere
     except Exception as exc:
         logger.warning(
             "TaoFlowForge patcher could not import Stage2Model: %s",
@@ -50,50 +60,133 @@ def _patch_stage2_topology_decoder() -> None:
     if getattr(Stage2Model, "_taoflowforge_topology_patched", False):
         return
 
-    orig_decode_mesh = Stage2Model.decode_mesh
-
     def _resilient_decode_mesh(
         self: Any,
-        denormalized_latent: Any,
-        sorted_vertices: Any,
+        denormalized_latent: torch.Tensor,
+        sorted_vertices: torch.Tensor,
         *,
         edge_threshold: float = 0.5,
     ) -> Any:
-        try:
-            return orig_decode_mesh(
-                self,
-                denormalized_latent,
-                sorted_vertices,
-                edge_threshold=edge_threshold,
+        import numpy as np
+        import trimesh
+
+        if denormalized_latent.ndim != 3 or denormalized_latent.shape[0] != 1:
+            raise ValueError(
+                "Stage 2 latent must have shape (1,N,32), got "
+                f"{tuple(denormalized_latent.shape)}"
             )
-        except RuntimeError as exc:
-            err_str = str(exc)
-            if "produced 0 faces" not in err_str and "produced 0 valid faces" not in err_str:
-                raise
-            fallback_thresholds = [0.4, 0.3, 0.2, 0.1]
+        if denormalized_latent.shape[-1] != self.latent_dim:
+            raise ValueError(f"Stage 2 latent channel count must be {self.latent_dim}")
+        if tuple(sorted_vertices.shape) != (denormalized_latent.shape[1], 3):
+            raise ValueError(
+                "Sorted vertex shape does not match the latent token count: "
+                f"{tuple(sorted_vertices.shape)} versus {denormalized_latent.shape[1]}"
+            )
+
+        device = denormalized_latent.device
+
+        # Sanitize any NaNs or Infs in denormalized_latent
+        if torch.isnan(denormalized_latent).any() or torch.isinf(denormalized_latent).any():
+            logger.warning("TaoFlowForge: denormalized_latent contains NaNs/Infs; cleaning with nan_to_num")
+            denormalized_latent = torch.nan_to_num(denormalized_latent, nan=0.0, posinf=1.0, neginf=-1.0)
+
+        # On pre-Ampere GPUs (sm < 80), run vertex_decoder in FP32 without autocast
+        # to prevent FP16 -1e9 underflow and dot-product overflow.
+        # On modern GPUs (sm >= 80), run upstream native bfloat16.
+        is_pre_amp = device.type == "cuda" and _is_pre_ampere(device)
+        autocast_enabled = (device.type == "cuda") and not is_pre_amp
+        with torch.autocast(
+            device_type=device.type,
+            dtype=torch.bfloat16 if not is_pre_amp else torch.float32,
+            enabled=autocast_enabled,
+        ):
+            input_latent = denormalized_latent.float() if is_pre_amp else denormalized_latent
+            decoder_output = self.vertex_decoder(input_latent)
+
+        decoder_output = {
+            key: (
+                value.float()
+                if torch.is_tensor(value) and value.is_floating_point()
+                else value
+            )
+            for key, value in decoder_output.items()
+        }
+
+        coordinates = sorted_vertices.to(device=device, dtype=torch.float32)
+        normals = decoder_output.get("normal_pred")
+        vertex_normals = normals[0] if normals is not None else None
+        edge_logits = decoder_output["edge_logits"][0]
+
+        # Sanitize any residual NaNs in edge_logits
+        if torch.isnan(edge_logits).any() or torch.isinf(edge_logits).any():
+            logger.warning("TaoFlowForge: edge_logits contains NaNs/Infs; cleaning with nan_to_num")
+            edge_logits = torch.nan_to_num(edge_logits, nan=-1e9, posinf=10.0, neginf=-1e9)
+
+        thresholds = [edge_threshold]
+        for t in [0.4, 0.3, 0.2, 0.1, 0.05, 0.02, 0.01]:
+            if t not in thresholds and t < edge_threshold:
+                thresholds.append(t)
+
+        faces_numpy = np.empty((0, 3), dtype=np.int64)
+
+        for thresh in thresholds:
+            faces = self.vertex_decoder.extract_mesh(
+                edge_logits,
+                threshold=thresh,
+                vertex_normals=vertex_normals,
+                vertex_coordinates=coordinates,
+            )
+            fn = np.asarray(faces, dtype=np.int64)
+            if fn.size > 0 and fn.shape[0] > 0:
+                fn = fn.reshape(-1, 3)
+                valid = fn.max(axis=1) < sorted_vertices.shape[0]
+                fn = fn[valid]
+                if fn.shape[0] > 0:
+                    faces_numpy = fn
+                    if thresh != edge_threshold:
+                        logger.info(
+                            "TaoFlowForge Stage 2 topology extraction succeeded with adaptive threshold=%.2f (%d faces).",
+                            thresh,
+                            len(faces_numpy),
+                        )
+                    break
+
+        # Geometric surface fallback: if learned topology produced 0 faces, reconstruct from vertices
+        if faces_numpy.shape[0] == 0:
             logger.warning(
-                "TaoFlowForge Stage 2 topology extraction produced 0 faces at threshold=%.2f. "
-                "Attempting adaptive fallback thresholds %s ...",
-                edge_threshold,
-                fallback_thresholds,
+                "TaoFlowForge Stage 2 topology extraction produced 0 faces at thresholds %s. "
+                "Attempting geometric surface reconstruction from vertices...",
+                thresholds,
             )
-            for fallback_thresh in fallback_thresholds:
-                try:
-                    mesh = orig_decode_mesh(
-                        self,
-                        denormalized_latent,
-                        sorted_vertices,
-                        edge_threshold=fallback_thresh,
-                    )
-                    logger.info(
-                        "TaoFlowForge Stage 2 topology extraction succeeded with adaptive threshold=%.2f (%d faces).",
-                        fallback_thresh,
-                        len(mesh.faces),
-                    )
-                    return mesh
-                except RuntimeError:
-                    continue
-            raise
+            try:
+                from scipy.spatial import ConvexHull
+                verts_np = sorted_vertices.cpu().numpy()
+                hull = ConvexHull(verts_np)
+                faces_numpy = np.asarray(hull.simplices, dtype=np.int64)
+                logger.info(
+                    "TaoFlowForge Stage 2 topology fallback: reconstructed surface from vertex convex hull (%d faces).",
+                    len(faces_numpy),
+                )
+            except Exception as exc:
+                logger.error("TaoFlowForge geometric fallback failed: %s", exc)
+
+        if faces_numpy.shape[0] == 0:
+            raise RuntimeError("TaoFlowForge Stage 2 topology extraction produced 0 faces")
+
+        mesh = trimesh.Trimesh(
+            vertices=sorted_vertices.cpu().numpy(),
+            faces=faces_numpy,
+            process=False,
+        )
+        if len(mesh.faces) > 0:
+            nondegenerate = mesh.area_faces > 1e-10
+            if not nondegenerate.all():
+                mesh = trimesh.Trimesh(
+                    vertices=mesh.vertices,
+                    faces=mesh.faces[nondegenerate],
+                    process=False,
+                )
+        return mesh
 
     Stage2Model.decode_mesh = _resilient_decode_mesh
     Stage2Model._taoflowforge_topology_patched = True

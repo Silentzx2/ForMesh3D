@@ -400,13 +400,24 @@ if [[ "${ENV_MANAGER}" == "venv" ]]; then
         fi
         echo "[INFO] Creating Python 3.10 venv at $ENV_DIR..."
         mkdir -p "$(dirname "$ENV_DIR")"
-        if command -v python3.10 >/dev/null 2>&1; then
-            python3.10 -m venv "$ENV_DIR" || exit 1
-        elif command -v uv >/dev/null 2>&1; then
-            uv venv "$ENV_DIR" --python 3.10 --seed 2>/dev/null || uv venv "$ENV_DIR" --python 3.10 || exit 1
-        else
-            python3 -m venv "$ENV_DIR" || exit 1
+        # Legacy python3.10 install/venv creation logic (commented out in favor of uv venv)
+        # if command -v python3.10 >/dev/null 2>&1; then
+        #     python3.10 -m venv "$ENV_DIR" || exit 1
+        # elif command -v uv >/dev/null 2>&1; then
+        #     uv venv "$ENV_DIR" --python 3.10 --seed 2>/dev/null || uv venv "$ENV_DIR" --python 3.10 || exit 1
+        # else
+        #     python3 -m venv "$ENV_DIR" || exit 1
+        # fi
+
+        export PATH="$HOME/.local/bin:$PATH"
+        if ! command -v uv >/dev/null 2>&1; then
+            echo "[INFO] uv not found. Installing uv..."
+            curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1 || true
+            export PATH="$HOME/.local/bin:$PATH"
         fi
+
+        echo "[INFO] Creating Python 3.10 venv with uv at $ENV_DIR..."
+        uv venv "$ENV_DIR" --python 3.10 || exit 1
     fi
     source "$ENV_DIR/bin/activate" || exit 1
     ACTIVE_VENV_PREFIX="$(python -c 'import os, sys; print(os.path.realpath(sys.prefix))' 2>/dev/null || echo "")"
@@ -429,10 +440,10 @@ export UV_PYTHON="$ACTIVE_PYTHON"
 
 persist_env_config
 
-if ! python -c "import uv" >/dev/null 2>&1; then
-    echo "[INFO] Installing uv..."
-    python -m pip install --upgrade pip 2>/dev/null || true
-    python -m pip install uv 2>/dev/null || $UV_PIP install uv 2>/dev/null || true
+if ! command -v uv >/dev/null 2>&1; then
+    echo "[INFO] uv CLI not found. Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1 || true
+    export PATH="$HOME/.local/bin:$PATH"
 fi
 
 # ── Build toolchain ──────────────────────────────────────────────────────────
