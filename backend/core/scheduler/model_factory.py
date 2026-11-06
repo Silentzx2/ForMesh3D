@@ -121,10 +121,14 @@ class ModelFactory:
             "module": "adapters.hunyuan3d_adapter_v21",
             "class": "Hunyuan3DV21ImageMeshPaintingAdapter",
         },
-        # UniRig adapters
+        # SkinTokens adapters
+        "skintokens_auto_rigging": {
+            "module": "adapters.skintokens_adapter",
+            "class": "SkinTokensAdapter",
+        },
         "unirig_auto_rig": {
-            "module": "adapters.unirig_adapter",
-            "class": "UniRigAdapter",
+            "module": "adapters.skintokens_adapter",
+            "class": "SkinTokensAdapter",
         },
         # FastMesh adapters
         "fastmesh_v1k_retopology": {

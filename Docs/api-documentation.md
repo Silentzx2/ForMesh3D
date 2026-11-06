@@ -504,8 +504,8 @@ Content-Type: application/json
 | `physics_config` | object | `null` | Provider-neutral physics controller values |
 | `enable_printability_check` | boolean | `null` | Run the final printability QA |
 | `enable_auto_repair` | boolean | `null` | Allow the shared repair stage to mutate the mesh for printability |
-| `enable_auto_rig` | boolean | `null` | Run UniRig after production processing |
-| `auto_rig_mode` | string | `"full"` | UniRig mode: `full`, `skeleton`, or `skin` |
+| `enable_auto_rig` | boolean | `null` | Run SkinTokens after production processing |
+| `auto_rig_mode` | string | `"full"` | SkinTokens mode: `full`, `skeleton`, or `skin` |
 | `preprocessing_artifact_id` | string | `null` | Approved preprocessing artifact ID |
 | `preprocessing_review_override` | boolean | `false` | Explicitly allow a `needs_review` preview after review |
 | `enhancement_enabled` | boolean | `false` | Use the approved preprocessing artifact |
@@ -663,7 +663,7 @@ GET /api/v1/system/models
       "paint3d"
     ],
     "mesh_segmentation": [],
-    "auto_rig": ["unirig_auto_rig"],
+    "auto_rig": ["skintokens_auto_rigging"],
     "motion_generation": ["ardy_motion_generation"],
     "mesh_retopology": ["fastmesh_v1k_retopology", "fastmesh_v4k_retopology"],
     "uv_unwrapping": ["partuv_uv_unwrapping"]
@@ -755,7 +755,7 @@ Content-Type: application/json
   "mesh_file_id": "mesh_abc123",
   "rig_mode": "full",
   "output_format": "fbx",
-  "model_preference": "unirig_auto_rig"
+  "model_preference": "skintokens_auto_rigging"
 }
 ```
 

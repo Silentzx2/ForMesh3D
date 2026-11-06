@@ -674,21 +674,22 @@ mesh_segmentation: {}
 
 # auto-rigging
 auto_rig:
-  # EXPERIMENTAL_MAX_DETAIL: UniRig exposes rig mode/seed, not diffusion steps or guidance. Upstream recommends reviewing/refining skeleton before skinning.
-  unirig_auto_rig:
-    model_name: "UniRig — Auto Rigging"
-    upstream_repository: "https://github.com/VAST-AI-Research/UniRig"
+  # PRODUCTION_UNIFIED_RIGGING: SkinTokens unifies skeleton hierarchy and dense skinning weights
+  # into a single autoregressive sequence via learned discrete skin tokens (arXiv:2602.04805).
+  skintokens_auto_rigging:
+    model_name: "SkinTokens — Unified Autoregressive Rigging"
+    upstream_repository: "https://github.com/VAST-AI-Research/SkinTokens"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
-    checkpoint_license: "unverified"
+    checkpoint_license: "MIT"
     capabilities:
       native_topology: false
       output_resolution: null
       auto_rig: true
       character_output: true
-    vram_requirement: 9216  # MB
+    vram_requirement: 14336  # MB (14 GB upstream minimum)
     supported_inputs: ["obj", "glb", "fbx"]
     supported_outputs: ["glb", "fbx"]
-    model_path: "backend/pretrained/UniRig"
+    model_path: "backend/pretrained/SkinTokens"
     enabled: true
     max_workers: 1
 

@@ -376,20 +376,20 @@ export const CANONICAL_MODELS: ModelDefinition[] = [
 
   // ── AUTO RIGGING ─────────────────────────────────────────────────────────
   {
-    id: 'unirig_auto_rig',
-    name: 'UniRig (Automated Skeletal Rigging)',
+    id: 'skintokens_auto_rigging',
+    name: 'SkinTokens (Unified Autoregressive Rigging)',
     category: 'auto_rig',
     feature: 'auto_rig',
     featureLabel: 'Animation & Rigging',
-    vramMb: 9216,
+    vramMb: 14336,
     lowVramSupported: false,
-    supportsTexture: false,
+    supportsTexture: true,
     supportedInputs: ['obj', 'glb', 'fbx'],
-    supportedOutputs: ['glb', 'fbx'],
-    modelPath: 'backend/pretrained/UniRig',
+    supportedOutputs: ['glb'],
+    modelPath: 'backend/pretrained/SkinTokens',
     enabled: true,
     status: 'available',
-    description: 'Automatic humanoid and quadruped skeletal joint estimation and skinning weight calculation.',
+    description: 'Unified autoregressive neural armature and dense skinning weight generation via discrete SkinTokens.',
   },
 
   // ── MOTION AI / ANIMATION ────────────────────────────────────────────────

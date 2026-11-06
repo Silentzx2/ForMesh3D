@@ -86,7 +86,7 @@ G1_SKELETON_34_BONES = [
     "right_hand_roll_skel",
 ]
 
-# Aliases for mapping UniRig / Mixamo / standard rigs to CoreSkeleton27
+# Aliases for mapping SkinTokens / Mixamo / standard rigs to CoreSkeleton27
 BIPED_NAME_MAPPING = {
     "pelvis": "Hips",
     "hip": "Hips",

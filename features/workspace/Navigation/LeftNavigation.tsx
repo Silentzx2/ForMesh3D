@@ -134,7 +134,7 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({ isMobileDrawer =
     {
       id: 'tool-btn-rigging',
       label: 'Rigging',
-      tooltip: 'Character Rigging Studio (UniRig AI / Manual Rig)',
+      tooltip: 'Character Rigging Studio (SkinTokens AI / Manual Rig)',
       shortcut: 'K',
       icon: (props: any) => <HugeiconsIcon icon={BoneIcon} size={16} {...props} />,
       active: isActive('rigging'),

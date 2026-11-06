@@ -2334,7 +2334,7 @@ export const GeneratePanel: React.FC = () => {
                     ? 'w-full rounded-lg border border-violet-500/30 bg-violet-500/10 px-2 py-1.5 text-left text-violet-200 cursor-pointer'
                     : 'w-full rounded-lg border border-white/[0.06] bg-[hsl(var(--surface-1))] px-2 py-1.5 text-left text-zinc-400 cursor-pointer'}>
                 <span className="text-[10px] font-bold">Auto-Rig Game-Ready Mesh</span>
-                <span className="block text-[8px] opacity-75">{isPostprocessOff ? 'Blocked (Post-processing OFF)' : generationSettings.enableAutoRig ? 'Runs UniRig after production processing' : 'Disabled'}</span>
+                <span className="block text-[8px] opacity-75">{isPostprocessOff ? 'Blocked (Post-processing OFF)' : generationSettings.enableAutoRig ? 'Runs SkinTokens after production processing' : 'Disabled'}</span>
               </button>
               {generationSettings.enableAutoRig && !isPostprocessOff && (
                 <select value={generationSettings.autoRigMode || 'full'}

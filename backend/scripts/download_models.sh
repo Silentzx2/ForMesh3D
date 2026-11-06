@@ -5,7 +5,7 @@
 # 
 # Available models:
 #   hunyuan2mini, hunyuan21, trellis, trellis-text, trellis2,
-#   unirig, partuv, fastmesh, triposg, ardy, unique3d, paint3d, pixal3d, taoflowforge, misc, all
+#   skintokens, partuv, fastmesh, triposg, ardy, unique3d, paint3d, pixal3d, taoflowforge, misc, all
 #
 # Options:
 #   -h, --help              Show this help message
@@ -119,7 +119,7 @@ VERIFY_ONLY=false
 FORCE_DOWNLOAD=false
 
 # Available models
-AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "unirig" "partuv" "fastmesh" "triposg" "ardy" "unique3d" "paint3d" "pixal3d" "taoflowforge" "hi3d" "misc" "all")
+AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "partuv" "fastmesh" "triposg" "ardy" "unique3d" "paint3d" "pixal3d" "taoflowforge" "hi3d" "misc" "all")
 
 show_help() {
     cat << EOF
@@ -143,7 +143,7 @@ Available models:
     trellis            - TRELLIS image-large model
     trellis-text       - TRELLIS text-xlarge model (optional)
     trellis2           - TRELLIS.2-4B model (image-based only)
-    unirig             - UniRig model for auto-rigging
+    skintokens         - SkinTokens model for unified auto-rigging
     partuv             - PartUV model
     fastmesh           - FastMesh model
     triposg            - TripoSG and RMBG models
@@ -523,26 +523,28 @@ download_trellis2() {
     fi
 }
 
-# Function to download UniRig model
-download_unirig() {
+# Function to download SkinTokens model
+download_skintokens() {
     print_info "========================================"
-    print_info "Downloading UniRig Model"
+    print_info "Downloading SkinTokens Model"
     print_info "========================================"
     
-    local model_dir="$PRETRAINED_DIR/UniRig"
+    local model_dir="$PRETRAINED_DIR/SkinTokens"
     
-    if [ "$FORCE_DOWNLOAD" = false ] && verify_directory "$model_dir" 3; then
-        print_info "UniRig model already exists and verified"
+    if [ "$FORCE_DOWNLOAD" = false ] && verify_directory "$model_dir" 2; then
+        print_info "SkinTokens model already exists and verified"
         return 0
     fi
     
     mkdir -p "$model_dir" 2>/dev/null || true
     ensure_writable_model_dir "$model_dir" || return 1
-    print_info "Downloading UniRig model..."
-    if hf_download  VAST-AI/UniRig --local-dir "$model_dir"; then
-        print_success "UniRig model downloaded successfully"
+    print_info "Downloading SkinTokens checkpoints from VAST-AI/SkinTokens..."
+    if hf_download VAST-AI/SkinTokens --local-dir "$model_dir"; then
+        print_info "Downloading Qwen3-0.6B LLM config for TokenRig..."
+        hf_download Qwen/Qwen3-0.6B --local-dir "$model_dir/models/Qwen3-0.6B" --exclude "*.bin" "*.safetensors" || true
+        print_success "SkinTokens model downloaded successfully"
     else
-        print_error "Failed to download UniRig model"
+        print_error "Failed to download SkinTokens model"
         return 1
     fi
 }
@@ -1174,8 +1176,8 @@ verify_all_models() {
     print_info "Checking TRELLIS text-xlarge (optional)..."
     verify_directory "$PRETRAINED_DIR/TRELLIS/TRELLIS-text-xlarge" 5 || print_warning "TRELLIS text-xlarge not found (optional)"
     
-    print_info "Checking UniRig..."
-    verify_directory "$PRETRAINED_DIR/UniRig" 3 || all_verified=false
+    print_info "Checking SkinTokens..."
+    verify_directory "$PRETRAINED_DIR/SkinTokens" 2 || all_verified=false
     
     print_info "Checking PartUV..."
     verify_directory "$PRETRAINED_DIR/PartUV" 1 || all_verified=false
@@ -1302,8 +1304,8 @@ for model in "${MODELS_ARRAY[@]}"; do
         "trellis2")
             download_trellis2
             ;;
-        "unirig")
-            download_unirig
+        "skintokens")
+            download_skintokens
             ;;
         "partuv")
             download_partuv
@@ -1342,7 +1344,7 @@ for model in "${MODELS_ARRAY[@]}"; do
             download_trellis
             download_trellis_text
             download_trellis2
-            download_unirig
+            download_skintokens
             download_partuv
             download_fastmesh
             download_triposg

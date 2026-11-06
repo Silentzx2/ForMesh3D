@@ -43,7 +43,8 @@ DEFAULT_ADAPTER_CLASS_MAP = {
     "trellis2_image_mesh_painting": "Trellis2ImageMeshPaintingAdapter",
     "paint3d": "Paint3DAdapter",
     # Auto-Rig
-    "unirig_auto_rig": "UniRigAdapter",
+    "skintokens_auto_rigging": "SkinTokensAdapter",
+    "unirig_auto_rig": "SkinTokensAdapter",
     # Retopology
     "fastmesh_v1k_retopology": "FastMeshRetopologyAdapter",
     # UV

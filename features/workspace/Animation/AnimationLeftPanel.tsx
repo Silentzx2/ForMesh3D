@@ -622,7 +622,7 @@ export const AnimationLeftPanel: React.FC = () => {
                   <span className="text-primary text-xs">⚡</span>
                   <span>Quick Presets</span>
                 </span>
-                <span className="text-[10px] font-mono text-zinc-400">UniRig Ready</span>
+                <span className="text-[10px] font-mono text-zinc-400">SkinTokens Ready</span>
               </div>
               <div className="grid grid-cols-3 gap-1.5">
                 {[

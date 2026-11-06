@@ -42,7 +42,8 @@ _ADAPTER_MAP: dict[str, str] = {
     # ── uv-unwrapping ──────────────────────────────────────────────────
     "partuv_uv_unwrapping": "backend.adapters.partuv_adapter",
     # ── auto-rigging ───────────────────────────────────────────────────
-    "unirig_auto_rig": "backend.adapters.unirig_adapter",
+    "skintokens_auto_rigging": "backend.adapters.skintokens_adapter",
+    "unirig_auto_rig": "backend.adapters.skintokens_adapter",
     # ── motion-generation ──────────────────────────────────────────────
     "ardy_motion_generation": "backend.adapters.ardy_adapter",
 }

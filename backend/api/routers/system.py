@@ -384,7 +384,7 @@ def _model_supports_download(model_id: str) -> bool:
         for token in (
             "trellis", "triposg", "hunyuan", "fastmesh",
             "unique3d", "hi3d", "taoflowforge", "pixal3d",
-            "paint3d", "unirig", "partuv", "ardy"
+            "paint3d", "skintokens", "unirig", "partuv", "ardy"
         )
     )
 
@@ -1615,7 +1615,7 @@ async def download_job_result(
             if not fbx_candidate:
                 raise HTTPException(
                     status_code=422,
-                    detail="FBX export requires rigging (UniRig) or a pre-exported FBX; this asset has no FBX artifact. Use GLB/OBJ, or rig this model first.",
+                    detail="FBX export requires rigging (SkinTokens) or a pre-exported FBX; this asset has no FBX artifact. Use GLB/OBJ, or rig this model first.",
                 )
             resolved_fbx = Path(fbx_candidate).resolve()
             if resolved_fbx.suffix.lower() != ".fbx" or not resolved_fbx.is_file():
@@ -2549,7 +2549,7 @@ async def get_storage_breakdown():
 
                     if "/temp" in rel or rel.startswith("temp") or "/exports" in rel or rel.startswith("exports") or ext in (".tmp", ".scratch") or fname.startswith("tmp_"):
                         cat = "temp"
-                    elif "rigging" in rel or "unirig" in rel or "rigged" in fname or "skeleton" in fname:
+                    elif "rigging" in rel or "skintokens" in rel or "unirig" in rel or "rigged" in fname or "skeleton" in fname:
                         cat = "rigging"
                     elif "lod" in rel or any(f"lod{i}" in fname for i in range(4)):
                         cat = "lods"
