@@ -431,42 +431,6 @@ image_to_raw_mesh:
     enabled: true
     max_workers: 1
 
-  # Hi3D v1.0 Experimental High-Resolution Geometry Refinement
-  hi3d_image_to_raw_mesh:
-    model_name: "Hi3D [Experimental] — Image to Raw Mesh"
-    checkpoint_license: "LicenseRef-Hi3D-1.0"
-    experimental: true
-    capabilities:
-      native_topology: false
-      output_resolution: 1024
-      text_to_3d: false
-      image_to_3d: true
-      multiview: false
-      texture_generation: false
-      raw_mesh: true
-      high_fidelity_geometry: true
-      mesh_quality_characteristics: [high_resolution_refinement, progressive_sparse_flow]
-      preferred_preprocessing: high_fidelity
-      preferred_extraction: flexicubes
-      preferred_resolution: 1024
-      preferred_face_budget: high
-      recommended_postprocess_profile: high_fidelity
-      latency_class: quality
-      quality_priority: 95
-      multi_gpu: false
-      # ponytail: Hi3D has no custom multi-GPU dispatch; admit jobs against one selected GPU.
-      # Upgrade path: implement and validate Sparc3D component placement before re-enabling.
-      low_vram_supported: true
-      paint_autochain: false
-      experimental: true
-    vram_requirement: 16384  # MB (16GB VRAM, supports sequential CPU offload)
-    low_vram_requirement: 8192
-    supported_inputs: ["image", "mesh"]
-    supported_outputs: ["glb", "obj"]
-    model_path: "backend/pretrained/Hi3D"
-    enabled: true
-    max_workers: 1
-
 # image-conditioned geometry+texture generation (legacy aliases routing to raw geometry)
 image_to_textured_mesh:
   # EXPERIMENTAL_MAX_DETAIL: deprecated alias of the TRELLIS profile; 50-step source configuration, shared CFG=7.5, simplify=0.0.
@@ -536,44 +500,6 @@ image_to_textured_mesh:
     supported_inputs: ["image"]
     supported_outputs: ["glb", "obj"]
     model_path: "backend/pretrained/TRELLIS.2"
-    enabled: true
-    max_workers: 1
-
-  # Hi3D v1.0 Experimental Textured Mesh Route (clean untextured raw geometry export when apply_texture=false)
-  hi3d_image_to_textured_mesh:
-    model_name: "Hi3D [Experimental] — Image to Textured Mesh"
-    checkpoint_license: "LicenseRef-Hi3D-1.0"
-    experimental: true
-    alias_of: "hi3d_image_to_raw_mesh"
-    capabilities:
-      native_topology: false
-      output_resolution: 1024
-      text_to_3d: false
-      image_to_3d: true
-      multiview: false
-      texture_generation: false
-      raw_mesh: true
-      high_fidelity_geometry: true
-      mesh_quality_characteristics: [high_resolution_refinement, progressive_sparse_flow]
-      preferred_preprocessing: high_fidelity
-      preferred_extraction: flexicubes
-      preferred_resolution: 1024
-      preferred_face_budget: high
-      recommended_postprocess_profile: high_fidelity
-      latency_class: quality
-      quality_priority: 95
-      multi_gpu: false
-      # ponytail: Hi3D has no custom multi-GPU dispatch; admit jobs against one selected GPU.
-      # Upgrade path: implement and validate Sparc3D component placement before re-enabling.
-      low_vram_supported: true
-      paint_autochain: false
-      experimental: true
-      alias_of: "hi3d_image_to_raw_mesh"
-    vram_requirement: 16384  # MB
-    low_vram_requirement: 8192
-    supported_inputs: ["image", "mesh"]
-    supported_outputs: ["glb", "obj"]
-    model_path: "backend/pretrained/Hi3D"
     enabled: true
     max_workers: 1
 
@@ -674,21 +600,22 @@ mesh_segmentation: {}
 
 # auto-rigging
 auto_rig:
-  # EXPERIMENTAL_MAX_DETAIL: UniRig exposes rig mode/seed, not diffusion steps or guidance. Upstream recommends reviewing/refining skeleton before skinning.
-  unirig_auto_rig:
-    model_name: "UniRig — Auto Rigging"
-    upstream_repository: "https://github.com/VAST-AI-Research/UniRig"
+  # PRODUCTION_UNIFIED_RIGGING: SkinTokens unifies skeleton hierarchy and dense skinning weights
+  # into a single autoregressive sequence via learned discrete skin tokens (arXiv:2602.04805).
+  skintokens_auto_rigging:
+    model_name: "SkinTokens — Unified Autoregressive Rigging"
+    upstream_repository: "https://github.com/VAST-AI-Research/SkinTokens"
     upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
-    checkpoint_license: "unverified"
+    checkpoint_license: "MIT"
     capabilities:
       native_topology: false
       output_resolution: null
       auto_rig: true
       character_output: true
-    vram_requirement: 9216  # MB
+    vram_requirement: 14336  # MB (14 GB upstream minimum)
     supported_inputs: ["obj", "glb", "fbx"]
     supported_outputs: ["glb", "fbx"]
-    model_path: "backend/pretrained/UniRig"
+    model_path: "backend/pretrained/SkinTokens"
     enabled: true
     max_workers: 1
 

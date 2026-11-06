@@ -2,7 +2,7 @@
 # UNIFIED model dependencies file.
 # Installed only when compute mode is cuda. These are heavy ML packages
 # required by model adapters (TRELLIS, Hunyuan3D, TripoSG, Unique3D, Pixal3D,
-# UniRig, PartUV, FastMesh, ARDY, TaoFlowForge, Hi3D, Paint3D).
+# SkinTokens, PartUV, FastMesh, ARDY, TaoFlowForge, Paint3D).
 #
 # Version policy: only packages NOT already in requirements.txt go here.
 # Shared packages (numpy, scipy, trimesh, pillow, fastapi, uvicorn, pydantic,
@@ -16,20 +16,20 @@
 #   [PIXAL3D] backend/thirdparty/Pixal3D/requirements.txt
 #   [UNIQUE3D] backend/thirdparty/Unique3D/requirements.txt
 #   [TRIPOSG] backend/thirdparty/TripoSG/requirements.txt
-#   [UNIRIG] backend/thirdparty/UniRig/requirements.txt
+#   [SKINTOKENS] backend/thirdparty/SkinTokens/requirements.txt
 #   [PARTUV] backend/thirdparty/PartUV/requirements.txt
 #   [FASTMESH] backend/thirdparty/FastMesh/models/miche/requirements.txt
 #   [TRELLIS] backend/thirdparty/TRELLIS.2
 
 # ── ML-only packages (not in core) ────────────────────────────
-transformers==4.44.2        # [HUNYUAN]==4.46.0 [PIXAL3D]==4.57.3 [UNIQUE3D]==4.39.3 [UNIRIG]==4.51.3 [FASTMESH]==4.30.2
+transformers==4.44.2        # [HUNYUAN]==4.46.0 [PIXAL3D]==4.57.3 [UNIQUE3D]==4.39.3 [FASTMESH]==4.30.2
 diffusers==0.30.3           # [HUNYUAN]==0.30.0 [PIXAL3D]==0.37.1 [UNIQUE3D]>=0.26.3 [FASTMESH]==0.18.2
-huggingface_hub>=0.25.0,<0.26.0  # [HUNYUAN]==0.30.2 [UNIRIG] [FASTMESH]==0.16.4
+huggingface_hub>=0.25.0,<0.26.0  # [HUNYUAN]==0.30.2 [SKINTOKENS] [FASTMESH]==0.16.4
 datasets==3.6.0             # [UNIQUE3D]
 safetensors>=0.4.4          # [HUNYUAN]==0.4.4 [FASTMESH]==0.3.1
-einops>=0.8.0               # [HUNYUAN]==0.8.0 [PIXAL3D] [PARTUV] [TRIPOSG] [FASTMESH]==0.6.0
+einops>=0.8.0               # [HUNYUAN]==0.8.0 [PIXAL3D] [PARTUV] [TRIPOSG] [FASTMESH]==0.6.0 [SKINTOKENS]
 rembg>=2.0.60               # [HUNYUAN]==2.0.65 [UNIQUE3D][gpu]
-timm>=1.0.0                 # [HUNYUAN] [PIXAL3D]==1.0.22 [UNIRIG] [FASTMESH]==0.9.2
+timm>=1.0.0                 # [HUNYUAN] [PIXAL3D]==1.0.22 [FASTMESH]==0.9.2
 kornia>=0.6.0               # [PIXAL3D]==0.8.2
 realesrgan==0.3.0           # [HUNYUAN]
 peft==0.17.1                # [UNIQUE3D]==0.10.0 [TRIPOSG] [FASTMESH]
@@ -46,7 +46,7 @@ onnxruntime==1.16.3         # [HUNYUAN] ([FASTMESH] wants ==1.15.1; baseline kee
 opencv-python==4.10.0.84    # [HUNYUAN] [TRIPOSG] [UNIQUE3D] (non-headless variant; core has headless)
 pandas==2.2.2               # [HUNYUAN]
 pygltflib==1.16.3           # [HUNYUAN] [UNIQUE3D] unpinned
-pytorch-lightning==1.9.5    # [HUNYUAN] [UNIRIG] (different from `lightning`)
+pytorch-lightning==1.9.5    # [HUNYUAN] (different from `lightning`)
 torchdiffeq                 # [HUNYUAN] no version pinned upstream
 torchmetrics==1.6.0         # [HUNYUAN] [FASTMESH]==0.11.1
 tqdm==4.66.5                # [HUNYUAN] [PIXAL3D]==4.67.1 [UNIQUE3D] unpinned
@@ -72,22 +72,18 @@ numba                       # [UNIQUE3D]
 onnxruntime-gpu             # [UNIQUE3D] GPU variant
 ort-nightly-gpu             # [UNIQUE3D] nightly GPU variant
 typeguard                   # [UNIQUE3D] [TRIPOSG]
-wandb                       # [UNIQUE3D] [UNIRIG] ([FASTMESH] ==0.13.10)
+wandb                       # [UNIQUE3D] ([FASTMESH] ==0.13.10)
 xformers                    # [UNIQUE3D]
 
 # ── TripoSG (packages not in core) ────────────────────────────
 
-# ── UniRig (packages not in core) ─────────────────────────────
-lightning                   # [UNIRIG] (different from pytorch-lightning)
-# bpy==4.2 removed: bpy 4.2.0 only ships cp311 wheels, but this env is cp310,
-# so the pin is unsatisfiable. bpy is provided by the Blender installation
-# (install.sh ensure_blender()), not via PyPI — keeping it here breaks every
-# cp310 CUDA install.
-addict                      # [UNIRIG] [FASTMESH]
-fast-simplification         # [UNIRIG]
-partuv                      # [UNIRIG] install.sh line 655
-blenderproc                 # [UNIRIG] install.sh line 662
-pyrender                    # [UNIRIG]
+# ── SkinTokens (Unified Autoregressive Rigging) ────────────────
+lightning                   # [SKINTOKENS]
+python-box                  # [SKINTOKENS]
+addict                      # [SKINTOKENS] [FASTMESH]
+fast-simplification         # [SKINTOKENS]
+bottle                      # [SKINTOKENS] (bpy_server IPC)
+tornado                     # [SKINTOKENS] (bpy_server IPC)
 
 # ── PartUV (packages not in core) ─────────────────────────────
 h5py                        # [PARTUV]

@@ -100,7 +100,7 @@ Traditional AI 3D generators typically output dense, raw, untextured "triangle s
 | **PBR Material Baking** | Tangent-space normal baking (OpenGL Y+ convention) & packed RMA maps | Complete 5-channel PBR material maps |
 | **LOD Generation** | Cascaded LOD0 to LOD3 with `meshoptimizer` vertex-cache optimization | Multi-tier `lods/lod[0-3].glb` |
 | **Physics Collision Hulls** | CoACD approximate convex decomposition with mass & inertia tensors | Watertight `collision.glb` & `physics.json` |
-| **Automated Rigging & Motion** | UniRig automated bipedal armature generation & ARDY motion synthesis | Rigged FBX/GLB & playable motion JSON |
+| **Automated Rigging & Motion** | SkinTokens unified autoregressive armature generation & ARDY motion synthesis | Rigged FBX/GLB & playable motion JSON |
 | **Game Engine Packages** | Structured directory packaging for Unreal Engine 5, Unity, and Godot 4 | Complete engine-ready ZIP archive |
 
 ---
@@ -182,7 +182,7 @@ flowchart TD
         TRIPO["TripoSG<br/>High-Fidelity Image-to-Mesh"]:::purple
         TAO["TaoFlowForge<br/>Cascaded Flow Matching"]:::purple
         RETOPO["FastMesh V1K / V4K<br/>Neural Quad Retopology"]:::purple
-        RIGGING["UniRig & ARDY<br/>Auto-Rigging & Motion AI"]:::purple
+        RIGGING["SkinTokens & ARDY<br/>Auto-Rigging & Motion AI"]:::purple
         UNIQUE3D["Unique3D<br/>Multi-View Diffusion"]:::purple
     end
 
@@ -255,7 +255,7 @@ The model registry is dynamically configured via `backend/config/models.yaml` an
 | **Paint3D** | `paint3d` | PBR Texture | ~12 GB | Centralized texturing stage for 1K/2K atlas targets. |
 | **TripoSG** | `triposg_image_to_raw_mesh` | Image/Scribble to 3D | 8 GB | High-fidelity image and scribble guided 3D geometry; model-specific patcher in `patcher/triposg/`. |
 | **FastMesh (V1K)** | `fastmesh_v1k_retopology` | Mesh Retopology | 16 GB configured reservation | V1K manifest entry; quad-dominant retopology engine. |
-| **UniRig** | `unirig_auto_rig` | Auto-Rigging | 9 GB | Automated bipedal skeletal armature generation. |
+| **SkinTokens** | `skintokens_auto_rigging` | Auto-Rigging | 14 GB | Unified autoregressive armature and discrete skin token generation. |
 | **ARDY** | `ardy_motion_generation` | Motion AI | CPU-only | Interactive autoregressive text-to-motion generation; CPU/RAM-bound. |
 | **PartUV** | `partuv_uv_unwrapping` | UV Unwrapping | 7 GB | Automated seam placement and GPU UV chart packing. |
 | **TRELLIS** | `trellis_image_to_3d` / `trellis_image_to_raw_mesh` | Raw Mesh | 11.5 GB | Raw FlexiCubes geometry; optional texture generation is a separate stage. |
@@ -330,7 +330,7 @@ The ForMesh3D Studio UI integrates neural generation and mesh finishing into a c
 - **Retopology & Remesh (`/workspace/remesh`)**: FastMesh quad-dominant retopology with V1K and V4K target presets.
 - **UV Unwrapping (`/workspace/uv`)**: Automated conformal seam placement and atlas chart packing.
 - **Mesh Segmentation (`/workspace/segment`)**: Semantic part decomposition interface.
-- **Animation & Motion (`/animation`)**: UniRig bipedal armature generation and ARDY motion synthesis.
+- **Animation & Motion (`/animation`)**: SkinTokens autoregressive armature generation and ARDY motion synthesis.
 - **Jobs & Run Inspector (`/workspace/jobs`)**: Real-time progress tracking, step telemetry, and VRAM monitoring.
 - **Admin & Model Registry (`/admin?tab=models`)**: Live GPU health, temperature, and adapter configuration.
 - **Database Administration (`/admin?tab=database`)**: Cross-store statistics (SQLite/Redis/queue/file-metadata/disk), read-only Redis key inspector, and paginated jobs table with per-row cancel/delete.
@@ -530,8 +530,8 @@ Yes. Once your model checkpoints are downloaded via `bash backend/scripts/downlo
 <summary><strong>What GPU hardware is required to run ForMesh3D?</strong></summary>
 
 ForMesh3D runs on modern NVIDIA GPUs supporting CUDA 12.4+. VRAM figures are the scheduler reservations declared in `backend/config/models.yaml`:
-- **Lightweight Models (6 GB–10 GB VRAM)**: TripoSG (~8 GB), Hunyuan3D-DiT-v2-mini-Turbo (~6 GB), Unique3D (~10 GB), UniRig (~9 GB), PartUV (~7 GB).
-- **Standard Models (11.5 GB–12 GB VRAM)**: TRELLIS (~11.5 GB), Hunyuan3D-Paint v2.1 (~12 GB configured reservation), Paint3D (~12 GB).
+- **Lightweight Models (6 GB–10 GB VRAM)**: TripoSG (~8 GB), Hunyuan3D-DiT-v2-mini-Turbo (~6 GB), Unique3D (~10 GB), PartUV (~7 GB).
+- **Standard Models (11.5 GB–14 GB VRAM)**: TRELLIS (~11.5 GB), Hunyuan3D-Paint v2.1 (~12 GB configured reservation), Paint3D (~12 GB), SkinTokens (~14 GB).
 - **Heavy & High-Poly Models (16 GB–24 GB+ VRAM)**: FastMesh V1K (~16 GB), Pixal3D (~18 GB), TaoFlowForge (~20 GB / 10 GB low-VRAM), TRELLIS.2 (~23.5 GB, runs on RTX 3090, 4090, A10, A100).
 </details>
 

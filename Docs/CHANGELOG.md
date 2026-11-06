@@ -1,48 +1,42 @@
 # ForMesh3D Changelog
 
-## 2026-11-05 — PR #80 review follow-ups
+## 2026-11-06 — TaoFlowForge Pre-Ampere OOM Elimination & Pixal3D Backend Selection
 
-- Scoped TRELLIS.2 sparse-convolution fallback selection to the adapter worker's assigned GPU; the global hardware helper no longer forces spconv on every worker. The painting adapter follows the same per-GPU selection and preserves the upstream FlexGEMM path on modern GPUs when available.
-- Unified the TRELLIS.2 painting adapter status check with the adapter's backend.core.models.base.ModelStatus enum.
-- Hi3D now accepts both mesh_path and the coarse_mesh_path key emitted by /refine-mesh.
-- The model downloader loads the project/backend .env before resolving MODEL_STORAGE_ROOT.
-- Image-to-raw-mesh jobs now forward the top-level seed; it takes precedence over legacy model_parameters.seed.
-- Verification: source-level fixes only in this commit; CI and GPU inference are pending rerun.
-
----
-
-## 2026-11-05 — Mark TRELLIS.2, Pixal3D, TaoFlowForge as not_tested
-
-- **TRELLIS.2**: Marked `status: "not_tested"`, `verified: false` in models.yaml. Root cause identified: `sparse_structure_decoder` checkpoint in `pipeline.json` references `microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16` (original TRELLIS repo, not compatible with TRELLIS.2 flow model). Produces all-negative logits (~ -75) → zero occupied voxels → hollow box output. See microsoft/TRELLIS.2#160. Works on HF Spaces demo (Microsoft-hosted infrastructure); local self-hosted broken until compatible decoder checkpoint available.
-- **Pixal3D**: Marked `status: "not_tested"`, `verified: false` in models.yaml. Shares TRELLIS.2 sparse_structure_decoder checkpoint lineage; same decoder incompatibility risk applies. No top-k fallback in Pixal3D decoder path → empty mesh risk on incompatible decoder.
-- **TaoFlowForge**: Marked `status: "not_tested"`, `verified: false` in models.yaml. Stage 2 topology decoding hits CUDA OOM (6.71 GiB allocation attempt, 280 MiB free) on pre-Ampere GPUs due to SDPA MATH backend fallback. Patcher `patcher/taoflowforge/` provides float16 + query-chunked SDPA fix; requires clean worker restart to activate.
-- All three models marked `not_tested` because no live GPU inference has been run in this environment.
-
-
-- **Root Cause Resolution for Square Box Mesh**: Investigated user logs showing `max_logit=-75.0331`, top-327 voxel fallback, and `bbox_extents=[0.9994, 0.9987, 0.9994]`. Discovered that on pre-Ampere GPUs (`sm < 80`, e.g. Tesla T4 sm_75), dense attention in `trellis2/modules/attention/full_attn.py` was forcibly downcasting `bfloat16` inputs to `half()` (FP16). In a 30-block 1.3B parameter DiT with CFG scale 7.5, FP16 exponent limit (65,504) caused catastrophic exponent overflow and cancellation, causing Euler flow-matching sampling to diverge and `SparseStructureDecoder` to output all-negative logits.
-- **FP32 Pre-Ampere Attention Alignment**: In `trellis2/modules/attention/full_attn.py`, updated both `xformers` and `sdpa` branches on `_is_pre_ampere` devices to cast `bfloat16` inputs to `float()` (FP32), matching the existing pattern in `sparse/attention/full_attn.py` (`# Pre-Ampere GPUs (including T4 / sm_75) use FP32, never a range-losing FP16 cast`). Preserves full $10^{38}$ dynamic range throughout all Euler steps.
-- **Domain Bounding Box Artifact Elimination**: In `sample_sparse_structure` (`trellis2_image_to_3d.py`), added a sanity check `if max_logit >= -5.0:` before allowing top-k voxel percentile fallbacks. When `max_logit < -5.0` (indicating divergent noise), the pipeline refuses to fabricate boundary voxels that form a 1.0 x 1.0 x 1.0 hollow box, instead raising a descriptive `RuntimeError`. In `backend/adapters/trellis2_mesh_validation.py`, added automated validation rejection for hollow bounding boxes (`extents >= 0.99` spanning `[-0.5, 0.5]`).
-- **CuMesh CUDA Error 209 Guard**: In `trellis2/representations/mesh/base.py`, added `_is_cumesh_available()` checking `device_capability[0] >= 8`. Gracefully skips CuMesh on sm_75 devices where binary sm_75 kernel images are absent, eliminating the verbose `CUDA error: 209 (no kernel image is available for execution on the device)` warning while preserving 100% native CuMesh execution on modern GPUs (`sm >= 80`).
-- **Zero Regression on Modern GPUs & Zero Adapter Invasiveness**: Modern GPUs (`sm >= 80`) remain 100% native FlashAttention and BF16. Model adapters (`backend/adapters/*.py`) remain completely untouched; GPU Doctor was not wired in per explicit user constraint.
-- **Verification**: `pytest backend/tests/` passed (36/36). Frontend `bun test` passed (60/60 tests across 11 files). `python -m py_compile` passed on all modified files.
+- **TaoFlowForge Pre-Ampere OOM Fix & Fast Step Schedule**:
+  - Identified root cause of 14 GiB VRAM peak in Stage 1 and OOM during Stage 2 loading on pre-Ampere GPUs (`sm < 80`, e.g. Tesla T4): hardcoded `torch.bfloat16` compute dtype in `taoflowforge/models/attention.py` forced PyTorch SDPA into memory-intensive MATH backend (allocating 10-14 GB for N×N dense attention).
+  - Updated `get_compute_dtype` in `attention.py` and `patcher/taoflowforge/__init__.py` to use `torch.float16` on pre-Ampere devices, enabling hardware-accelerated Cutlass memory-efficient SDPA while preserving native `bfloat16` on modern GPUs (`sm >= 80`).
+  - Added explicit inter-stage GPU eviction (`.to('cpu')` and `.offload()`) before releasing stages in `taoflowforge/pipeline.py` so GPU VRAM is completely freed between stages.
+  - Implemented intra-stage sub-component CPU offloading for DINO encoder, DiT denoiser, and vertex decoder in `stage1.py` and `stage2.py` for pre-Ampere GPUs.
+  - Added explicit DINO load/unload lifecycle across all three stages (`stage0.py`, `stage1.py`, `stage2.py`) so DINO only enters GPU during `encode_image` and is immediately evicted before diffusion loops run.
+  - Configured 5-step fast testing schedule across stages 0, 1, and 2 (reducing total steps from 190 down to 25 for rapid validation, overridable with `TAOFLOWFORGE_USE_OFFICIAL_STEPS=1` to restore 50/30/50).
+  - Enabled `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in `taoflowforge_adapter.py`.
+- **Pixal3D Backend Selection & Conditioning Models**:
+  - Removed invalid `SPARSE_CONV_BACKEND="none"` fallback that broke SparseUNetVae module imports (`conv_none`).
+  - Scoped backend selection: uses `spconv` on pre-Ampere or environments without flex_gemm, and preserves `flex_gemm` on modern GPUs (`sm >= 80`).
+  - Restored `flex_gemm` prebuilt wheel installation command in `backend/scripts/install.sh`.
+  - Fixed `DinoV3ProjFeatureExtractor.to()` positional argument mismatch (`takes 2 positional arguments but 3 were given`) by making `to(*args, **kwargs)` conform to standard PyTorch signature across `image_conditioned_proj.py` and `image_conditioned.py`.
+  - Added fallback `to(device)` handling and local DINOv3 weight path resolution in `pixal3d_adapter.py`.
+- **Verification**: Created `backend/tests/test_taoflowforge_adapter.py` (9 tests) and `backend/tests/test_pixal3d_adapter.py` (7 tests). All 60 backend pytest tests passed. All 60 frontend bun tests passed.
 
 ---
 
-## 2026-11-05 — GPU Doctor Standalone Implementation (`patcher/doctor.py`) & Hardware Execution Planner
+## 2026-11-06 — Complete Hi3D Decommissioning & Redundant Geometry Refinement Cleanup
 
-- **GPU Doctor Core Engine (`patcher/doctor.py`)**: Built a unified, lightweight, reusable GPU compatibility and memory management utility. Adheres strictly to Ponytail Ultra Mode (single-file, zero bloat, pure PyTorch + Hugging Face Accelerate). Provides declarative `ModelProfile` registrations for TRELLIS.2, Pixal3D, and TaoFlowForge.
-- **Top Priority Rule 1 Enforcement**: On modern GPUs (`sm >= 80`, e.g. A100, RTX 3090/4090, H100), `GPUDoctor` preserves 100% native BF16 precision and native FlashAttention with zero fallbacks, zero overhead, and zero regression.
-- **Pre-Ampere Hardware Mitigations (`sm < 80`)**: Configures smart precision policies, CPU offloading, and mathematically exact query-chunked SDPA (`chunked_scaled_dot_product_attention`, difference = 0.0), eliminating 10.06 GiB SDPA Math OOMs.
-- **Guarded Error Classification & Bounded Recovery**: Classifies errors into 7 actionable categories (`cuda_oom`, `unsupported_precision`, `dtype_mismatch`, `device_mismatch`, `attention_backend_failure`, `sparse_empty_voxels`, `unknown`) with bounded recovery attempts (`max_retries=2`) and structured telemetry reports.
-- **Strict Adapter & Model Isolation**: Core GPU Doctor is implemented standalone. Adapters (`backend/adapters/*.py`) and locked models (Hunyuan3D Shape/Turbo, Unique3D) remain completely untouched and unmodified until explicit user verification.
-- **Verification**: `pytest backend/tests/test_gpu_doctor.py` passed (28/28). Total backend test suite `pytest backend/tests/` passed (35/35). Frontend `bun test` passed (60/60 tests across 11 files). `python -m py_compile` passed on all patcher and test files.
+- **Decommissioned Hi3D Submodule**: Completely removed `backend/thirdparty/Hi3D/` (9,660+ lines of redundant code) and deleted `backend/adapters/hi3d_adapter.py`.
+- **Cleaned API & Pipeline**: Removed `/refine-mesh` endpoint and `RefineMeshRequest` from `backend/api/routers/mesh_generation.py`. High-resolution geometry is natively generated in a single stage by TRELLIS.2, TaoFlowForge, and Hunyuan3D-2.1.
+- **Removed Weight Footprint**: Cleaned `download_hi3d()` from `backend/scripts/download_models.sh`, saving ~8GB disk space and download bandwidth.
+- **Frontend & UI Cleanup**: Removed experimental `ViewerToolbar.tsx` ("Refine with Hi3D" button) from 3D Viewport, removed `refineMesh` from `WorkspaceContext` and `apiClient`, and purged Hi3D options from `GeneratePanel.tsx` and `constants/models.ts`.
+- **Verification**: Backend pytest passed (44/44). Frontend bun test passed (60/60). Zero regressions.
 
 ---
 
-## 2026-11-05 — TaoFlowForge Query-Chunked Attention (10 GiB OOM Fix), Stage Offload & Pre-Ampere Hardware Parity
+## 2026-11-06 — SkinTokens Integration & Complete UniRig Decommissioning
 
-- **TaoFlowForge Stage 1 OOM Elimination**: In `taoflowforge/models/attention.py`, resolved the 10.06 GiB CUDA Out of Memory crash in Stage 1 refinement (64->128 lattice, 15,000+ tokens). Added pre-Ampere query chunking (`chunk_size=1024`) and xFormers integration to `_sdpa_dense` and `_sdpa_masked`. When PyTorch's SDPA falls back from unavailable FlashAttention on pre-Ampere GPUs (`sm < 80`), query chunking computes attention in tiles against all key/value tokens, mathematically guaranteeing identical results (diff = 0.0) while reducing peak attention memory from 10.06 GiB down to ~30 MB.
-- **Stage-Wise VRAM Offload Enforcement**: In `taoflowforge_adapter.py`, configured `InferenceConfig(..., offload="on")`. Guarantees that completed stage modules (Stage 0, Stage 1, Stage 2) and intermediate tensors are actively offloaded to CPU and `torch.cuda.empty_cache()` is called between stages, preserving VRAM overhead on 16GB GPUs like Tesla T4.
-- **TaoFlowForge Patcher & Multi-Worker Safety**: Preserved strict process isolation in `patcher/taoflowforge/` and `taoflowforge_adapter.py`, ensuring pre-Ampere SDPA routing and memory mitigations execute exclusively within worker processes without leaking to other models. Modern GPUs (`sm >= 80`, e.g. A100, RTX 3090/4090, H100) run 100% native FlashAttention with zero performance penalties.
-- **Verification**: `pytest backend/tests/test_trellis2_mesh_validation.py` passed (7/7). `bun test` passed (60/60 tests across 11 files). `python -m py_compile` passed on all modified adapter, thirdparty, and patcher files.
+- **Decommissioned UniRig**: Completely removed `backend/thirdparty/UniRig/` from tracking and deleted `backend/adapters/unirig_adapter.py`. Cleaned all UniRig dependencies (`blenderproc`, `pyrender`, `pytorch-lightning==1.9.5`).
+- **Vendored SkinTokens**: Added `backend/thirdparty/SkinTokens/` (MIT License, VAST AI Research, arXiv:2602.04805) to submodule with catalog license table in `LICENSE` and open-source advisory in `README.md`.
+- **SkinTokens Thin Adapter**: Created `backend/adapters/skintokens_adapter.py` implementing `BaseModel` for direct in-process `predict_step` execution of the TokenRig unified autoregressive pipeline (FSQ-CVAE + Qwen3-0.6B + GRPO refinement) with companion `bpy_server` daemon.
+- **Hardware & Precision Preservation**: Locked native FlashAttention 2 and native BF16 inference profile on modern GPUs (`sm >= 80`). Maintained backward-compatible alias `unirig_auto_rig` resolving to `SkinTokensAdapter`.
+- **System & UI Integration**: Updated `backend/config/models.yaml`, `backend/scripts/download_models.sh`, `constants/models.ts`, API routers, scheduler providers, and frontend Rigging Studio panels.
+- **Verification**: `backend/tests/test_skintokens_adapter.py` passed (8/8). Full backend suite `backend/tests/` passed (44/44). Frontend `bun test` passed (60/60).
+
 

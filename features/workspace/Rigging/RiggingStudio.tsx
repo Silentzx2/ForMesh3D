@@ -32,7 +32,7 @@ export const RiggingStudio: React.FC = () => {
   const { state: meshUploadState, upload: uploadMesh } = useMeshAssetUpload();
   const isUploadingMesh = meshUploadState.status === 'uploading' || meshUploadState.status === 'verifying';
 
-  // Rigging Store (metadata, UniRig AI pipeline, character stats)
+  // Rigging Store (metadata, SkinTokens AI pipeline, character stats)
   const {
     characterName,
     setCharacterInfo,
@@ -151,7 +151,7 @@ export const RiggingStudio: React.FC = () => {
         meshUrl: asset.source?.viewUrl || asset.source?.localUrl,
       });
       if (asset.source?.fileId ?? asset.fileId) {
-        toast.success('Mesh uploaded', { description: 'The mesh is ready for UniRig.' });
+        toast.success('Mesh uploaded', { description: 'The mesh is ready for SkinTokens.' });
       }
     } finally {
       input.value = '';
@@ -185,22 +185,22 @@ export const RiggingStudio: React.FC = () => {
     !boneSearchQuery || b.name.toLowerCase().includes(boneSearchQuery.toLowerCase())
   );
 
-  // Method 1: AI Auto-Rigging with UniRig
-  const handleGenerateUniRig = async () => {
+  // Method 1: AI Auto-Rigging with SkinTokens
+  const handleGenerateSkinTokens = async () => {
     const meshFileId = currentAsset?.source?.fileId ?? currentAsset?.fileId;
     if (!meshFileId) {
       toast.error('Select or upload a mesh first');
       return;
     }
-    toast.info('Starting UniRig AI Auto-Rigging...', {
-      description: 'Using UniRig’s native biped skeleton and model-default weighting.',
+    toast.info('Starting SkinTokens AI Auto-Rigging...', {
+      description: 'Unified autoregressive generation of skeleton and dense skinning weights.',
     });
     const success = await generateRig(undefined, meshFileId);
     if (success) {
       const rigUrl = useRiggingStore.getState().riggedModelUrl;
       if (rigUrl) syncRiggedAsset(rigUrl);
-      toast.success('UniRig Complete!', {
-        description: 'Rigged FBX saved and attached to the selected asset.',
+      toast.success('SkinTokens Rigging Complete!', {
+        description: 'Rigged model saved and attached to the selected asset.',
       });
       useAnimationStore.setState({
         activeMode: 'rigging',
@@ -211,7 +211,7 @@ export const RiggingStudio: React.FC = () => {
       });
     } else if (useRiggingStore.getState().generationStatus !== 'paused') {
       toast.error('Rigging Failed', {
-        description: useRiggingStore.getState().generationError || generationError || 'Could not complete UniRig auto-rigging.',
+        description: useRiggingStore.getState().generationError || generationError || 'Could not complete SkinTokens auto-rigging.',
       });
     }
   };
@@ -242,7 +242,7 @@ export const RiggingStudio: React.FC = () => {
 
     if (!riggedUrl) {
       toast.info('Armature snapshot saved locally', {
-        description: 'Manual bone placement is an editor overlay and does not create skin weights or a rigged mesh. Run UniRig Auto-Rig before animating this model.',
+        description: 'Manual bone placement is an editor overlay and does not create skin weights or a rigged mesh. Run SkinTokens Auto-Rig before animating this model.',
       });
       return;
     }
@@ -346,7 +346,7 @@ export const RiggingStudio: React.FC = () => {
             <h1 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
               <span>Rigging Studio</span>
               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
-                UniRig + Symmetry
+                SkinTokens + Symmetry
               </span>
             </h1>
             <p className="text-[11px] text-zinc-400 font-normal">
@@ -361,7 +361,7 @@ export const RiggingStudio: React.FC = () => {
           <div className="flex items-center gap-2 bg-[hsl(var(--surface-1))] border border-white/[0.08] px-3 py-1.5 rounded-xl text-xs">
             <span className="text-zinc-500 font-medium">Model:</span>
             <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" />
-            <span className="font-semibold text-zinc-200">UniRig (Fast AI Auto-Rig)</span>
+            <span className="font-semibold text-zinc-200">SkinTokens (Neural Auto-Rig)</span>
           </div>
 
           {/* Import Model Action */}
@@ -436,7 +436,7 @@ export const RiggingStudio: React.FC = () => {
                     : 'text-zinc-400 hover:text-white'
                 }`}
               >
-                Auto Rig (UniRig AI)
+                Auto Rig (SkinTokens AI)
               </button>
               <button
                 onClick={() => setRiggingMethod('manual_rig')}
@@ -450,7 +450,7 @@ export const RiggingStudio: React.FC = () => {
               </button>
             </div>
 
-            {/* METHOD 1: UNIRIG AI AUTO-RIG */}
+            {/* METHOD 1: SKINTOKENS AI AUTO-RIG */}
             {riggingMethod === 'auto_rig' && (
               <div className="space-y-2.5">
                 <div className="p-3 rounded-xl border border-primary/30 bg-primary/5 flex items-center justify-between">
@@ -459,9 +459,9 @@ export const RiggingStudio: React.FC = () => {
                       <HugeiconsIcon icon={SparklesIcon} size={16} className="w-4 h-4" />
                     </div>
                     <div>
-                      <h4 className="text-xs font-bold text-white">UniRig Neural Armature</h4>
+                      <h4 className="text-xs font-bold text-white">SkinTokens Neural Armature</h4>
                       <p className="text-[10px] text-zinc-400 leading-tight">
-                        Deep-learning pipeline that fits biped bones and generates smooth skinning weights.
+                        Unified autoregressive framework predicting coherent skeleton hierarchy and discrete skin tokens.
                       </p>
                     </div>
                   </div>
@@ -469,7 +469,7 @@ export const RiggingStudio: React.FC = () => {
 
                 {/* Primary Generate Rig Button */}
                 <button
-                  onClick={handleGenerateUniRig}
+                  onClick={handleGenerateSkinTokens}
                   disabled={isGenerating}
                   className={`w-full py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer active:scale-98 ${
                     isGenerating
@@ -485,7 +485,7 @@ export const RiggingStudio: React.FC = () => {
                   ) : (
                     <>
                       <HugeiconsIcon icon={SparklesIcon} size={16} className="w-4 h-4 fill-current" />
-                      <span>Generate UniRig Armature</span>
+                      <span>Generate SkinTokens Armature</span>
                     </>
                   )}
                 </button>
@@ -587,7 +587,7 @@ export const RiggingStudio: React.FC = () => {
             {advancedOptionsOpen && (
               <div className="space-y-2.5 pt-1">
                 <div className="rounded-lg border border-white/[0.08] bg-[hsl(var(--surface-1))] p-3 text-[10px] text-zinc-400 leading-relaxed">
-                  UniRig uses its native biped topology and model-default weighting. Custom skeleton topology, generated IK handles, and weight-reuse/optimization overrides are not exposed by this adapter and have been removed rather than sent as ignored parameters.
+                  SkinTokens uses its learned unified autoregressive representation with transfer post-processing for scale and texture preservation. Custom skeleton topology and arbitrary weight overrides are not exposed by this adapter.
                 </div>
               </div>
             )}

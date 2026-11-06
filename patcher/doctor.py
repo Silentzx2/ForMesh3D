@@ -213,6 +213,19 @@ class GPUDoctor:
             allow_query_chunking=True,  # prevents 10GB SDPA Math OOM on 15k tokens
             default_chunk_size=1024,
         ),
+        "skintokens": ModelProfile(
+            model_id="skintokens",
+            supported_dtypes=[getattr(torch, "bfloat16", None), getattr(torch, "float16", None), getattr(torch, "float32", None)],
+            supports_bf16=True,
+            supports_fp16=True,
+            supports_fp32=True,
+            supports_accelerate_dispatch=False,
+            supports_cpu_offload=False,
+            pipeline_type="autoregressive_tokenrig",
+            attention_backend_preference=["flash_attn", "sdpa"],
+            allow_query_chunking=False,
+            default_chunk_size=1024,
+        ),
     }
 
     def __init__(self, config: Optional[DoctorConfig] = None):

@@ -48,7 +48,7 @@ export const RiggingLeftPanel: React.FC = () => {
 
   const handleGenerate = async () => {
     if (riggingMethod === 'manual_rig') {
-      toast.info('Manual armature mode does not run UniRig. Use the Rigging Studio editor to place bones and save the armature.');
+      toast.info('Manual armature mode does not run SkinTokens. Use the Rigging Studio editor to place bones and save the armature.');
       return;
     }
     const meshFileId = currentAsset?.source?.fileId ?? currentAsset?.fileId;
@@ -130,7 +130,7 @@ export const RiggingLeftPanel: React.FC = () => {
           >
             <div className="flex items-center gap-1.5 mb-1">
               <HugeiconsIcon icon={SparklesIcon} size={14} className="w-3.5 h-3.5 text-primary" />
-              <span className="font-bold text-[11px] text-white">UniRig AI</span>
+              <span className="font-bold text-[11px] text-white">SkinTokens AI</span>
             </div>
             <p className="text-[9px] text-zinc-400 leading-tight">Neural automatic skeletal fitting</p>
           </button>
@@ -153,7 +153,7 @@ export const RiggingLeftPanel: React.FC = () => {
       </div>
 
       <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-0))] border border-white/[0.08] text-[10px] text-zinc-400 leading-relaxed">
-        UniRig uses its native biped topology and model-default weights. Custom skeleton presets, IK generation, and weight overrides are not supported by this adapter.
+        SkinTokens uses its learned unified autoregressive representation with transfer post-processing. Custom skeleton presets, IK generation, and weight overrides are not supported by this adapter.
       </div>
 
       {/* Advanced Options Accordion */}
@@ -198,7 +198,7 @@ export const RiggingLeftPanel: React.FC = () => {
         ) : (
           <>
             <HugeiconsIcon icon={BoneIcon} size={16} className="w-4 h-4 stroke-[2.2]" />
-            <span>{riggingMethod === 'manual_rig' ? 'MANUAL ARMATURE MODE' : 'GENERATE RIG WITH UNIRIG'}</span>
+            <span>{riggingMethod === 'manual_rig' ? 'MANUAL ARMATURE MODE' : 'GENERATE RIG WITH SKINTOKENS'}</span>
           </>
         )}
       </button>

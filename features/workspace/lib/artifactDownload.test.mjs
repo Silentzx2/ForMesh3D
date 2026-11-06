@@ -29,10 +29,10 @@ test('surfaces backend error details without saving an error payload', async () 
   let saveCalled = false;
   await assert.rejects(
     downloadArtifact('/artifact', 'mesh.fbx', 'fbx', {
-      fetcher: async () => response(JSON.stringify({ detail: 'FBX export requires rigging (UniRig).' }), 422, 'application/json'),
+      fetcher: async () => response(JSON.stringify({ detail: 'FBX export requires rigging (SkinTokens).' }), 422, 'application/json'),
       save: () => { saveCalled = true; },
     }),
-    /Download failed \(HTTP 422\): FBX export requires rigging \(UniRig\)/,
+    /Download failed \(HTTP 422\): FBX export requires rigging \(SkinTokens\)/,
   );
   assert.equal(saveCalled, false);
 });

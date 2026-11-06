@@ -170,9 +170,6 @@ _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS = frozenset({
     "unique3d_image_to_raw_mesh",
     "taoflowforge_image_to_raw_mesh",
     "hunyuan3d_paint_v21_image_mesh_painting",
-    "hi3d_image_to_raw_mesh",
-    "hi3d_image_to_textured_mesh",
-    "hi3d",
     "paint3d",
     "paint3d_image_mesh_painting",
 })
@@ -2101,7 +2098,7 @@ class MultiprocessModelScheduler:
         child_job_id: str,
         base_result: Dict[str, Any],
     ) -> None:
-        """Wait for UniRig, persist the durable rigged artifact, then finalize the parent job."""
+        """Wait for SkinTokens auto-rigging, persist the durable rigged artifact, then finalize the parent job."""
         try:
             while True:
                 parent_job = await self.job_queue.get_job(parent_job_id)
@@ -2146,7 +2143,7 @@ class MultiprocessModelScheduler:
                 child_path = child_result.get("output_mesh_path")
                 child_fbx_path = child_result.get("output_fbx_path")
                 if not child_path or not Path(child_path).is_file() or Path(child_path).suffix.lower() != ".glb":
-                    raise RuntimeError("UniRig completed without a durable output_mesh_path")
+                    raise RuntimeError("SkinTokens auto-rigging completed without a durable output_mesh_path")
 
                 asset_root = Path(result["asset_root"]).resolve()
                 storage_root = (get_storage_base_dir() / "models" / "meshes").resolve()
@@ -2176,7 +2173,7 @@ class MultiprocessModelScheduler:
                 result["output_fbx_path"] = str(rig_fbx_path) if rig_fbx_path else None
                 result["rigging"] = {
                     "status": "completed",
-                    "provider": "unirig_auto_rig",
+                    "provider": "skintokens_auto_rigging",
                     "child_job_id": child_job_id,
                     "artifact_path": str(rig_path),
                     "artifact_url": rig_url,
@@ -2222,9 +2219,9 @@ class MultiprocessModelScheduler:
                 )
                 result["rigging"] = {
                     "status": "failed" if status == "failed" else "cancelled",
-                    "provider": "unirig_auto_rig",
+                    "provider": "skintokens_auto_rigging",
                     "child_job_id": child_job_id,
-                    "error": error or f"UniRig child job ended with {status}",
+                    "error": error or f"SkinTokens child job ended with {status}",
                 }
                 result["production_status"] = "degraded"
                 result["degraded_reasons"] = list(result.get("degraded_reasons", [])) + ["auto_rig_failed"]
@@ -2259,7 +2256,7 @@ class MultiprocessModelScheduler:
             fallback = dict(base_result)
             fallback["rigging"] = {
                 "status": "failed",
-                "provider": "unirig_auto_rig",
+                "provider": "skintokens_auto_rigging",
                 "child_job_id": child_job_id,
                 "error": str(exc),
             }
@@ -2459,7 +2456,7 @@ class MultiprocessModelScheduler:
                             "output_format": "glb",
                             "with_skinning": True,
                         },
-                        model_preference="unirig_auto_rig",
+                        model_preference="skintokens_auto_rigging",
                         priority=job_request.priority,
                         timeout_seconds=job_request.timeout_seconds,
                         metadata={
@@ -2485,7 +2482,7 @@ class MultiprocessModelScheduler:
                     child_id = await self.schedule_job(child_request)
                     final_result["rigging"] = {
                         "status": "queued",
-                        "provider": "unirig_auto_rig",
+                        "provider": "skintokens_auto_rigging",
                         "child_job_id": child_id,
                     }
                     final_result["rigged_model_url"] = (
@@ -2512,14 +2509,14 @@ class MultiprocessModelScheduler:
                     preview_path = Path(final_result.get("output_mesh_path") or "").resolve(strict=True)
                     preview_path.relative_to(expected_dir.resolve())
                     if preview_path.suffix.lower() != ".glb" or preview_path.stat().st_size == 0:
-                        raise RuntimeError("UniRig did not produce a valid GLB preview artifact")
+                        raise RuntimeError("SkinTokens did not produce a valid GLB preview artifact")
 
                     source_path = Path(job_request.metadata["source_path"]).resolve(strict=True)
                     master_path = Path(job_request.metadata["source_master_path"]).resolve(strict=True)
                     from core.utils.artifact_utils import sha256_file
 
                     if sha256_file(source_path) != job_request.metadata.get("source_sha256"):
-                        raise RuntimeError("Selected source mesh changed during UniRig processing")
+                        raise RuntimeError("Selected source mesh changed during SkinTokens processing")
 
                     fbx_path_value = final_result.get("output_fbx_path")
                     fbx_path = Path(fbx_path_value).resolve(strict=True) if fbx_path_value else None
@@ -2533,7 +2530,7 @@ class MultiprocessModelScheduler:
                     final_result["output_fbx_path"] = str(fbx_path) if fbx_path else None
                     final_result["rigging"] = {
                         "status": "completed",
-                        "provider": "unirig_auto_rig",
+                        "provider": "skintokens_auto_rigging",
                         "artifact_path": str(preview_path),
                         "fbx_path": str(fbx_path) if fbx_path else None,
                         "fbx_status": "ready" if fbx_path else "unavailable",

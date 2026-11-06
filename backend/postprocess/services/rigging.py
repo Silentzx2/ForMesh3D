@@ -1,6 +1,6 @@
 """Auto-rigging and skeleton integration service.
 
-Provides unified entrypoints for UniRig and FBX skeleton conversion/export.
+Provides unified entrypoints for SkinTokens and FBX skeleton conversion/export.
 """
 from __future__ import annotations
 
@@ -15,9 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 def is_rigging_available() -> bool:
-    """Check if UniRig model weights and code dependencies are present."""
+    """Check if SkinTokens model weights and code dependencies are present."""
     try:
-        from backend.adapters.unirig_adapter import UniRigAdapter
+        from backend.adapters.skintokens_adapter import SkinTokensAdapter
         return True
     except Exception:
         return False

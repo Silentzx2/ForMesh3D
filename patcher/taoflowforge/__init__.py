@@ -50,13 +50,23 @@ def _patch_attention_backend() -> None:
             if major < 8:
                 logger.info(
                     "TaoFlowForge: pre-Ampere GPU (sm_%d%d) detected — "
-                    "setting ATTENTION_BACKEND='sdpa' and _COMPUTE_DTYPE=torch.float16 "
+                    "setting ATTENTION_BACKEND='sdpa' and compute_dtype=torch.float16 "
                     "for Cutlass memory-efficient attention (avoids 10 GiB MATH OOM).",
                     major,
                     minor,
                 )
                 attn_mod.ATTENTION_BACKEND = "sdpa"
                 attn_mod._COMPUTE_DTYPE = torch.float16
+                orig_get_compute_dtype = attn_mod.get_compute_dtype
+
+                def _safe_get_compute_dtype(d=None):
+                    if d is not None and getattr(d, "type", str(d)) == "cpu":
+                        return torch.float32
+                    if attn_mod._is_pre_ampere(d):
+                        return torch.float16
+                    return orig_get_compute_dtype(d)
+
+                attn_mod.get_compute_dtype = _safe_get_compute_dtype
         except Exception as exc:
             logger.warning("TaoFlowForge patcher device check failed: %s", exc)
 

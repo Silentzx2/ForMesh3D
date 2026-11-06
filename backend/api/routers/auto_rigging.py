@@ -65,7 +65,7 @@ class AutoRigRequest(BaseModel):
     rig_mode: str = Field("skeleton", description="Rig mode for auto-rigging")
     output_format: str = Field("fbx", description="Output format for rigged mesh")
     model_preference: str = Field(
-        "unirig_auto_rig", description="Name of the auto-rigging model to use"
+        "skintokens_auto_rigging", description="Name of the auto-rigging model to use"
     )
     model_parameters: Optional[dict] = Field(
         None, 

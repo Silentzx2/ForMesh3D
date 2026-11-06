@@ -71,7 +71,7 @@ Create a centralized, local AI 3D asset factory that takes a reference image and
 - Organized: master/, game_ready/, lods/, collision/, textures/, previews/, metadata/
 
 ### 8. Animation & Rigging
-- **UniRig**: Automated bipedal skeletal armature generation
+- **SkinTokens**: Unified autoregressive neural armature and discrete skin token generation
 - **ARDY**: Interactive autoregressive text-to-motion generation, executed locally on CPU without GPU/VRAM reservation
 - Browser-playable `motion.json` format for Three.js
 
@@ -179,7 +179,7 @@ flowchart TB
         PIXAL["Pixal3D<br/>Pixel-Aligned Projection"]:::adapters
         P3D["Paint3D<br/>Coarse-to-Fine Texture"]:::adapters
         ARDY["ARDY<br/>Motion AI"]:::adapters
-        UR["UniRig<br/>Auto-Rigging"]:::adapters
+        UR["SkinTokens<br/>Auto-Rigging"]:::adapters
         FM["FastMesh<br/>Retopology"]:::adapters
     end
 
@@ -270,7 +270,7 @@ flowchart TD
 | Unique3D | 10 GB | High-fidelity multi-view reconstruction | Not benchmarked (balanced latency class) |
 | Pixal3D | 18 GB (10 GB in low-VRAM mode) | Pixel-aligned projection geometry | Not benchmarked (quality latency class) |
 | ARDY | CPU-only; no GPU VRAM reservation | Motion AI & Animation; CPU/RAM-bound | Host-dependent; slower than GPU inference |
-| UniRig | 9 GB | Auto-rigging | ~20 seconds |
+| SkinTokens | 14 GB | Auto-rigging | ~20 seconds |
 | FastMesh-V1K | 16 GB | Retopology | ~30 seconds |
 | FastMesh-V4K | 24.5 GB | High-res retopology | ~30 seconds |
 
@@ -407,7 +407,7 @@ Printability QA is deterministic topology inspection in the shared production po
 Supports quad-dominant retopology via the AutoRetopo quad conversion in the production pipeline, exporting standard Wavefront OBJ format with 4-vertex polygonal faces (`f v1 v2 v3 v4`). When quad-dominant topology is requested and generated, the postprocessing optimization stage automatically preserves quad topology without destructive triangle decimation.
 
 ### Auto-Rigging
-One canonical enable_auto_rig flag runs UniRig after the final production mesh. The immutable source/master is never replaced by the rigged derivative. A rigged artifact is not reported ready until the child job has produced a durable output.
+One canonical enable_auto_rig flag runs SkinTokens after the final production mesh. The immutable source/master is never replaced by the rigged derivative. A rigged artifact is not reported ready until the child job has produced a durable output.
 
 ### Smart Intent
 Five built-in intent presets (`game_ready`, `cinematic`, `animation`, `3d_print`, `mobile`) are backend-owned and deterministic in `backend/config/smart_presets.yaml`: game_ready 50K tris / 1K atlas with collision, cinematic 200K / 2K, animation 30K / 1K with auto-rig, 3d_print raw with printability check and auto-repair, mobile 20K / 1K. The Generate panel exposes these five plus a `Native` chip that bypasses post-processing and returns the raw generative mesh, and it mirrors the backend catalogue through a minimal offline fallback table in `constants/smartPresetFallback.json` guarded by `backend/tests/test_smart_preset_parity.py`. Explicit top-level budget inputs take precedence over nested defaults and presets (`_resolve_target_polycount_precedence`). Explicit model selection remains an override; the scheduler remains the final concurrency and VRAM authority.

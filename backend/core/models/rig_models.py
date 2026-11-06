@@ -46,7 +46,7 @@ class AutoRigModel(BaseModel):
     def _load_model(self):
         """Load the auto-rigging model. To be implemented by adapters."""
         logger.info(f"Loading auto-rig model: {self.model_id}")
-        # This will be implemented by specific adapters (e.g., UniRig)
+        # This will be implemented by specific adapters (e.g., SkinTokens)
         pass
 
     def _unload_model(self):

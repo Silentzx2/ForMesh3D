@@ -39,7 +39,7 @@ Use this map to find the owner of a behavior before editing it.
 
 ### Generation runtime ownership
 
-The normal image-to-asset path is UI upload/request serialization → FastAPI validation and `JobRequest` → scheduler/resource planner → one adapter's inference → raw master persistence → optional `postprocess.pipeline.run_postprocess_job` → derivative artifacts and QA report. An optional Hi3D refinement stage (`POST /mesh-generation/refine-mesh`) archives the source mesh as `<mesh>_legacy.glb`, then enqueues `hi3d_image_to_raw_mesh` with `coarse_mesh_path=<legacy>` so the adapter-owned Hi3D adapter refines the geometry without touching the immutable master. The scheduler owns worker/resource selection and job state; it does not implement mesh repair, retopology, baking, LOD, or collision algorithms. A request with post-processing disabled returns the raw result and bypasses those production stages.
+The normal image-to-asset path is UI upload/request serialization → FastAPI validation and `JobRequest` → scheduler/resource planner → one adapter's inference → raw master persistence → optional `postprocess.pipeline.run_postprocess_job` → derivative artifacts and QA report. High-resolution geometry is generated directly in a single pass by modern foundation models (TRELLIS.2, TaoFlowForge, Hunyuan3D-2.1) bypassing legacy coarse-mesh refinement. The scheduler owns worker/resource selection and job state; it does not implement mesh repair, retopology, baking, LOD, or collision algorithms. A request with post-processing disabled returns the raw result and bypasses those production stages.
 
 For a behavior change, update the owning implementation and its contract test first, then update the linked contract/API docs and verify the targeted CI command. Do not copy thresholds, model profiles, or intent recipes into a second owner.
 
@@ -51,7 +51,7 @@ Static source inspection of the `dev` baseline on 2026-11-01 identified material
 - The factory does not forward `model_id` through adapter constructor parameters, while adapter constructors may initialize the attribute to `None`.
 - Pixal3D has an undefined `width` reference and does not initialize the four projection-condition models that its vendored `from_pretrained` path leaves unset.
 - Paint3D resolves stage scripts from the weights directory and returns the input mesh rather than applying the generated albedo to the output mesh.
-- UniRig omits the required `__target__` passed to vendored `get_system`; the expected `predict_rig` path does not match the inspected upstream `Trainer.predict` entry point.
+- SkinTokens replaced legacy UniRig with unified autoregressive TokenRig framework and direct in-process inference adapter.
 - FastMesh's manifest exposes V1K only; the registry's V4K ID resolves to an adapter class hard-coded to V1K.
 - The TRELLIS text-painting registry entry reaches an image-conditioned adapter, not a verified text-conditioned pipeline.
 - The generic installer does not install or establish all model source package roots; individual adapter import paths need model-by-model validation.
@@ -168,7 +168,7 @@ flowchart TD
 
 The following points supersede older detailed notes in this section when they conflict with the current adapter and ThirdParty source trees:
 
-- **UniRig:** the vendored `get_system(**kwargs)` parser requires `__target__`; the current adapter call omits it. The inspected upstream run path uses a Lightning `Trainer.predict` flow, not the adapter's assumed `system.predict_rig` method.
+- **SkinTokens:** direct in-process adapter calls official TokenRig pipeline (`get_model`, `predict_step`) with companion `bpy_server` binding daemon. Legacy UniRig has been completely decommissioned.
 - **FastMesh:** only V1K is declared in the current model manifest. The registered V4K ID maps to the same adapter class, whose `MODEL_KEY` is fixed to V1K. Do not advertise V4K or multi-GPU placement as an available current capability.
 - **Pixal3D:** the adapter currently references an undefined `width` in its camera fallback and does not construct the projection-conditioning models that the vendored pipeline leaves for the official inference entry point.
 - **Paint3D:** source-stage scripts are in the ThirdParty source tree, not the model checkpoint directory. The current adapter's export path does not apply the generated albedo to the returned mesh.
@@ -277,7 +277,7 @@ flowchart TB
         direction TB
         SHAPE["Shape Generation<br/>TRELLIS · Hunyuan3D-2.1<br/>TripoSG"]:::purple
         PAINT["Optional Texture Stage<br/>Paint3D 1K/2K · Hunyuan Paint 4K/8K"]:::purple
-        STRUCT["Structure & Motion<br/>FastMesh (V1K only; V4K unverified)<br/>UniRig · ARDY"]:::purple
+        STRUCT["Structure & Motion<br/>FastMesh (V1K only; V4K unverified)<br/>SkinTokens · ARDY"]:::purple
         RETARGET["Motion Retargeting<br/>Joint mapping · rotation and root-motion playback"]:::purple
     end
 
@@ -366,7 +366,7 @@ The Admin Logs tab treats `logs/master.log` as the canonical source and starts a
 | **GPU Monitor** | `backend/core/scheduler/gpu_monitor.py` | Real-time VRAM and temperature polling |
 | **Job Queue** | `backend/core/scheduler/job_queue.py` | Job request models and types |
 | **Redis Job Queue** | `backend/core/scheduler/redis_job_queue.py` | Redis-backed distributed job queue with dual Redis/SQLite atomic deletion synchronization |
-| **Model Adapters** | `backend/adapters/` | 17 adapter modules and registry entries cover TRELLIS, TRELLIS.2, Hunyuan3D, Hi3D, TripoSG, Unique3D, Pixal3D, TaoFlowForge, PartUV, UniRig, FastMesh, ARDY, and Paint3D. This is a registration inventory, not a validated list of working pipelines. Static audit findings and unverified integrations are listed in the Current Model-Native Source Fidelity Contract above and `Docs/MEMORY.md`. |
+| **Model Adapters** | `backend/adapters/` | 15 adapter modules and registry entries cover TRELLIS, TRELLIS.2, Hunyuan3D, TripoSG, Unique3D, Pixal3D, TaoFlowForge, PartUV, SkinTokens, FastMesh, ARDY, and Paint3D. This is a registration inventory, not a validated list of working pipelines. Static audit findings and unverified integrations are listed in the Current Model-Native Source Fidelity Contract above and `Docs/MEMORY.md`. |
 | **Raw Geometry Fidelity Contracts** | `backend/adapters/*_adapter.py` | Model-native inference profiles (steps, guidance, octree/depth resolution, chunks, samplers) are adapter-owned and locked inside each adapter implementation. The scheduler strips request-side inference overrides (`_ADAPTER_OWNED_INFERENCE_INPUTS`) and production-only controls (`_POSTPROCESS_ONLY_INPUTS`) before invoking adapters; seed and image identity remain caller-controlled. |
 | **Texture Synthesis Pipeline** | `backend/adapters/hunyuan3d_paint_v21.py` & `backend/adapters/paint3d_adapter.py` | Centralized texture adapters (Paint3D for 1K/2K, Hunyuan3D-Paint for 4K/8K) operating downstream on post-processed raw mesh geometry. RealESRGAN x4+ super-resolution and DifferentiableRenderer for PBR validation. |
 
@@ -497,7 +497,7 @@ flowchart LR
 
 The install script creates the Conda env `3daigc-api` (Python 3.10) and installs:
 - PyTorch 2.6.0 + CUDA 12.4 (from `https://download.pytorch.org/whl/cu124`)
-- All retained third-party model dependencies (TRELLIS.2, Hunyuan3D-Shape-v2-1, Hunyuan3D-Paint-v2-1, Hunyuan3D-DiT-v2-mini-Turbo, UniRig, PartUV, FastMesh, **Unique3D**)
+- All retained third-party model dependencies (TRELLIS.2, Hunyuan3D-Shape-v2-1, Hunyuan3D-Paint-v2-1, Hunyuan3D-DiT-v2-mini-Turbo, SkinTokens, PartUV, FastMesh, **Unique3D**)
 - Main project dependencies (from `backend/requirements.txt`)
 - System packages (`libsm6`, `libegl1`, `libgl1-mesa-dev`)
 - RealESRGAN_x4plus.pth for Hunyuan3D-Paint-v2-1 super-resolution
@@ -600,7 +600,7 @@ The only retained project runtime log is the repository-root `logs/master.log`. 
 ### Mesh Editing, Rigging, Segmentation, Retopology, UV
 - `POST /api/v1/mesh-editing/text-mesh-editing`: Edit mesh with text prompt.
 - `POST /api/v1/mesh-editing/image-mesh-editing`: Edit mesh with image reference.
-- `POST /api/v1/auto-rigging/generate-rig`: Generate skeletal rig with UniRig.
+- `POST /api/v1/auto-rigging/generate-rig`: Generate skeletal rig with SkinTokens.
 - `POST /api/v1/mesh-segmentation/segment-mesh`: Decompose mesh into parts.
 - `POST /api/v1/mesh-retopology/retopologize-mesh`: Retopologize dense mesh.
 - `POST /api/v1/mesh-uv-unwrapping/unwrap-mesh`: Generate UV atlas.
@@ -624,7 +624,7 @@ The active catalog is sourced from `backend/config/models.yaml`. Text-conditione
 | TRELLIS | `trellis_image_to_3d`; `trellis_image_to_raw_mesh`; legacy `trellis_image_to_textured_mesh` alias; legacy standalone paint IDs remain API-compatible | Raw Geometry; legacy textured ID resolves to raw output | ~11.5 GB |
 | TRELLIS.2 | `trellis2_image_to_3d`; `trellis2_image_to_raw_mesh`; legacy `trellis2_image_to_textured_mesh` alias; standalone paint ID remains API-compatible | Raw Geometry; legacy textured ID resolves to raw output | ~23.5 GB |
 | TripoSG | `triposg_image_to_raw_mesh` | Image → Raw Mesh | ~8 GB |
-| UniRig | `unirig_auto_rig` | Auto-Rigging | ~9 GB |
+| SkinTokens | `skintokens_auto_rigging` | Auto-Rigging | ~14 GB |
 | FastMesh | `fastmesh_v1k_retopology`; `fastmesh_v4k_retopology` | Mesh Retopology | ~16–24.5 GB |
 | PartUV | `partuv_uv_unwrapping` | UV Unwrapping | ~7 GB |
 | ARDY | `ardy_motion_generation` | Text → Motion | CPU-only; no GPU VRAM reservation |
@@ -674,7 +674,7 @@ backend/thirdparty/
 ├── PartUV/
 ├── Pixal3D/
 ├── FastMesh/
-├── UniRig/
+├── SkinTokens/
 ├── TripoSG/
 ├── Taobao3D/        # TaoFlowForge (Alibaba Taobao3D) - progressive native mesh generation
 ├── ardy/
@@ -872,7 +872,7 @@ Phase 1 extends the existing Image → 3D lifecycle; it does not introduce a par
 - SG-06 uses a content-hashed preprocessing artifact with source/approved hashes, optional RMBG, subject framing, low-resolution enhancement, and explicit fallback metadata.
 - SG-02.2 uses one YAML source of truth for Game Ready, Cinematic, Animation, 3D Print, and Mobile (`backend/config/smart_presets.yaml`); Native/Raw is a backend-only sentinel. Capability/readiness/VRAM admission is followed by deterministic quality-aware ranking using requested quality, polycount, texture needs, latency and multi-GPU capability; the scheduler remains the final resource authority.
 - SG-07 runs printability QA and optional repair inside run_postprocess_job(), alongside the existing repair/UV/optimization lifecycle.
-- SG-08 schedules the existing UniRig adapter only after the durable production mesh exists. The rigged GLB is stored under the same asset root and failures are explicit/degraded.
+- SG-08 schedules the existing SkinTokens adapter only after the durable production mesh exists. The rigged GLB is stored under the same asset root and failures are explicit/degraded.
 - Enhancement, intent, QA, and rigging provenance travel through normal job/result metadata so history and artifact delivery retain the decision trail.
 
 ## 2026-10-08 Gap-Closure Audit
@@ -903,7 +903,7 @@ Telemetry is diagnostic evidence, not a model-quality verdict. The same-input, s
 The Next.js 16 Presentation Layer unifies all creation, editing, retopology, rigging, and animation workflows onto a single continuous WebGL canvas:
 
 - **Continuous 3D Viewport**: `MeshViewer` and `ViewportToolOverlay` remain continuously mounted in `#center-viewport-stage` across all workspace tool selections (`model`, `remesh`, `texture`, `uv`, `segment`, `edit`, `animation`, `rigging`). Canvas destructions and WebGL context recreation (200–500ms latency) are eliminated.
-- **Rig-to-animation handoff**: UniRig retains its native FBX for export and publishes a GLB preview for the shared viewport. ARDY motion JSON joint names, per-frame quaternions and root positions are mapped to the loaded skeleton; motion generation requires a real rig, and retarget playback options drive root-motion scaling and floor clamping.
+- **Rig-to-animation handoff**: SkinTokens produces a rigged GLB asset (with optional FBX export via Blender) for the shared viewport. ARDY motion JSON joint names, per-frame quaternions and root positions are mapped to the loaded skeleton; motion generation requires a real rig, and retarget playback options drive root-motion scaling and floor clamping.
 - **Dynamic Modular Panel Rail**:
   - The left floating context tool panel routes dynamically through `renderToolPanel()` to lightweight tool modules (`AnimationLeftPanel`, `RiggingLeftPanel`, etc.) with zero viewport disruption.
   - The right property rail routes through `RightWorkspacePanel` to tool-specific inspectors (`AnimationRightInspector`, `RiggingRightInspector`, `UVInspector`, `SegmentInspector`, `MeshEditInspector`, `RightPropertyPanel`).
@@ -973,7 +973,7 @@ The Next.js 16 Presentation Layer unifies all creation, editing, retopology, rig
 - Adapter profiles remain the owner of model-specific inference schedules. The scheduler filters adapter-owned override keys; the TRELLIS requested/effective step discrepancy is documented but not retuned without measured evidence and approval.
 - Quality policy reads configured limits from `backend/config/quality.yaml`. Auto-Repair OFF does not mutate the mesh, and final topology or master-drift failures (including unavailable comparisons) are reflected in the production result rather than treated as passes.
 - Collision artifacts remain separate from render geometry, and backend CPU contract tests cover safe repair, quality status, seed handling, adapter isolation, collision fallback and canonical artifact hashes.
-- The verification boundary is explicit: CPU contracts do not prove GPU inference, output quality, deployed API behavior, or optional Blender/UniRig execution.
+- The verification boundary is explicit: CPU contracts do not prove GPU inference, output quality, deployed API behavior, or optional Blender/SkinTokens execution.
 
 ## Pre-Ampere Hardware Mitigation & Modern GPU Upstream Preservation (2026-11-05)
 

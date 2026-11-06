@@ -223,12 +223,12 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           </CommandItem>
 
           <CommandItem
-            value="rigging unirig skeleton bones armature"
+            value="rigging skintokens skeleton bones armature"
             onSelect={() => runAction(() => navigateToTool('rigging'))}
           >
             <HugeiconsIcon icon={ZapIcon} size={16} className="mr-2 h-4 w-4 text-primary shrink-0" />
-            <span>UniRig Armature</span>
-            <span className="ml-2 text-xs text-muted-foreground">Automated bipedal character rig</span>
+            <span>SkinTokens Armature</span>
+            <span className="ml-2 text-xs text-muted-foreground">Automated autoregressive character rig</span>
             <CommandShortcut>K</CommandShortcut>
           </CommandItem>
 

@@ -121,10 +121,14 @@ class ModelFactory:
             "module": "adapters.hunyuan3d_adapter_v21",
             "class": "Hunyuan3DV21ImageMeshPaintingAdapter",
         },
-        # UniRig adapters
+        # SkinTokens adapters
+        "skintokens_auto_rigging": {
+            "module": "adapters.skintokens_adapter",
+            "class": "SkinTokensAdapter",
+        },
         "unirig_auto_rig": {
-            "module": "adapters.unirig_adapter",
-            "class": "UniRigAdapter",
+            "module": "adapters.skintokens_adapter",
+            "class": "SkinTokensAdapter",
         },
         # FastMesh adapters
         "fastmesh_v1k_retopology": {
@@ -173,19 +177,6 @@ class ModelFactory:
         "taoflowforge_image_to_raw_mesh": {
             "module": "adapters.taoflowforge_adapter",
             "class": "TaoFlowForgeImageToRawMeshAdapter",
-        },
-        # Hi3D experimental adapters
-        "hi3d_image_to_raw_mesh": {
-            "module": "adapters.hi3d_adapter",
-            "class": "Hi3DImageToRawMeshAdapter",
-        },
-        "hi3d_image_to_textured_mesh": {
-            "module": "adapters.hi3d_adapter",
-            "class": "Hi3DImageToTexturedMeshAdapter",
-        },
-        "hi3d": {
-            "module": "adapters.hi3d_adapter",
-            "class": "Hi3DImageToRawMeshAdapter",
         },
     }
 

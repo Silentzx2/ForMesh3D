@@ -27,11 +27,9 @@ _ADAPTER_MAP: dict[str, str] = {
     "trellis2_image_to_3d": "backend.adapters.trellis2_adapter",
     "trellis2_image_to_raw_mesh": "backend.adapters.trellis2_adapter",
     "taoflowforge_image_to_raw_mesh": "backend.adapters.taoflowforge_adapter",
-    "hi3d_image_to_raw_mesh": "backend.adapters.hi3d_adapter",
     # ── legacy textured-mesh aliases ───────────────────────────────────
     "trellis_image_to_textured_mesh": "backend.adapters.trellis_adapter",
     "trellis2_image_to_textured_mesh": "backend.adapters.trellis2_adapter",
-    "hi3d_image_to_textured_mesh": "backend.adapters.hi3d_adapter",
     # ── image-mesh-painting ────────────────────────────────────────────
     "trellis_image_mesh_painting": "backend.adapters.trellis_adapter",
     "trellis2_image_mesh_painting": "backend.adapters.trellis2_adapter",
@@ -42,7 +40,8 @@ _ADAPTER_MAP: dict[str, str] = {
     # ── uv-unwrapping ──────────────────────────────────────────────────
     "partuv_uv_unwrapping": "backend.adapters.partuv_adapter",
     # ── auto-rigging ───────────────────────────────────────────────────
-    "unirig_auto_rig": "backend.adapters.unirig_adapter",
+    "skintokens_auto_rigging": "backend.adapters.skintokens_adapter",
+    "unirig_auto_rig": "backend.adapters.skintokens_adapter",
     # ── motion-generation ──────────────────────────────────────────────
     "ardy_motion_generation": "backend.adapters.ardy_adapter",
 }

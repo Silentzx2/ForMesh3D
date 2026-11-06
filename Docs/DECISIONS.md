@@ -97,3 +97,41 @@
 6. Deferred Adapter Integration: Keep all adapters (`backend/adapters/*.py`) and locked models (Hunyuan3D Shape/Turbo, Unique3D) strictly untouched until explicit model-by-model verification.
 
 **Consequences:** The GPU Doctor engine is completely testable on CPU via unit tests (28 passed in `backend/tests/test_gpu_doctor.py`). Sibling pipelines and locked models remain completely isolated with zero risk of cross-contamination. Adapter integration requires only 2-3 lines at the worker lifecycle boundary when invoked.
+
+---
+
+## ADR-014: Decommission UniRig in Favor of SkinTokens (Unified Autoregressive Rigging)
+
+- **Status:** Accepted / Implemented
+- **Date:** 2026-11-06
+- **Context:**
+  UniRig was an early two-stage rigging system that predicted a skeleton and then computed skinning weights in separate passes. This architecture produced severe bleeding artifacts across disconnected mesh components (e.g., hair, accessories, weapons, clothing), low skinning accuracy on non-humanoid or complex assets, and relied on legacy dependencies (`blenderproc`, `pyrender`, `pytorch-lightning==1.9.5`).
+  SkinTokens (VAST-AI-Research/SkinTokens, arXiv:2602.04805) unifies both skeleton hierarchy prediction and dense per-vertex skinning weights into a single autoregressive sequence via learned discrete skin tokens (FSQ-CVAE + Qwen3-0.6B + GRPO RL refinement). It improves skinning accuracy by 98%–133% and bone prediction accuracy by 17%–22% over UniRig baselines while cleanly preserving mesh scale and materials via transfer post-processing.
+- **Decision:**
+  1. Completely remove `UniRig` from `backend/thirdparty` and vendor `SkinTokens` under MIT license.
+  2. Implement `SkinTokensAdapter` (`backend/adapters/skintokens_adapter.py`) as a thin, direct in-process adapter conforming to `BaseModel` and `_LOCKED_INFERENCE_PROFILE`.
+  3. Maintain `unirig_auto_rig` as a backward-compatible alias in planner and scheduler routing to `SkinTokensAdapter`.
+  4. Preserve sm >= 80 native FlashAttention 2 and native BF16 execution without regression.
+  5. Clean out UniRig dependencies and update model downloader, configuration manifests, and frontend UI.
+- **Consequences:**
+  - Modern GPUs run official upstream TokenRig at native FlashAttention speeds.
+  - Zero cross-model contamination; model code in `backend/thirdparty/SkinTokens` remains unedited and pristine.
+  - Rigging artifacts benefit from higher fidelity, coherent influence maps, and zero cross-component bleeding.
+
+---
+
+## ADR-015: Decommissioning of Hi3D Geometry Refinement
+
+- **Status:** Accepted / Implemented
+- **Date:** 2026-11-06
+- **Context:**
+  Hi3D (Sparc3D v1.0) was vendored as an experimental second-stage geometry refinement model (`/refine-mesh`). It required a pre-existing coarse mesh and reference image to refine surface details via progressive sparse flow and FlexiCubes. In practice, modern generative foundation models deployed in ForMesh3D (TRELLIS.2, TaoFlowForge, Hunyuan3D-2.1) generate native high-resolution, watertight geometry (up to 4K resolution and 1M+ triangles) directly in a single pass. A second-stage coarse-to-fine refiner added ~8GB of checkpoint download overhead, 14.3GB VRAM requirements, custom CUDA ops (`sparc3d`, `FlexiCubes`, `Pointcept`), and proprietary license terms (`LicenseRef-Hi3D-1.0`) without measurable production utility.
+- **Decision:**
+  1. Completely remove `backend/thirdparty/Hi3D/` (9,660+ lines of redundant code) and delete `backend/adapters/hi3d_adapter.py`.
+  2. Remove `/refine-mesh` endpoint and `RefineMeshRequest` from `backend/api/routers/mesh_generation.py`.
+  3. Remove `download_hi3d()` from `backend/scripts/download_models.sh` to save ~8GB disk space and download bandwidth.
+  4. Purge Hi3D references from manifests (`backend/config/models.yaml`), scheduler registries, and frontend controls (`ViewerToolbar.tsx`, `WorkspaceContext.tsx`, `GeneratePanel.tsx`, `constants/models.ts`).
+- **Consequences:**
+  - Eliminates 9,660+ lines of unmaintained third-party code and complex CUDA dependencies.
+  - Saves 8GB disk space on full setup and eliminates 14GB VRAM consumption during refinement.
+  - Single-stage generative workflows remain standard with zero breaking changes to existing production generation pipelines.

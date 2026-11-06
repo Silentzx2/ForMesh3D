@@ -182,7 +182,7 @@ def install_flex_gemm_shim():
         import flex_gemm.ops.grid_sample as fg_gs
         if hasattr(fg_gs, "grid_sample_3d"):
             return True
-    except (ImportError, ModuleNotFoundError, AttributeError):
+    except Exception:
         pass
 
     # 2. Construct / augment flex_gemm modules
@@ -211,5 +211,16 @@ def install_flex_gemm_shim():
         sys.modules["flex_gemm.ops.grid_sample"] = mod_grid_sample
         setattr(mod_ops, "grid_sample", mod_grid_sample)
 
-    logger.info("Installed flex_gemm.ops.grid_sample fallback shim into sys.modules")
+    if "flex_gemm.ops.spconv" not in sys.modules:
+        try:
+            import flex_gemm.ops.spconv as fg_spconv
+            setattr(mod_ops, "spconv", fg_spconv)
+        except Exception:
+            mod_spconv = types.ModuleType("flex_gemm.ops.spconv")
+            mod_spconv.set_algorithm = lambda *a, **k: None
+            mod_spconv.set_hashmap_ratio = lambda *a, **k: None
+            sys.modules["flex_gemm.ops.spconv"] = mod_spconv
+            setattr(mod_ops, "spconv", mod_spconv)
+
+    logger.info("Installed flex_gemm fallback shim into sys.modules")
     return True

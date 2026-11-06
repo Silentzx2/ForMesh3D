@@ -23,6 +23,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import math
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -64,12 +65,63 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
         self._pipeline: Any = None
 
     def _load_model(self) -> Any:
-        # Make the vendored Pixal3D source importable in the worker process,
-        # which only has backend/ on sys.path. Model-specific source path setup
-        # per TASKS.md §3.3 — not a global patch, not in loader.py.
+        # Determine whether worker is on pre-Ampere GPU (e.g. Tesla T4)
+        device_is_pre_ampere = False
+        if torch is not None and torch.cuda.is_available() and self.gpu_id is not None:
+            try:
+                major, _ = torch.cuda.get_device_capability(self.gpu_id)
+                device_is_pre_ampere = major < 8
+            except Exception:
+                pass
+
+        # Select sparse-convolution backend. Never use 'none' because Pixal3D
+        # has no conv_none backend and will fail to instantiate SparseUNetVae.
+        # On pre-Ampere (T4 sm_75), prefer spconv; on Ampere+ (sm >= 80), prefer flex_gemm.
+        current_backend = os.environ.get("SPARSE_CONV_BACKEND", "")
+        if not current_backend or current_backend == "none":
+            if device_is_pre_ampere:
+                os.environ["SPARSE_CONV_BACKEND"] = "spconv"
+            else:
+                try:
+                    import flex_gemm  # noqa: F401
+                    os.environ["SPARSE_CONV_BACKEND"] = "flex_gemm"
+                except Exception:
+                    os.environ["SPARSE_CONV_BACKEND"] = "spconv"
+
+        if device_is_pre_ampere:
+            if not os.environ.get("SPARSE_ATTN_BACKEND"):
+                try:
+                    import xformers  # noqa: F401
+                    os.environ["SPARSE_ATTN_BACKEND"] = "xformers"
+                except ImportError:
+                    pass
+            if not os.environ.get("ATTN_BACKEND"):
+                os.environ["ATTN_BACKEND"] = "sdpa"
+
+        # Apply compatibility shims (flex_gemm autotune/fallback, cumesh, dinov3)
+        try:
+            from utils.torchvision_fix import apply_fix
+            apply_fix()
+        except Exception:
+            try:
+                from backend.utils.torchvision_fix import apply_fix
+                apply_fix()
+            except Exception:
+                pass
+
         _pixal3d_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Pixal3D")
         if _pixal3d_root not in sys.path:
             sys.path.insert(0, _pixal3d_root)
+
+        # Synchronize Pixal3D sparse config with chosen environment setting
+        try:
+            import pixal3d.modules.sparse.config as sparse_config
+            sparse_config.set_conv_backend(os.environ["SPARSE_CONV_BACKEND"])
+            if os.environ.get("SPARSE_ATTN_BACKEND"):
+                sparse_config.set_attn_backend(os.environ["SPARSE_ATTN_BACKEND"])
+        except Exception:
+            pass
+
         from pixal3d.pipelines import Pixal3DImageTo3DPipeline
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
@@ -84,35 +136,49 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
         try:
             from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import DinoV3ProjFeatureExtractor
 
+            # Resolve local DINOv3 directory if present to avoid redundant HF download
+            weights_root = weights_path.parent
+            local_dino_dir = weights_root / "dinov3-vitl16-pretrain-lvd1689m"
+            if not (local_dino_dir.is_dir() and any(local_dino_dir.iterdir())):
+                fallback_local = Path("/kaggle/working/ForMash3D/backend/pretrained/dinov3-vitl16-pretrain-lvd1689m")
+                if fallback_local.is_dir() and any(fallback_local.iterdir()):
+                    local_dino_dir = fallback_local
+            dino_model_name = str(local_dino_dir) if (local_dino_dir.is_dir() and any(local_dino_dir.iterdir())) else "camenduru/dinov3-vitl16-pretrain-lvd1689m"
+
             def _build(cfg: dict):
+                cfg["model_name"] = dino_model_name
                 m = DinoV3ProjFeatureExtractor(**cfg)
                 m.eval()
-                return m.to(device, dtype)
+                try:
+                    m.to(device, dtype)
+                except (TypeError, ValueError):
+                    m.to(device)
+                return m
 
             pipeline.image_cond_model_ss = _build({
-                "model_name": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
                 "image_size": 512, "grid_resolution": 16,
             })
             pipeline.image_cond_model_shape_512 = _build({
-                "model_name": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
                 "image_size": 512, "grid_resolution": 32,
                 "use_naf_upsample": True, "naf_target_size": 512,
             })
             pipeline.image_cond_model_shape_1024 = _build({
-                "model_name": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
                 "image_size": 1024, "grid_resolution": 64,
                 "use_naf_upsample": True, "naf_target_size": 512,
             })
             pipeline.image_cond_model_tex_1024 = _build({
-                "model_name": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
                 "image_size": 1024, "grid_resolution": 64,
                 "use_naf_upsample": True, "naf_target_size": 1024,
             })
         except Exception as exc:  # pragma: no cover - optional cond models
-            logger.warning(
+            logger.error(
                 "Pixal3D image_cond_model_* not loaded: %s; pipeline.run() "
-                "will fail unless these are set externally.", exc
+                "will fail unless these are set externally.", exc,
+                exc_info=True,
             )
+            raise RuntimeError(
+                f"Failed to initialize Pixal3D image condition models: {exc}"
+            ) from exc
         self._pipeline = pipeline
         self.model = pipeline
         return pipeline
