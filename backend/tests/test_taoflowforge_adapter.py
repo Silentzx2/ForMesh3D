@@ -94,3 +94,27 @@ def test_taoflowforge_modern_gpu_compute_dtype():
         attn._taoflowforge_attn_patched = False
         apply_patch()
         assert attn.get_compute_dtype(torch.device("cuda:0")) == torch.bfloat16
+
+
+def test_taoflowforge_config_step_defaults():
+    import os
+    from taoflowforge.config import Stage0Config, Stage1Config, Stage2Config
+
+    # Default mode should use fast steps (5 steps per stage)
+    c0 = Stage0Config(checkpoint=Path("/dummy/stage0.pt"))
+    c1 = Stage1Config(checkpoint=Path("/dummy/stage1.pt"))
+    c2 = Stage2Config(checkpoint=Path("/dummy/stage2.pt"))
+    assert c0.num_steps == 5
+    assert c1.num_steps == 5
+    assert c2.num_steps == 5
+
+
+def test_taoflowforge_stage_offload_methods():
+    from taoflowforge.models.stage0 import Stage0Model
+    from taoflowforge.models.stage1 import Stage1Model
+    from taoflowforge.models.stage2 import Stage2Model
+
+    # Verify all 3 stages implement offload() for clean memory reclamation
+    assert hasattr(Stage0Model, "offload")
+    assert hasattr(Stage1Model, "offload")
+    assert hasattr(Stage2Model, "offload")

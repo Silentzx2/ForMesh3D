@@ -152,10 +152,17 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
         # TaoFlowForge stage0/stage2 need these; the stage checkpoints do not embed them.
         dino_checkpoint = _resolve_dino_checkpoint(weights_path)
 
+        # Fast-iteration step schedule (default 5 steps per stage as requested;
+        # set TAOFLOWFORGE_USE_OFFICIAL_STEPS=1 or configure via env to restore 50/30/50).
+        use_official_steps = os.environ.get("TAOFLOWFORGE_USE_OFFICIAL_STEPS", "").lower() in ("1", "true")
+        s0_steps = 50 if use_official_steps else int(os.environ.get("TAOFLOWFORGE_STAGE0_STEPS", "5"))
+        s1_steps = 30 if use_official_steps else int(os.environ.get("TAOFLOWFORGE_STAGE1_STEPS", "5"))
+        s2_steps = 50 if use_official_steps else int(os.environ.get("TAOFLOWFORGE_STAGE2_STEPS", "5"))
+
         config = InferenceConfig(
-            stage0=Stage0Config(checkpoint=weights_path / "stage0.pt", num_steps=50, cfg_scale=7.5),
-            stage1=Stage1Config(checkpoint=weights_path / "stage1.pt", num_steps=30, cfg_scale=7.0),
-            stage2=Stage2Config(checkpoint=weights_path / "stage2.pt", num_steps=50, cfg_scale=3.0),
+            stage0=Stage0Config(checkpoint=weights_path / "stage0.pt", num_steps=s0_steps, cfg_scale=7.5),
+            stage1=Stage1Config(checkpoint=weights_path / "stage1.pt", num_steps=s1_steps, cfg_scale=7.0),
+            stage2=Stage2Config(checkpoint=weights_path / "stage2.pt", num_steps=s2_steps, cfg_scale=3.0),
             seed=DEFAULT_SEED,
             offload="on",
             fill_holes=True,

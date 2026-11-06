@@ -62,8 +62,8 @@ The following findings come from reading current adapter, factory, and vendored 
 - **TRELLIS.2 CPU contract tests:** `backend/tests/test_trellis2_mesh_validation.py` — **7 passed** in the local CPU-only test run; helper and test modules pass `py_compile`.
 - **GPU Doctor Unit Test Suite:** `backend/tests/test_gpu_doctor.py` — **28 passed** (modern sm>=80 zero regression, T4 fallback precision, query-chunked SDPA diff=0.0 across 3D/4D and masks, error classification, bounded recovery, cache cleanup).
 - **SkinTokens Unit Test Suite:** `backend/tests/test_skintokens_adapter.py` — **8 passed** (adapter contract, format negotiation, schema validation, T4 patcher isolation).
-- **TaoFlowForge Unit Test Suite:** `backend/tests/test_taoflowforge_adapter.py` — **7 passed** (adapter contract, format negotiation, schema validation, pre-Ampere vs modern GPU compute dtypes).
-- **Total Backend Pytest Suite:** `backend/tests/` — **51 passed**.
+- **TaoFlowForge Unit Test Suite:** `backend/tests/test_taoflowforge_adapter.py` — **9 passed** (adapter contract, format negotiation, schema validation, pre-Ampere vs modern GPU compute dtypes, 5-step schedule, stage offload methods).
+- **Total Backend Pytest Suite:** `backend/tests/` — **53 passed**.
 - **Frontend Bun Test Suite:** `bun test` — **60 passed** across 11 test files.
 - **Source syntax/runtime boundary:** actual repository compileall and the GitHub Actions run must be checked after push. No local model checkpoint, xFormers CUDA operator, or NVIDIA GPU was available for execution.
 - **GPU Inference Validation:**
