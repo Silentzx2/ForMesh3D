@@ -23,6 +23,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import math
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -64,9 +65,7 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
         self._pipeline: Any = None
 
     def _load_model(self) -> Any:
-        # Make the vendored Pixal3D source importable in the worker process,
-        # which only has backend/ on sys.path. Model-specific source path setup
-        # per TASKS.md §3.3 — not a global patch, not in loader.py.
+        os.environ.setdefault("SPARSE_CONV_BACKEND", "none")  # skip flex_gemm/triton autotune crash
         _pixal3d_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Pixal3D")
         if _pixal3d_root not in sys.path:
             sys.path.insert(0, _pixal3d_root)
