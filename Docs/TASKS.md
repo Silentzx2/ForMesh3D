@@ -71,18 +71,17 @@
 - [x] Update `backend/.gitignore`:
   - Replace `!thirdparty/UniRig/...` with `!thirdparty/SkinTokens/...`.
 
-### Phase 3: SkinTokens Model Adapter (`backend/adapters/skintokens_adapter.py`)
+### Phase 3: SkinTokens Model Adapter & Hardware Patcher
 - [x] Remove `backend/adapters/unirig_adapter.py`.
-- [x] Implement `SkinTokensAdapter` in `backend/adapters/skintokens_adapter.py`:
-  - Inherit from `BaseModel`.
-  - `MODEL_KEY = "SkinTokens"`, `FEATURE_TYPE = "auto_rig"`.
-  - Strict adherence to Priority Rule #1:
-    - On modern GPUs (`sm >= 80`): native `flash_attention_2` and `bfloat16`.
-    - On pre-Ampere GPUs (`sm < 80`): fall back to `sdpa` attention implementation.
-  - Thin in-process model execution calling TokenRig `predict_step` directly with companion `bpy_server.py`.
-  - Forward generation parameters: `top_k`, `top_p`, `temperature`, `repetition_penalty`, `num_beams`, `use_transfer`, `use_skeleton`, `use_postprocess`.
-  - Validate output GLB / FBX file existence, size, and manifold status.
-  - Register schema with parameter descriptions for `seed`, `use_transfer`, `use_skeleton`, `use_postprocess`.
+- [x] Implement ultra-thin `SkinTokensAdapter` in `backend/adapters/skintokens_adapter.py`:
+  - Directly invokes official upstream `demo.load_model` and `demo.run_rig` without custom wrappers or data loops.
+  - Manages companion `bpy_server` via `demo.start_bpy_server()` and `demo.wait_for_bpy_server()`.
+  - Zero modifications to upstream model code in `backend/thirdparty/SkinTokens/`.
+- [x] Implement model-specific hardware patcher in `patcher/skintokens/__init__.py`:
+  - Integrated with `patcher.doctor.GPUDoctor` for capability profiling.
+  - On pre-Ampere GPUs (`sm < 80`, e.g. Tesla T4): configures SDPA attention and float16 precision for native hardware acceleration.
+  - On modern GPUs (`sm >= 80`, e.g. A100, RTX 3090/4090, H100): preserves 100% native FlashAttention 2 and native BF16 execution.
+  - Injects lightweight headless `gradio` shim if Gradio is absent in worker process so upstream `demo.py` loads cleanly.
 
 ### Phase 4: Backend Planner, Scheduler & Service Integration
 - [x] Update `backend/core/planner.py`:
@@ -119,7 +118,7 @@
   - Test error handling when input mesh is missing.
 - [x] Verify test suite:
   - Run `pytest backend/tests/test_skintokens_adapter.py`.
-  - Run full backend pytest suite `pytest backend/tests/` (43 passed).
+  - Run full backend pytest suite `pytest backend/tests/` (44 passed).
   - Run frontend tests `bun test` (60 passed).
   - Run `python3 -m py_compile` across all modified files.
 

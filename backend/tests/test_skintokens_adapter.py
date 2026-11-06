@@ -64,7 +64,7 @@ def test_skintokens_process_request_unloaded():
 
 def test_skintokens_process_request_missing_mesh(tmp_path: Path):
     adapter = SkinTokensAdapter(vram_requirement=14336)
-    adapter._model = MagicMock()
+    adapter.model = MagicMock()
     res = adapter._process_request({"mesh_path": str(tmp_path / "nonexistent.glb")})
     assert res["success"] is False
     assert "not found" in res["error"].lower()
@@ -84,12 +84,19 @@ def test_skintokens_resolve_checkpoint(tmp_path: Path):
 def test_skintokens_unload_cleanup():
     adapter = SkinTokensAdapter(vram_requirement=14336)
     mock_proc = MagicMock()
-    adapter._bpy_proc = mock_proc
-    adapter._model = MagicMock()
+    adapter._server_proc = mock_proc
+    adapter.model = MagicMock()
     adapter.status = ModelStatus.LOADED
 
     adapter._unload_model()
     mock_proc.terminate.assert_called_once()
-    assert adapter._model is None
-    assert adapter._bpy_proc is None
+    assert adapter.model is None
+    assert adapter._server_proc is None
     assert adapter.status == ModelStatus.UNLOADED
+
+
+def test_skintokens_patcher_t4():
+    from patcher.skintokens import apply_patch
+    apply_patch()
+    import sys
+    assert "gradio" in sys.modules
