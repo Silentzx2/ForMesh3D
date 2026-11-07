@@ -222,7 +222,9 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
             vertices = np.asarray(result.mesh.vertices)
             faces = np.asarray(result.mesh.faces)
             try:
-                decoded_stats = validate_mesh_arrays(vertices, faces, stage="decoded mesh")
+                decoded_stats = validate_mesh_arrays(
+                    vertices, faces, stage="decoded mesh", check_domain_box=False
+                )
                 logger.info(
                     "[TaoFlowForge] Decoded mesh validated: vertices=%d, faces=%d",
                     decoded_stats["vertex_count"],
@@ -250,7 +252,9 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
 
             try:
                 reloaded = trimesh.load(str(out), force="mesh", process=False)
-                validate_mesh_arrays(reloaded.vertices, reloaded.faces, stage="GLB round-trip")
+                validate_mesh_arrays(
+                    reloaded.vertices, reloaded.faces, stage="GLB round-trip", check_domain_box=False
+                )
             except Exception as exc:
                 return {"success": False, "error": f"TaoFlowForge GLB validation failed: {exc}"}
         except Exception as exc:

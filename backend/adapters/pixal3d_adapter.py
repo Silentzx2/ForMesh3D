@@ -177,7 +177,14 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
                 ]:
                     m = getattr(pipeline, attr, None)
                     if m is not None and getattr(m, "use_naf_upsample", False):
-                        m._load_naf()
+                        try:
+                            m._load_naf()
+                        except Exception as naf_exc:
+                            logger.warning(
+                                "Pixal3D %s NAF pre-load failed (%s). Ensure 'natten' is installed via install.sh.",
+                                attr,
+                                naf_exc,
+                            )
         except Exception as exc:  # pragma: no cover - optional cond models
             logger.error(
                 "Pixal3D image_cond_model_* not loaded: %s; pipeline.run() "

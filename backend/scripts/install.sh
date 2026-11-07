@@ -564,6 +564,14 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
         $UV_PIP install "https://github.com/JeffreyXiang/Storages/releases/download/Space_Wheels_251210/flex_gemm-0.0.1-cp310-cp310-linux_x86_64.whl" || echo "[ERROR] flex_gemm install failed — Pixal3D sparse conv will fall back to 'none' via SPARSE_CONV_BACKEND env."
     fi
 
+    # natten — prebuilt wheel only, no source build (Pixal3D NAF upsample attention).
+    # Try wheel-house fast path first; fall back to direct URL wheel if absent.
+    echo "[INFO] Installing natten..."
+    if ! install_local_wheel "natten-*.whl" "natten"; then
+        echo "[WARN] natten not in $WHEEL_DIR; installing from direct URL..."
+        $UV_PIP install "https://github.com/LDYang694/Storages/releases/download/20260430/natten-0.21.0+torch2.6cu124-cp310-cp310-linux_x86_64.whl" || echo "[WARN] natten direct URL install failed — Pixal3D NAF cascade may fail if used."
+    fi
+
     echo "[SUCCESS] Model dependencies installed."
 else
     echo "[INFO] Skipping model dependencies (no GPU detected)."

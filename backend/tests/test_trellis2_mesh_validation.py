@@ -65,3 +65,15 @@ def test_reports_partial_degeneracy_without_rejecting_valid_surface():
 
     assert stats["face_count"] == 2
     assert stats["degenerate_faces"] == 1
+
+
+def test_accepts_taoflowforge_domain_mesh():
+    vertices = np.array([[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0], [0.0, 1.0, 0.0]], dtype=np.float32)
+    faces = np.array([[0, 1, 2]], dtype=np.int32)
+    stats = validate_mesh_arrays(vertices, faces, stage="decoded mesh", check_domain_box=False)
+    assert stats["vertex_count"] == 3
+    assert stats["face_count"] == 1
+    # Even with check_domain_box=True (default), bounds [-1, 1] != [-0.5, 0.5], so it is NOT rejected
+    stats_default = validate_mesh_arrays(vertices, faces, stage="decoded mesh")
+    assert stats_default["face_count"] == 1
+

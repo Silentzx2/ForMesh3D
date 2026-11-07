@@ -94,13 +94,18 @@ def test_pixal3d_process_request_missing_image():
 def test_pixal3d_dinov3_proj_feature_extractor_to_multi_args():
     from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import (
         DinoV3ProjFeatureExtractor,
+        DINOv3ViTModel,
     )
 
-    extractor = DinoV3ProjFeatureExtractor("dummy_model")
-    # Verify to() accepts (device, dtype) without raising TypeError
-    extractor.to("cpu", torch.float32)
-    extractor.to("cpu")
-    extractor.to(dtype=torch.float32)
+    mock_model = MagicMock()
+    mock_model.config.patch_size = 16
+    mock_model.config.hidden_size = 1024
+    with patch.object(DINOv3ViTModel, "from_pretrained", return_value=mock_model):
+        extractor = DinoV3ProjFeatureExtractor("dummy_model")
+        # Verify to() accepts (device, dtype) without raising TypeError
+        extractor.to("cpu", torch.float32)
+        extractor.to("cpu")
+        extractor.to(dtype=torch.float32)
 
 
 def test_pixal3d_unload_cleanup():
@@ -116,6 +121,7 @@ def test_pixal3d_load_model_weights_dir_resolution():
     import types
     adapter = Pixal3DImageToRawMeshAdapter(vram_requirement=18432)
     mock_pipeline = MagicMock()
+    mock_pipeline.low_vram = False
     mock_pipe_cls = MagicMock()
     mock_pipe_cls.from_pretrained.return_value = mock_pipeline
     mock_pipelines_mod = types.ModuleType("pixal3d.pipelines")

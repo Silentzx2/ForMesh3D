@@ -7,7 +7,13 @@ from typing import Any
 import numpy as np
 
 
-def validate_mesh_arrays(vertices: Any, faces: Any, *, stage: str) -> dict[str, Any]:
+def validate_mesh_arrays(
+    vertices: Any,
+    faces: Any,
+    *,
+    stage: str,
+    check_domain_box: bool = True,
+) -> dict[str, Any]:
     """Validate triangle geometry and return compact export diagnostics.
 
     No minimum face count is imposed: a small mesh is valid when it has finite,
@@ -40,9 +46,10 @@ def validate_mesh_arrays(vertices: Any, faces: Any, *, stage: str) -> dict[str, 
     if not np.isfinite(bbox_diagonal) or not np.any(extents > 0):
         raise ValueError(f"{stage}: geometry has zero or invalid spatial extent")
     if (
-        np.all(extents >= 0.99)
-        and np.all(bounds_min <= -0.49)
-        and np.all(bounds_max >= 0.49)
+        check_domain_box
+        and np.all(np.abs(extents - 1.0) <= 0.05)
+        and np.all(np.abs(bounds_min - (-0.5)) <= 0.05)
+        and np.all(np.abs(bounds_max - 0.5) <= 0.05)
     ):
         raise ValueError(
             f"{stage}: geometry is a hollow domain bounding box ({extents.tolist()}) from empty sparse structure"

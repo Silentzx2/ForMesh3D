@@ -1,5 +1,19 @@
 # ForMesh3D Changelog
 
+## 2026-11-07 — TaoFlowForge Bounding Box Validator Fix & Pixal3D Natten Dependency
+
+- **Bug 1: TaoFlowForge Hollow Domain Bounding Box False-Positive Rejection**:
+  - Identified root cause of `TaoFlowForge mesh validation failed for seed 500313: decoded mesh: geometry is a hollow domain bounding box ([2.0, 2.0, 2.0]) from empty sparse structure`: in `trellis2_mesh_validation.py`, a heuristic intended for TRELLIS.2's `[-0.5, 0.5]^3` empty sparse structure box was checking `np.all(extents >= 0.99) and np.all(bounds_min <= -0.49) and np.all(bounds_max >= 0.49)`.
+  - Because TaoFlowForge generates meshes in `[-1.0, 1.0]^3` with extents `[2.0, 2.0, 2.0]`, this heuristic falsely rejected completely valid, high-resolution TaoFlowForge meshes (e.g. 44,967 faces) after full pipeline completion.
+  - Added `check_domain_box: bool = True` to `validate_mesh_arrays` and bounded the TRELLIS empty sparse structure check strictly to `[-0.5, 0.5]^3` with extents `~1.0` (`abs(extents - 1.0) <= 0.05`).
+  - In `taoflowforge_adapter.py`, explicitly passed `check_domain_box=False` for both decoded mesh and GLB round-trip validation since TaoFlowForge has no sparse structure and operates in `[-1, 1]`.
+- **Bug 2: Pixal3D Missing Natten Prebuilt Wheel & Preload Resilience**:
+  - Added prebuilt `natten` wheel (`natten-0.21.0+torch2.6cu124-cp310-cp310-linux_x86_64.whl` from Pixal3D upstream releases) to `backend/scripts/install.sh`, eliminating `ModuleNotFoundError: No module named 'natten'`.
+  - Added defensive `try/except` around `m._load_naf()` in `pixal3d_adapter.py` with descriptive warning so pipeline load does not crash if natten or network is momentarily unavailable.
+- **Verification**: All 11 tests in `test_taoflowforge_adapter.py` and 9 tests in `test_trellis2_mesh_validation.py` passed. Syntax validated with `py_compile`.
+
+---
+
 ## 2026-11-06 — TaoFlowForge FP16 Stage 2 Topology Stability & Pixal3D DType Harmonization
 
 - **Bug 1: TaoFlowForge Pre-Ampere FP16 Topology Stability Fix**:
@@ -26,25 +40,6 @@
   - Fixed `NameError: name 'weights_path' is not defined` in `backend/adapters/pixal3d_adapter.py` by resolving `weights_root = Path(weights_dir).resolve().parent`.
 - **Verification**: Syntax validated with `py_compile` across all modified files. Zero model code modifications in `backend/thirdparty/`. Unit tests updated in `test_taoflowforge_adapter.py` and `test_pixal3d_adapter.py`.
 
----
-
-## 2026-11-06 — TaoFlowForge Pre-Ampere OOM Elimination & Pixal3D Backend Selection
-
-- **TaoFlowForge Pre-Ampere OOM Fix & Fast Step Schedule**:
-  - Identified root cause of 14 GiB VRAM peak in Stage 1 and OOM during Stage 2 loading on pre-Ampere GPUs (`sm < 80`, e.g. Tesla T4): hardcoded `torch.bfloat16` compute dtype in `taoflowforge/models/attention.py` forced PyTorch SDPA into memory-intensive MATH backend (allocating 10-14 GB for N×N dense attention).
-  - Updated `get_compute_dtype` in `attention.py` and `patcher/taoflowforge/__init__.py` to use `torch.float16` on pre-Ampere devices, enabling hardware-accelerated Cutlass memory-efficient SDPA while preserving native `bfloat16` on modern GPUs (`sm >= 80`).
-  - Added explicit inter-stage GPU eviction (`.to('cpu')` and `.offload()`) before releasing stages in `taoflowforge/pipeline.py` so GPU VRAM is completely freed between stages.
-  - Implemented intra-stage sub-component CPU offloading for DINO encoder, DiT denoiser, and vertex decoder in `stage1.py` and `stage2.py` for pre-Ampere GPUs.
-  - Added explicit DINO load/unload lifecycle across all three stages (`stage0.py`, `stage1.py`, `stage2.py`) so DINO only enters GPU during `encode_image` and is immediately evicted before diffusion loops run.
-  - Configured 5-step fast testing schedule across stages 0, 1, and 2 (reducing total steps from 190 down to 25 for rapid validation, overridable with `TAOFLOWFORGE_USE_OFFICIAL_STEPS=1` to restore 50/30/50).
-  - Enabled `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in `taoflowforge_adapter.py`.
-- **Pixal3D Backend Selection & Conditioning Models**:
-  - Removed invalid `SPARSE_CONV_BACKEND="none"` fallback that broke SparseUNetVae module imports (`conv_none`).
-  - Scoped backend selection: uses `spconv` on pre-Ampere or environments without flex_gemm, and preserves `flex_gemm` on modern GPUs (`sm >= 80`).
-  - Restored `flex_gemm` prebuilt wheel installation command in `backend/scripts/install.sh`.
-  - Fixed `DinoV3ProjFeatureExtractor.to()` positional argument mismatch (`takes 2 positional arguments but 3 were given`) by making `to(*args, **kwargs)` conform to standard PyTorch signature across `image_conditioned_proj.py` and `image_conditioned.py`.
-  - Added fallback `to(device)` handling and local DINOv3 weight path resolution in `pixal3d_adapter.py`.
-- **Verification**: Created `backend/tests/test_taoflowforge_adapter.py` (9 tests) and `backend/tests/test_pixal3d_adapter.py` (7 tests). All 60 backend pytest tests passed. All 60 frontend bun tests passed.
 
 
 
