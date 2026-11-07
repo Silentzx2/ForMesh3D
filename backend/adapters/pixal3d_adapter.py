@@ -203,6 +203,10 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
             ) from exc
         self._pipeline = pipeline
         self.model = pipeline
+        # PONYTAIL: keep Pixal3D on low_vram so DinoV3 + flow models stay on CPU
+        # and only move to GPU during inference — prevents T4/Colab VRAM OOM.
+        if hasattr(pipeline, "low_vram"):
+            pipeline.low_vram = True
         # PONYTAIL: TEMP LOW STEPS for fast Pixal3D load/run — RESTORE pipeline.json steps before release.
         # PIXAL3D_FAST_STEPS=1 forces sparse-structure + shape-SLat samplers to 5 steps (default 50).
         if os.environ.get("PIXAL3D_FAST_STEPS", "").lower() in ("1", "true"):
