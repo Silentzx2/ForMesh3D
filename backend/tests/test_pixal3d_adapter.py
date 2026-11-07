@@ -210,3 +210,22 @@ def test_pixal3d_patcher_apply_patch_pre_ampere():
     assert out.shape == (1, 16, 16, 4, 64)
     assert torch.isfinite(out).all()
 
+
+def test_pixal3d_sparse_tensor_empty_coords_guard():
+    """Empty coords must not raise IndexError: max(): Expected reduction dim 0 to have non-zero size."""
+    from patcher.pixal3d import apply_patch
+    apply_patch()
+    from pixal3d.modules.sparse.basic import SparseTensor
+
+    empty_coords = torch.zeros((0, 4), dtype=torch.int32)
+    empty_feats = torch.zeros((0, 32), dtype=torch.float32)
+
+    # Keyword-arg construction path (used by get_proj_cond_shape / sample_shape_slat)
+    st = SparseTensor(feats=empty_feats, coords=empty_coords)
+    assert st is not None
+    assert st._shape is None
+
+    # Positional-arg construction path
+    st2 = SparseTensor(empty_feats, empty_coords)
+    assert st2 is not None
+

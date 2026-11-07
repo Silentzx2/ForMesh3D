@@ -203,6 +203,13 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
             ) from exc
         self._pipeline = pipeline
         self.model = pipeline
+        # PONYTAIL: TEMP LOW STEPS for fast Pixal3D load/run — RESTORE pipeline.json steps before release.
+        # PIXAL3D_FAST_STEPS=1 forces sparse-structure + shape-SLat samplers to 5 steps (default 50).
+        if os.environ.get("PIXAL3D_FAST_STEPS", "").lower() in ("1", "true"):
+            for pname in ("sparse_structure_sampler_params", "shape_slat_sampler_params"):
+                params = getattr(pipeline, pname, {}) or {}
+                params["steps"] = 5
+                setattr(pipeline, pname, params)
         return pipeline
 
     def _unload_model(self) -> None:

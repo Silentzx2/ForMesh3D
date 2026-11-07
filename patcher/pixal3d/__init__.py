@@ -254,3 +254,57 @@ def _patch_natten_na2d() -> None:
         logger.info("Pixal3D patcher: natten.na2d patched with pre-Ampere resilience.")
     except Exception as exc:
         logger.warning("Pixal3D patcher could not patch natten.na2d: %s", exc)
+
+    # 4. Guard SparseTensor.__init__ against empty coords (coords.max(0) on empty tensor).
+    #    Stage 1 sparse-structure sampling can return 0 occupied voxels; without this guard
+    #    get_proj_cond_shape / sample_shape_slat crash with an opaque IndexError.
+    _patch_sparse_tensor_empty_coords()
+
+
+def _patch_sparse_tensor_empty_coords() -> None:
+    """Make SparseTensor.__init__ resilient to empty coords.
+
+    On empty coords (0 occupied voxels from Stage 1 sparse-structure sampling),
+    coords.max(0)[0] raises IndexError. Bypass it and set a safe empty state so the
+    pipeline fails gracefully instead of an opaque IndexError crash. Modern GPUs
+    (sm >= 80) are unaffected — this only short-circuits when coords.numel() == 0.
+    """
+    try:
+        from pixal3d.modules.sparse.basic import SparseTensor
+        from pixal3d.modules.sparse import config as sparse_config
+    except Exception:
+        return
+    if getattr(SparseTensor, "_pixal3d_empty_coords_patched", False):
+        return
+    orig_init = SparseTensor.__init__
+    from fractions import Fraction
+
+    def resilient_init(self, *args, **kwargs):
+        # Mirror __init__ coords extraction to detect empty early.
+        coords = None
+        feats = None
+        if len(args) != 0:
+            if isinstance(args[0], torch.Tensor):
+                feats = args[0]
+                if len(args) >= 2:
+                    coords = args[1]
+            else:
+                # method_id == 1 'data' path: coords not used
+                return orig_init(self, *args, **kwargs)
+        else:
+            feats = kwargs.get("feats")
+            coords = kwargs.get("coords")
+        if coords is not None and torch.is_tensor(coords) and coords.numel() == 0:
+            self._shape = kwargs.get("shape", None)
+            self._scale = kwargs.get("scale", (Fraction(1, 1), Fraction(1, 1), Fraction(1, 1)))
+            self._spatial_cache = kwargs.get("spatial_cache", {})
+            if getattr(sparse_config, "CONV", "") == "spconv":
+                self.data = None
+            else:
+                self.data = {"feats": feats, "coords": coords}
+            return
+        return orig_init(self, *args, **kwargs)
+
+    SparseTensor.__init__ = resilient_init
+    SparseTensor._pixal3d_empty_coords_patched = True
+    logger.info("Pixal3D patcher: SparseTensor.__init__ guarded against empty coords.")

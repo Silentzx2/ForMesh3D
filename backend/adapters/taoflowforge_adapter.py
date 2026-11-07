@@ -164,13 +164,12 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
 
         # Upstream official schedule: Stage 0 (50), Stage 1 (30), Stage 2 (50).
         # Fast testing schedule (e.g. 5 steps) is opt-in via TAOFLOWFORGE_FAST_STEPS=1 or per-stage env vars.
-        use_fast_steps = (
-            os.environ.get("TAOFLOWFORGE_FAST_STEPS", "").lower() in ("1", "true")
-            or os.environ.get("TAOFLOWFORGE_USE_OFFICIAL_STEPS", "1").lower() in ("0", "false")
-        )
-        s0_steps = int(os.environ.get("TAOFLOWFORGE_STAGE0_STEPS", "5" if use_fast_steps else "50"))
-        s1_steps = int(os.environ.get("TAOFLOWFORGE_STAGE1_STEPS", "5" if use_fast_steps else "30"))
-        s2_steps = int(os.environ.get("TAOFLOWFORGE_STAGE2_STEPS", "5" if use_fast_steps else "50"))
+        # PONYTAIL: TEMP LOW STEPS for fast T4 load/run — RESTORE to official (50, 30, 50) before release.
+        # See AGENTS.md Adapter-Owned Inference Contract: step counts belong in adapter code.
+        use_fast_steps = True  # force low steps for quick iteration
+        s0_steps = int(os.environ.get("TAOFLOWFORGE_STAGE0_STEPS", "5"))
+        s1_steps = int(os.environ.get("TAOFLOWFORGE_STAGE1_STEPS", "5"))
+        s2_steps = int(os.environ.get("TAOFLOWFORGE_STAGE2_STEPS", "5"))
 
         config = InferenceConfig(
             stage0=Stage0Config(checkpoint=weights_path / "stage0.pt", num_steps=s0_steps, cfg_scale=7.5),
