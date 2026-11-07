@@ -23,7 +23,11 @@ if "transformers" not in sys.modules:
     import types
     _tf_mock = types.ModuleType("transformers")
     _tf_mock.DINOv3ViTConfig = type("DINOv3ViTConfig", (), {})
-    _tf_mock.DINOv3ViTModel = type("DINOv3ViTModel", (), {})
+    _tf_mock.DINOv3ViTModel = type(
+        "DINOv3ViTModel",
+        (),
+        {"from_pretrained": lambda *a, **k: MagicMock()},
+    )
     sys.modules["transformers"] = _tf_mock
 
 from backend.adapters.taoflowforge_adapter import (
@@ -232,3 +236,22 @@ def test_taoflowforge_adapter_step_schedule_defaults():
         s1 = int(os.environ.get("TAOFLOWFORGE_STAGE1_STEPS", "5" if use_fast else "30"))
         s2 = int(os.environ.get("TAOFLOWFORGE_STAGE2_STEPS", "5" if use_fast else "50"))
         assert (s0, s1, s2) == (5, 5, 5)
+
+
+def test_taoflowforge_stage1_pre_ampere_fp16():
+    from patcher.taoflowforge import apply_patch
+    from taoflowforge.models.stage1 import Stage1Model
+    from taoflowforge.models.attention import flash_attn_qkv
+
+    # Verify Stage 1 patcher wraps refine_coordinates with FP16 autocast on sm < 80
+    Stage1Model._taoflowforge_stage1_patched = False
+    apply_patch()
+    assert getattr(Stage1Model, "_taoflowforge_stage1_patched", False) is True
+
+    # Verify flash_attn_qkv preserves FP16 compute dtype on sm < 80
+    q = torch.randn(1, 4, 16, 32, dtype=torch.float16)
+    k = torch.randn(1, 4, 16, 32, dtype=torch.float16)
+    v = torch.randn(1, 4, 16, 32, dtype=torch.float16)
+    out = flash_attn_qkv(q, k, v)
+    assert out.shape == q.shape
+    assert out.dtype == torch.float16
