@@ -8,7 +8,6 @@ import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Box, CameraIcon, CheckIcon, GridIcon, LayersIcon, Maximize02Icon, MoveIcon, RotateCcwIcon } from '@hugeicons/core-free-icons';
 import { useViewerStore } from '@/stores/useViewerStore';
-import { AnimationTimelineDock } from '../Animation/AnimationTimelineDock';
 
 export const ViewportToolOverlay: React.FC = () => {
   const {
@@ -341,13 +340,6 @@ export const ViewportToolOverlay: React.FC = () => {
                 </div>
               </div>
             </div>
-          </div>
-        )}
-
-        {/* ANIMATION TIMELINE DOCK */}
-        {activeTool === 'animation' && (
-          <div className="pointer-events-auto w-full -mx-4 -mb-4">
-            <AnimationTimelineDock />
           </div>
         )}
 

@@ -1,10 +1,19 @@
 # ForMesh3D — Audited Project State
 
-**Audit date:** 2026-11-03  
-**Inspected branch baseline before this change:** `ForMesh3D/dev` at `6f4eb4afd2d167c6aae3d69bf8d7570f0160f464`  
+**Audit date:** 2026-11-07  
+**Inspected branch baseline before this change:** `ForMesh3D/dev` at `7651f224fcb50936ca81ce4af8fbea0d74265fbe`  
 **Third-party source baseline before this change:** `ForMesh3D-ThirdParty/main` at `b359c0c52ba5fb42131443f4e4517691253e8f8`  
-**Project phase:** Beta  
+**Project phase:** Beta (Streamlining for Tripo3D UI Migration)  
 **Model readiness:** NOT VERIFIED — registry entries and source directories do not prove successful inference.
+
+## 2026-11-07 — Repository Subsystem Cleanup & Workspace Streamlining
+
+- **Major Repository Purge (Commit `7651f22`)**:
+  - Completely excised 221 files (74,750 lines deleted) covering obsolete or non-core packages: `features/board/`, `features/graph/`, `features/image-editor/`, `features/mesh-extras/`, `features/wiki/`, `features/hooks/`, `plugins/unity/`, `plugins/unreal/`, and `tools/`.
+  - Cleared legacy test files (`backend/tests/`, `features/workspace/lib/*.test.mjs`) to be cleanly re-established for the streamlined architecture.
+- **Workspace Surface Cleanup**:
+  - Removed bloated and dead-weight workspace components: `MeshToolsPanel.tsx`, `ImagePointCloud.ts`, `MeshDiffViewer.tsx`, `PhysicsRuntime.ts`, `physicsSettings.ts`, and redundant rigging/animation inspector subtrees.
+  - Rebuilding the workspace cleanly matching Tripo3D Studio from scratch for personal use (zero auth, no marketing bloat, clean 12 tools: Image, Model, Segment, Fill Parts, Retopo, Smart UV, Texture, Edit, Upscale, PBR, Rig, Animate).
 
 ## 2026-11-05 — PR #80 review follow-ups
 
@@ -17,6 +26,7 @@
 
 ## What is present
 
+- **Streamlined Studio Architecture**: Peripheral legacy subsystems (`features/board/`, `features/graph/`, `features/image-editor/`, `features/mesh-extras/`, `features/wiki/`, `features/hooks/`, `plugins/`, and `tools/`) were removed in commit `7651f22`. In the workspace, non-core panels and runtime extras (`MeshToolsPanel.tsx`, `ImagePointCloud.ts`, `MeshDiffViewer.tsx`, `PhysicsRuntime.ts`, `physicsSettings.ts`) were deleted to establish a clean foundation for the Tripo3D Studio UI.
 - `backend/loader.py` provides `get_model_weights_dir(model_key)`. It resolves `MODEL_STORAGE_ROOT/<model_key>`, anchors a relative root to the repository (not the process CWD), rejects absolute and `..` model keys, and fails when the model directory does not exist.
 - `backend/scripts/download_models.sh` uses `MODEL_STORAGE_ROOT` with the default `backend/pretrained` root. The downloader and resolver follow the same root convention by source inspection; actual downloads were not run.
 - The main repository records `backend/thirdparty` as a Git submodule. The submodule contains 13 top-level model-source directories and now has a root README describing the source layout, integration boundaries, setup, and per-model licensing.
@@ -57,6 +67,7 @@ The following findings come from reading current adapter, factory, and vendored 
 
 ## Verification boundary
 
+- **Test Suite Status & Legacy Reset:** During the repository cleanup in commit `7651f22`, outdated backend unit tests (`backend/tests/`) and frontend test files (`features/workspace/lib/*.test.mjs`) were pruned alongside their deleted target components. Historical test metrics (60 backend / 60 frontend tests passing) document the pre-cleanup baseline. Clean regression test suites will be introduced for the newly implemented Tripo3D Studio components and current model adapter contracts.
 - **Source review:** the focused TRELLIS.2 audit covered the adapter, pinned ThirdParty pipeline, sparse attention dispatch, FlexiDualGrid decoder, mesh cleanup, O-Voxel exporter boundary, submodule pointer, and governing project instructions/docs. Other model adapters were not modified.
 - **Backend CI before this update:** the workflow referenced Python regression modules absent from the tracked `backend/tests/` tree. Its test step now targets the new checked-in TRELLIS.2 NumPy mesh-validation contract; no other model-specific Python regression modules are present in this branch.
 - **TRELLIS.2 CPU contract tests:** `backend/tests/test_trellis2_mesh_validation.py` — **7 passed** in the local CPU-only test run; helper and test modules pass `py_compile`.

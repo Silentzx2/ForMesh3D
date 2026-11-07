@@ -26,30 +26,6 @@ const GeneratePanel = dynamic(() => import('./Panels/GeneratePanel').then(mod =>
   ssr: false,
   loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
 });
-const TexturePanel = dynamic(() => import('./Panels/TexturePanel').then(mod => mod.TexturePanel), {
-  ssr: false,
-  loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
-});
-const RemeshPanel = dynamic(() => import('./Panels/RemeshPanel').then(mod => mod.RemeshPanel), {
-  ssr: false,
-  loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
-});
-const UVUnwrapPanel = dynamic(() => import('./Panels/UVUnwrapPanel').then(mod => mod.UVUnwrapPanel), {
-  ssr: false,
-  loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
-});
-const MeshSegmentPanel = dynamic(() => import('./Panels/MeshSegmentPanel').then(mod => mod.MeshSegmentPanel), {
-  ssr: false,
-  loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
-});
-const MeshEditPanel = dynamic(() => import('./Panels/MeshEditPanel').then(mod => mod.MeshEditPanel), {
-  ssr: false,
-  loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
-});
-const MeshToolsPanel = dynamic(() => import('./Panels/MeshToolsPanel').then(mod => mod.MeshToolsPanel), {
-  ssr: false,
-  loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
-});
 const JobDetailView = dynamic(() => import('./Jobs/JobDetailView').then(mod => mod.JobDetailView), {
   ssr: false,
   loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
@@ -59,18 +35,6 @@ const ViewportToolOverlay = dynamic(() => import('./Viewport/ViewportToolOverlay
 });
 
 import { RightWorkspacePanel } from './RightPanel/RightWorkspacePanel';
-
-const AnimationLeftPanel = dynamic(() => import('./Animation/AnimationLeftPanel').then(mod => mod.AnimationLeftPanel), {
-  ssr: false,
-  loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
-});
-const RiggingLeftPanel = dynamic(() => import('./Rigging/RiggingLeftPanel').then(mod => mod.RiggingLeftPanel), {
-  ssr: false,
-  loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
-});
-const MotionLibraryDrawer = dynamic(() => import('./Animation/MotionLibraryDrawer').then(mod => mod.MotionLibraryDrawer), {
-  ssr: false,
-});
 
 const OutputsPage = dynamic(() => import('./Dashboard/OutputsPage').then(mod => mod.OutputsPage), {
   ssr: false,
@@ -389,15 +353,15 @@ export const WorkspaceShell: React.FC = () => {
   const renderToolPanel = () => {
     switch (activeTool) {
       case 'model': return <GeneratePanel />;
-      case 'remesh': return <RemeshPanel />;
-      case 'texture': return <TexturePanel />;
-      case 'uv': return <UVUnwrapPanel />;
-      case 'segment': return <MeshSegmentPanel />;
-      case 'edit': return <MeshEditPanel />;
-      case 'animation': return <AnimationLeftPanel />;
-      case 'rigging': return <RiggingLeftPanel />;
-      case 'tools': return <MeshToolsPanel />;
-      case 'pbr': return <MeshToolsPanel />;
+      case 'remesh': return <GeneratePanel />;
+      case 'texture': return <GeneratePanel />;
+      case 'uv': return <GeneratePanel />;
+      case 'segment': return <GeneratePanel />;
+      case 'edit': return <GeneratePanel />;
+      case 'animation': return <GeneratePanel />;
+      case 'rigging': return <GeneratePanel />;
+      case 'tools': return <GeneratePanel />;
+      case 'pbr': return <GeneratePanel />;
       default: return <GeneratePanel />;
     }
   };
@@ -663,9 +627,8 @@ export const WorkspaceShell: React.FC = () => {
       <SettingsModal />
       <ExportModal />
       <DccBridgeModal />
-      <MotionLibraryDrawer />
-    </div>
-  );
-};
+      </div>
+      );
+      };
 
 export default WorkspaceShell;

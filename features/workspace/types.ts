@@ -110,9 +110,6 @@ export interface ModelAsset {
     pbrMaps?: Record<string, string>;
     gameReadyFormats?: Record<string, string>;
     zipUrl?: string;
-    physicsUrl?: string;
-    physicsReady?: boolean;
-    physics?: Record<string, unknown>;
     rigged?: string;
     riggedFbx?: string;
   };
@@ -145,17 +142,7 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
       ? rawArtifacts.collision
       : (rawArtifacts.collision?.url || raw.collision_url || raw.collision || undefined);
 
-  const physics = rawArtifacts.physics || raw.physics || undefined;
-  const physicsUrl =
-    typeof rawArtifacts.physicsUrl === 'string'
-      ? rawArtifacts.physicsUrl
-      : (raw.physics_url || undefined);
 
-  const physicsReady = Boolean(
-    rawArtifacts.physicsReady ??
-    raw.physics_ready ??
-    (collisionUrl && physics)
-  );
 
   const qaReport = rawArtifacts.qaReport || raw.qa_report || raw.quality_trace?.game_ready?.qa || undefined;
   // Generation assets are always addressable through the job download API:
@@ -195,7 +182,7 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
       : (rawArtifacts.riggedFbx?.url || raw.rigged_fbx_url || undefined);
 
   const hasArtifacts = Boolean(
-    raw.artifacts || collisionUrl || physicsReady || physics || qaReport || sourceUrl || gameReadyUrl || lods || pbrMaps || gameReadyFormats || zipUrl || riggedUrl || riggedFbxUrl
+    raw.artifacts || collisionUrl || qaReport || sourceUrl || gameReadyUrl || lods || pbrMaps || gameReadyFormats || zipUrl || riggedUrl || riggedFbxUrl
   );
 
   const artifacts = hasArtifacts ? {
@@ -208,11 +195,8 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
     pbrMaps,
     gameReadyFormats,
     zipUrl,
-    physicsUrl,
-    physicsReady,
     rigged: riggedUrl,
     riggedFbx: riggedFbxUrl,
-    physics,
   } : undefined;
 
   return {
@@ -446,21 +430,6 @@ export interface AutoOptimizeSettings {
   targetPolycount: number;
 }
 
-export interface PhysicsSettings {
-  bodyType: 'auto' | 'static' | 'dynamic' | 'kinematic';
-  massMode: 'auto' | 'manual';
-  massKg: number;
-  densityMode: 'auto' | 'manual';
-  densityKgM3: number;
-  friction: number;
-  restitution: number;
-  linearDamping: number;
-  angularDamping: number;
-  gravityEnabled: boolean;
-  collisionQuality: 'fast' | 'balanced' | 'precise';
-  deformation: 'off';
-}
-
 export interface GenerationSettings {
   mode: 'image-to-3d';
   image: string | null;
@@ -484,7 +453,6 @@ export interface GenerationSettings {
   lodPreset?: 'mobile' | 'low' | 'medium' | 'high' | 'cinematic';
   lodCount?: number;
   generateCollision?: boolean;
-  physics?: PhysicsSettings;
   generatePBR?: boolean;
   prompt?: string;
   imageName?: string;

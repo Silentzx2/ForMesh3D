@@ -182,7 +182,7 @@ export function buildGenerationParameters(
     lod_count: lodEnabled ? lodCount : undefined,
     model_parameters: modelParameters,
     physics_enabled: enablePostprocess && Boolean(settings.generateCollision),
-    physics_config: (enablePostprocess && Boolean(settings.generateCollision)) ? settings.physics : undefined,
+    physics_config: undefined,
     topology_mode: enablePostprocess ? topologyMode : 'triangle',
     quad_topology: enablePostprocess && topologyMode === 'quad',
     part_count_range: enablePostprocess ? settings.partCountRange : undefined,

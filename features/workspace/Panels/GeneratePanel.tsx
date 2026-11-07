@@ -4,7 +4,7 @@ const noticeTimeoutsRef = { current: [] as ReturnType<typeof setTimeout>[] };
 import { motion, AnimatePresence } from 'motion/react';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { useAppStore } from '@/stores/useAppStore';
-import type { GenerationSettings, PhysicsSettings, ModelAsset } from '../types';
+import type { GenerationSettings, ModelAsset } from '../types';
 import { useUploadProgress } from '@/hooks/useUploadProgress';
 import { getApiClient } from '@/services/apiClient';
 import { requireUploadFileId, resolveUploadedImageName } from '../lib/uploadResponse';
@@ -13,12 +13,10 @@ import { ShimmerButton } from '@/components/ui/shimmer-button';
 import { getModelDefinition, isMeshGenerationModel } from '@/constants/models';
 import { SMART_PRESET_FALLBACK } from '@/constants/smartPresets';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { DEFAULT_PHYSICS_SETTINGS, PHYSICS_LIMITS } from '../utils/physicsSettings';
 import { getModelFromSearch, getPresetIntentFromSearch, getPromptFromSearch } from '../lib/presetIntent';
 
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Box, Cancel, CheckIcon, ChevronDown, ChevronUp, ImageIcon, InfoIcon, LayersIcon, LoaderCircle, Plus, RefreshCw, Settings2, SparklesIcon, TriangleAlertIcon, UploadIcon, ZapIcon } from '@hugeicons/core-free-icons';
-import { ToolContextHelp } from '@/features/wiki/components/ToolContextHelp';
 import { toast } from 'sonner';
 import { loadModelInViewer } from '@/stores/useViewerStore';
 
@@ -48,15 +46,6 @@ function formatValidationDetails(validation: unknown): string | null {
   }
   return messages.length > 0 ? messages.join(' · ') : JSON.stringify(validation);
 }
-
-export const PHYSICS_MATERIAL_PRESETS = [
-  { label: 'Default', friction: DEFAULT_PHYSICS_SETTINGS.friction, restitution: DEFAULT_PHYSICS_SETTINGS.restitution },
-  { label: 'Rubber', friction: 0.8, restitution: 0.8 },
-  { label: 'Stone', friction: 0.6, restitution: 0.1 },
-  { label: 'Wood', friction: 0.4, restitution: 0.2 },
-  { label: 'Ice', friction: 0.05, restitution: 0.05 },
-  { label: 'Metal', friction: 0.3, restitution: 0.15 },
-] as const;
 
 export interface QualityMetrics {
   triangles: number;
@@ -609,21 +598,6 @@ export const GeneratePanel: React.FC = () => {
      generationSettings.textureQuality === 'medium' ? '1K' :
      generationSettings.textureQuality === '8k' ? '8K' : '2K');
 
-  const physics = generationSettings.physics ?? DEFAULT_PHYSICS_SETTINGS;
-
-  const updatePhysics = (updates: Partial<PhysicsSettings>) => {
-    setGenerationSettings(prev => {
-      const current = prev.physics || physics;
-      return {
-        ...prev,
-        physics: {
-          ...current,
-          ...updates,
-        },
-      };
-    });
-  };
-
   const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
 
   const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/bmp', 'image/tiff', 'image/x-png', 'image/jpg'];
@@ -1113,7 +1087,6 @@ export const GeneratePanel: React.FC = () => {
               {statusInfo.label}
             </span>
           )}
-          <ToolContextHelp tool="model" label="Generate 3D Help" />
         </div>
       </div>
 
@@ -1934,8 +1907,7 @@ export const GeneratePanel: React.FC = () => {
                     <div className="text-[9px] text-zinc-400 truncate">
                       {isPostprocessOff
                         ? 'Post-Processing Bypassed · Raw Source Geometry Only'
-                        : `${(generationSettings.autoOptimizeSettings?.targetPolycount ?? 0) <= 0 ? 'Native / Raw' : `${Math.round(Number(generationSettings.autoOptimizeSettings?.targetPolycount) / 1000)}K tris`} · ${(generationSettings.topologyMode === 'quad' || generationSettings.quadTopology) ? 'quads' : 'triangles'} · ${generationSettings.generateCollision ? 'physics on' : 'physics off'}`
-                      }
+                        : `${(generationSettings.autoOptimizeSettings?.targetPolycount ?? 0) <= 0 ? 'Native / Raw' : `${Math.round(Number(generationSettings.autoOptimizeSettings?.targetPolycount) / 1000)}K tris`} · ${(generationSettings.topologyMode === 'quad' || generationSettings.quadTopology) ? 'quads' : 'triangles'}`}
                     </div>
                   </div>
                 </div>
@@ -1965,8 +1937,7 @@ export const GeneratePanel: React.FC = () => {
                   <HugeiconsIcon icon={Settings2} size={16} className="w-4 h-4 text-primary shrink-0" />
                   <div className="min-w-0">
                     <div className="text-xs font-bold text-white">Advanced Generation</div>
-                    <div className="text-[9px] text-zinc-500 truncate">Physics, quality budget and topology</div>
-                  </div>
+                    </div>
                 </div>
                 <button
                   type="button"
@@ -2348,156 +2319,8 @@ export const GeneratePanel: React.FC = () => {
                   <span>🔒 Production QA and Auto-Rig are bypassed when Post-Processing is OFF.</span>
                 </div>
               )}
-            </div>
-
-            {/* Physics Preparation */}
-            <div className={`rounded-xl border bg-[hsl(var(--surface-0))] p-2.5 space-y-2 transition-all ${
-              isPostprocessOff ? 'border-white/[0.06] opacity-60' : 'border-white/[0.1]'
-            }`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-100">
-                  <HugeiconsIcon icon={ZapIcon} size={16} className={`w-3.5 h-3.5 ${isPostprocessOff ? 'text-zinc-600' : 'text-primary'}`} />
-                  <span>Physics Preparation</span>
-                  {isPostprocessOff && (
-                    <span className="text-[7.5px] font-mono px-1.5 py-0.2 rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 font-bold">
-                      BLOCKED
-                    </span>
-                  )}
-                </div>
-                <span className="text-[9px] text-zinc-500">{isPostprocessOff ? 'Blocked in Fast Mode' : 'Post-process · no extra AI model'}</span>
               </div>
-
-              <button type="button"
-                disabled={isPostprocessOff}
-                onClick={() => {
-                  if (isPostprocessOff) return;
-                  setGenerationSettings(prev => ({ ...prev, generateCollision: !Boolean(prev.generateCollision) }));
-                }}
-                className={isPostprocessOff
-                  ? 'w-full p-2 rounded-lg border border-white/[0.04] bg-[hsl(var(--surface-1))] text-left text-zinc-600 opacity-40 cursor-not-allowed'
-                  : generationSettings.generateCollision
-                    ? 'w-full p-2 rounded-lg border border-primary/40 bg-primary/10 text-left text-white cursor-pointer'
-                    : 'w-full p-2 rounded-lg border border-white/[0.06] bg-[hsl(var(--surface-1))] text-left text-zinc-400 cursor-pointer'}
-              >
-                <span className="text-[11px] font-bold">Physics Ready Asset</span>
-                <span className="block text-[9px] text-zinc-400 mt-0.5">
-                  {isPostprocessOff
-                    ? 'Blocked (Requires Post-Processing pipeline)'
-                    : generationSettings.generateCollision
-                    ? 'Physics metadata + selected collision quality will be generated'
-                    : 'No Physics metadata; normal collision remains available'}
-                </span>
-              </button>
-
-              {generationSettings.generateCollision && !isPostprocessOff && (
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <label className="space-y-1">
-                    <span className="text-[9px] font-semibold text-zinc-400">Body Behaviour</span>
-                    <select value={physics.bodyType} onChange={e => updatePhysics({ bodyType: e.target.value as PhysicsSettings['bodyType'] })} className="w-full rounded-md bg-[hsl(var(--surface-1))] border border-white/[0.08] px-2 py-1.5 text-[10px] text-zinc-200">
-                      <option value="auto">Auto</option>
-                      <option value="dynamic">Dynamic</option>
-                      <option value="static">Static</option>
-                      <option value="kinematic">Kinematic</option>
-                    </select>
-                  </label>
-
-                  <label className="space-y-1">
-                    <span className="text-[9px] font-semibold text-zinc-400">Collision Quality</span>
-                    <select value={physics.collisionQuality} onChange={e => updatePhysics({ collisionQuality: e.target.value as PhysicsSettings['collisionQuality'] })} className="w-full rounded-md bg-[hsl(var(--surface-1))] border border-white/[0.08] px-2 py-1.5 text-[10px] text-zinc-200">
-                      <option value="fast">Fast</option>
-                      <option value="balanced">Balanced</option>
-                      <option value="precise">Precise</option>
-                    </select>
-                  </label>
-
-                  <label className="space-y-1">
-                    <span className="text-[9px] font-semibold text-zinc-400">Density</span>
-                    <select value={physics.densityMode} onChange={e => updatePhysics({ densityMode: e.target.value as PhysicsSettings['densityMode'] })} className="w-full rounded-md bg-[hsl(var(--surface-1))] border border-white/[0.08] px-2 py-1.5 text-[10px] text-zinc-200">
-                      <option value="auto">Auto default</option>
-                      <option value="manual">Manual kg/m³</option>
-                    </select>
-                    {physics.densityMode === 'manual' && (
-                      <input type="number" min={PHYSICS_LIMITS.densityKgM3.min} max={PHYSICS_LIMITS.densityKgM3.max} step={10} value={physics.densityKgM3}
-                        onChange={e => updatePhysics({ densityKgM3: Number(e.target.value) || PHYSICS_LIMITS.densityKgM3.min })}
-                        className="w-full mt-1 rounded-md bg-[hsl(var(--surface-1))] border border-white/[0.08] px-2 py-1.5 text-[10px] text-zinc-200" />
-                    )}
-                  </label>
-
-                  <label className="space-y-1">
-                    <span className="text-[9px] font-semibold text-zinc-400">Mass</span>
-                    <select value={physics.massMode} onChange={e => updatePhysics({ massMode: e.target.value as PhysicsSettings['massMode'] })} className="w-full rounded-md bg-[hsl(var(--surface-1))] border border-white/[0.08] px-2 py-1.5 text-[10px] text-zinc-200">
-                      <option value="auto">Auto estimate</option>
-                      <option value="manual">Manual kg</option>
-                    </select>
-                    {physics.massMode === 'manual' && (
-                      <input type="number" min={PHYSICS_LIMITS.massKg.min} max={PHYSICS_LIMITS.massKg.max} step={0.1} value={physics.massKg}
-                        onChange={e => updatePhysics({ massKg: Number(e.target.value) || PHYSICS_LIMITS.massKg.min })}
-                        className="w-full mt-1 rounded-md bg-[hsl(var(--surface-1))] border border-white/[0.08] px-2 py-1.5 text-[10px] text-zinc-200" />
-                    )}
-                  </label>
-
-                  <div className="col-span-2 space-y-1.5">
-                    <div className="flex items-center justify-between text-[9px] text-zinc-400">
-                      <span className="font-semibold">Quick Material Presets</span>
-                      <span className="text-[8px] text-zinc-500">Sets friction &amp; bounce</span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-1">
-                      {PHYSICS_MATERIAL_PRESETS.map((preset) => {
-                        const isActive =
-                          Math.abs(Number(physics.friction) - preset.friction) < 0.01 &&
-                          Math.abs(Number(physics.restitution) - preset.restitution) < 0.01;
-                        return (
-                          <button
-                            key={preset.label}
-                            type="button"
-                            onClick={() => updatePhysics({ friction: preset.friction, restitution: preset.restitution })}
-                            className={`px-2 py-1.5 rounded-md text-[9px] font-medium transition-colors border text-center cursor-pointer ${
-                              isActive
-                                ? 'bg-primary/20 border-primary text-primary font-bold shadow-sm'
-                                : 'bg-[hsl(var(--surface-1))] border-white/[0.08] text-zinc-300 hover:bg-white/[0.06] hover:text-white'
-                            }`}
-                          >
-                            {preset.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {[
-                    ['friction', 'Friction', 0, 2, 0.05],
-                    ['restitution', 'Bounce', 0, 1, 0.05],
-                    ['linearDamping', 'Linear Damp', 0, 1, 0.01],
-                    ['angularDamping', 'Angular Damp', 0, 1, 0.01],
-                  ].map(([key, label, min, max, step]) => (
-                    <label key={String(key)} className="space-y-1">
-                      <div className="flex justify-between text-[9px] text-zinc-400">
-                        <span>{String(label)}</span>
-                        <span className="font-mono text-primary">{Number(physics[key as keyof PhysicsSettings]).toFixed(2)}</span>
-                      </div>
-                      <input type="range" min={Number(min)} max={Number(max)} step={Number(step)}
-                        value={Number(physics[key as keyof PhysicsSettings])}
-                        onChange={e => updatePhysics({ [key]: Number(e.target.value) } as Partial<PhysicsSettings>)}
-                        className="w-full accent-[hsl(var(--primary))]" />
-                    </label>
-                  ))}
-
-                  <button type="button"
-                    onClick={() => updatePhysics({ gravityEnabled: !physics.gravityEnabled })}
-                    className="col-span-2 px-2 py-1.5 rounded-md border border-white/[0.06] bg-[hsl(var(--surface-1))] text-[9px] font-semibold text-left text-zinc-300"
-                  >
-                    Gravity {physics.gravityEnabled ? 'enabled' : 'disabled'}
-                  </button>
-
-                </div>
-              )}
-              {isPostprocessOff && (
-                <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-[8.5px] text-amber-300/80 flex items-center gap-1.5">
-                  <span>🔒 Collision hull generation is a post-processing stage and is blocked.</span>
-                </div>
-              )}
             </div>
-          </div>
           <div className="p-2.5 border-t border-white/[0.08] shrink-0 bg-[hsl(var(--surface-1))]">
               <button
                 type="button"

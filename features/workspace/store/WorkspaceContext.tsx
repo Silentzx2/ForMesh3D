@@ -32,7 +32,6 @@ import {
   resolveGenerationModelChoice,
 } from '../utils/buildGenerationParameters';
 import { buildTextureGenerationParameters } from '../utils/buildTextureGenerationParameters';
-import { DEFAULT_PHYSICS_SETTINGS } from '../utils/physicsSettings';
 import { taskPersistence } from '@/services/taskPersistence';
 
 interface ComparisonGroup {
@@ -350,9 +349,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           game_ready_url: (outputs.game_ready_url as string) || outputUrl,
           source_model_url: (outputs.source_model_url as string) || (outputs.source as string) || undefined,
           collision_url: outputs.collision_url,
-          physics_url: outputs.physics_url,
-          physics_ready: outputs.physics_ready,
-          physics: outputs.physics,
           pbr_maps: outputs.pbr_maps,
           game_ready_formats: outputs.game_ready_formats,
           zip_url: outputs.zip_url,
@@ -579,7 +575,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       rigType: 'none',
       exportFormats: ['glb'],
       slicerHandoff: false,
-      physics: { ...DEFAULT_PHYSICS_SETTINGS },
     }));
  
    const [comparisonGroupId, setComparisonGroupId] = useState<string | null>(null);
@@ -1085,9 +1080,6 @@ function dataURLtoFile(dataURL: string, filename: string): File {
                     source_model_url: (result.source_model_url as string) || (result.high_fidelity_url as string) || undefined,
                     tags: ['AI Generated'],
                     collision_url: result.collision_url,
-                    physics_url: result.physics_url,
-                    physics_ready: result.physics_ready,
-                    physics: result.physics,
                     pbr_maps: result.pbr_maps,
                     game_ready_formats: result.game_ready_formats,
                     zip_url: result.zip_url,
@@ -2065,7 +2057,6 @@ function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: strin
             enableAutoRig: batchItem.enableAutoRig ?? false,
             autoRigMode: batchItem.autoRigMode ?? 'full',
             enablePostprocess: batchItem.enablePostprocess ?? true,
-            physics: batchItem.physics ?? { ...DEFAULT_PHYSICS_SETTINGS },
          };
 
           // Create a local task for tracking
@@ -2272,7 +2263,6 @@ function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: strin
            lodPreset: undefined,
            lodCount: undefined,
            candidateCount: undefined,
-           physics: undefined,
            preprocessingReviewOverride: undefined,
            enhancementEnabled: undefined,
            generateCollision: undefined,

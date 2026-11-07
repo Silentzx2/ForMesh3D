@@ -113,40 +113,36 @@
 
 ---
 
-## 2. Current ForMesh3D Frontend State (What to Keep / Remove)
+## 2. Current ForMesh3D Frontend State (Streamlined Baseline)
 
-### 2.1 Files that exist (from `features/workspace/`)
+### 2.1 Post-Cleanup Active Tree (from `features/workspace/`)
 ```
-Rigging/RiggingStudio.tsx (1166 lines)
-Rigging/RiggingLeftPanel.tsx (10361 lines)
-Rigging/RiggingRightInspector.tsx (13685 lines)
-Panels/GeneratePanel.tsx (138940 lines)
-Panels/TexturePanel.tsx (83658 lines)
-Panels/MeshSegmentPanel.tsx (29695 lines)
-Panels/MeshEditPanel.tsx (50312 lines)
-Panels/MeshToolsPanel.tsx (29163 lines)
-Panels/RemeshPanel.tsx
-Panels/UVUnwrapPanel.tsx
-Panels/MeshUploadStatus.tsx (2408 lines)
-Navigation/LeftNavigation.tsx (17180 lines)
+Panels/GeneratePanel.tsx (trimmed to focused generate studio)
+Panels/MeshUploadStatus.tsx
+Navigation/LeftNavigation.tsx
 Header/TopHeader.tsx
-Viewport/MeshViewer
-store/WorkspaceContext.tsx (102846 lines)
-store/useRiggingStore
-store/useAnimationStore
-store/useUIStore
+Viewport/MeshViewer.tsx (Three.js viewport)
+Viewport/ViewportToolOverlay.tsx
+RightPanel/RightPropertyPanel.tsx
+RightPanel/RightWorkspacePanel.tsx
+store/WorkspaceContext.tsx
+store/useRiggingStore.ts
+store/useAnimationStore.ts
+store/useUIStore.ts
 lib/motion.ts (MOTION_FAST, MOTION_SPRING)
-constants/models.ts (524 lines, CANONICAL_MODELS)
+constants/models.ts (CANONICAL_MODELS)
 ```
 
-### 2.2 What to Remove (bloat / unused / redundant)
-- Duplicate rigging panels (RiggingLeftPanel + RiggingRightInspector + RiggingStudio = 3 files for one tool) → consolidate into 1 panel per Tripo pattern
-- Oversized panels: `GeneratePanel.tsx` (138KB), `TexturePanel.tsx` (83KB), `MeshEditPanel.tsx` (50KB) — need trimming to match Tripo's focused per-page UI
-- `store/WorkspaceContext.tsx` (102KB) — god store, needs splitting
-- Any dead components not referenced by routes
-- Unused imports, dead exports, commented code
+### 2.2 Removed Subsystems & Legacy Bloat (Completed Purge)
+- **Non-Core Subsystems (Commit `7651f22`)**:
+  - Deleted `features/board/`, `features/graph/`, `features/image-editor/`, `features/mesh-extras/`, `features/wiki/`, `features/hooks/`, `plugins/unity/`, `plugins/unreal/`, `tools/`.
+  - Deleted obsolete backend and frontend unit tests to be rebuilt for the new architecture.
+- **Deleted Workspace Panels & Inspectors**:
+  - Deleted legacy multi-file rigging & animation inspectors (`RiggingStudio.tsx`, `RiggingLeftPanel.tsx`, `RiggingRightInspector.tsx`, `AnimationStudio.tsx`, `AnimationLeftPanel.tsx`, `AnimationRightInspector.tsx`).
+  - Deleted bloated oversized panels (`TexturePanel.tsx`, `MeshSegmentPanel.tsx`, `MeshEditPanel.tsx`, `RemeshPanel.tsx`, `UVUnwrapPanel.tsx`).
+  - Deleted legacy utilities: `MeshToolsPanel.tsx`, `MeshDiffViewer.tsx`, `ImagePointCloud.ts`, `PhysicsRuntime.ts`, `physicsSettings.ts`.
 
-### 2.3 What to Keep
+### 2.3 Retained Core to Evolve Matching Tripo
 - `MeshViewer` (Three.js viewport) — keep, style to match Tripo viewport
 - `LeftNavigation.tsx` — restructure to match Tripo sidebar (12 tools, transition-all, active gold)
 - `TopHeader.tsx` — restructure to match Tripo header (logo, nav only)
@@ -199,17 +195,19 @@ constants/models.ts (524 lines, CANONICAL_MODELS)
 - [ ] Verify: upload works, download works, errors handled
 
 ### Phase 6: Code Cleanup (Remove Redundant)
-- [ ] Delete unused panel files not mapped to Tripo tools
+- [x] Delete unused panel files not mapped to Tripo tools (`TexturePanel.tsx`, `MeshSegmentPanel.tsx`, `MeshEditPanel.tsx`, `RemeshPanel.tsx`, `UVUnwrapPanel.tsx`, `MeshToolsPanel.tsx`, `MeshDiffViewer.tsx`, `ImagePointCloud.ts`, `PhysicsRuntime.ts`)
+- [x] Delete non-core subsystems (commit `7651f22`: board, graph, image-editor, mesh-extras, wiki, plugins, tools)
 - [ ] Split `WorkspaceContext.tsx` god store into per-feature stores
-- [ ] Trim `GeneratePanel.tsx`, `TexturePanel.tsx`, `MeshEditPanel.tsx` to focused size
-- [ ] Remove dead imports/exports
+- [x] Trim `GeneratePanel.tsx` to focused size
+- [ ] Remove remaining dead imports/exports
 - [ ] Verify: `bun run lint` passes, `bun run test` passes, `bun run build` passes
 
 ### Phase 7: Documentation Update
 - [ ] Update `Docs/DESIGN.md` with new UI specification
-- [ ] Update `Docs/ARCHITECTURE.md` with new frontend layout
+- [x] Update `Docs/ARCHITECTURE.md` with new frontend layout & component status
 - [ ] Update `README.md` if needed
-- [ ] Update `Docs/CHANGELOG.md`
+- [x] Update `Docs/CHANGELOG.md` with recent history
+- [x] Update `Docs/MEMORY.md` with audited streamlined state
 
 ---
 

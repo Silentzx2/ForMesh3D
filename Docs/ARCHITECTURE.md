@@ -1,11 +1,9 @@
 # Architecture — ForMesh 3D
 
-> **Evidence note (2026-11-05):** This document contains live audited system architecture and historical design records. Live GPU verification is established for Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D (status: STABLE & LOCKED). GPU Doctor has been implemented in `patcher/doctor.py` as a standalone hardware execution planner and error-recovery utility. TaoFlowForge has received pre-Ampere query chunking attention (eliminating 10.06 GiB SDPA Math OOM) and stage-wise offloading. TRELLIS.2 features adaptive top-k percentile voxel fallback and rembg zero-alpha guard. Sibling model adapters remain strictly isolated. The current state is summarized in [MEMORY.md](MEMORY.md).
+> **Evidence note (2026-11-07):** Live GPU verification is established for Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D (status: STABLE & LOCKED). GPU Doctor has been implemented in `patcher/doctor.py` as a standalone hardware execution planner and error-recovery utility. TaoFlowForge has received pre-Ampere FP16 Cutlass tensor core acceleration and bounded topology reconstruction. The repository has been streamlined (commit `7651f22`), removing 221 dead files and legacy peripheral subsystems (`board`, `graph`, `image-editor`, `mesh-extras`, `wiki`, `plugins/`, `tools/`). Workspace surfaces are actively trimmed (`MeshToolsPanel`, `MeshDiffViewer`, `ImagePointCloud`, `PhysicsRuntime`) to establish a clean, single-user Tripo3D Studio workflow across 12 core tools. Sibling model adapters remain strictly isolated. The current audited state is summarized in [MEMORY.md](MEMORY.md).
 
-> **Model Readiness — Not Tested (no live GPU inference run):** TRELLIS.2 (`not_tested`, `verified: false`) — `sparse_structure_decoder` checkpoint in `pipeline.json` references `microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16` (original TRELLIS repo, not compatible with TRELLIS.2 flow model), producing all-negative logits (~ -75) → zero occupied voxels → hollow box output. See microsoft/TRELLIS.2#160. Works on HF Spaces demo (Microsoft-hosted infrastructure); local self-hosted broken until compatible decoder checkpoint available. Pixal3D (`not_tested`, `verified: false`) — shares TRELLIS.2 sparse_structure_decoder checkpoint lineage; same decoder incompatibility risk, no top-k fallback in Pixal3D decoder path → empty mesh risk. TaoFlowForge (`not_tested`, `verified: false`) — Stage 2 topology decoding hits CUDA OOM on pre-Ampere GPUs due to SDPA MATH backend fallback; `patcher/taoflowforge/` provides float16 + query-chunked SDPA fix, requires clean worker restart to activate.
-
-> **Architecture Version**: 0.2.0 (FastAPI + Next.js 16 + GPU Doctor)
-> **Last Reviewed**: November 5, 2026 (GPU Doctor, hardware execution planning, and live model verification audit)
+> **Architecture Version**: 0.3.0 (FastAPI + Next.js 16 + GPU Doctor + Streamlined Tripo UI)
+> **Last Reviewed**: November 7, 2026 (Subsystem deadweight purge and Tripo3D Studio workspace migration)
 > **Target Environments**: Linux (Ubuntu 20.04/22.04/24.04), Cloud GPU / Local Workstations
 
 ---
@@ -330,8 +328,7 @@ flowchart TB
 | **App Router** | `app/` | Next.js 16 App Router with server components, layouts, and API proxy routes |
 | **Workspace Shell** | `features/workspace/WorkspaceShell.tsx` | Main workspace UI with tabbed panels, persistent asset store, and model viewport |
 | **API Client** | `services/apiClient.ts` | Unified axios client for all FastAPI backend REST/SSE communication |
-| **3D Canvas** | `features/workspace/Viewport/MeshViewer.tsx` | High-performance Three.js WebGL viewport with zero-allocation shading switcher, event-driven reflection capture, TransformControls 3D manipulator, axial camera presets, physics smoke test, and HUD background job capsule |
-| **Mesh Diff Viewer** | `features/workspace/Viewport/MeshDiffViewer.tsx` | Side-by-side comparative WebGL mesh inspection with uncoupled requestAnimationFrame loop and synchronized dual-scene orbit controls |
+| **3D Canvas** | `features/workspace/Viewport/MeshViewer.tsx` | High-performance Three.js WebGL viewport with zero-allocation shading switcher, event-driven reflection capture, TransformControls 3D manipulator, axial camera presets, and HUD background job capsule |
 | **Telemetry HUD** | `components/Header.tsx` | Real-time vertical-pipe hardware gauges (VRAM/RAM/CPU) with saturated load colors and outside-click auto-dismissal |
 | **Asset Persistence** | `stores/useAppStore.ts` | Durable image & mesh reference tracking backed by `/api/v1/file-upload/` persistent storage endpoints |
 | **State Stores** | `stores/` | Zustand stores for global client state (`useAppStore`, `useViewerStore`, `useAnimationStore`, `useRiggingStore`, `useUIStore`) |
@@ -929,10 +926,8 @@ The Next.js 16 Presentation Layer unifies all creation, editing, retopology, rig
 - **Axial Camera Alignment Presets (`ViewportToolOverlay.tsx`)**:
   - Floating `ViewportToolOverlay` exposes standard axial camera angles: `Perspective`, `Front`, `Side`, and `Top`.
   - Snaps the camera smoothly along cardinal axes with bounding-sphere recentering and distance normalization, providing CAD-grade orthographic-style inspection.
-- **Smooth MeshDiffViewer Animation Loop (`features/workspace/Viewport/MeshDiffViewer.tsx`)**:
-  - Eradicates the React state re-render loop anti-pattern (`setAnimationFrame(prev => prev + 1)` called inside RAF), which previously forced 60–120 full React component tree re-renders per second.
-  - Uses an uncoupled native `requestAnimationFrame(animate)` loop that updates `leftControls.current.update()`, `rightControls.current.update()`, and renders both Three.js scenes into WebGL canvases with zero React re-renders.
-  - Guarantees clean component lifecycle with `cancelAnimationFrame(animId)` on unmount and an empty dependency array.
+- **Streamlined Single-Scene Viewport (Decommissioned MeshDiffViewer)**:
+  - Previously, dual-scene comparison was mounted in `MeshDiffViewer.tsx`. As part of the November 7, 2026 workspace cleanup and Tripo3D Studio migration, `MeshDiffViewer.tsx` and `ImagePointCloud.ts` were decommissioned to eliminate multi-context WebGL overhead and keep the viewport lightweight, memory-efficient, and single-canvas focused.
 
 ### 2. Production Postprocessing Pipeline Hardening
 - **Quad OBJ Polygonal Export (`backend/postprocess/pipeline.py`)**:

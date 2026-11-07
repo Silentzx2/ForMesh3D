@@ -4,7 +4,6 @@ import { ShadingMode, ModelAsset } from '../types';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import { toast } from 'sonner';
 import { downloadArtifact } from '../lib/artifactDownload';
-import { MeshDiffViewer } from '../Viewport/MeshDiffViewer';
 import { ModelComparisonViewer } from '../Viewport/ModelComparisonViewer';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
@@ -32,7 +31,6 @@ import {
 import { useViewerStore } from '@/stores/useViewerStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
-import AssetSelectorModal from '@/features/mesh-extras/AssetSelectorModal.jsx';
 
 export const RightPropertyPanel: React.FC = () => {
   const { 
@@ -960,7 +958,6 @@ export const RightPropertyPanel: React.FC = () => {
               </CollapsibleTrigger>
             </div>
             <CollapsibleContent className="px-2.5 pb-3 pt-1 border-t border-[hsl(var(--border))]/40">
-              <MeshDiffViewer className="w-full h-full" showControls={true} />
             </CollapsibleContent>
           </Collapsible>
         )}
@@ -1225,22 +1222,6 @@ export const RightPropertyPanel: React.FC = () => {
         )}
       </div>
 
-      {/* Real Modal Picker for Model Comparison (T-03) */}
-      {isComparePickerOpen && (
-        <AssetSelectorModal
-          assetType="mesh"
-          onSelect={(asset: any) => {
-            if (asset?.id) {
-              setSelectedCompareAssetId(asset.id);
-              setSelectedLineageUrl(null);
-              setSelectedLineageLabel(asset.name || 'Selected Asset');
-            }
-            setIsComparePickerOpen(false);
-          }}
-          onClose={() => setIsComparePickerOpen(false)}
-          title="Select Model to Compare"
-        />
-      )}
     </div>
   );
 };

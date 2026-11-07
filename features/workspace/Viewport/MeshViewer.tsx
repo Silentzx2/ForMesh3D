@@ -19,48 +19,30 @@ import { useAppStore } from '@/stores/useAppStore';
 import { validate3DFile } from '../lib/fileValidation';
 import { requireUploadFileId } from '../lib/uploadResponse';
 import { getUploadPercent } from '../lib/uploadProgress';
-import { createPointCloudFromImage, disposePointCloud } from './ImagePointCloud';
+const disposePointCloud = (obj: THREE.Object3D | null) => {
+  if (!obj) return;
+  obj.traverse((child) => {
+    if (child instanceof THREE.Points || child instanceof THREE.Mesh || child instanceof THREE.LineSegments || child instanceof THREE.Line) {
+      child.geometry?.dispose();
+      if (Array.isArray(child.material)) {
+        child.material.forEach((m) => m.dispose());
+      } else if (child.material) {
+        child.material.dispose();
+      }
+    }
+  });
+};
 import { GenerationLoadingPreview } from './GenerationLoadingPreview';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { getCachedGLB, setCachedGLB, loadGLBWithProgress } from '../lib/glbCache';
-import { PhysicsRuntime } from '../physics/PhysicsRuntime';
-import { DEFAULT_PHYSICS_SETTINGS } from '../utils/physicsSettings';
 import { analyzeGeometryTelemetry, prepareMeshTangentsAndNormals } from '../lib/meshTelemetry';
 import { taskPersistence } from '@/services/taskPersistence';
 import { QualityBadge } from '../Panels/GeneratePanel';
 
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Box, CameraIcon, Cancel, Cancel01Icon, CheckIcon, ChevronDown, CloudUpload, CompassIcon, DownloadIcon, EyeIcon, FlipHorizontalIcon, GridIcon, Hand, Layers01Icon, Maximize02Icon, MoveIcon, RecordIcon, RotateCcwIcon, RotateCw, SearchIcon, SparklesIcon, SunIcon, ZapIcon, ZoomInIcon, ZoomOutIcon } from '@hugeicons/core-free-icons';
-import {
-  StandardBrushIcon,
-  ClayBrushIcon,
-  InflateBrushIcon,
-  SmoothBrushIcon,
-  FlattenBrushIcon,
-  PinchBrushIcon,
-  GrabBrushIcon,
-  PaintBrushToolIcon,
-  AirbrushIcon,
-  EraserToolIcon,
-} from '@/components/icons/BrushIcons';
-
-function getActiveBrushIcon(activeTool: string, sculptBrush?: string, isErase?: boolean) {
-  if (activeTool === 'texture') {
-    return isErase ? EraserToolIcon : PaintBrushToolIcon;
-  }
-  switch (sculptBrush) {
-    case 'clay': return ClayBrushIcon;
-    case 'inflate': return InflateBrushIcon;
-    case 'smooth': return SmoothBrushIcon;
-    case 'flatten': return FlattenBrushIcon;
-    case 'pinch': return PinchBrushIcon;
-    case 'grab': return GrabBrushIcon;
-    case 'standard':
-    default: return StandardBrushIcon;
-  }
-}
 
 const disposeMaterial = (material: THREE.Material) => {
   const m = material as any;
@@ -781,11 +763,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({
     uvCharts?: number;
   } | null>(null);
   const [debugBlueprint, setDebugBlueprint] = useState(false);
-  const physicsRuntimeRef = useRef<PhysicsRuntime | null>(null);
-  const [physicsModeOpen, setPhysicsModeOpen] = useState(false);
-  const [physicsRunning, setPhysicsRunning] = useState(false);
-  const [physicsDebug, setPhysicsDebug] = useState(false);
-  const [physicsStatus, setPhysicsStatus] = useState<string | null>(null);
   const [reflectionPeekEnabled, setReflectionPeekEnabled] = useState(false);
   const [reflectionPreviewUrl, setReflectionPreviewUrl] = useState<string | null>(null);
   const [reflectionPeekFocused, setReflectionPeekFocused] = useState(false);
@@ -809,7 +786,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({
   const isUserInteractingRef = useRef(false);
   const lastFramedAssetIdRef = useRef<string | null>(null);
   const currentLoadedSourceUrlRef = useRef<string | null>(null);
-  const physicsViewerReady = Boolean(physicsStatus?.toLowerCase().includes('ready'));
 
   // Close menus on outside click or Escape key
   useEffect(() => {
@@ -2713,20 +2689,11 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({
 
       const animState = useAnimationStore.getState();
       const isAnimPlaying = animState.isPlaying;
-      const physicsActive = physicsRuntimeRef.current?.isRunning() ?? false;
-      if (physicsActive) {
-        try {
-          physicsRuntimeRef.current?.tick(delta);
-        } catch (err) {
-          console.warn('[MeshViewer] Physics tick error suppressed:', err);
-        }
-        if (keyLightRef.current) keyLightRef.current.shadow.needsUpdate = true;
-      }
       const animTimeChanged = Math.abs(animState.currentTime - lastRenderedAnimTimeRef.current) > 0.0001;
       if (animTimeChanged) {
         lastRenderedAnimTimeRef.current = animState.currentTime;
       }
-      const animationActive = Boolean(mixerRef.current && isAnimPlaying) || isAnimPlaying || physicsActive || animTimeChanged;
+      const animationActive = Boolean(mixerRef.current && isAnimPlaying) || isAnimPlaying || animTimeChanged;
 
       if (mixerRef.current && isAnimPlaying) {
         try {
@@ -2837,8 +2804,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({
       }
       if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-      try { physicsRuntimeRef.current?.dispose(); } catch (_) {}
-      physicsRuntimeRef.current = null;
       transformControls.dispose();
       controls.dispose();
       renderer.dispose();
@@ -2875,96 +2840,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({
       scene.environment = null;
     };
   }, []);
-
-  // Rebind physics only after the current asset has actually finished loading.
-  useEffect(() => {
-    try { physicsRuntimeRef.current?.dispose(); } catch (_) {}
-    physicsRuntimeRef.current = null;
-    setPhysicsRunning(false);
-    setPhysicsStatus(null);
-    loadedAssetIdRef.current = null;
-    setLoadedAssetId(null);
-  }, [currentAsset?.id]);
-
-  useEffect(() => {
-    if (!isLoading) return;
-    try { physicsRuntimeRef.current?.dispose(); } catch (_) {}
-    physicsRuntimeRef.current = null;
-    setPhysicsRunning(false);
-    setPhysicsStatus(null);
-    loadedAssetIdRef.current = null;
-    setLoadedAssetId(null);
-  }, [isLoading]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const initializePhysics = async () => {
-      const group = currentMeshGroupRef.current;
-      const scene = sceneRef.current;
-      const collisionUrl = currentAsset?.artifacts?.collision;
-      if (
-        !group ||
-        !scene ||
-        isLoading ||
-        !modelLoadVersion ||
-        loadedAssetId !== currentAsset?.id ||
-        !currentAsset?.artifacts?.physicsReady ||
-        !collisionUrl
-      ) {
-        return;
-      }
-
-      const metadata = (currentAsset.artifacts?.physics || {}) as any;
-      const body = metadata.body || {};
-      const material = metadata.material || {};
-      const runtime = new PhysicsRuntime();
-
-      try {
-        await runtime.init(scene, group, collisionUrl, {
-          bodyType: body.type || DEFAULT_PHYSICS_SETTINGS.bodyType,
-          massMode: metadata.provenance?.mass === 'user' ? 'manual' : 'auto',
-          massKg: Number(body.mass_kg ?? DEFAULT_PHYSICS_SETTINGS.massKg),
-          densityMode: DEFAULT_PHYSICS_SETTINGS.densityMode,
-          densityKgM3: Number(body.density_kg_m3 ?? DEFAULT_PHYSICS_SETTINGS.densityKgM3),
-          friction: Number(material.dynamic_friction ?? DEFAULT_PHYSICS_SETTINGS.friction),
-          restitution: Number(material.restitution ?? DEFAULT_PHYSICS_SETTINGS.restitution),
-          linearDamping: Number(body.linear_damping ?? DEFAULT_PHYSICS_SETTINGS.linearDamping),
-          angularDamping: Number(body.angular_damping ?? DEFAULT_PHYSICS_SETTINGS.angularDamping),
-          gravityEnabled: Boolean(body.gravity_enabled ?? DEFAULT_PHYSICS_SETTINGS.gravityEnabled),
-        });
-        if (cancelled) {
-          try { runtime.dispose(); } catch (_) {}
-          return;
-        }
-        try { physicsRuntimeRef.current?.dispose(); } catch (_) {}
-        physicsRuntimeRef.current = runtime;
-        runtime.setDebugVisibility(physicsDebug);
-        setPhysicsStatus('Physics ready — rigid-body preview');
-      } catch (error) {
-        try { runtime.dispose(); } catch (_) {}
-        if (physicsRuntimeRef.current === runtime) physicsRuntimeRef.current = null;
-        if (!cancelled) setPhysicsStatus(error instanceof Error ? error.message : 'Physics preview initialization failed');
-      }
-    };
-
-    void initializePhysics();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    currentAsset?.id,
-    currentAsset?.artifacts?.collision,
-    currentAsset?.artifacts?.physicsReady,
-    currentAsset?.artifacts?.physics,
-    modelLoadVersion,
-    loadedAssetId,
-  ]);
-
-  useEffect(() => {
-    physicsRuntimeRef.current?.setDebugVisibility(physicsDebug);
-  }, [physicsDebug]);
-
 
   // Manage mesh visibility during generation without intrusive 3D placeholder wireframes
   useEffect(() => {
@@ -3857,49 +3732,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({
     };
   }, [reflectionPeekEnabled, currentAsset?.id, handleReflectionPeekLeave]);
 
-  const runPhysicsSmokeTest = useCallback(async () => {
-    setPhysicsModeOpen(true);
-    const existing = physicsRuntimeRef.current;
-    if (existing?.isReady()) {
-      existing.applyTest('drop');
-      setPhysicsRunning(true);
-      return;
-    }
-
-    const scene = sceneRef.current;
-    const meshGroup = currentMeshGroupRef.current;
-    if (!scene || !meshGroup || !currentAsset) {
-      setPhysicsStatus('Load a mesh before running the physics smoke test.');
-      return;
-    }
-
-    const runtime = new PhysicsRuntime();
-    setPhysicsStatus('Preparing quick rigid-body smoke test…');
-    try {
-      await runtime.initQuickTest(scene, meshGroup, {
-        bodyType: 'dynamic',
-        massMode: 'manual',
-        massKg: 1,
-        densityMode: 'auto',
-        densityKgM3: 500,
-        friction: 0.5,
-        restitution: 0.35,
-        linearDamping: 0.05,
-        angularDamping: 0.08,
-        gravityEnabled: true,
-      });
-      try { physicsRuntimeRef.current?.dispose(); } catch (_) {}
-      physicsRuntimeRef.current = runtime;
-      setPhysicsStatus('Quick physics ready — bounds-based smoke test');
-      runtime.applyTest('drop');
-      setPhysicsRunning(true);
-    } catch (error) {
-      try { runtime.dispose(); } catch (_) {}
-      if (physicsRuntimeRef.current === runtime) physicsRuntimeRef.current = null;
-      setPhysicsStatus(error instanceof Error ? 'Physics test failed: ' + error.message : 'Physics test failed.');
-      setPhysicsRunning(false);
-    }
-  }, [currentAsset]);
 
   // CameraIcon preset switcher
   const applyCameraPreset = useCallback((preset: CameraViewPreset | 'side') => {
@@ -4614,56 +4446,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({
         }`} 
       />
 
-      {/* Floating Real-Time Zero-Lag Precision Brush Reticle Cursor */}
-      {(activeTool === 'edit' || activeTool === 'texture') && (
-        <div
-          ref={brushReticleRef}
-          className="fixed pointer-events-none z-50 will-change-transform hidden flex-col items-center justify-center"
-          style={{
-            left: 0,
-            top: 0,
-          }}
-        >
-          <div
-            className="rounded-full border-2 flex items-center justify-center"
-            style={{
-              width: `${Math.max(18, activeTool === 'edit' ? (sculptSettings?.radius || 0.15) * 280 : (paintBrushSettings?.size || 24) * 2)}px`,
-              height: `${Math.max(18, activeTool === 'edit' ? (sculptSettings?.radius || 0.15) * 280 : (paintBrushSettings?.size || 24) * 2)}px`,
-              borderColor: activeTool === 'texture' 
-                ? (paintBrushSettings?.color || '#FFCC00') 
-                : '#FFCC00',
-              backgroundColor: activeTool === 'texture' 
-                ? `${paintBrushSettings?.color || '#FFCC00'}22` 
-                : 'rgba(255, 204, 0, 0.08)',
-              boxShadow: '0 0 14px rgba(255, 204, 0, 0.4), inset 0 0 8px rgba(255, 204, 0, 0.2)',
-            }}
-          >
-            {/* Center Reticle Icon — Shows the actual tool/brush icon */}
-            <div 
-              className="w-4 h-4 rounded-full flex items-center justify-center shadow-sm"
-              style={{
-                backgroundColor: activeTool === 'texture' ? (paintBrushSettings?.color || '#FFCC00') : '#FFCC00'
-              }}
-            >
-              {React.createElement(getActiveBrushIcon(activeTool, sculptSettings?.brush, false), {
-                className: "w-2.5 h-2.5 text-black flex-shrink-0"
-              })}
-            </div>
-          </div>
 
-          {/* Floating Brush Type & Radius Badge */}
-          <div className="mt-1.5 px-2.5 py-1 rounded-lg bg-black/90 backdrop-blur-md border border-white/20 text-[9px] font-mono font-bold text-white whitespace-nowrap shadow-xl flex items-center gap-1.5">
-            {React.createElement(getActiveBrushIcon(activeTool, sculptSettings?.brush, false), {
-              className: "w-3.5 h-3.5 text-primary flex-shrink-0"
-            })}
-            <span>
-              {activeTool === 'edit' 
-                ? `${sculptSettings?.brush?.toUpperCase() || 'STANDARD'} • R:${(sculptSettings?.radius || 0.15).toFixed(2)}` 
-                : `PAINT • ${paintBrushSettings?.size || 24}px`}
-            </span>
-          </div>
-        </div>
-      )}
 
       {/* Floating Dynamic BrushIcon Size Preview HUD */}
       {brushPreviewVisible && (activeTool === 'edit' || activeTool === 'texture') && (
@@ -4848,7 +4631,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({
           <div className="pointer-events-auto rounded-xl border border-white/[0.14] bg-[hsl(var(--surface-1))]/95 backdrop-blur-md shadow-2xl px-3.5 py-2 flex items-center gap-3">
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded-lg bg-black/60 border border-white/10 flex items-center justify-center text-primary flex-shrink-0">
-                {React.createElement(getActiveBrushIcon(activeTool, sculptSettings?.brush), { className: "w-3.5 h-3.5" })}
+                <HugeiconsIcon icon={activeTool === 'edit' ? Box : SparklesIcon} size={14} className="w-3.5 h-3.5" />
               </div>
               <span className="text-xs font-bold text-white tracking-wide uppercase">
                 {activeTool === 'edit' ? `Sculpt: ${sculptSettings?.brush || 'standard'}` : `3D Paint: ${paintBrushSettings?.color || '#FFCC00'}`}
@@ -4878,86 +4661,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({
         </div>
       )}
 
-      {showOverlayUI && currentAsset?.artifacts?.physicsReady && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
-          <div className="pointer-events-auto rounded-xl border border-white/[0.12] bg-[hsl(var(--surface-1))]/95 backdrop-blur-md shadow-2xl px-2 py-2">
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setPhysicsModeOpen(prev => !prev)}
-                className={physicsModeOpen ? 'px-2.5 py-1.5 rounded-lg bg-primary text-black text-[10px] font-bold' : 'px-2.5 py-1.5 rounded-lg bg-[hsl(var(--surface-2))] text-zinc-200 text-[10px] font-bold border border-white/[0.08]'}
-              >
-                Physics
-              </button>
-              {physicsModeOpen && (
-                <>
-                  <button type="button" disabled={!physicsViewerReady}
-                    onClick={() => {
-                      try {
-                        const runtime = physicsRuntimeRef.current;
-                        if (!runtime?.isReady()) return;
-                        const running = !runtime.isRunning();
-                        runtime.setRunning(running);
-                        setPhysicsRunning(running);
-                      } catch (err) {
-                        console.warn('[MeshViewer] Physics toggle error:', err);
-                      }
-                    }}
-                    className="px-2 py-1.5 rounded-lg bg-[hsl(var(--surface-2))] text-[10px] text-zinc-200 border border-white/[0.08] disabled:opacity-40 disabled:cursor-not-allowed"
-                  >{physicsRunning ? 'Pause' : 'Play'}</button>
-                  <button type="button" disabled={!physicsViewerReady}
-                    onClick={() => {
-                      try {
-                        if (physicsRuntimeRef.current?.isReady()) physicsRuntimeRef.current.step();
-                      } catch (err) {
-                        console.warn('[MeshViewer] Physics step error:', err);
-                      }
-                    }}
-                    className="px-2 py-1.5 rounded-lg bg-[hsl(var(--surface-2))] text-[10px] text-zinc-200 border border-white/[0.08] disabled:opacity-40 disabled:cursor-not-allowed"
-                  >Step</button>
-                  <button type="button" disabled={!physicsViewerReady}
-                    onClick={() => {
-                      try {
-                        const runtime = physicsRuntimeRef.current;
-                        if (!runtime?.isReady()) return;
-                        runtime.reset();
-                        setPhysicsRunning(false);
-                      } catch (err) {
-                        console.warn('[MeshViewer] Physics reset error:', err);
-                      }
-                    }}
-                    className="px-2 py-1.5 rounded-lg bg-[hsl(var(--surface-2))] text-[10px] text-zinc-200 border border-white/[0.08] disabled:opacity-40 disabled:cursor-not-allowed"
-                  >Reset</button>
-                  <button type="button" disabled={!physicsViewerReady}
-                    onClick={() => setPhysicsDebug(prev => !prev)}
-                    className={physicsDebug ? 'px-2 py-1.5 rounded-lg bg-primary/20 text-primary border border-primary/40 text-[10px] font-bold disabled:opacity-40' : 'px-2 py-1.5 rounded-lg bg-[hsl(var(--surface-2))] text-zinc-300 border border-white/[0.08] text-[10px] disabled:opacity-40'}
-                  >Colliders</button>
-                  {(['drop', 'bounce', 'slide', 'spin'] as const).map(test => (
-                    <button key={test} type="button" disabled={!physicsViewerReady}
-                      onClick={() => {
-                        try {
-                          const runtime = physicsRuntimeRef.current;
-                          if (!runtime?.isReady()) return;
-                          runtime.applyTest(test);
-                          setPhysicsRunning(true);
-                        } catch (err) {
-                          console.warn('[MeshViewer] Physics applyTest error:', err);
-                        }
-                      }}
-                      className="px-2 py-1.5 rounded-lg bg-[hsl(var(--surface-2))] text-zinc-300 border border-white/[0.08] text-[10px] capitalize disabled:opacity-40 disabled:cursor-not-allowed"
-                    >{test}</button>
-                  ))}
-                </>
-              )}
-            </div>
-            {physicsModeOpen && (
-              <div className="pt-1 text-[9px] text-zinc-500 text-center">
-                {physicsStatus || 'Preparing physics runtime…'} · soft-body/jiggle is capability-gated
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Empty State Overlay when no asset is active */}
       {!currentAsset && !isLoading && !isExecuting && !debugBlueprint && showOverlayUI && (
@@ -5106,18 +4809,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({
             </div>
 
             <div className="flex items-center gap-0.5 p-1 rounded-xl bg-[hsl(var(--surface-1))]/90 backdrop-blur-md border border-white/[0.12] shadow-2xl">
-              <SimpleTooltip side="bottom" label={physicsViewerReady ? 'Run rigid-body physics test' : 'Run lightweight bounds-based physics smoke test'}>
-                <button
-                  type="button"
-                  onClick={() => void runPhysicsSmokeTest()}
-                  disabled={!currentAsset || isLoading}
-                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold text-zinc-200 hover:text-primary hover:bg-white/[0.05] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                >
-                  <HugeiconsIcon icon={ZapIcon} size={16} className="w-3 h-3 text-primary" />
-                  <span className="hidden sm:inline">Test Physics</span>
-                </button>
-              </SimpleTooltip>
-              <div className="w-px h-3.5 bg-white/[0.12] mx-0.5" />
               <SimpleTooltip side="bottom" label={reflectionPeekEnabled ? 'Hide mirror detail peek' : 'Show low-rate mirror detail peek'}>
                 <button
                   type="button"
