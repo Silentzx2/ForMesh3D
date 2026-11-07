@@ -181,6 +181,13 @@ def test_pixal3d_patcher_pure_pytorch_na2d():
     assert out_dilated.shape == (B, H, W, N, D)
     assert torch.isfinite(out_dilated).all()
 
+    # Test asymmetric value dimension (e.g. NAF where D_qk=64, D_v=256)
+    D_v = 128
+    v_asym = torch.randn(B, H, W, N, D_v)
+    out_asym = pure_pytorch_na2d(q, k, v_asym, kernel_size=(9, 9), chunk_size=64)
+    assert out_asym.shape == (B, H, W, N, D_v)
+    assert torch.isfinite(out_asym).all()
+
 
 def test_pixal3d_patcher_apply_patch_pre_ampere():
     from patcher.pixal3d import apply_patch

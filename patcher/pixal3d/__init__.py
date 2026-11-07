@@ -47,13 +47,15 @@ def pure_pytorch_na2d(
     dilation: Union[int, Tuple[int, int]] = (1, 1),
     stride: int = 1,
     backend: Any = None,
-    chunk_size: int = 4096,
+    chunk_size: int = 1024,
     **kwargs: Any,
 ) -> torch.Tensor:
     """Mathematically exact 2D Neighborhood Attention in pure PyTorch.
 
     Args:
-        q, k, v: Tensors of shape [B, H, W, N, D].
+        q: Query tensor of shape [B, H, W, N_q, D_qk].
+        k: Key tensor of shape [B, H, W, N_k, D_qk].
+        v: Value tensor of shape [B, H, W, N_v, D_v].
         kernel_size: Window size (Kh, Kw) or scalar K.
         dilation: Dilation step (Dh, Dw) or scalar D.
         stride: Stride (defaults to 1).
@@ -61,9 +63,12 @@ def pure_pytorch_na2d(
         chunk_size: Spatial token chunk size to bound peak memory usage (< 200 MB).
 
     Returns:
-        Tensor of shape [B, H, W, N, D].
+        Tensor of shape [B, H, W, N_q, D_v].
     """
-    B, H, W, N, D = q.shape
+    B, H, W, N_q, D_qk = q.shape
+    _, _, _, N_k, D_k = k.shape
+    _, _, _, N_v, D_v = v.shape
+
     if isinstance(kernel_size, int):
         kernel_size = (kernel_size, kernel_size)
     if isinstance(dilation, int):
@@ -71,10 +76,16 @@ def pure_pytorch_na2d(
 
     Kh, Kw = kernel_size
     Dh, Dw = dilation
-    scale = D ** -0.5
+    scale = D_qk ** -0.5
 
     Rh = (Kh - 1) // 2
     Rw = (Kw - 1) // 2
+
+    # Support Multi-Query / Grouped-Query Attention if N_q != N_k or N_q != N_v
+    if N_q != N_k:
+        k = k.repeat_interleave(N_q // N_k, dim=-2)
+    if N_q != N_v:
+        v = v.repeat_interleave(N_q // N_v, dim=-2)
 
     # Precompute 1D window indices along Height with sliding boundary clamping
     h_idx = torch.arange(H, device=q.device).unsqueeze(1) + (torch.arange(Kh, device=q.device) - Rh) * Dh
@@ -93,27 +104,27 @@ def pure_pytorch_na2d(
     grid_w = w_idx[None, :, None, :].expand(H, W, Kh, Kw)
     flat_hw = (grid_h * W + grid_w).reshape(H * W, Kh * Kw)
 
-    k_flat = k.reshape(B, H * W, N, D)
-    v_flat = v.reshape(B, H * W, N, D)
-    q_flat = q.reshape(B, H * W, N, D)
+    k_flat = k.reshape(B, H * W, N_q, D_k)
+    v_flat = v.reshape(B, H * W, N_q, D_v)
+    q_flat = q.reshape(B, H * W, N_q, D_qk)
 
     total_tokens = H * W
-    out_flat = torch.empty_like(q_flat)
+    out_flat = torch.empty(B, total_tokens, N_q, D_v, device=q.device, dtype=q.dtype)
 
     for start in range(0, total_tokens, chunk_size):
         end = min(start + chunk_size, total_tokens)
         idx = flat_hw[start:end]
 
-        k_chunk = k_flat[:, idx]  # [B, chunk_len, K2, N, D]
-        v_chunk = v_flat[:, idx]  # [B, chunk_len, K2, N, D]
-        q_chunk = q_flat[:, start:end]  # [B, chunk_len, N, D]
+        k_chunk = k_flat[:, idx]  # [B, chunk_len, K2, N_q, D_qk]
+        v_chunk = v_flat[:, idx]  # [B, chunk_len, K2, N_q, D_v]
+        q_chunk = q_flat[:, start:end]  # [B, chunk_len, N_q, D_qk]
 
-        scores = (q_chunk.unsqueeze(2) * k_chunk).sum(dim=-1) * scale  # [B, chunk_len, K2, N]
+        scores = (q_chunk.unsqueeze(2) * k_chunk).sum(dim=-1) * scale  # [B, chunk_len, K2, N_q]
         attn = F.softmax(scores, dim=2)
-        out_chunk = (attn.unsqueeze(-1) * v_chunk).sum(dim=2)  # [B, chunk_len, N, D]
+        out_chunk = (attn.unsqueeze(-1) * v_chunk).sum(dim=2)  # [B, chunk_len, N_q, D_v]
         out_flat[:, start:end] = out_chunk
 
-    return out_flat.reshape(B, H, W, N, D)
+    return out_flat.reshape(B, H, W, N_q, D_v)
 
 
 def apply_patch() -> None:
@@ -138,6 +149,8 @@ def _stub_natten_module() -> None:
 
     natten_func_mod = types.ModuleType("natten.functional")
     natten_func_mod.na2d = pure_pytorch_na2d
+    natten_func_mod.na2d_qk = lambda *a, **k: None
+    natten_func_mod.na2d_av = lambda *a, **k: None
     natten_mod.functional = natten_func_mod
 
     sys.modules["natten"] = natten_mod
@@ -176,6 +189,10 @@ def _patch_natten_na2d() -> None:
 
         if hasattr(natten, "functional"):
             natten.functional.na2d = resilient_na2d
+            if not hasattr(natten.functional, "na2d_qk"):
+                natten.functional.na2d_qk = lambda *a, **k: None
+            if not hasattr(natten.functional, "na2d_av"):
+                natten.functional.na2d_av = lambda *a, **k: None
 
         logger.info("Pixal3D patcher: natten.na2d patched with pre-Ampere resilience.")
     except Exception as exc:
