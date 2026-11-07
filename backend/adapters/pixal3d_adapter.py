@@ -122,6 +122,13 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
         except Exception:
             pass
 
+        # Apply Pixal3D pre-Ampere NATTEN / NAF resilience patch
+        try:
+            from patcher.pixal3d import apply_patch
+            apply_patch()
+        except Exception as patch_exc:
+            logger.warning("Pixal3D patcher application failed: %s", patch_exc)
+
         from pixal3d.pipelines import Pixal3DImageTo3DPipeline
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)

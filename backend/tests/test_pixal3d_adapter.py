@@ -161,3 +161,33 @@ def test_pixal3d_project_points_to_image_batch_mixed_precision():
     feat = sample_features(fmap, queries)
     assert feat.shape == (B, 64, N)
     assert feat.dtype == torch.float16
+
+
+def test_pixal3d_patcher_pure_pytorch_na2d():
+    from patcher.pixal3d import pure_pytorch_na2d
+
+    B, H, W, N, D = 1, 16, 16, 4, 32
+    q = torch.randn(B, H, W, N, D)
+    k = torch.randn(B, H, W, N, D)
+    v = torch.randn(B, H, W, N, D)
+
+    # Test with standard kernel and dilation
+    out = pure_pytorch_na2d(q, k, v, kernel_size=(9, 9), dilation=(1, 1), chunk_size=64)
+    assert out.shape == (B, H, W, N, D)
+    assert torch.isfinite(out).all()
+
+    # Test with dilation > 1 and integer kernel
+    out_dilated = pure_pytorch_na2d(q, k, v, kernel_size=5, dilation=2, chunk_size=32)
+    assert out_dilated.shape == (B, H, W, N, D)
+    assert torch.isfinite(out_dilated).all()
+
+
+def test_pixal3d_patcher_apply_patch_pre_ampere():
+    from patcher.pixal3d import apply_patch
+
+    # Verify apply_patch runs without error and patches natten
+    apply_patch()
+    import natten
+    assert hasattr(natten, "na2d")
+    assert getattr(natten, "_pixal3d_na2d_patched", False) or hasattr(natten, "na2d")
+

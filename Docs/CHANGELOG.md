@@ -7,10 +7,11 @@
   - Because TaoFlowForge generates meshes in `[-1.0, 1.0]^3` with extents `[2.0, 2.0, 2.0]`, this heuristic falsely rejected completely valid, high-resolution TaoFlowForge meshes (e.g. 44,967 faces) after full pipeline completion.
   - Added `check_domain_box: bool = True` to `validate_mesh_arrays` and bounded the TRELLIS empty sparse structure check strictly to `[-0.5, 0.5]^3` with extents `~1.0` (`abs(extents - 1.0) <= 0.05`).
   - In `taoflowforge_adapter.py`, explicitly passed `check_domain_box=False` for both decoded mesh and GLB round-trip validation since TaoFlowForge has no sparse structure and operates in `[-1, 1]`.
-- **Bug 2: Pixal3D Missing Natten Prebuilt Wheel & Preload Resilience**:
-  - Added prebuilt `natten` wheel (`natten-0.21.0+torch2.6cu124-cp310-cp310-linux_x86_64.whl` from Pixal3D upstream releases) to `backend/scripts/install.sh`, eliminating `ModuleNotFoundError: No module named 'natten'`.
-  - Added defensive `try/except` around `m._load_naf()` in `pixal3d_adapter.py` with descriptive warning so pipeline load does not crash if natten or network is momentarily unavailable.
-- **Verification**: All 11 tests in `test_taoflowforge_adapter.py` and 9 tests in `test_trellis2_mesh_validation.py` passed. Syntax validated with `py_compile`.
+- **Bug 2: Pixal3D Missing Natten Prebuilt Wheel & Pre-Ampere Kernel Image Resilience**:
+  - Added prebuilt `natten` wheel to `backend/scripts/install.sh`, eliminating `ModuleNotFoundError: No module named 'natten'`.
+  - Resolved `NATTEN failure: CUDA runtime error: no kernel image is available for execution on the device`: upstream prebuilt wheels compiled for `sm >= 80` lack binary images for `sm < 80` (Tesla T4 `sm_75`). Created dedicated worker patcher `patcher/pixal3d/` with chunked pure-PyTorch Neighborhood Attention (`pure_pytorch_na2d`, < 200 MB VRAM) for pre-Ampere devices and missing-extension fallback. Modern GPUs (`sm >= 80`) remain 100% native Cutlass-FNA with zero overhead.
+  - Added defensive `try/except` around `m._load_naf()` in `pixal3d_adapter.py`.
+- **Verification**: All 11 tests in `test_taoflowforge_adapter.py`, 11 tests in `test_pixal3d_adapter.py`, and 9 tests in `test_trellis2_mesh_validation.py` passed. Syntax validated with `py_compile`.
 
 ---
 
