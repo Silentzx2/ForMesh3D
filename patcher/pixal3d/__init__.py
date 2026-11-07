@@ -127,6 +127,59 @@ def pure_pytorch_na2d(
     return out_flat.reshape(B, H, W, N_q, D_v)
 
 
+def safe_legacy_attention(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    kernel_size: Any = (9, 9),
+    dilation: Any = (1, 1),
+    scale: float = 1.0,
+    return_weights: bool = False,
+    **kwargs: Any,
+) -> Any:
+    """Safe drop-in replacement for NAF legacy_attention using pure_pytorch_na2d."""
+    out = pure_pytorch_na2d(q, k, v, kernel_size=kernel_size, dilation=dilation)
+    if return_weights:
+        return out, None
+    return out
+
+
+def _ensure_naf_attentions_patched() -> None:
+    """Ensure any loaded NAF CrossAttention or legacy_attention uses modern/resilient attention."""
+    for mod_name, mod in list(sys.modules.items()):
+        if mod and ("attentions" in mod_name or "src.layers" in mod_name):
+            if hasattr(mod, "NATTEN_RECENT"):
+                mod.NATTEN_RECENT = True
+            if hasattr(mod, "legacy_attention"):
+                mod.legacy_attention = safe_legacy_attention
+
+
+def _patch_naf_loader() -> None:
+    """Wrap DinoV3ProjFeatureExtractor._load_naf to patch NAF attentions immediately on load."""
+    try:
+        from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import (
+            DinoV3ProjFeatureExtractor,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Pixal3D patcher could not import DinoV3ProjFeatureExtractor: %s",
+            exc,
+        )
+        return
+
+    if getattr(DinoV3ProjFeatureExtractor, "_pixal3d_naf_loader_patched", False):
+        return
+
+    orig_load_naf = DinoV3ProjFeatureExtractor._load_naf
+
+    def resilient_load_naf(self: Any) -> None:
+        orig_load_naf(self)
+        _ensure_naf_attentions_patched()
+
+    DinoV3ProjFeatureExtractor._load_naf = resilient_load_naf
+    DinoV3ProjFeatureExtractor._pixal3d_naf_loader_patched = True
+
+
 def apply_patch() -> None:
     """Apply Pixal3D pre-Ampere NATTEN compatibility and graceful fallback patch."""
     # 1. If natten is missing from environment, provide pure-PyTorch stub
@@ -140,6 +193,10 @@ def apply_patch() -> None:
     # 2. Patch natten.na2d with pre-Ampere routing and kernel-missing protection
     _patch_natten_na2d()
 
+    # 3. Patch NAF loader and existing NAF modules
+    _patch_naf_loader()
+    _ensure_naf_attentions_patched()
+
 
 def _stub_natten_module() -> None:
     """Create a minimal stub for natten and natten.functional in sys.modules."""
@@ -149,8 +206,6 @@ def _stub_natten_module() -> None:
 
     natten_func_mod = types.ModuleType("natten.functional")
     natten_func_mod.na2d = pure_pytorch_na2d
-    natten_func_mod.na2d_qk = lambda *a, **k: None
-    natten_func_mod.na2d_av = lambda *a, **k: None
     natten_mod.functional = natten_func_mod
 
     sys.modules["natten"] = natten_mod
@@ -189,10 +244,12 @@ def _patch_natten_na2d() -> None:
 
         if hasattr(natten, "functional"):
             natten.functional.na2d = resilient_na2d
-            if not hasattr(natten.functional, "na2d_qk"):
-                natten.functional.na2d_qk = lambda *a, **k: None
-            if not hasattr(natten.functional, "na2d_av"):
-                natten.functional.na2d_av = lambda *a, **k: None
+            for attr in ("na2d_qk", "na2d_av"):
+                if hasattr(natten.functional, attr):
+                    try:
+                        delattr(natten.functional, attr)
+                    except Exception:
+                        pass
 
         logger.info("Pixal3D patcher: natten.na2d patched with pre-Ampere resilience.")
     except Exception as exc:

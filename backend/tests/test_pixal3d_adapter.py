@@ -190,11 +190,23 @@ def test_pixal3d_patcher_pure_pytorch_na2d():
 
 
 def test_pixal3d_patcher_apply_patch_pre_ampere():
-    from patcher.pixal3d import apply_patch
+    from patcher.pixal3d import apply_patch, safe_legacy_attention
 
     # Verify apply_patch runs without error and patches natten
     apply_patch()
     import natten
     assert hasattr(natten, "na2d")
     assert getattr(natten, "_pixal3d_na2d_patched", False) or hasattr(natten, "na2d")
+    # Verify na2d_qk and na2d_av do NOT exist as dummy None-returning functions
+    if hasattr(natten, "functional"):
+        assert not hasattr(natten.functional, "na2d_qk")
+        assert not hasattr(natten.functional, "na2d_av")
+
+    # Verify safe_legacy_attention works without TypeError: unsupported operand type(s) for *: 'NoneType' and 'float'
+    q = torch.randn(1, 16, 16, 4, 32)
+    k = torch.randn(1, 16, 16, 4, 32)
+    v = torch.randn(1, 16, 16, 4, 64)
+    out = safe_legacy_attention(q, k, v, kernel_size=(9, 9), dilation=(1, 1), scale=0.5)
+    assert out.shape == (1, 16, 16, 4, 64)
+    assert torch.isfinite(out).all()
 
