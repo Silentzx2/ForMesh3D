@@ -255,3 +255,41 @@ def test_taoflowforge_stage1_pre_ampere_fp16():
     out = flash_attn_qkv(q, k, v)
     assert out.shape == q.shape
     assert out.dtype == torch.float16
+
+
+def test_taoflowforge_rmsnorm_preserves_fp16_pre_ampere():
+    from taoflowforge.models.octree_dit import MultiHeadRMSNorm
+
+    norm = MultiHeadRMSNorm(head_dim=32, num_heads=4)
+    x = torch.randn(1, 8, 4, 32, dtype=torch.float16)
+    out = norm(x)
+    assert out.dtype == torch.float16, f"RMSNorm should preserve float16 dtype, got {out.dtype}"
+
+
+def test_taoflowforge_rmsnorm_preserves_bf16_modern_gpu():
+    from taoflowforge.models.octree_dit import MultiHeadRMSNorm
+
+    norm = MultiHeadRMSNorm(head_dim=32, num_heads=4)
+    x = torch.randn(1, 8, 4, 32, dtype=torch.bfloat16)
+    out = norm(x)
+    assert out.dtype == torch.bfloat16, f"RMSNorm should preserve bfloat16 dtype, got {out.dtype}"
+
+
+def test_taoflowforge_build_octree_rope_cpu_uses_fp32():
+    from taoflowforge.models.octree_dit import build_octree_rope
+
+    # CPU path: no CUDA -> RoPE arithmetic in float32 (modern/safe path)
+    positions = torch.randn(1, 8, 3, dtype=torch.float16)
+    cosine, sine = build_octree_rope(positions, head_dim=128)
+    assert cosine.dtype == torch.float32, f"RoPE cosine should be float32 on CPU, got {cosine.dtype}"
+    assert sine.dtype == torch.float32, f"RoPE sine should be float32 on CPU, got {sine.dtype}"
+
+
+def test_taoflowforge_apply_octree_rope_preserves_fp16_cpu():
+    from taoflowforge.models.octree_dit import apply_octree_rope, build_octree_rope
+
+    # Matches real usage: (batch, heads, tokens, head_dim)
+    tensor = torch.randn(1, 4, 8, 128, dtype=torch.float16)
+    cosine, sine = build_octree_rope(torch.randn(1, 8, 3), head_dim=128)
+    out = apply_octree_rope(tensor, cosine, sine)
+    assert out.dtype == torch.float16, f"apply_octree_rope should preserve float16, got {out.dtype}"
