@@ -1,5 +1,24 @@
 # ForMesh3D Changelog
 
+## 2026-11-07 — TaoFlowForge 66-Vertex Box Mesh Fix & Pre-Ampere FP32 Flow Matching
+
+- **Root Cause Analysis (66-Vertex, 44,967-Polygon Polyhedron Box Mesh)**:
+  - In `patcher/taoflowforge/__init__.py` and `attention.py`, `_COMPUTE_DTYPE` was forced to `torch.float16` on pre-Ampere GPUs (`sm < 80`, Tesla T4) to avoid Cutlass SDPA MATH fallback.
+  - However, running Euler ODE flow matching across 50 steps with CFG 7.5/7.0/3.0 under FP16 easily exceeds FP16's narrow 5-bit exponent dynamic range ($\pm 65,504$), overflowing to `Inf` and `NaN`.
+  - In Stage 0, `denoised_latent` overflowed to NaNs, which `nan_to_num(0.0)` flattened into zero, causing empty field prediction (`max_prob < 0.05`) and triggering a fallback that picked `topk(64)` noise coordinates.
+  - In Stage 1, these 64 noise coordinates were refined into 66 noise vertices.
+  - In Stage 2, `sample_latent` also overflowed to NaNs in FP16, resulting in identical zero-latents. When `extract_mesh` failed at 0.5, adaptive thresholding dropped to 0.01 where virtually every vertex pair had edge probability > 0.01, constructing the complete graph $K_{66}$ ($\binom{66}{3} = 45,760$ potential triangles) with **44,967 polygons** and 2,145 non-manifold edges forming a 1x1x1m box.
+- **Implemented Fixes**:
+  - `patcher/taoflowforge/__init__.py`: set `compute_dtype = torch.float32` on pre-Ampere GPUs (`sm < 80`), restoring the required 8-bit exponent range ($10^{38}$) to prevent FP16 NaN/Inf overflow during DiT flow matching ODE integration. Modern GPUs (`sm >= 80`) remain 100% native `bfloat16`.
+  - `patcher/taoflowforge/__init__.py`: bounded adaptive thresholds to $[0.4, 0.35, 0.3, 0.25, 0.2]$ and added a manifold face-count constraint (`len(faces) <= 4 * len(vertices)`). Any candidate threshold producing hyper-connected clique graphs is rejected; if learned topology fails, ConvexHull surface reconstruction guarantees a valid manifold envelope.
+  - `backend/thirdparty/Taobao3D/TaoFlowForge/taoflowforge/models/attention.py`: updated `get_compute_dtype` to return `torch.float32` on pre-Ampere GPUs, matching native 8-bit exponent range.
+  - `backend/thirdparty/Taobao3D/TaoFlowForge/taoflowforge/config.py`: configured official schedule (50, 30, 50 steps) as standard default, keeping fast 5-step testing opt-in via `TAOFLOWFORGE_FAST_STEPS=1`.
+  - `backend/thirdparty/Taobao3D/TaoFlowForge/taoflowforge/models/stage0.py`: guarded Stage 0 topk fallback with `max_prob > 0.05` to prevent converting blank/corrupt fields into false points.
+  - `backend/adapters/taoflowforge_adapter.py`: auto-resolved local RMBG-1.4/2.0 weights for background removal.
+- **Verification**: All 12 unit tests in `backend/tests/test_taoflowforge_adapter.py`, 11 in `test_pixal3d_adapter.py`, and 9 in `test_trellis2_mesh_validation.py` passed (32/32 tests pass).
+
+---
+
 ## 2026-11-07 — TaoFlowForge Bounding Box Validator Fix & Pixal3D Natten Dependency
 
 - **Bug 1: TaoFlowForge Hollow Domain Bounding Box False-Positive Rejection**:
@@ -27,19 +46,6 @@
   - Harmonized adapter with upstream `inference.py` in `pixal3d_adapter.py`: removed artificial `torch.float16` cast on conditioning models, honoring upstream Low-VRAM CPU offload protocol with NAF upsampler pre-loading.
   - Defensively cast `world_to_camera = world_to_camera.to(points_homogeneous.dtype)` and `grid.to(dtype=fmap.dtype)` in `backend/thirdparty/Pixal3D/.../image_conditioned_proj.py` to prevent any mixed-precision crash.
 - **Verification**: All 11 tests in `test_taoflowforge_adapter.py` passed. All 9 tests in `test_pixal3d_adapter.py` passed. `py_compile` syntax validated.
-
----
-
-## 2026-11-06 — TaoFlowForge Stage 2 Topology Resilience & Pixal3D Weight Path Fix
-
-- **Bug 1: TaoFlowForge Stage 2 Zero-Faces Topology Fix & Resilience**:
-  - Identified root cause of `RuntimeError: TaoFlowForge Stage 2 topology extraction produced 0 faces`: the adapter defaulted to a 5-step test schedule when `TAOFLOWFORGE_USE_OFFICIAL_STEPS` was unset. With only 5 Euler ODE steps, continuous flow matching failed to converge, yielding only 66 cells in Stage 0 and 66 vertices in Stage 1, leaving Stage 2 edge probabilities below `edge_threshold=0.5`.
-  - Restored upstream official schedule (50, 30, 50 steps) as default in `taoflowforge_adapter.py`, keeping 5-step testing opt-in via `TAOFLOWFORGE_FAST_STEPS=1`.
-  - Added `_patch_stage2_topology_decoder()` in `patcher/taoflowforge/__init__.py` to provide adaptive threshold fallback (`[0.4, 0.3, 0.2, 0.1]`) if `edge_threshold=0.5` produces 0 faces, recovering valid geometry instead of crashing.
-  - Fixed worker response logging in `multiprocess_scheduler.py`: properly catches adapter-returned `{"success": False}` and logs `[GENERATION FAILED]` rather than reporting false-positive `[GENERATION SUCCESS]`.
-- **Bug 2: Pixal3D Undefined Variable Fix (`weights_path`)**:
-  - Fixed `NameError: name 'weights_path' is not defined` in `backend/adapters/pixal3d_adapter.py` by resolving `weights_root = Path(weights_dir).resolve().parent`.
-- **Verification**: Syntax validated with `py_compile` across all modified files. Zero model code modifications in `backend/thirdparty/`. Unit tests updated in `test_taoflowforge_adapter.py` and `test_pixal3d_adapter.py`.
 
 
 

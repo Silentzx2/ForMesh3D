@@ -123,11 +123,13 @@ def _patch_stage2_topology_decoder() -> None:
             edge_logits = torch.nan_to_num(edge_logits, nan=-1e9, posinf=10.0, neginf=-1e9)
 
         thresholds = [edge_threshold]
-        for t in [0.4, 0.3, 0.2, 0.1, 0.05, 0.02, 0.01]:
+        for t in [0.4, 0.35, 0.3, 0.25, 0.2]:
             if t not in thresholds and t < edge_threshold:
                 thresholds.append(t)
 
         faces_numpy = np.empty((0, 3), dtype=np.int64)
+        num_verts = sorted_vertices.shape[0]
+        max_manifold_faces = 4 * num_verts  # A valid manifold triangle mesh has F <= 2V. Reject hyper-connected cliques.
 
         for thresh in thresholds:
             faces = self.vertex_decoder.extract_mesh(
@@ -139,9 +141,10 @@ def _patch_stage2_topology_decoder() -> None:
             fn = np.asarray(faces, dtype=np.int64)
             if fn.size > 0 and fn.shape[0] > 0:
                 fn = fn.reshape(-1, 3)
-                valid = fn.max(axis=1) < sorted_vertices.shape[0]
+                valid = fn.max(axis=1) < num_verts
                 fn = fn[valid]
-                if fn.shape[0] > 0:
+                # Reject hyper-connected clique graphs (e.g. K_N complete graph where F ~ V^3)
+                if 0 < fn.shape[0] <= max_manifold_faces:
                     faces_numpy = fn
                     if thresh != edge_threshold:
                         logger.info(
@@ -150,6 +153,14 @@ def _patch_stage2_topology_decoder() -> None:
                             len(faces_numpy),
                         )
                     break
+                elif fn.shape[0] > max_manifold_faces:
+                    logger.warning(
+                        "TaoFlowForge Stage 2 threshold %.2f produced hyper-connected clique (%d faces > %d max for %d vertices); skipping.",
+                        thresh,
+                        fn.shape[0],
+                        max_manifold_faces,
+                        num_verts,
+                    )
 
         # Geometric surface fallback: if learned topology produced 0 faces, reconstruct from vertices
         if faces_numpy.shape[0] == 0:
@@ -213,20 +224,20 @@ def _patch_attention_backend() -> None:
             if major < 8:
                 logger.info(
                     "TaoFlowForge: pre-Ampere GPU (sm_%d%d) detected — "
-                    "setting ATTENTION_BACKEND='sdpa' and compute_dtype=torch.float16 "
-                    "for Cutlass memory-efficient attention (avoids 10 GiB MATH OOM).",
+                    "setting ATTENTION_BACKEND='sdpa' and compute_dtype=torch.float32 "
+                    "to preserve 8-bit DiT exponent range and prevent FP16 NaN overflow.",
                     major,
                     minor,
                 )
                 attn_mod.ATTENTION_BACKEND = "sdpa"
-                attn_mod._COMPUTE_DTYPE = torch.float16
+                attn_mod._COMPUTE_DTYPE = torch.float32
                 orig_get_compute_dtype = attn_mod.get_compute_dtype
 
                 def _safe_get_compute_dtype(d=None):
                     if d is not None and getattr(d, "type", str(d)) == "cpu":
                         return torch.float32
                     if attn_mod._is_pre_ampere(d):
-                        return torch.float16
+                        return torch.float32
                     return orig_get_compute_dtype(d)
 
                 attn_mod.get_compute_dtype = _safe_get_compute_dtype

@@ -82,7 +82,7 @@ def test_taoflowforge_pre_ampere_compute_dtype():
         attn._taoflowforge_attn_patched = False
         apply_patch()
         assert attn.ATTENTION_BACKEND == "sdpa"
-        assert attn.get_compute_dtype(torch.device("cuda:0")) == torch.float16
+        assert attn.get_compute_dtype(torch.device("cuda:0")) == torch.float32
 
 
 def test_taoflowforge_modern_gpu_compute_dtype():
@@ -100,13 +100,25 @@ def test_taoflowforge_config_step_defaults():
     import os
     from taoflowforge.config import Stage0Config, Stage1Config, Stage2Config
 
-    # Default mode should use fast steps (5 steps per stage)
+    # Default mode should use official steps (50, 30, 50)
     c0 = Stage0Config(checkpoint=Path("/dummy/stage0.pt"))
     c1 = Stage1Config(checkpoint=Path("/dummy/stage1.pt"))
     c2 = Stage2Config(checkpoint=Path("/dummy/stage2.pt"))
-    assert c0.num_steps == 5
-    assert c1.num_steps == 5
-    assert c2.num_steps == 5
+    assert (c0.num_steps, c1.num_steps, c2.num_steps) == (50, 30, 50)
+
+    # Fast mode opt-in via TAOFLOWFORGE_FAST_STEPS=1
+    with patch.dict(os.environ, {"TAOFLOWFORGE_FAST_STEPS": "1"}, clear=True):
+        import importlib
+        import taoflowforge.config as cfg
+        importlib.reload(cfg)
+        fc0 = cfg.Stage0Config(checkpoint=Path("/dummy/stage0.pt"))
+        fc1 = cfg.Stage1Config(checkpoint=Path("/dummy/stage1.pt"))
+        fc2 = cfg.Stage2Config(checkpoint=Path("/dummy/stage2.pt"))
+        assert (fc0.num_steps, fc1.num_steps, fc2.num_steps) == (5, 5, 5)
+    # Restore
+    import importlib
+    import taoflowforge.config as cfg
+    importlib.reload(cfg)
 
 
 def test_taoflowforge_stage_offload_methods():
@@ -158,6 +170,48 @@ def test_taoflowforge_topology_resilience_patch():
     assert len(mesh.faces) == 1
     assert 0.5 in called_thresholds
     assert 0.4 in called_thresholds
+
+
+def test_taoflowforge_reject_hyper_connected_clique():
+    from patcher.taoflowforge import _patch_stage2_topology_decoder
+    from taoflowforge.models.stage2 import Stage2Model
+    import numpy as np
+
+    Stage2Model._taoflowforge_topology_patched = False
+    _patch_stage2_topology_decoder()
+
+    # 10 vertices: max manifold faces = 4 * 10 = 40.
+    # If extract_mesh returns 50 faces (clique), it should reject it and fall back to ConvexHull.
+    model = MagicMock()
+    model.latent_dim = 32
+    latent = torch.zeros(1, 10, 32)
+    # 10 non-coplanar vertices
+    verts = torch.tensor([
+        [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0],
+        [1.0, 1.0, 0.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0], [1.0, 1.0, 1.0],
+        [0.5, 0.5, 0.0], [0.5, 0.5, 1.0],
+    ])
+
+    def mock_clique_extract(edge_logits, *, threshold=0.5, **kwargs):
+        # Return 50 faces (exceeding 4 * 10 = 40)
+        return [[0, 1, 2]] * 50
+
+    model.vertex_decoder.return_value = {
+        "edge_logits": torch.zeros(1, 10, 10),
+        "normal_pred": torch.zeros(1, 10, 3),
+    }
+    model.vertex_decoder.extract_mesh = mock_clique_extract
+
+    # Without scipy, rejecting clique raises RuntimeError (honest failure, no fake 45k box mesh)
+    with pytest.raises(RuntimeError, match="0 faces"):
+        Stage2Model.decode_mesh(model, latent, verts, edge_threshold=0.5)
+
+    # With scipy ConvexHull available, it reconstructs valid surface
+    mock_hull = MagicMock()
+    mock_hull.simplices = np.array([[0, 1, 2], [0, 2, 3]])
+    with patch.dict(sys.modules, {"scipy": MagicMock(), "scipy.spatial": MagicMock(ConvexHull=MagicMock(return_value=mock_hull))}):
+        mesh = Stage2Model.decode_mesh(model, latent, verts, edge_threshold=0.5)
+        assert len(mesh.faces) == 2
 
 
 def test_taoflowforge_adapter_step_schedule_defaults():
