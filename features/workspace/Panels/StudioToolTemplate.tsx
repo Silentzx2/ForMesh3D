@@ -109,10 +109,10 @@ export const StudioToolTemplate: React.FC<StudioToolConfig> = ({
         </div>
       </div>
 
-      {/* 3. Instruction Callout with #F9CF00 Highlight */}
+      {/* 3. Instruction Callout with #F9CF00 Highlights matching Reference */}
       <div className="text-center px-2 py-1">
         <p className="text-xs text-zinc-300 leading-relaxed">
-          Select a model from Assets on the right or{' '}
+          <span className="text-[#F9CF00] font-bold">Select</span> a model from Assets on the right or{' '}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -120,7 +120,7 @@ export const StudioToolTemplate: React.FC<StudioToolConfig> = ({
           >
             upload your own
           </button>{' '}
-          for {title}
+          for <span className="text-[#F9CF00] font-bold">{title}</span>
         </p>
       </div>
 

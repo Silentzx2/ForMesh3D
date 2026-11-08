@@ -14,6 +14,12 @@ import {
   UploadIcon,
   ThumbsUpIcon,
   Cancel,
+  Box,
+  Delete02Icon,
+  Edit02Icon,
+  Idea01Icon,
+  Image01Icon,
+  Image02Icon,
 } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
 
@@ -361,7 +367,7 @@ export const GeneratePanel: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-[hsl(var(--surface-1))] text-[hsl(var(--foreground))] overflow-y-auto overflow-x-hidden p-3.5 space-y-3.5">
+    <div className="flex flex-col h-full w-full bg-[hsl(var(--surface-1))] text-[hsl(var(--foreground))] overflow-y-auto overflow-x-hidden p-2 space-y-2.5">
       {/* 1. Header: Generate Model - pr-8 prevents collapse button overlap */}
       <div className="flex items-center justify-between pb-1 border-b border-[hsl(var(--border))] pr-8">
         <div className="flex items-center gap-2">
@@ -373,7 +379,7 @@ export const GeneratePanel: React.FC = () => {
         </span>
       </div>
 
-      {/* 2. Single Clean Image Upload Box (Matching Property Panel colors) */}
+      {/* 2. Studio Image Upload Card (Matching Tripo Reference Design, Layout & Colors) */}
       <input
         ref={fileInputRef}
         type="file"
@@ -381,53 +387,124 @@ export const GeneratePanel: React.FC = () => {
         onChange={handleImageUpload}
         className="hidden"
       />
-      <div className="p-2.5 rounded-2xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] shadow-sm">
-        <div
-          role="button"
-          tabIndex={0}
-          aria-label="Upload concept image"
-          onClick={() => fileInputRef.current?.click()}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={handleDrop}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              fileInputRef.current?.click();
-            }
-          }}
-          className="relative group rounded-xl border border-dashed border-[hsl(var(--border))] hover:border-[#F9CF00]/60 bg-[hsl(var(--surface-1))] bg-[radial-gradient(#ffffff08_1px,transparent_1px)] [background-size:12px_12px] p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all min-h-[145px]"
-        >
-          {imagePreview || generationSettings.image ? (
-            <div className="relative group/preview">
-              <img
-                src={imagePreview || generationSettings.image || ''}
-                alt="Upload preview"
-                className="max-h-28 w-auto rounded-lg object-contain shadow-md border border-[hsl(var(--border))]"
-              />
+      <div className="p-2.5 rounded-2xl border border-[#48457D] bg-[#161626] shadow-xl space-y-2">
+        {/* Top 4-Pill Mode Selector Bar */}
+        <div className="h-8 px-1 rounded-xl bg-[#0f0f1c] border border-white/[0.04] flex items-center justify-between">
+          <button
+            type="button"
+            className="h-6 px-3 rounded-lg bg-white text-black font-bold flex items-center justify-center shadow-sm cursor-pointer"
+            title="Image to 3D"
+          >
+            <HugeiconsIcon icon={Image01Icon} size={15} />
+          </button>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="h-6 px-3 rounded-lg text-zinc-400 hover:text-white transition-colors flex items-center justify-center cursor-pointer"
+            title="3D Mesh Input"
+          >
+            <HugeiconsIcon icon={Box} size={15} />
+          </button>
+          <button
+            type="button"
+            onClick={() => toast.info('Multi-View input ready')}
+            className="h-6 px-3 rounded-lg text-zinc-400 hover:text-white transition-colors flex items-center justify-center cursor-pointer"
+            title="Multi-View Images"
+          >
+            <HugeiconsIcon icon={Image02Icon} size={15} />
+          </button>
+          <button
+            type="button"
+            onClick={() => toast.info('Text & Sketch mode ready')}
+            className="h-6 px-3 rounded-lg text-zinc-400 hover:text-white transition-colors flex items-center justify-center cursor-pointer"
+            title="Sketch / Prompt"
+          >
+            <HugeiconsIcon icon={Edit02Icon} size={15} />
+          </button>
+        </div>
+
+        {/* Dropzone Container */}
+        {imagePreview || generationSettings.image ? (
+          <div className="relative w-full h-[195px] rounded-xl overflow-hidden bg-[#0d0e17] border border-[#48457D]/40 flex items-center justify-center group/preview">
+            <img
+              src={imagePreview || generationSettings.image || ''}
+              alt="Uploaded concept"
+              className="max-h-[190px] w-auto max-w-full object-contain"
+            />
+
+            {/* Top-Right Trash Delete Button */}
+            <button
+              type="button"
+              onClick={handleRemoveImage}
+              aria-label="Remove uploaded image"
+              title="Remove image"
+              className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/75 hover:bg-black/95 text-white flex items-center justify-center border border-white/10 shadow-lg cursor-pointer transition-all group-hover/preview:scale-105"
+            >
+              <HugeiconsIcon icon={Delete02Icon} size={14} />
+            </button>
+
+            {/* Bottom Floating Actions (Edit + Multi-Views) */}
+            <div className="absolute bottom-2 inset-x-2 flex items-center justify-between pointer-events-none">
+              {/* Pencil Edit button */}
               <button
                 type="button"
-                onClick={handleRemoveImage}
-                className="absolute -top-1.5 -right-1.5 p-1 rounded-full bg-black/80 hover:bg-rose-600 text-white transition-colors cursor-pointer shadow-md"
-                aria-label="Remove uploaded image"
-                title="Remove image"
+                onClick={() => fileInputRef.current?.click()}
+                title="Edit or Replace Image"
+                className="pointer-events-auto w-7 h-7 rounded-full bg-[#1b1c2b]/90 hover:bg-[#25273b] border border-white/10 text-white flex items-center justify-center shadow-lg cursor-pointer transition-all active:scale-95"
               >
-                <HugeiconsIcon icon={Cancel} size={12} />
+                <HugeiconsIcon icon={Edit02Icon} size={13} />
+              </button>
+
+              {/* Generate Multi-Views Pill */}
+              <button
+                type="button"
+                onClick={() => toast.info('Multi-view synthesis ready for processing')}
+                className="pointer-events-auto h-7 px-2.5 rounded-full bg-[#1b1c2b]/90 hover:bg-[#25273b] border border-white/10 text-white text-[10px] font-semibold flex items-center gap-1.5 shadow-lg cursor-pointer transition-all active:scale-95"
+              >
+                <span className="w-3.5 h-3.5 rounded-full bg-[#F9CF00] text-black flex items-center justify-center text-[8px] font-black">
+                  ★
+                </span>
+                <span>Generate Multi-Views</span>
               </button>
             </div>
-          ) : (
-            <>
-              <div className="w-10 h-10 rounded-full bg-[hsl(var(--surface-3))] border border-[hsl(var(--border))] flex items-center justify-center text-[hsl(var(--muted-foreground))] group-hover:text-[#F9CF00] group-hover:border-[#F9CF00]/40 group-hover:scale-105 transition-all mb-2">
-                <HugeiconsIcon icon={UploadIcon} size={18} />
-              </div>
-              <p className="text-xs font-bold text-[hsl(var(--foreground))]">Upload</p>
-              <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-0.5 font-mono">JPG, PNG, WEBP · Size ≤ 20MB</p>
-              <div className="mt-3 text-[10px] text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--foreground))] font-medium flex items-center gap-1">
-                <span>Generate Image for 3D</span>
-                <span className="text-[#F9CF00]">›</span>
-              </div>
-            </>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Upload concept image"
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={handleDrop}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
+            className="relative group w-full h-[195px] rounded-xl border border-dashed border-[#48457D]/60 hover:border-[#6366F1] bg-[#12131F] [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:16px_16px] [background-position:0_0,0_8px,8px_-8px,-8px_0px] p-2.5 flex flex-col items-center justify-between cursor-pointer transition-all shadow-inner"
+          >
+            {/* Top Right Tip Lightbulb */}
+            <div className="w-full flex justify-end">
+              <span className="p-0.5 text-zinc-400/70 hover:text-[#F9CF00] transition-colors" title="Image prompt tips">
+                <HugeiconsIcon icon={Idea01Icon} size={14} />
+              </span>
+            </div>
+
+            {/* Center Upload Prompt */}
+            <div className="flex flex-col items-center text-center -mt-1">
+              <HugeiconsIcon icon={Image01Icon} size={28} className="text-zinc-300 group-hover:text-white group-hover:scale-105 transition-all mb-1" />
+              <span className="text-xs font-bold text-white tracking-wide">Upload</span>
+              <span className="text-[10px] text-zinc-400 font-mono mt-0.5">JPG, PNG, WEBP Size ≤ 20MB</span>
+            </div>
+
+            {/* Bottom Generate Image Link */}
+            <div className="text-[10.5px] font-medium text-zinc-300 group-hover:text-white flex items-center gap-1 transition-colors pb-0.5">
+              <span>Generate Image for 3D</span>
+              <span className="text-zinc-400 group-hover:translate-x-0.5 transition-transform">›</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 3. General Settings Accordion */}
@@ -437,7 +514,7 @@ export const GeneratePanel: React.FC = () => {
           aria-expanded={isGeneralSettingsOpen}
           aria-label="Toggle General Settings"
           onClick={() => setIsGeneralSettingsOpen(!isGeneralSettingsOpen)}
-          className="w-full flex items-center justify-between p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-xs font-semibold text-[hsl(var(--foreground))] transition-all cursor-pointer shadow-sm"
+          className="w-full flex items-center justify-between p-1.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-xs font-semibold text-[hsl(var(--foreground))] transition-all cursor-pointer shadow-sm"
         >
           <div className="flex items-center gap-1.5">
             <span>General Settings</span>
@@ -496,7 +573,7 @@ export const GeneratePanel: React.FC = () => {
             aria-expanded={isModelDropdownOpen}
             aria-label="Select AI Model"
             onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-            className="w-full p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] flex items-center justify-between text-left transition-all cursor-pointer shadow-sm"
+            className="w-full p-1.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] flex items-center justify-between text-left transition-all cursor-pointer shadow-sm"
           >
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/25 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
@@ -549,7 +626,7 @@ export const GeneratePanel: React.FC = () => {
           type="button"
           onClick={handleGenerate}
           disabled={isExecuting}
-          className="w-full py-3 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full py-2 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isExecuting ? (
             <>

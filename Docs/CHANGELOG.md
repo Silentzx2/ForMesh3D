@@ -1,5 +1,20 @@
 # ForMesh3D Changelog
 
+## 2026-11-08 — Studio Upload Box Design, Layout & Colors Matched to Reference
+
+- **Image Upload Dropzone Alignment (`GeneratePanel.tsx`)**:
+  - Rebuilt image upload card with glowing indigo/violet border (`#48457D`), deep dark navy-slate background (`#161626`), and rounded corners (`rounded-2xl`).
+  - Added 4-pill segmented mode selector at top (`Image to 3D`, `3D Mesh`, `Multi-View`, `Prompt/Sketch`) with active white pill (`bg-white text-black font-bold`).
+  - Implemented classic studio dark checkerboard dropzone (`#12131F` / `#18192A`) with prompt tip lightbulb icon, upload title, format size indicator, and bottom `"Generate Image for 3D ›"` link.
+  - Added loaded preview state with top-right circular trash delete button and bottom floating action pills (`Edit` pencil and `"Generate Multi-Views"`).
+- **Assets 3D Model Upload Dropzone Alignment (`RightAssetsPanel.tsx`)**:
+  - Styled with matching studio dark checkerboard pattern, indigo dashed border (`border-[#48457D]/50 hover:border-[#6366F1]`), and purple/indigo gradient circular upload button.
+- **Tool Template Callout Alignment (`StudioToolTemplate.tsx`)**:
+  - Highlighted action keywords (`Select`, `upload your own`, `{title}`) in `#F9CF00` with direct `Upload 3D Model` action pill button.
+- **Verification**: `bun x tsc --noEmit` passed with 0 errors; `bun test` passed (3/3 unit tests passing).
+
+---
+
 ## 2026-11-08 — Studio Workspace Header Thinned, Panel Docking & Curvature Harmonization
 
 - **Seamless Panel-to-Navbar Flush Docking**:
@@ -30,14 +45,3 @@
   - TopHeader streamlined to 48px height with scaled icons (15px) and micro-interactions; middle page pill navigation removed.
   - Viewport tools repositioned dynamically to guarantee visibility whether right panel is open or closed.
 - **Verification**: `bun x tsc --noEmit` passed with 0 errors; `bun test` passed (3/3 unit tests passing).
-
----
-
-## 2026-11-08 — Studio Lighting & Viewport Vignette Harmonization
-
-- **Studio Viewport Radial Vignette Harmonization**:
-  - Applied circular radial spotlight vignette across `MeshViewer.tsx`, `WorkspaceShell.tsx`, `SettingsModal.tsx`, and `WorkspaceContext.tsx`.
-- **Balanced Natural Three.js Model Lighting**:
-  - Restored natural, crisp, rich shading without texture bleaching or washout.
-  - Synchronized `environmentSettings` state directly to Three.js light instances and exposure dynamically.
-- **Verification**: `bun x tsc --noEmit` and `bun test` passed with 0 errors.

@@ -258,10 +258,10 @@ export const RightAssetsPanel: React.FC = () => {
           aria-disabled={uploadActive}
           className={`group relative w-full rounded-2xl border border-dashed ${
             uploadActive ? 'cursor-wait opacity-60' : 'cursor-pointer'
-          } p-5 flex flex-col items-center justify-center text-center transition-all bg-[hsl(var(--surface-2))] bg-[radial-gradient(#ffffff0a_1px,transparent_1px)] [background-size:12px_12px] ${
+          } p-4 flex flex-col items-center justify-center text-center transition-all bg-[#12131F] [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:14px_14px] [background-position:0_0,0_7px,7px_-7px,-7px_0px] shadow-inner ${
             isDragOver
-              ? 'border-[#F9CF00] bg-[#F9CF00]/10 shadow-[0_0_16px_rgba(249,207,0,0.2)]'
-              : 'border-[hsl(var(--border))] hover:border-[#F9CF00]/50 hover:bg-[hsl(var(--surface-3))]'
+              ? 'border-[#6366F1] bg-[#18192A] shadow-[0_0_16px_rgba(99,102,241,0.25)]'
+              : 'border-[#48457D]/50 hover:border-[#6366F1]'
           }`}
         >
           <div className="flex flex-col items-center justify-center">
