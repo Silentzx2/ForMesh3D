@@ -79,16 +79,16 @@ export const NotificationCenter: React.FC = () => {
           id="btn-header-notifications"
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className={`relative w-7 h-7 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+          className={`relative w-6 h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
             isOpen
               ? 'bg-[hsl(var(--surface-2))] text-white'
               : 'text-zinc-400 hover:text-white hover:bg-[hsl(var(--surface-1))]'
           }`}
           aria-label="Activity Center"
         >
-          <HugeiconsIcon icon={BellIcon} size={16} className="w-3.5 h-3.5" />
+          <HugeiconsIcon icon={BellIcon} size={13} className="w-3 h-3" />
           {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-1 bg-primary text-black font-black text-[9px] rounded-full flex items-center justify-center leading-none shadow-[0_0_8px_rgba(255,204,0,0.6)] animate-pulse">
+            <span className="absolute -top-0.5 -right-0.5 min-w-[12px] h-3 px-0.5 bg-primary text-black font-black text-[8px] rounded-full flex items-center justify-center leading-none shadow-[0_0_6px_rgba(255,204,0,0.6)] animate-pulse">
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}

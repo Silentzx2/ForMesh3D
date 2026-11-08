@@ -16,7 +16,7 @@ import { useViewerStore } from '@/stores/useViewerStore';
 import { useAnimationStore } from '@/stores/useAnimationStore';
 
 import { HugeiconsIcon } from '@hugeicons/react';
-import { Box, SparklesIcon } from '@hugeicons/core-free-icons';
+import { SparklesIcon } from '@hugeicons/core-free-icons';
 
 // Setup shared loaders with Draco and Meshopt decompression
 const dracoLoader = new DRACOLoader();
@@ -52,13 +52,19 @@ export interface EnvironmentPreset {
 }
 
 export const LIGHT_TONES: Record<LightTone, { label: string; key: number; fill: number; rim: number }> = {
-  studio: { label: 'Studio', key: 0xfff8f0, fill: 0xf5f5f7, rim: 0xffeed0 },
+  studio: { label: 'Studio', key: 0xffffff, fill: 0xedf2fa, rim: 0xfff1d4 },
   warm: { label: 'Warm Gold', key: 0xffe8cc, fill: 0xfff5ea, rim: 0xffcc00 },
   cool: { label: 'Cyber Cool', key: 0xffffff, fill: 0xd8e6ff, rim: 0xd0e0ff },
   neutral: { label: 'Neutral', key: 0xffffff, fill: 0xffffff, rim: 0xffffff },
 };
 
 export const BACKGROUND_OPTIONS = [
+  {
+    id: 'studio-vignette',
+    label: 'Studio Vignette',
+    value: 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
+    preview: 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
+  },
   { id: 'transparent', label: 'Studio Dark', value: 'transparent', preview: 'radial-gradient(circle, #16181d 0%, #08090a 100%)' },
   { id: 'dark-gray', label: 'Dark Charcoal', value: '#131519', preview: '#131519' },
   { id: 'slate', label: 'Dark Slate', value: '#181b22', preview: '#181b22' },
@@ -69,14 +75,14 @@ export const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
     id: 'studio',
     label: 'Studio Gold',
     settings: {
-      ambientIntensity: 0.85,
-      keyLightIntensity: 1.8,
-      fillLightIntensity: 1.1,
-      rimLightIntensity: 1.5,
-      exposure: 1.05,
+      ambientIntensity: 0.75,
+      keyLightIntensity: 1.6,
+      fillLightIntensity: 0.9,
+      rimLightIntensity: 1.1,
+      exposure: 1.0,
       toneMapping: 'neutral',
       lightTone: 'studio',
-      backgroundColor: 'transparent',
+      backgroundColor: 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
       gridVisible: true,
       floorShadowOpacity: 0.2,
       autoRotate: false,
@@ -86,7 +92,6 @@ export const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
 
 interface MeshViewerProps {
   className?: string;
-  showOverlayUI?: boolean;
 }
 
 const disposeObject3D = (obj: THREE.Object3D) => {
@@ -115,6 +120,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     isExecuting,
     executionProgress,
     executionStep,
+    environmentSettings,
   } = useWorkspace();
 
   const loadedModelUrl = useViewerStore((state) => state.loadedModelUrl);
@@ -131,6 +137,10 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const clockRef = useRef<THREE.Clock>(new THREE.Clock());
+  const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
+  const keyLightRef = useRef<THREE.DirectionalLight | null>(null);
+  const fillLightRef = useRef<THREE.DirectionalLight | null>(null);
+  const rimLightRef = useRef<THREE.DirectionalLight | null>(null);
 
   // 1. Initialize Scene, Camera, Renderer, Lights, Controls
   useEffect(() => {
@@ -149,13 +159,18 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     camera.position.set(0, 1.2, 3.2);
     cameraRef.current = camera;
 
-    // Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+    // Renderer with preserveDrawingBuffer enabled for high-res snapshot capture
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      preserveDrawingBuffer: true,
+      powerPreference: 'high-performance',
+    });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMappingExposure = 1.0;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     rendererRef.current = renderer;
@@ -171,28 +186,32 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     controls.minDistance = 0.5;
     controlsRef.current = controls;
 
-    // Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+    // Lights - Natural Studio Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
+    ambientLightRef.current = ambientLight;
     scene.add(ambientLight);
 
-    const keyLight = new THREE.DirectionalLight(0xfff8f0, 2.0);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
     keyLight.position.set(3, 5, 4);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.width = 1024;
     keyLight.shadow.mapSize.height = 1024;
     keyLight.shadow.bias = -0.0001;
+    keyLightRef.current = keyLight;
     scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0xf5f5f7, 1.1);
+    const fillLight = new THREE.DirectionalLight(0xedf2fa, 0.9);
     fillLight.position.set(-4, 2, -2);
+    fillLightRef.current = fillLight;
     scene.add(fillLight);
 
-    const rimLight = new THREE.DirectionalLight(0xffeed0, 1.4);
+    const rimLight = new THREE.DirectionalLight(0xfff1d4, 1.1);
     rimLight.position.set(0, 4, -4);
+    rimLightRef.current = rimLight;
     scene.add(rimLight);
 
-    // Ground Grid
-    const grid = new THREE.GridHelper(10, 20, 0x4f46e5, 0x27272a);
+    // Ground Grid - Soft Studio Grid with Clean Axes
+    const grid = new THREE.GridHelper(10, 20, 0x8c9099, 0x383b43);
     grid.position.y = -0.001;
     gridHelperRef.current = grid;
     scene.add(grid);
@@ -265,19 +284,24 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
       switch (e.detail) {
         case 'front':
+          cam.up.set(0, 1, 0);
           cam.position.set(target.x, target.y, target.z + dist);
           break;
         case 'top':
-          cam.position.set(target.x, target.y + dist, target.z + 0.001);
+          cam.up.set(0, 0, -1);
+          cam.position.set(target.x, target.y + dist, target.z + 0.0001);
           break;
         case 'side':
         case 'left':
+          cam.up.set(0, 1, 0);
           cam.position.set(target.x - dist, target.y, target.z);
           break;
         case 'right':
+          cam.up.set(0, 1, 0);
           cam.position.set(target.x + dist, target.y, target.z);
           break;
         default:
+          cam.up.set(0, 1, 0);
           cam.position.set(target.x + dist * 0.7, target.y + dist * 0.5, target.z + dist * 0.7);
           break;
       }
@@ -289,7 +313,53 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     return () => window.removeEventListener('setCameraPreset', handleCameraPreset as EventListener);
   }, []);
 
-  // 3. Grid & Wireframe Toggle
+  // 3. Viewport Lighting & Exposure Listeners
+  useEffect(() => {
+    const handleExposure = (e: CustomEvent<number>) => {
+      if (rendererRef.current && typeof e.detail === 'number') {
+        rendererRef.current.toneMappingExposure = e.detail;
+      }
+    };
+
+    const handleLighting = (e: CustomEvent<{ tone?: LightTone }>) => {
+      const tone = e.detail?.tone;
+      if (tone && LIGHT_TONES[tone]) {
+        const t = LIGHT_TONES[tone];
+        if (keyLightRef.current) keyLightRef.current.color.setHex(t.key);
+        if (fillLightRef.current) fillLightRef.current.color.setHex(t.fill);
+        if (rimLightRef.current) rimLightRef.current.color.setHex(t.rim);
+      }
+    };
+
+    window.addEventListener('setViewportExposure', handleExposure as EventListener);
+    window.addEventListener('setViewportLighting', handleLighting as EventListener);
+    return () => {
+      window.removeEventListener('setViewportExposure', handleExposure as EventListener);
+      window.removeEventListener('setViewportLighting', handleLighting as EventListener);
+    };
+  }, []);
+
+  // Sync environment settings with Three.js scene lights & exposure
+  useEffect(() => {
+    if (!environmentSettings) return;
+    if (ambientLightRef.current && typeof environmentSettings.ambientIntensity === 'number') {
+      ambientLightRef.current.intensity = environmentSettings.ambientIntensity;
+    }
+    if (keyLightRef.current && typeof environmentSettings.keyLightIntensity === 'number') {
+      keyLightRef.current.intensity = environmentSettings.keyLightIntensity;
+    }
+    if (fillLightRef.current && typeof environmentSettings.fillLightIntensity === 'number') {
+      fillLightRef.current.intensity = environmentSettings.fillLightIntensity;
+    }
+    if (rimLightRef.current && typeof environmentSettings.rimLightIntensity === 'number') {
+      rimLightRef.current.intensity = environmentSettings.rimLightIntensity;
+    }
+    if (rendererRef.current && typeof environmentSettings.exposure === 'number') {
+      rendererRef.current.toneMappingExposure = environmentSettings.exposure;
+    }
+  }, [environmentSettings]);
+
+  // 4. Grid, Wireframe & Shading Mode Toggle
   useEffect(() => {
     if (gridHelperRef.current) {
       gridHelperRef.current.visible = showGrid !== false;
@@ -305,6 +375,19 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           if ('wireframe' in m) {
             m.wireframe = Boolean(showWireframe || shadingMode === 'wireframe');
             m.needsUpdate = true;
+          }
+          if (m instanceof THREE.MeshStandardMaterial) {
+            if (shadingMode === 'clay') {
+              m.color.setHex(0xb0b3b8);
+              m.roughness = 0.85;
+              m.metalness = 0.05;
+              m.needsUpdate = true;
+            } else if (shadingMode === 'textured') {
+              m.color.setHex(0xffffff);
+              m.roughness = 0.5;
+              m.metalness = 0.1;
+              m.needsUpdate = true;
+            }
           }
         });
       }
@@ -490,20 +573,28 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   }, [modelUrl, fitCameraToModel, shadingMode, showWireframe]);
 
   return (
-    <div ref={containerRef} className={`relative w-full h-full overflow-hidden select-none ${className}`}>
+    <div
+      ref={containerRef}
+      className={`relative w-full h-full overflow-hidden select-none ${className}`}
+      style={{
+        background: environmentSettings?.backgroundColor && environmentSettings.backgroundColor !== 'transparent'
+          ? environmentSettings.backgroundColor
+          : 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
+      }}
+    >
       {/* Sleek Empty State Watermark matching Reference */}
       {!hasModel && !isExecuting && (
         <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center z-10">
           <div className="flex flex-col items-center text-center px-4 max-w-sm select-none">
             {/* ForMesh3D Electric Gold Brand Mark */}
-            <div className="w-14 h-14 rounded-2xl bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center shadow-lg shadow-[#F9CF00]/5 mb-4">
-              <HugeiconsIcon icon={SparklesIcon} size={28} className="text-[#F9CF00]" />
+            <div className="w-14 h-14 rounded-2xl bg-[hsl(var(--surface-1))] border border-[#F9CF00]/40 flex items-center justify-center shadow-[0_4px_24px_rgba(0,0,0,0.4),0_0_24px_rgba(249,207,0,0.25)] mb-4 ring-1 ring-white/10">
+              <HugeiconsIcon icon={SparklesIcon} size={28} className="text-[#F9CF00] drop-shadow-[0_0_10px_rgba(249,207,0,0.6)]" />
             </div>
 
-            <h2 className="text-xl font-bold tracking-tight text-white mb-1.5">
+            <h2 className="text-xl font-bold tracking-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.6)] mb-1.5">
               Ready For A New 3D Model?
             </h2>
-            <p className="text-xs text-zinc-400 font-medium">
+            <p className="text-xs text-zinc-300 font-medium drop-shadow-[0_1px_4px_rgba(0,0,0,0.5)]">
               Instantly generate 3D from image or text
             </p>
           </div>

@@ -1,9 +1,9 @@
 # Architecture — ForMesh 3D
 
-> **Evidence note (2026-11-07):** Live GPU verification is established for Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D (status: STABLE & LOCKED). GPU Doctor has been implemented in `patcher/doctor.py` as a standalone hardware execution planner and error-recovery utility. TaoFlowForge has received pre-Ampere FP16 Cutlass tensor core acceleration and bounded topology reconstruction. The repository has been streamlined (commit `7651f22`), removing 221 dead files and legacy peripheral subsystems (`board`, `graph`, `image-editor`, `mesh-extras`, `wiki`, `plugins/`, `tools/`). Workspace surfaces are actively trimmed (`MeshToolsPanel`, `MeshDiffViewer`, `ImagePointCloud`, `PhysicsRuntime`) to establish a clean, single-user Tripo3D Studio workflow across 12 core tools. Sibling model adapters remain strictly isolated. The current audited state is summarized in [MEMORY.md](MEMORY.md).
+> **Evidence note (2026-11-07):** Live GPU verification is established for Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D (status: STABLE & LOCKED). GPU Doctor has been implemented in `patcher/doctor.py` as a standalone hardware execution planner and error-recovery utility. TaoFlowForge has received pre-Ampere FP16 Cutlass tensor core acceleration and bounded topology reconstruction. The repository has been streamlined (commit `7651f22`), removing 221 dead files and legacy peripheral subsystems (`board`, `graph`, `image-editor`, `mesh-extras`, `wiki`, `plugins/`, `tools/`). Workspace surfaces are actively trimmed (`MeshToolsPanel`, `MeshDiffViewer`, `ImagePointCloud`, `PhysicsRuntime`) to establish a clean, single-user modern Studio workflow across 12 core tools. Sibling model adapters remain strictly isolated. The current audited state is summarized in [MEMORY.md](MEMORY.md).
 
-> **Architecture Version**: 0.3.0 (FastAPI + Next.js 16 + GPU Doctor + Streamlined Tripo UI)
-> **Last Reviewed**: November 7, 2026 (Subsystem deadweight purge and Tripo3D Studio workspace migration)
+> **Architecture Version**: 0.3.0 (FastAPI + Next.js 16 + GPU Doctor + Streamlined Studio UI)
+> **Last Reviewed**: November 7, 2026 (Subsystem deadweight purge and Studio workspace modernization)
 > **Target Environments**: Linux (Ubuntu 20.04/22.04/24.04), Cloud GPU / Local Workstations
 
 ---
@@ -901,10 +901,12 @@ The Next.js 16 Presentation Layer unifies all creation, editing, retopology, rig
 
 - **Continuous 3D Viewport**: `MeshViewer` and `ViewportToolOverlay` remain continuously mounted in `#center-viewport-stage` across all workspace tool selections (`model`, `remesh`, `texture`, `uv`, `segment`, `edit`, `animation`, `rigging`). Canvas destructions and WebGL context recreation (200–500ms latency) are eliminated.
 - **Rig-to-animation handoff**: SkinTokens produces a rigged GLB asset (with optional FBX export via Blender) for the shared viewport. ARDY motion JSON joint names, per-frame quaternions and root positions are mapped to the loaded skeleton; motion generation requires a real rig, and retarget playback options drive root-motion scaling and floor clamping.
-- **Dynamic Modular Panel Rail**:
-  - The left floating context tool panel routes dynamically through `renderToolPanel()` to lightweight tool modules (`AnimationLeftPanel`, `RiggingLeftPanel`, etc.) with zero viewport disruption.
-  - The right property rail routes through `RightWorkspacePanel` to tool-specific inspectors (`AnimationRightInspector`, `RiggingRightInspector`, `UVInspector`, `SegmentInspector`, `MeshEditInspector`, `RightPropertyPanel`).
-  - Viewport-anchored overlays (such as `AnimationTimelineDock`) render directly over the canvas, keeping 3D model transforms, playback clocks, and keyframe markers synchronized in memory.
+- **Dynamic Modular Panel Rail & Flush-Docked Cards**:
+  - The sleek 40px top header (`TopHeader.tsx`, `bg-[hsl(var(--surface-0))]`) sets visual hierarchy above the workspace.
+  - The left 54px tool rail (`LeftNavigation.tsx`) and 276px context tool panel are docked flush with 0 margin against the top header and screen edge, with canvas-facing corners rounded (`rounded-r-[22px]`) floating over the viewport.
+  - The right 250px property rail (`RightWorkspacePanel.tsx`) is symmetrically docked flush with 0 margin against the top header and right screen edge, with canvas-facing corners rounded (`rounded-l-[22px]`).
+  - Viewport-anchored overlays (`ViewportToolOverlay.tsx`) adapt with dynamic clearance (`right: 265px` when open, `right: 16px` when closed).
+  - DCC bridge quick-send modals and legacy bridge controls are completely eradicated.
 - **Non-Destructive Route State**: `navigateToMain` in `WorkspaceContext` uses `window.history.replaceState` when switching between tool editing and studio hub overlays (`overview`, `assets`, `system`, `jobs`), preserving 3D assets, camera angle, and scene state in browser memory.
 
 ## 2026-10-14 High-Performance Viewport Engine & Production Postprocessing Architecture
@@ -927,7 +929,7 @@ The Next.js 16 Presentation Layer unifies all creation, editing, retopology, rig
   - Floating `ViewportToolOverlay` exposes standard axial camera angles: `Perspective`, `Front`, `Side`, and `Top`.
   - Snaps the camera smoothly along cardinal axes with bounding-sphere recentering and distance normalization, providing CAD-grade orthographic-style inspection.
 - **Streamlined Single-Scene Viewport (Decommissioned MeshDiffViewer)**:
-  - Previously, dual-scene comparison was mounted in `MeshDiffViewer.tsx`. As part of the November 7, 2026 workspace cleanup and Tripo3D Studio migration, `MeshDiffViewer.tsx` and `ImagePointCloud.ts` were decommissioned to eliminate multi-context WebGL overhead and keep the viewport lightweight, memory-efficient, and single-canvas focused.
+  - Previously, dual-scene comparison was mounted in `MeshDiffViewer.tsx`. As part of the November 7, 2026 workspace cleanup and Studio modernization, `MeshDiffViewer.tsx` and `ImagePointCloud.ts` were decommissioned to eliminate multi-context WebGL overhead and keep the viewport lightweight, memory-efficient, and single-canvas focused.
 
 ### 2. Production Postprocessing Pipeline Hardening
 - **Quad OBJ Polygonal Export (`backend/postprocess/pipeline.py`)**:

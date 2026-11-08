@@ -170,7 +170,24 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
       ? Object.values(rawLods).map((l: any) => (typeof l === 'string' ? l : l?.url || '')).filter(Boolean)
       : undefined;
   const pbrMaps = rawArtifacts.pbrMaps || raw.pbr_maps || undefined;
-  const gameReadyFormats = rawArtifacts.gameReadyFormats || raw.game_ready_formats || (rawArtifacts.game_ready && typeof rawArtifacts.game_ready === 'object' ? Object.fromEntries(Object.entries(rawArtifacts.game_ready).map(([k, v]: [string, any]) => [k, v?.url || v]).filter(([, u]) => Boolean(u))) : undefined);
+  const rawRiggedFbx =
+    typeof rawArtifacts.riggedFbx === 'string'
+      ? rawArtifacts.riggedFbx
+      : (rawArtifacts.riggedFbx?.url || raw.rigged_fbx_url || raw.output_fbx_path || undefined);
+  const defaultJobFormats = jobArtifactBase
+    ? {
+        glb: `${jobArtifactBase}?artifact_format=glb`,
+        gltf: `${jobArtifactBase}?artifact_format=gltf`,
+        obj: `${jobArtifactBase}?artifact_format=obj`,
+        stl: `${jobArtifactBase}?artifact_format=stl`,
+        ply: `${jobArtifactBase}?artifact_format=ply`,
+        ...(rawRiggedFbx ? { fbx: `${jobArtifactBase}?artifact_format=fbx` } : {}),
+      }
+    : undefined;
+  const parsedGameReadyFormats = rawArtifacts.gameReadyFormats || raw.game_ready_formats || (rawArtifacts.game_ready && typeof rawArtifacts.game_ready === 'object' ? Object.fromEntries(Object.entries(rawArtifacts.game_ready).map(([k, v]: [string, any]) => [k, v?.url || v]).filter(([, u]) => Boolean(u))) : undefined);
+  const gameReadyFormats = parsedGameReadyFormats
+    ? { ...defaultJobFormats, ...parsedGameReadyFormats }
+    : defaultJobFormats;
   const zipUrl = rawArtifacts.zipUrl || raw.zip_url || undefined;
   const riggedUrl =
     typeof rawArtifacts.rigged === 'string'

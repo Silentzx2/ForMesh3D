@@ -25,7 +25,6 @@ import {
   PanelRightOpen,
   ScissorsIcon,
   SlidersHorizontalIcon,
-  SparklesIcon,
 } from '@hugeicons/core-free-icons';
 import { StudioToolTemplate } from './Panels/StudioToolTemplate';
 import { settingsPersistence } from '@/services/settingsPersistence';
@@ -38,11 +37,7 @@ const MeshViewer = dynamic(() => import('./Viewport/MeshViewer').then(mod => mod
 
 import { MOTION_FAST, MOTION_SPRING } from '@/lib/motion';
 
-// Dynamic imports for tool panels (loaded on-demand when tool selected)
-const GeneratePanel = dynamic(() => import('./Panels/GeneratePanel').then(mod => mod.GeneratePanel), {
-  ssr: false,
-  loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
-});
+import { GeneratePanel } from './Panels/GeneratePanel';
 const JobDetailView = dynamic(() => import('./Jobs/JobDetailView').then(mod => mod.JobDetailView), {
   ssr: false,
   loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
@@ -70,9 +65,6 @@ const ExportModal = dynamic(() => import('./Modals/ExportModal').then(mod => mod
   ssr: false,
 });
 const SettingsModal = dynamic(() => import('./Modals/SettingsModal').then(mod => mod.SettingsModal), {
-  ssr: false,
-});
-const DccBridgeModal = dynamic(() => import('./Modals/DccBridgeModal').then(mod => mod.DccBridgeModal), {
   ssr: false,
 });
 import type { ToolType } from './types';
@@ -109,12 +101,12 @@ export const WorkspaceShell: React.FC = () => {
 
   const {
     mainNav, setMainNav, activeTool, setActiveTool,
-    rightPanelMode, setRightPanelMode,
     isLeftPanelOpen, isRightPanelOpen,
     setIsLeftPanelOpen, setIsRightPanelOpen,
     navigateToTool, navigateToMainNav,
     runRemeshGeneration, runTextureGeneration,
     runUVUnwrapGeneration, runSegmentation,
+    environmentSettings,
   } = useWorkspace();
 
   // Mobile menu state: left navigation drawer
@@ -389,7 +381,6 @@ export const WorkspaceShell: React.FC = () => {
             icon={CircleDashedIcon}
             heroType="retopo"
             actionLabel="Start Retopology"
-            energyCost={30}
             onExecute={runRemeshGeneration}
           />
         );
@@ -400,7 +391,6 @@ export const WorkspaceShell: React.FC = () => {
             icon={ScissorsIcon}
             heroType="segment"
             actionLabel="Start Segmenting"
-            energyCost={40}
             unavailableCards={[
               { label: 'Quad models', icon: AlertCircle },
               { label: 'Rigged models', icon: AlertCircle },
@@ -415,7 +405,6 @@ export const WorkspaceShell: React.FC = () => {
             icon={GridIcon}
             heroType="uv"
             actionLabel="Unwrap UVs"
-            energyCost={20}
             constraintsBadge="Tris ≤ 80,000 / Quads ≤ 40,000"
             onExecute={runUVUnwrapGeneration}
           />
@@ -427,7 +416,6 @@ export const WorkspaceShell: React.FC = () => {
             icon={LayersIcon}
             heroType="texture"
             actionLabel="Generate Textures"
-            energyCost={35}
             onExecute={runTextureGeneration}
           />
         );
@@ -438,7 +426,6 @@ export const WorkspaceShell: React.FC = () => {
             icon={LayersIcon}
             heroType="pbr"
             actionLabel="Generate PBR Maps"
-            energyCost={25}
             onExecute={runTextureGeneration}
           />
         );
@@ -449,7 +436,6 @@ export const WorkspaceShell: React.FC = () => {
             icon={BoneIcon}
             heroType="rig"
             actionLabel="Auto Rig Model"
-            energyCost={40}
             supportCards={[
               { label: 'Humanoid', icon: CheckmarkCircle02Icon },
               { label: 'Quadruped', icon: CheckmarkCircle02Icon },
@@ -465,7 +451,6 @@ export const WorkspaceShell: React.FC = () => {
             icon={FilmIcon}
             heroType="animate"
             actionLabel="Apply Animation"
-            energyCost={20}
           />
         );
       default:
@@ -480,7 +465,7 @@ export const WorkspaceShell: React.FC = () => {
       </div>
       <div className="flex flex-1 overflow-hidden relative bg-[hsl(var(--surface-1))]">
         {/* Left tool rail - desktop: docked | mobile: hidden (drawer used instead) */}
-        <div className="z-30 h-full flex-shrink-0 relative hidden md:block">
+        <div className="z-30 h-full w-[54px] flex-shrink-0 relative hidden md:block">
           <LeftNavigation />
         </div>
 
@@ -533,22 +518,31 @@ export const WorkspaceShell: React.FC = () => {
         <div className="flex-1 h-full relative overflow-hidden min-w-0">
           {/* Continuous Full-Bleed 3D Viewport in Background */}
           {mainNav === 'workspace' && (
-            <main id="center-viewport-stage" className="absolute inset-0 z-0 overflow-hidden bg-[#111317]">
+            <main
+              id="center-viewport-stage"
+              className="absolute inset-0 z-0 overflow-hidden"
+              style={{
+                background: environmentSettings?.backgroundColor && environmentSettings.backgroundColor !== 'transparent'
+                  ? environmentSettings.backgroundColor
+                  : 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
+              }}
+            >
               <MeshViewer />
-              <ViewportToolOverlay />
+              <ViewportToolOverlay isRightPanelOpen={isRightPanelOpen} />
             </main>
           )}
 
-              {/* Floating Context Tool Panel (Left) - Responsive width & mobile sheet */}
+              {/* Context Tool Panel (Left) - Studio card flush-docked to navbar and rail */}
               <AnimatePresence initial={false}>
                 {mainNav === 'workspace' && isLeftPanelOpen && (
                   <motion.aside
                     id="context-tool-panel-container"
+                    aria-label="Context tools"
                     initial={{ opacity: 0, x: -15 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -15 }}
                     transition={MOTION_FAST}
-                    className="absolute inset-x-2 top-2 bottom-2 md:inset-auto md:left-2 md:top-2 md:bottom-2 md:w-[320px] lg:w-[360px] max-w-[420px] md:max-w-[calc(100vw-5rem)] bg-[hsl(var(--surface-1))] border border-white/[0.1] rounded-2xl md:rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.6)] flex flex-col z-20 overflow-hidden overflow-x-hidden"
+                    className="absolute inset-x-0 top-0 bottom-0 md:inset-auto md:left-0 md:top-0 md:bottom-2.5 w-full md:w-[276px] md:rounded-r-[22px] md:rounded-l-none border-t-0 border-l-0 border-r border-b border-[hsl(var(--border))] shadow-2xl overflow-hidden bg-[hsl(var(--surface-1))] flex flex-col z-20"
                   >
                 {/* Mobile panel header with close button */}
                 <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/[0.08] bg-[hsl(var(--surface-0))] md:hidden flex-shrink-0">
@@ -565,31 +559,23 @@ export const WorkspaceShell: React.FC = () => {
 
                 <div className="flex-1 overflow-hidden relative">
                   {/* Floating Collapse Button - desktop only */}
-                  <div className="absolute top-2 right-2 z-20 hidden md:block">
+                  <div className="absolute top-2.5 right-2.5 z-20 hidden md:block">
                     <SimpleTooltip label="Collapse panel" side="left">
                       <button
                         type="button"
                         onClick={() => toggleLeftPanel(false)}
-                        className="p-1 rounded-lg bg-[hsl(var(--surface-2))] border border-white/[0.08] text-zinc-400 hover:text-primary hover:bg-[hsl(var(--surface-3))] transition-all cursor-pointer"
+                        className="p-1.5 rounded-lg bg-[hsl(var(--surface-2))] border border-white/[0.08] text-zinc-400 hover:text-white hover:bg-[hsl(var(--surface-3))] transition-all cursor-pointer"
                         aria-label="Collapse tool panel"
                       >
-                        <HugeiconsIcon icon={PanelLeftClose} size={16} className="w-3.5 h-3.5" />
+                        <HugeiconsIcon icon={PanelLeftClose} size={15} className="w-3.5 h-3.5" />
                       </button>
                     </SimpleTooltip>
                   </div>
 
-                  <AnimatePresence mode="wait" initial={false}>
-                    <motion.div
-                      key={activeTool}
-                      initial={{ opacity: 0, x: -4 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 4 }}
-                      transition={MOTION_FAST}
-                      className="h-full w-full flex flex-col overflow-hidden"
-                    >
-                      {renderToolPanel()}
-                    </motion.div>
-                  </AnimatePresence>
+                  {/* Immediate 0ms tool swap without blink */}
+                  <div className="h-full w-full flex flex-col overflow-hidden">
+                    {renderToolPanel()}
+                  </div>
                 </div>
               </motion.aside>
             )}
@@ -597,12 +583,13 @@ export const WorkspaceShell: React.FC = () => {
 
           {/* Left collapsed toggle button - hidden on mobile */}
           {mainNav === 'workspace' && !isLeftPanelOpen && (
-            <div className="absolute left-0.5 top-1/2 -translate-y-1/2 z-20 hidden md:block">
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 z-20 hidden md:block">
               <SimpleTooltip label="Open Tool Panel">
                 <button
                   type="button"
+                  aria-label="Open Tool Panel"
                   onClick={() => toggleLeftPanel(true)}
-                  className="w-5 h-11 rounded-r-lg bg-[hsl(var(--surface-1))]/90 backdrop-blur-md border border-l-0 border-white/[0.1] text-zinc-400 hover:text-primary hover:border-primary/40 hover:bg-[hsl(var(--surface-2))] transition-all flex items-center justify-center shadow-xl cursor-pointer active:scale-95"
+                  className="w-5 h-11 rounded-r-lg bg-[hsl(var(--surface-1))] border border-l-0 border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-primary hover:border-primary/40 hover:bg-[hsl(var(--surface-2))] transition-all flex items-center justify-center shadow-xl cursor-pointer active:scale-95"
                 >
                   <HugeiconsIcon icon={PanelLeftOpen} size={16} className="w-3.5 h-3.5" />
                 </button>
@@ -610,19 +597,20 @@ export const WorkspaceShell: React.FC = () => {
             </div>
           )}
 
-          {/* Floating Context-Aware Control & Property Panel (Right) - Responsive width & mobile sheet */}
+          {/* Context-Aware Control & Property Panel (Right) - Studio card flush-docked to navbar and edge */}
           <AnimatePresence initial={false}>
             {mainNav === 'workspace' && isRightPanelOpen && (
               <motion.aside
                 id="right-inspector-assets-column"
+                aria-label="Inspector and assets"
                 initial={{ opacity: 0, x: 15 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 15 }}
                 transition={MOTION_FAST}
-                className="absolute inset-x-2 top-2 bottom-2 md:inset-auto md:right-2 md:top-2 md:bottom-2 md:w-[280px] lg:w-[320px] max-w-[420px] md:max-w-[calc(100vw-4.5rem)] bg-[hsl(var(--surface-1))] border border-white/[0.08] rounded-2xl md:rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.6)] flex flex-col z-20 overflow-hidden"
+                className="absolute inset-x-0 top-0 bottom-0 md:inset-auto md:right-0 md:top-0 md:bottom-2.5 w-full md:w-[250px] md:rounded-l-[22px] md:rounded-r-none border-t-0 border-r-0 border-l border-b border-[hsl(var(--border))] shadow-2xl overflow-hidden bg-[hsl(var(--surface-1))] flex flex-col z-20"
               >
                 {/* Mobile close button for right panel */}
-                <div className="flex items-center justify-between px-3.5 py-2 border-b border-white/[0.08] bg-[hsl(var(--surface-0))] md:hidden flex-shrink-0">
+                <div className="flex items-center justify-between px-3.5 py-2 border-b border-[hsl(var(--border))] bg-[hsl(var(--surface-0))] md:hidden flex-shrink-0">
                   <span className="font-bold text-xs text-white">Inspector &amp; Assets</span>
                   <button
                     type="button"
@@ -640,12 +628,13 @@ export const WorkspaceShell: React.FC = () => {
 
           {/* Right collapsed toggle button - hidden on mobile */}
           {mainNav === 'workspace' && !isRightPanelOpen && (
-            <div className="absolute right-0.5 top-1/2 -translate-y-1/2 z-20 hidden md:block">
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 z-20 hidden md:block">
               <SimpleTooltip label="Open Asset Store / Inspector">
                 <button
                   type="button"
+                  aria-label="Open Inspector and Assets Panel"
                   onClick={() => toggleRightPanel(true)}
-                  className="w-5 h-11 rounded-l-lg bg-[hsl(var(--surface-1))]/90 backdrop-blur-md border border-r-0 border-white/[0.1] text-zinc-400 hover:text-primary hover:border-primary/40 hover:bg-[hsl(var(--surface-2))] transition-all flex items-center justify-center shadow-xl cursor-pointer active:scale-95"
+                  className="w-5 h-11 rounded-l-lg bg-[hsl(var(--surface-1))] border border-r-0 border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-primary hover:border-primary/40 hover:bg-[hsl(var(--surface-2))] transition-all flex items-center justify-center shadow-xl cursor-pointer active:scale-95"
                 >
                   <HugeiconsIcon icon={PanelRightOpen} size={16} className="w-3.5 h-3.5" />
                 </button>
@@ -688,7 +677,7 @@ export const WorkspaceShell: React.FC = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={MOTION_FAST}
-              className="absolute inset-0 left-0 md:left-[64px] z-[15] bg-[hsl(var(--surface-0))] overflow-auto flex flex-col"
+              className="absolute inset-0 left-0 md:left-[58px] z-[15] bg-[hsl(var(--surface-0))] overflow-auto flex flex-col"
             >
               <StudioDashboard />
             </motion.div>
@@ -700,7 +689,7 @@ export const WorkspaceShell: React.FC = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={MOTION_FAST}
-              className="absolute inset-0 left-0 md:left-[64px] z-[15] bg-[hsl(var(--surface-0))] overflow-auto flex flex-col"
+              className="absolute inset-0 left-0 md:left-[58px] z-[15] bg-[hsl(var(--surface-0))] overflow-auto flex flex-col"
             >
               <OutputsPage />
             </motion.div>
@@ -712,7 +701,7 @@ export const WorkspaceShell: React.FC = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={MOTION_FAST}
-              className="absolute inset-0 left-0 md:left-[64px] z-[15] bg-[hsl(var(--surface-0))] overflow-auto flex flex-col"
+              className="absolute inset-0 left-0 md:left-[58px] z-[15] bg-[hsl(var(--surface-0))] overflow-auto flex flex-col"
             >
               <SystemPage />
             </motion.div>
@@ -724,7 +713,7 @@ export const WorkspaceShell: React.FC = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={MOTION_FAST}
-              className="absolute inset-0 left-0 md:left-[64px] z-[15] bg-[hsl(var(--surface-0))] overflow-auto flex flex-col"
+              className="absolute inset-0 left-0 md:left-[58px] z-[15] bg-[hsl(var(--surface-0))] overflow-auto flex flex-col"
             >
               <JobDetailView onBack={() => setMainNav('workspace')} />
             </motion.div>
@@ -733,9 +722,8 @@ export const WorkspaceShell: React.FC = () => {
       </div>
       <SettingsModal />
       <ExportModal />
-      <DccBridgeModal />
-      </div>
-      );
-      };
+    </div>
+  );
+};
 
 export default WorkspaceShell;

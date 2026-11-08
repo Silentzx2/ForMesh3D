@@ -100,8 +100,6 @@ interface WorkspaceContextType {
   setIsSettingsOpen: (open: boolean) => void;
   isExportModalOpen: boolean;
   setIsExportModalOpen: (open: boolean) => void;
-  isDccBridgeOpen: boolean;
-  setIsDccBridgeOpen: (open: boolean) => void;
   refreshSystemStats: () => Promise<void>;
   leftPanelWidth: number;
   setLeftPanelWidth: (width: number) => void;
@@ -417,11 +415,11 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const a = normalizeModelAsset(rawItem);
         // Add prefix to IDs to prevent collisions (MED-002)
         if (local.includes(rawItem as any)) {
-          a.id = `local_${a.id}`;
+          if (!a.id.startsWith('local_')) a.id = `local_${a.id}`;
         } else if (uploaded.includes(rawItem as any)) {
-          a.id = `upload_${a.id}`;
+          if (!a.id.startsWith('upload_')) a.id = `upload_${a.id}`;
         } else if (history.includes(rawItem as any)) {
-          a.id = `hist_${a.id}`;
+          if (!a.id.startsWith('hist_')) a.id = `hist_${a.id}`;
         }
         a.sourceType = local.includes(rawItem as any) ? 'local' : (uploaded.includes(rawItem as any) ? 'upload' : 'history');
         const existing = prevMap.get(a.id);
@@ -529,7 +527,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [isDccBridgeOpen, setIsDccBridgeOpen] = useState(false);
 
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionProgress, setExecutionProgress] = useState(0);
@@ -615,14 +612,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   });
 
   const [environmentSettings, setEnvironmentSettings] = useState<EnvironmentSettings>({
-    ambientIntensity: 2.5,
-    keyLightIntensity: 3.5,
-    fillLightIntensity: 3.0,
-    rimLightIntensity: 2.0,
-    exposure: 2.0,
-    gridVisible: false,
+    ambientIntensity: 0.75,
+    keyLightIntensity: 1.6,
+    fillLightIntensity: 0.9,
+    rimLightIntensity: 1.1,
+    exposure: 1.0,
+    gridVisible: true,
     gridColor: '#222222',
-    backgroundColor: '#0a0a0a',
+    backgroundColor: 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
     autoRotate: false,
     showAxes: false,
     showStats: true,
@@ -904,33 +901,37 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       };
     }, [useAppStore]);
     const addAsset = useCallback((asset: ModelAsset) => {
+    // Ensure asset ID has the local_ prefix consistently so it never mutates during merge
+    const finalId = asset.id.startsWith('local_') ? asset.id : `local_${asset.id}`;
+    const normalized: ModelAsset = { ...asset, id: finalId, sourceType: 'local' as const };
+
     setLocalAssets(prev => {
       const idx = prev.findIndex(a =>
-        a.id === asset.id ||
-        (asset.source?.filename && a.source?.filename && asset.source.filename !== 'model.glb' && a.source.filename === asset.source.filename) ||
-        (asset.source?.viewUrl && a.source?.viewUrl && asset.source.viewUrl === a.source.viewUrl)
+        a.id === normalized.id ||
+        (normalized.source?.filename && a.source?.filename && normalized.source.filename !== 'model.glb' && a.source.filename === normalized.source.filename) ||
+        (normalized.source?.viewUrl && a.source?.viewUrl && a.source.viewUrl === normalized.source.viewUrl)
       );
       if (idx >= 0) {
         const copy = [...prev];
-        copy[idx] = { ...copy[idx], ...asset };
+        copy[idx] = { ...copy[idx], ...normalized };
         return copy;
       }
-      return [asset, ...prev];
+      return [normalized, ...prev];
     });
     setAssets(prev => {
       const idx = prev.findIndex(a =>
-        a.id === asset.id ||
-        (asset.source?.filename && a.source?.filename && asset.source.filename !== 'model.glb' && a.source.filename === asset.source.filename) ||
-        (asset.source?.viewUrl && a.source?.viewUrl && asset.source.viewUrl === a.source.viewUrl)
+        a.id === normalized.id ||
+        (normalized.source?.filename && a.source?.filename && normalized.source.filename !== 'model.glb' && a.source.filename === normalized.source.filename) ||
+        (normalized.source?.viewUrl && a.source?.viewUrl && a.source.viewUrl === normalized.source.viewUrl)
       );
       if (idx >= 0) {
         const copy = [...prev];
-        copy[idx] = { ...copy[idx], ...asset };
+        copy[idx] = { ...copy[idx], ...normalized };
         return copy;
       }
-      return [asset, ...prev];
+      return [normalized, ...prev];
     });
-    setSelectedAssetId(asset.id);
+    setSelectedAssetId(finalId);
     setViewportResetTrigger(prev => prev + 1);
   }, []);
 
@@ -1564,15 +1565,16 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       return;
     }
 
-     const localTaskId = startTask(
-       'image-to-3d',
-       generationSettings.imageName || 'asset',
-       undefined,
-       generationSettings.aiModel || undefined,
-       undefined,
-       undefined,
-        comparisonGroupId ?? undefined
-      );
+    const inputThumbnail = imageInput || (imageFileId ? `/api/v1/file-upload/download/${imageFileId}` : undefined);
+    const localTaskId = startTask(
+      'image-to-3d',
+      generationSettings.imageName || 'asset',
+      undefined,
+      generationSettings.aiModel || undefined,
+      inputThumbnail,
+      generationSettings.imageName || 'asset',
+      comparisonGroupId ?? undefined
+    );
 
     try {
       let effectiveSettings = generationSettings;
@@ -1616,6 +1618,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         status: 'queued',
         currentStep: 'Queued on backend',
         provider: effectiveModelId,
+        inputImage: inputThumbnail,
       });
       setExecutionStep('Generation queued on backend');
     } catch (error) {
@@ -2307,11 +2310,9 @@ function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: strin
   const systemValue = useMemo(() => ({
     systemStats, isSettingsOpen, setIsSettingsOpen,
     isExportModalOpen, setIsExportModalOpen,
-    isDccBridgeOpen, setIsDccBridgeOpen,
     refreshSystemStats,
   }), [systemStats, isSettingsOpen, setIsSettingsOpen,
     isExportModalOpen, setIsExportModalOpen,
-    isDccBridgeOpen, setIsDccBridgeOpen,
     refreshSystemStats]);
 
   const executionValue = useMemo(() => ({

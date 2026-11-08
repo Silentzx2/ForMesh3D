@@ -7,7 +7,6 @@ import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   UploadIcon,
-  ZapIcon,
   ArrowRight01Icon,
   AlertCircle,
   CheckmarkCircle02Icon,
@@ -26,7 +25,6 @@ export interface StudioToolConfig {
     | 'rig'
     | 'animate';
   actionLabel: string;
-  energyCost: number;
   constraintsBadge?: string;
   unavailableCards?: Array<{ label: string; icon: any }>;
   supportCards?: Array<{ label: string; icon: any }>;
@@ -38,7 +36,6 @@ export const StudioToolTemplate: React.FC<StudioToolConfig> = ({
   icon: ToolIcon,
   heroType,
   actionLabel,
-  energyCost,
   constraintsBadge,
   unavailableCards,
   supportCards,
@@ -81,25 +78,25 @@ export const StudioToolTemplate: React.FC<StudioToolConfig> = ({
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#1A1A1E] text-zinc-200 overflow-y-auto overflow-x-hidden p-3.5 space-y-4">
+    <div className="flex flex-col h-full w-full bg-[hsl(var(--surface-1))] text-[hsl(var(--foreground))] overflow-y-auto overflow-x-hidden p-3.5 space-y-4">
       {/* 1. Tool Header */}
-      <div className="flex items-center gap-2 pb-1 border-b border-white/[0.08]">
+      <div className="flex items-center gap-2 pb-1 border-b border-[hsl(var(--border))]">
         <HugeiconsIcon icon={ToolIcon} size={18} className="text-[#F9CF00]" />
-        <h2 className="text-xs font-bold text-white tracking-wide uppercase">{title}</h2>
+        <h2 className="text-xs font-bold text-[hsl(var(--foreground))] tracking-wide uppercase">{title}</h2>
       </div>
 
       {/* 2. Hero Transformation Banner matching reference */}
-      <div className="p-4 rounded-2xl bg-black/40 border border-white/[0.08] flex items-center justify-center gap-3 relative overflow-hidden">
+      <div className="p-4 rounded-2xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] flex items-center justify-center gap-3 relative overflow-hidden shadow-sm">
         {/* Left Input Graphic */}
         <div className="flex flex-col items-center gap-1.5">
-          <div className="w-14 h-14 rounded-xl bg-white/[0.05] border border-white/10 flex items-center justify-center text-zinc-400">
+          <div className="w-14 h-14 rounded-xl bg-[hsl(var(--surface-3))] border border-[hsl(var(--border))] flex items-center justify-center text-[hsl(var(--muted-foreground))]">
             <HugeiconsIcon icon={Box} size={28} />
           </div>
-          <span className="text-[10px] text-zinc-400 font-medium">Input Mesh</span>
+          <span className="text-[10px] text-[hsl(var(--muted-foreground))] font-medium">Input Mesh</span>
         </div>
 
         {/* Arrow */}
-        <div className="p-1 rounded-full bg-white/[0.06] text-[#F9CF00]">
+        <div className="p-1 rounded-full bg-[hsl(var(--surface-3))] text-[#F9CF00]">
           <HugeiconsIcon icon={ArrowRight01Icon} size={16} />
         </div>
 
@@ -116,12 +113,13 @@ export const StudioToolTemplate: React.FC<StudioToolConfig> = ({
       <div className="text-center px-2 py-1">
         <p className="text-xs text-zinc-300 leading-relaxed">
           Select a model from Assets on the right or{' '}
-          <span
+          <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="text-[#F9CF00] font-bold underline cursor-pointer hover:opacity-80"
+            className="text-[#F9CF00] font-bold underline cursor-pointer hover:opacity-80 bg-transparent p-0 border-0 inline font-inherit"
           >
             upload your own
-          </span>{' '}
+          </button>{' '}
           for {title}
         </p>
       </div>
@@ -140,7 +138,7 @@ export const StudioToolTemplate: React.FC<StudioToolConfig> = ({
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={isUploading}
-          className="px-5 py-2.5 rounded-full bg-[#F9CF00] hover:bg-[#e5be00] text-black font-bold text-xs flex items-center gap-2 shadow-md shadow-[#F9CF00]/10 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+          className="px-5 py-2.5 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-bold text-xs flex items-center gap-2 shadow-md shadow-[#F9CF00]/10 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
         >
           <HugeiconsIcon icon={UploadIcon} size={15} className="stroke-[2.5]" />
           <span>{isUploading ? 'Uploading...' : 'Upload 3D Model'}</span>
@@ -231,11 +229,7 @@ export const StudioToolTemplate: React.FC<StudioToolConfig> = ({
               <span>Processing...</span>
             </>
           ) : (
-            <>
-              <span>{actionLabel}</span>
-              <HugeiconsIcon icon={ZapIcon} size={15} className="fill-current" />
-              <span className="text-xs font-black">{energyCost}</span>
-            </>
+            <span>{actionLabel}</span>
           )}
         </button>
       </div>

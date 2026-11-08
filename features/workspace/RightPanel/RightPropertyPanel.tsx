@@ -41,9 +41,7 @@ export const RightPropertyPanel: React.FC = () => {
     showWireframe,
     setShowWireframe,
     remeshSettings,
-    textureSettings,
     generationSettings,
-    systemStats,
     updateMaterialConfig,
     assets = []
   } = useWorkspace();
@@ -104,8 +102,6 @@ export const RightPropertyPanel: React.FC = () => {
   };
 
   const [exportFormat, setExportFormat] = useState<'glb' | 'gltf' | 'fbx' | 'obj' | 'stl' | 'ply'>('glb');
-  const [embedTextures, setEmbedTextures] = useState(true);
-  const [dracoCompression, setDracoCompression] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [exportSuccess, setExportSuccess] = useState(false);
 
@@ -163,8 +159,18 @@ export const RightPropertyPanel: React.FC = () => {
     const sourceUrl =
       currentAsset.artifacts?.gameReadyFormats?.[exportFormat] ||
       (exportFormat === 'glb' ? currentAsset.artifacts?.gameReady : undefined) ||
-      (exportFormat === 'glb' ? currentAsset.source?.localUrl || currentAsset.source?.viewUrl : undefined);
+      (exportFormat === 'glb' ? currentAsset.source?.localUrl || currentAsset.source?.viewUrl : undefined) ||
+      (exportFormat === 'fbx' ? currentAsset.artifacts?.riggedFbx : undefined) ||
+      (currentAsset.category === 'generation' && currentAsset.id
+        ? `/api/v1/system/jobs/${currentAsset.id}/download?artifact_format=${exportFormat}`
+        : undefined);
     if (!sourceUrl) {
+      if (exportFormat === 'fbx') {
+        toast.error('FBX export requires rigging', {
+          description: 'FBX requires a rigged skeleton. Rig this model first in the Rigging tab or export as GLB/OBJ.',
+        });
+        return;
+      }
       toast.error('Export unavailable', {
         description: `${exportFormat.toUpperCase()} is not available for this asset yet.`,
       });
@@ -211,7 +217,6 @@ export const RightPropertyPanel: React.FC = () => {
       ? ['ai generator', 'pipeline', 'model engine', 'octree', 'diffusion', 'rmbg', 'cutout', 'generator']
       : ['pbr', 'material', 'roughness', 'metallic', 'normal', 'intensity', 'cavity', 'ambient occlusion', 'ao', 'baked', 'maps'];
   const shadingKeywords = ['shading', 'viewport', 'pbr lit', 'clay', 'gold', 'chrome', 'ceramic', 'normals', 'wire solo', 'wireframe', 'overlay'];
-  const meshDiffKeywords = ['mesh difference', 'difference', 'diff viewer', 'diff'];
   const comparisonKeywords = ['model comparison', 'comparison', 'compare', 'lineage', 'qa', 'score', 'delta'];
   const exportKeywords = ['quick export', 'export', 'download', 'format', 'glb', 'gltf', 'fbx', 'obj', 'stl', 'ply', 'embed', 'draco', 'compression'];
 
@@ -930,39 +935,7 @@ export const RightPropertyPanel: React.FC = () => {
           </Collapsible>
         )}
 
-        {/* 5. Mesh Difference Viewer (UX-05) */}
-        {currentAsset && isSectionVisible(meshDiffKeywords) && (
-          <Collapsible
-            open={isSectionExpanded('meshDiff', meshDiffKeywords)}
-            onOpenChange={() => handleManualToggle('meshDiff')}
-            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden transition-all"
-          >
-            <div className="flex items-center justify-between p-2.5 hover:bg-[hsl(var(--surface-2))]/40 transition-colors">
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-1.5 flex-1 text-left select-none cursor-pointer group"
-                >
-                  <HugeiconsIcon icon={ZapIcon} size={16} className="w-3.5 h-3.5 text-primary shrink-0" />
-                  <span className="font-bold text-xs text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--foreground))] uppercase tracking-wider transition-colors">
-                    Mesh Difference Viewer
-                  </span>
-                  <HugeiconsIcon
-                    icon={ChevronDown}
-                    size={14}
-                    className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
-                      isSectionExpanded('meshDiff', meshDiffKeywords) ? 'rotate-180 text-primary' : ''
-                    }`}
-                  />
-                </button>
-              </CollapsibleTrigger>
-            </div>
-            <CollapsibleContent className="px-2.5 pb-3 pt-1 border-t border-[hsl(var(--border))]/40">
-            </CollapsibleContent>
-          </Collapsible>
-        )}
-
-        {/* 6. Model Comparison Viewer (UX-02) */}
+        {/* 5. Model Comparison Viewer (UX-02) */}
         {currentAsset && isSectionVisible(comparisonKeywords) && (
           <Collapsible
             open={isSectionExpanded('modelComparison', comparisonKeywords)}
@@ -1177,26 +1150,20 @@ export const RightPropertyPanel: React.FC = () => {
                 ))}
               </div>
 
-              {/* Export Options Toggles */}
-              <div className="space-y-2 text-xs">
-                <label className="flex items-center justify-between text-[hsl(var(--foreground))] cursor-pointer">
-                  <span>Embed PBR Textures</span>
-                  <input
-                    type="checkbox"
-                    checked={embedTextures}
-                    onChange={(e) => setEmbedTextures(e.target.checked)}
-                    className="rounded accent-primary cursor-pointer"
-                  />
-                </label>
-                <label className="flex items-center justify-between text-[hsl(var(--foreground))] cursor-pointer">
-                  <span>Draco Mesh Compression</span>
-                  <input
-                    type="checkbox"
-                    checked={dracoCompression}
-                    onChange={(e) => setDracoCompression(e.target.checked)}
-                    className="rounded accent-primary cursor-pointer"
-                  />
-                </label>
+              {/* Target Format Specification & Pipeline Info */}
+              <div className="p-2.5 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-[hsl(var(--muted-foreground))]">Pipeline Target</span>
+                  <span className="font-mono text-primary font-bold">{exportFormat.toUpperCase()}</span>
+                </div>
+                <div className="text-[10px] text-[hsl(var(--muted-foreground))] leading-relaxed">
+                  {exportFormat === 'glb' && 'glTF 2.0 Binary: Standard real-time 3D delivery with packed PBR textures.'}
+                  {exportFormat === 'gltf' && 'glTF 2.0 Embedded: Human-readable JSON wrapper with embedded base64 buffers.'}
+                  {exportFormat === 'fbx' && 'Autodesk FBX: Preserves skeletal bones, joint hierarchy, and skin weights.'}
+                  {exportFormat === 'obj' && 'Wavefront OBJ: Universally compatible polygonal geometry definition.'}
+                  {exportFormat === 'stl' && 'Standard Tessellation: Watertight surface triangular mesh for 3D printing.'}
+                  {exportFormat === 'ply' && 'Polygon File Format: Point and face coordinates for scanners and CAD suites.'}
+                </div>
               </div>
 
               {/* Download Button */}

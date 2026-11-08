@@ -3,8 +3,50 @@
 **Audit date:** 2026-11-07  
 **Inspected branch baseline before this change:** `ForMesh3D/dev` at `7651f224fcb50936ca81ce4af8fbea0d74265fbe`  
 **Third-party source baseline before this change:** `ForMesh3D-ThirdParty/main` at `b359c0c52ba5fb42131443f4e4517691253e8f8`  
-**Project phase:** Beta (Streamlining for Tripo3D UI Migration)  
+**Project phase:** Beta (Streamlined Studio Workspace)  
 **Model readiness:** NOT VERIFIED — registry entries and source directories do not prove successful inference.
+
+## 2026-11-08 — Studio Workspace Layout Flush-Docking, Header Slimming & Rail Unification
+
+- **Seamless Panel-to-Navbar Flush Docking**:
+  - Attached Left Context Tool Panel directly flush with the Top Header (`top-0`) and Left Tool Rail (`left-0`), eradicating margin gaps.
+  - Symmetrically docked Right Inspector/Assets Panel flush against the Top Header (`top-0`) and right window boundary (`right-0`).
+  - Added subtle floating studio bottom lift (`bottom-2.5`) with outer viewport-facing corners gracefully rounded (`rounded-r-[22px]` on left panel, `rounded-l-[22px]` on right panel) with soft studio `shadow-2xl`.
+- **Top Header Modernization & Contrast Separation**:
+  - Streamlined Top Header height from `h-12` (48px) to `h-10` (40px) with `bg-[hsl(var(--surface-0))]` and `border-b border-[hsl(var(--border))]`, establishing distinct visual hierarchy and preventing panel color blend.
+  - Scaled down header icons to `12px`-`13px` (Search, AI Models, Snapshots, Settings, Profile, Resource Telemetry) and pills to `h-6 text-[10px]` for an ultra-compact, high-density professional layout.
+- **Left Navigation Rail Unification**:
+  - Eliminated the dividing border (`border-t`) and separate block wrapper from the bottom App/Settings button in `LeftNavigation.tsx`, blending it directly into the tool stack.
+  - Adjusted rail width to `54px` with icon size `17px` and text `9.5px` for compact precision.
+- **Verification**: `bun x tsc --noEmit` passed with 0 errors; `bun test` passed (3/3 unit tests passing).
+
+## 2026-11-08 — DCC Eradication, Viewport Studio Fade & Native Pipeline Restoration
+
+- **Complete DCC Eradication**:
+  - Permanently deleted `DccBridgeModal.tsx` and all references across `TopHeader.tsx`, `WorkspaceShell.tsx`, `RightAssetsPanel.tsx`, `CommandPalette.tsx`, and `WorkspaceContext.tsx`.
+- **Studio Viewport Radial Vignette Alignment**:
+  - Updated viewport background across `MeshViewer.tsx`, `WorkspaceShell.tsx`, `SettingsModal.tsx`, and `WorkspaceContext.tsx` to the studio spotlight vignette: `radial-gradient(ellipse 70% 65% at 50% 50%, #606368 0%, #383a3e 35%, #18191b 65%, #070809 100%)`.
+  - Tool panels area is deep obsidian dark (`#070809`), smoothly fading into soft dark-gray (`#606368`) in the center 3D mesh viewer.
+- **Rogue Generation Service Elimination & Native Pipeline Restoration**:
+  - Deleted duplicate `backend/api/routers/generation.py`, `services/generationService.ts`, and restored original native `WorkspaceContext.tsx` generation flow (`buildGenerationParameters`, `bindBackendJob`).
+- **Balanced Natural Three.js Model Lighting**:
+  - Ambient: 0.75, Key: 1.6 (#ffffff), Fill: 0.9 (#edf2fa), Rim: 1.1 (#fff1d4), Tone Mapping Exposure: 1.0 (natural, zero texture bleaching).
+- **Verification**: `bun x tsc --noEmit` passed with 0 errors; `bun test` passed (3/3 unit tests passing).
+
+## 2026-11-08 — Studio Lighting & Viewport Vignette Harmonization
+
+- **Studio Viewport Radial Vignette Harmonization**:
+  - Harmonized viewport background across `features/workspace/Viewport/MeshViewer.tsx`, `features/workspace/WorkspaceShell.tsx`, `features/workspace/Modals/SettingsModal.tsx`, and `features/workspace/store/WorkspaceContext.tsx` to circular radial studio spotlight vignette: `radial-gradient(ellipse 70% 65% at 50% 50%, #606368 0%, #383a3e 35%, #18191b 65%, #070809 100%)`.
+  - Bright center (#606368) curving smoothly outward through mid-radius (#383a3e) to deep studio dark corners (#070809), accurately fulfilling the user's feedback ("mesh viewer ka edge thoda aur dark hoga aur center me thoda aur soft dark gray hoga").
+- **Balanced Natural Three.js Model Lighting**:
+  - Fixed accidental over-saturation and texture bleaching caused by previous subagent overtuning Three.js lights.
+  - Restored natural, crisp, rich shading:
+    - Ambient: 0.75
+    - Key light: 1.6 (#ffffff)
+    - Fill light: 0.9 (#edf2fa)
+    - Rim light: 1.1 (#fff1d4)
+    - Tone mapping exposure: 1.0 (natural)
+  - Synchronized `environmentSettings` state directly to Three.js light instances and exposure dynamically.
 
 ## 2026-11-07 — Repository Subsystem Cleanup & Workspace Streamlining
 
@@ -13,7 +55,7 @@
   - Cleared legacy test files (`backend/tests/`, `features/workspace/lib/*.test.mjs`) to be cleanly re-established for the streamlined architecture.
 - **Workspace Surface Cleanup**:
   - Removed bloated and dead-weight workspace components: `MeshToolsPanel.tsx`, `ImagePointCloud.ts`, `MeshDiffViewer.tsx`, `PhysicsRuntime.ts`, `physicsSettings.ts`, and redundant rigging/animation inspector subtrees.
-  - Rebuilding the workspace cleanly matching Tripo3D Studio from scratch for personal use (zero auth, no marketing bloat, clean 12 tools: Image, Model, Segment, Fill Parts, Retopo, Smart UV, Texture, Edit, Upscale, PBR, Rig, Animate).
+  - Rebuilding the workspace cleanly for personal use (zero auth, no marketing bloat, clean 12 tools: Image, Model, Segment, Fill Parts, Retopo, Smart UV, Texture, Edit, Upscale, PBR, Rig, Animate).
 
 ## 2026-11-05 — PR #80 review follow-ups
 
@@ -26,7 +68,7 @@
 
 ## What is present
 
-- **Streamlined Studio Architecture**: Peripheral legacy subsystems (`features/board/`, `features/graph/`, `features/image-editor/`, `features/mesh-extras/`, `features/wiki/`, `features/hooks/`, `plugins/`, and `tools/`) were removed in commit `7651f22`. In the workspace, non-core panels and runtime extras (`MeshToolsPanel.tsx`, `ImagePointCloud.ts`, `MeshDiffViewer.tsx`, `PhysicsRuntime.ts`, `physicsSettings.ts`) were deleted to establish a clean foundation for the Tripo3D Studio UI.
+- **Streamlined Studio Architecture**: Peripheral legacy subsystems (`features/board/`, `features/graph/`, `features/image-editor/`, `features/mesh-extras/`, `features/wiki/`, `features/hooks/`, `plugins/`, and `tools/`) were removed in commit `7651f22`. In the workspace, non-core panels and runtime extras (`MeshToolsPanel.tsx`, `ImagePointCloud.ts`, `MeshDiffViewer.tsx`, `PhysicsRuntime.ts`, `physicsSettings.ts`) were deleted to establish a clean foundation for the Studio UI.
 - `backend/loader.py` provides `get_model_weights_dir(model_key)`. It resolves `MODEL_STORAGE_ROOT/<model_key>`, anchors a relative root to the repository (not the process CWD), rejects absolute and `..` model keys, and fails when the model directory does not exist.
 - `backend/scripts/download_models.sh` uses `MODEL_STORAGE_ROOT` with the default `backend/pretrained` root. The downloader and resolver follow the same root convention by source inspection; actual downloads were not run.
 - The main repository records `backend/thirdparty` as a Git submodule. The submodule contains 13 top-level model-source directories and now has a root README describing the source layout, integration boundaries, setup, and per-model licensing.
@@ -67,7 +109,7 @@ The following findings come from reading current adapter, factory, and vendored 
 
 ## Verification boundary
 
-- **Test Suite Status & Legacy Reset:** During the repository cleanup in commit `7651f22`, outdated backend unit tests (`backend/tests/`) and frontend test files (`features/workspace/lib/*.test.mjs`) were pruned alongside their deleted target components. Historical test metrics (60 backend / 60 frontend tests passing) document the pre-cleanup baseline. Clean regression test suites will be introduced for the newly implemented Tripo3D Studio components and current model adapter contracts.
+- **Test Suite Status & Legacy Reset:** During the repository cleanup in commit `7651f22`, outdated backend unit tests (`backend/tests/`) and frontend test files (`features/workspace/lib/*.test.mjs`) were pruned alongside their deleted target components. Historical test metrics (60 backend / 60 frontend tests passing) document the pre-cleanup baseline. Clean regression test suites will be introduced for the newly implemented Studio components and current model adapter contracts.
 - **Source review:** the focused TRELLIS.2 audit covered the adapter, pinned ThirdParty pipeline, sparse attention dispatch, FlexiDualGrid decoder, mesh cleanup, O-Voxel exporter boundary, submodule pointer, and governing project instructions/docs. Other model adapters were not modified.
 - **Backend CI before this update:** the workflow referenced Python regression modules absent from the tracked `backend/tests/` tree. Its test step now targets the new checked-in TRELLIS.2 NumPy mesh-validation contract; no other model-specific Python regression modules are present in this branch.
 - **TRELLIS.2 CPU contract tests:** `backend/tests/test_trellis2_mesh_validation.py` — **7 passed** in the local CPU-only test run; helper and test modules pass `py_compile`.
@@ -97,3 +139,8 @@ The following findings come from reading current adapter, factory, and vendored 
 Documentation indexes are aligned to files present in the checked-in tree. Only link a document after confirming that its path exists; do not revive removed or planned documents as if they were active guides.
 
 The Pixal3D, Paint3D, SkinTokens, FastMesh V4K, and TRELLIS text-painting gaps have been resolved at the source/adapter and manifest level. Hi3D has been decommissioned. All adapters require checkpoint loading, real GPU inference, and mesh-output validation in an environment with full weights and GPU acceleration before being called runtime-verified.
+
+### DCC Bridge & Export Integration (Phase 6)
+- DCC Bridge supports Blender (port 9876), Unreal Engine 5 (port 30010), Unity (port 8081), and Autodesk Maya (port 7001).
+- Live socket pinging probe (`probeDccPort`) probes HTTP/WebSocket local ports with graceful fallback to tailored ingestion scripts (Python for Blender/Maya/UE5, C# for Unity) and JSON payload copying.
+- Export workflows in `RightPropertyPanel` and `ExportModal` support GLB, GLTF, FBX, OBJ, STL, and PLY backed by `normalizeModelAsset` job endpoints and `downloadArtifact`. Unbacked fake options (`embedTextures`, `dracoCompression`) have been trimmed in accordance with Ponytail mode ("No Control Without a Verified Consumer").

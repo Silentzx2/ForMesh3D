@@ -96,23 +96,6 @@ export const ExportModal: React.FC = () => {
     const artifacts = currentAsset?.artifacts;
     const zipUrl = artifacts?.zipUrl;
     const sourceArtifact = artifacts?.source || currentAsset?.source?.viewUrl || currentAsset?.source?.localUrl;
-    const selectedUrl =
-      packageZip || variant === 'lod_package'
-        ? zipUrl
-        : variant === 'source'
-        ? sourceArtifact
-        : exportFormat === 'glb'
-        ? artifacts?.gameReadyFormats?.glb || artifacts?.gameReady || null
-        : artifacts?.gameReadyFormats?.[exportFormat] || null;
-
-    if (!selectedUrl) {
-      setError(
-        variant === 'source'
-          ? 'The source master is not available yet.'
-          : `The ${exportFormat.toUpperCase()} artifact is not available yet.`,
-      );
-      return;
-    }
 
     const sourceFormat = (
       currentAsset?.format?.toLowerCase() ||
@@ -121,12 +104,62 @@ export const ExportModal: React.FC = () => {
       'glb'
     ) as 'glb' | 'gltf' | 'fbx' | 'obj' | 'stl' | 'ply';
 
-    const downloadExtension =
-      packageZip || variant === 'lod_package'
-        ? 'zip'
-        : variant === 'source'
-        ? (['glb', 'gltf', 'fbx', 'obj', 'stl', 'ply'].includes(sourceFormat) ? sourceFormat : 'glb')
-        : exportFormat;
+    let selectedUrl: string | null = null;
+    let downloadExtension: string = exportFormat;
+
+    if (packageZip) {
+      selectedUrl = zipUrl || null;
+      downloadExtension = 'zip';
+    } else if (variant === 'lod_package') {
+      if (lodSelection === 'all') {
+        selectedUrl = zipUrl || null;
+        downloadExtension = 'zip';
+      } else if (lodSelection === 'lod0') {
+        selectedUrl = artifacts?.gameReadyFormats?.glb || artifacts?.gameReady || null;
+        downloadExtension = 'glb';
+      } else if (lodSelection === 'lod1') {
+        selectedUrl = artifacts?.lods?.[0] || null;
+        downloadExtension = 'glb';
+      } else if (lodSelection === 'lod2') {
+        selectedUrl = artifacts?.lods?.[1] || null;
+        downloadExtension = 'glb';
+      } else if (lodSelection === 'lod3') {
+        selectedUrl = artifacts?.lods?.[2] || null;
+        downloadExtension = 'glb';
+      }
+    } else if (variant === 'source') {
+      selectedUrl = sourceArtifact || null;
+      downloadExtension = ['glb', 'gltf', 'fbx', 'obj', 'stl', 'ply'].includes(sourceFormat) ? sourceFormat : 'glb';
+    } else {
+      // variant === 'game_ready'
+      if (exportFormat === 'glb') {
+        selectedUrl = artifacts?.gameReadyFormats?.glb || artifacts?.gameReady || null;
+      } else if (exportFormat === 'fbx') {
+        selectedUrl = artifacts?.gameReadyFormats?.fbx || artifacts?.riggedFbx || null;
+      } else {
+        selectedUrl = artifacts?.gameReadyFormats?.[exportFormat] || null;
+      }
+
+      if (!selectedUrl && currentAsset?.category === 'generation' && currentAsset?.id) {
+        selectedUrl = `/api/v1/system/jobs/${currentAsset.id}/download?artifact_format=${exportFormat}`;
+      }
+      downloadExtension = exportFormat;
+    }
+
+    if (!selectedUrl) {
+      if (exportFormat === 'fbx' && variant === 'game_ready') {
+        setError('FBX export requires a rigged skeleton. Rig this model first in the Rigging tab or choose GLB/OBJ.');
+        return;
+      }
+      setError(
+        variant === 'source'
+          ? 'The source master is not available yet.'
+          : variant === 'lod_package'
+          ? `The requested ${lodSelection.toUpperCase()} artifact is not available yet.`
+          : `The ${exportFormat.toUpperCase()} artifact is not available yet.`,
+      );
+      return;
+    }
 
     setIsExporting(true);
     setError(null);
@@ -135,7 +168,7 @@ export const ExportModal: React.FC = () => {
       await downloadArtifact(
         selectedUrl,
         `${assetBaseName}.${downloadExtension}`,
-        downloadExtension,
+        downloadExtension as any,
       );
       setIsExportModalOpen(false);
     } catch (err) {
@@ -332,14 +365,14 @@ export const ExportModal: React.FC = () => {
             </div>
           </div>
 
-          {/* Section 3: Engine Options (LOD, Collision, Texture Res) */}
+          {/* Section 3: Engine Options (LOD & Optimization) */}
           <div className="space-y-2.5 p-3.5 rounded-xl border border-white/[0.08] bg-[hsl(var(--surface-2))]">
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
               Engine &amp; Asset Optimization
             </span>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-[10px] text-zinc-400 block mb-1">LOD Selection</label>
+                <label className="text-[10px] text-zinc-400 block mb-1">LOD Cascade Selection</label>
                 <select
                   value={lodSelection}
                   onChange={e => setLodSelection(e.target.value)}
@@ -349,31 +382,28 @@ export const ExportModal: React.FC = () => {
                   <option value="lod1" className="bg-[hsl(var(--surface-1))]">LOD 1 (Medium - 50%)</option>
                   <option value="lod2" className="bg-[hsl(var(--surface-1))]">LOD 2 (Low - 25%)</option>
                   <option value="lod3" className="bg-[hsl(var(--surface-1))]">LOD 3 (Billboard/Proxy - 10%)</option>
-                  <option value="all" className="bg-[hsl(var(--surface-1))]">All LOD Levels (0-3)</option>
+                  <option value="all" className="bg-[hsl(var(--surface-1))]">All LOD Levels (ZIP)</option>
                 </select>
               </div>
 
               <div>
-                <label className="text-[10px] text-zinc-400 block mb-1">Texture Resolution</label>
-                <select
-                  value={textureResolution}
-                  onChange={e => setTextureResolution(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded-lg bg-[hsl(var(--surface-1))] border border-white/[0.1] text-xs text-zinc-200 outline-none focus:border-primary cursor-pointer"
-                >
-                  <option value="original" className="bg-[hsl(var(--surface-1))]">Original Size</option>
-                  <option value="1024" className="bg-[hsl(var(--surface-1))]">1024 x 1024 (Mobile)</option>
-                  <option value="2048" className="bg-[hsl(var(--surface-1))]">2048 x 2048 (Standard)</option>
-                  <option value="4096" className="bg-[hsl(var(--surface-1))]">4096 x 4096 (High-Res 4K)</option>
-                </select>
+                <span className="text-[10px] text-zinc-400 block mb-1">Baked PBR Resolution</span>
+                <div className="px-2.5 py-1.5 rounded-lg bg-[hsl(var(--surface-1))] border border-white/[0.1] text-xs text-zinc-300 flex items-center justify-between">
+                  <span>2048 × 2048</span>
+                  <span className="text-[9px] uppercase font-mono px-1.5 py-0.2 rounded bg-primary/20 text-primary font-bold">Standard PBR</span>
+                </div>
               </div>
             </div>
 
             <label className="flex items-center justify-between text-zinc-300 cursor-pointer pt-1 border-t border-white/[0.06]">
-              <span className="text-xs">Include Simplified Collision Mesh</span>
+              <span className="text-xs">Include Simplified Collision Mesh (in Complete ZIP)</span>
               <input
                 type="checkbox"
-                checked={includeCollision}
-                onChange={e => setIncludeCollision(e.target.checked)}
+                checked={includeCollision || packageZip}
+                onChange={e => {
+                  setIncludeCollision(e.target.checked);
+                  if (e.target.checked) setPackageZip(true);
+                }}
                 className="rounded accent-primary cursor-pointer"
               />
             </label>

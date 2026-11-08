@@ -1,25 +1,19 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { useWorkspace } from '../store/WorkspaceContext';
-import { useAppStore } from '@/stores/useAppStore';
 import type { ModelAsset } from '../types';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
-import { getModelDefinition } from '@/constants/models';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
-  Box,
   CheckIcon,
   ChevronDown,
   ChevronRight,
-  ImageIcon,
-  LayersIcon,
   SparklesIcon,
   TriangleAlertIcon,
   UploadIcon,
-  ZapIcon,
-  Edit02Icon,
+  ThumbsUpIcon,
+  Cancel,
 } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
 
@@ -240,56 +234,80 @@ QualityBadge.displayName = 'QualityBadge';
 // ==========================================
 // 2. Focused GeneratePanel Component
 // ==========================================
+export type GenerationIntent = 'game_ready' | 'cinematic' | 'mobile' | 'native';
+
 export const GeneratePanel: React.FC = () => {
   const {
     isExecuting,
-    executionProgress,
-    executionStep,
     generate3DModel,
     generationSettings,
     setGenerationSettings,
   } = useWorkspace();
 
-  const [modelType, setModelType] = useState<'hd' | 'smart'>('hd');
-  const [inputMode, setInputMode] = useState<'image' | 'mesh' | 'multiview' | 'edit'>('image');
-  const [generateInParts, setGenerateInParts] = useState(false);
-  const [highResTexture, setHighResTexture] = useState(false);
-  const [privacy, setPrivacy] = useState<'public' | 'private'>('public');
   const [isGeneralSettingsOpen, setIsGeneralSettingsOpen] = useState(false);
+  const [intent, setIntent] = useState<GenerationIntent>('game_ready');
   const [selectedModel, setSelectedModel] = useState('hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh');
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
 
+  // Sync default model and intent into workspace settings on mount
+  useEffect(() => {
+    setGenerationSettings((prev) => {
+      const updates: Partial<typeof prev> = {};
+      if (!prev.aiModel && selectedModel) updates.aiModel = selectedModel;
+      if (!prev.intent && intent) updates.intent = intent;
+      return Object.keys(updates).length > 0 ? { ...prev, ...updates } : prev;
+    });
+  }, [selectedModel, intent, setGenerationSettings]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+
+  // Close AI model dropdown on outside click or Escape
+  useEffect(() => {
+    if (!isModelDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setIsModelDropdownOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsModelDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isModelDropdownOpen]);
 
   const availableModels = [
     {
       id: 'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh',
-      label: 'Hunyuan3D-2 Mini Turbo (Fast Geometry)',
-      tag: 'Best Speed',
+      label: 'Hunyuan3D-2 Mini Turbo',
+      tag: 'Best Speed & Geometry',
+      note: 'Fast Geometry · Official locked profile',
     },
     {
       id: 'taoflowforge_image_to_raw_mesh',
-      label: 'TaoFlowForge (Progressive Native Flow)',
-      tag: 'Native Topology',
+      label: 'TaoFlowForge',
+      tag: 'Native Flow Topology',
+      note: 'Progressive Flow · Clean surface loops',
     },
     {
       id: 'pixal3d_image_to_raw_mesh',
-      label: 'Pixal3D (Neighborhood Attention Reconstruction)',
-      tag: 'High Precision',
+      label: 'Pixal3D',
+      tag: 'High Precision Reconstruction',
+      note: 'Neighborhood Attention · Fine Details',
     },
   ];
 
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const processImageFile = (file: File) => {
     if (file.size > 20 * 1024 * 1024) {
-      toast.error('File exceeds 20MB limit');
+      toast.error('Image exceeds 20MB limit');
       return;
     }
-
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
@@ -303,12 +321,39 @@ export const GeneratePanel: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processImageFile(file);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) processImageFile(file);
+  };
+
+  const handleRemoveImage = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setImagePreview(null);
+    setGenerationSettings((prev) => ({ ...prev, image: null }));
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleModelSelect = (modelId: string) => {
+    setSelectedModel(modelId);
+    setGenerationSettings((prev) => ({ ...prev, aiModel: modelId }));
+    setIsModelDropdownOpen(false);
+  };
+
+  const handleIntentSelect = (newIntent: GenerationIntent) => {
+    setIntent(newIntent);
+    setGenerationSettings((prev) => ({ ...prev, intent: newIntent }));
+  };
+
   const handleGenerate = async () => {
     try {
-      setGenerationSettings((prev) => ({
-        ...prev,
-        aiModel: selectedModel,
-      }));
       await generate3DModel();
     } catch (err: any) {
       toast.error(`Generation failed: ${err.message || 'Unknown error'}`);
@@ -316,231 +361,180 @@ export const GeneratePanel: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#1A1A1E] text-zinc-200 overflow-y-auto overflow-x-hidden p-3.5 space-y-3.5">
-      {/* 1. Header: Generate Model */}
-      <div className="flex items-center justify-between pb-1">
+    <div className="flex flex-col h-full w-full bg-[hsl(var(--surface-1))] text-[hsl(var(--foreground))] overflow-y-auto overflow-x-hidden p-3.5 space-y-3.5">
+      {/* 1. Header: Generate Model - pr-8 prevents collapse button overlap */}
+      <div className="flex items-center justify-between pb-1 border-b border-[hsl(var(--border))] pr-8">
         <div className="flex items-center gap-2">
-          <HugeiconsIcon icon={SparklesIcon} size={16} className="text-[#F9CF00]" />
-          <h2 className="text-xs font-bold text-white tracking-wide uppercase">Generate Model</h2>
+          <HugeiconsIcon icon={SparklesIcon} size={15} className="text-[#F9CF00]" />
+          <h2 className="text-xs font-bold text-[hsl(var(--foreground))] tracking-wide uppercase">Generate Model</h2>
         </div>
-      </div>
-
-      {/* 2. Top Pill Switcher: HD Model vs Smart Mesh */}
-      <div className="flex p-0.5 rounded-full bg-white/[0.06] border border-white/[0.08]">
-        <button
-          type="button"
-          onClick={() => setModelType('hd')}
-          className={`flex-1 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-            modelType === 'hd' ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-white'
-          }`}
-        >
+        <span className="text-[10px] font-semibold text-[hsl(var(--muted-foreground))] bg-[hsl(var(--surface-2))] px-2 py-0.5 rounded-md border border-[hsl(var(--border))] font-mono">
           HD Model
-        </button>
-        <button
-          type="button"
-          onClick={() => setModelType('smart')}
-          className={`flex-1 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center justify-center gap-1 cursor-pointer ${
-            modelType === 'smart' ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-white'
-          }`}
-        >
-          <span>Smart Mesh</span>
-          <span className="text-[10px] text-[#F9CF00]">⇡</span>
-        </button>
+        </span>
       </div>
 
-      {/* 3. Input Mode Selector (4 Tabs) */}
-      <div className="p-2 rounded-2xl bg-black/30 border border-white/[0.08] space-y-2.5">
-        <div className="flex items-center gap-1 bg-white/[0.04] p-1 rounded-xl">
-          <button
-            type="button"
-            onClick={() => setInputMode('image')}
-            className={`flex-1 py-1.5 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
-              inputMode === 'image' ? 'bg-white/10 text-[#F9CF00] shadow' : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <HugeiconsIcon icon={ImageIcon} size={15} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setInputMode('mesh')}
-            className={`flex-1 py-1.5 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
-              inputMode === 'mesh' ? 'bg-white/10 text-[#F9CF00] shadow' : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <HugeiconsIcon icon={Box} size={15} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setInputMode('multiview')}
-            className={`flex-1 py-1.5 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
-              inputMode === 'multiview' ? 'bg-white/10 text-[#F9CF00] shadow' : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <HugeiconsIcon icon={LayersIcon} size={15} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setInputMode('edit')}
-            className={`flex-1 py-1.5 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
-              inputMode === 'edit' ? 'bg-white/10 text-[#F9CF00] shadow' : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <HugeiconsIcon icon={Edit02Icon} size={15} />
-          </button>
-        </div>
-
-        {/* Upload Dropzone */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          onChange={handleFileChange}
-          className="hidden"
-        />
-
+      {/* 2. Single Clean Image Upload Box (Matching Property Panel colors) */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        onChange={handleImageUpload}
+        className="hidden"
+      />
+      <div className="p-2.5 rounded-2xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] shadow-sm">
         <div
+          role="button"
+          tabIndex={0}
+          aria-label="Upload concept image"
           onClick={() => fileInputRef.current?.click()}
-          className="relative group rounded-xl border border-dashed border-white/15 hover:border-[#F9CF00]/50 bg-[#121214] p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-all min-h-[140px]"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={handleDrop}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              fileInputRef.current?.click();
+            }
+          }}
+          className="relative group rounded-xl border border-dashed border-[hsl(var(--border))] hover:border-[#F9CF00]/60 bg-[hsl(var(--surface-1))] bg-[radial-gradient(#ffffff08_1px,transparent_1px)] [background-size:12px_12px] p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all min-h-[145px]"
         >
           {imagePreview || generationSettings.image ? (
-            <img
-              src={imagePreview || generationSettings.image || ''}
-              alt="Upload preview"
-              className="max-h-28 w-auto rounded object-contain mb-1"
-            />
+            <div className="relative group/preview">
+              <img
+                src={imagePreview || generationSettings.image || ''}
+                alt="Upload preview"
+                className="max-h-28 w-auto rounded-lg object-contain shadow-md border border-[hsl(var(--border))]"
+              />
+              <button
+                type="button"
+                onClick={handleRemoveImage}
+                className="absolute -top-1.5 -right-1.5 p-1 rounded-full bg-black/80 hover:bg-rose-600 text-white transition-colors cursor-pointer shadow-md"
+                aria-label="Remove uploaded image"
+                title="Remove image"
+              >
+                <HugeiconsIcon icon={Cancel} size={12} />
+              </button>
+            </div>
           ) : (
             <>
-              <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-zinc-400 group-hover:text-[#F9CF00] group-hover:scale-105 transition-all mb-2">
-                <HugeiconsIcon icon={UploadIcon} size={20} />
+              <div className="w-10 h-10 rounded-full bg-[hsl(var(--surface-3))] border border-[hsl(var(--border))] flex items-center justify-center text-[hsl(var(--muted-foreground))] group-hover:text-[#F9CF00] group-hover:border-[#F9CF00]/40 group-hover:scale-105 transition-all mb-2">
+                <HugeiconsIcon icon={UploadIcon} size={18} />
               </div>
-              <p className="text-xs font-semibold text-white">Upload</p>
-              <p className="text-[10px] text-zinc-500 mt-0.5">JPG, PNG, WEBP · Max 20MB</p>
+              <p className="text-xs font-bold text-[hsl(var(--foreground))]">Upload</p>
+              <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-0.5 font-mono">JPG, PNG, WEBP · Size ≤ 20MB</p>
+              <div className="mt-3 text-[10px] text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--foreground))] font-medium flex items-center gap-1">
+                <span>Generate Image for 3D</span>
+                <span className="text-[#F9CF00]">›</span>
+              </div>
             </>
           )}
-
-          <div className="mt-3 text-[11px] text-zinc-400 group-hover:text-white font-medium flex items-center gap-1">
-            <span>Generate Image for 3D</span>
-            <span className="text-[#F9CF00]">›</span>
-          </div>
         </div>
       </div>
 
-      {/* 4. General Settings Accordion */}
-      <div className="border-t border-white/[0.08] pt-2">
+      {/* 3. General Settings Accordion */}
+      <div className="border-t border-[hsl(var(--border))] pt-2">
         <button
           type="button"
+          aria-expanded={isGeneralSettingsOpen}
+          aria-label="Toggle General Settings"
           onClick={() => setIsGeneralSettingsOpen(!isGeneralSettingsOpen)}
-          className="w-full flex items-center justify-between py-1.5 text-xs font-semibold text-zinc-300 hover:text-white transition-all cursor-pointer"
+          className="w-full flex items-center justify-between p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-xs font-semibold text-[hsl(var(--foreground))] transition-all cursor-pointer shadow-sm"
         >
-          <span>General Settings</span>
-          <HugeiconsIcon icon={isGeneralSettingsOpen ? ChevronDown : ChevronRight} size={14} />
+          <div className="flex items-center gap-1.5">
+            <span>General Settings</span>
+            <span className="text-[10px] text-[#F9CF00] font-mono font-bold">
+              {intent === 'game_ready' ? '50k Tris' : intent === 'cinematic' ? '200k Tris' : intent === 'mobile' ? '20k Tris' : 'Raw'}
+            </span>
+          </div>
+          <HugeiconsIcon icon={isGeneralSettingsOpen ? ChevronDown : ChevronRight} size={14} className="text-[hsl(var(--muted-foreground))]" />
         </button>
 
         {isGeneralSettingsOpen && (
-          <div className="p-2.5 rounded-xl bg-black/20 border border-white/[0.06] text-xs space-y-2 mt-1">
-            <div className="flex items-center justify-between">
-              <span className="text-zinc-400">Geometry & Texture</span>
-              <span className="text-xs text-zinc-200 font-mono">PBR Default</span>
+          <div className="p-3 rounded-xl bg-[hsl(var(--surface-1))] border border-[hsl(var(--border))] text-xs space-y-2.5 mt-1.5">
+            <div>
+              <label className="text-[10px] font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider block mb-1.5">
+                Production Intent Preset
+              </label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  { id: 'game_ready', label: 'Game Ready', desc: '50k Tris · PBR' },
+                  { id: 'cinematic', label: 'Cinematic', desc: '200k Tris · High' },
+                  { id: 'mobile', label: 'Mobile', desc: '20k Tris · Fast' },
+                  { id: 'native', label: 'Raw Native', desc: 'Immutable Master' },
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleIntentSelect(item.id as GenerationIntent)}
+                    className={`p-2 rounded-lg text-left transition-all cursor-pointer border ${
+                      intent === item.id
+                        ? 'bg-[#F9CF00]/15 border-[#F9CF00] text-white shadow-sm'
+                        : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface-3))]'
+                    }`}
+                  >
+                    <p className={`text-[11px] font-bold ${intent === item.id ? 'text-[#F9CF00]' : 'text-[hsl(var(--foreground))]'}`}>
+                      {item.label}
+                    </p>
+                    <p className="text-[9px] text-[hsl(var(--muted-foreground))] mt-0.5">{item.desc}</p>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* 5. Members Only / Studio Options */}
-      <div className="border-t border-white/[0.08] pt-2.5 space-y-2.5">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-[#F9CF00]">
-          <span>✪</span>
-          <span>Studio Settings</span>
-        </div>
-
-        {/* Generate in Parts toggle */}
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-zinc-300">Generate in Parts</span>
-          <button
-            type="button"
-            onClick={() => setGenerateInParts(!generateInParts)}
-            className={`w-9 h-5 rounded-full p-0.5 transition-all cursor-pointer ${
-              generateInParts ? 'bg-[#F9CF00]' : 'bg-white/10'
-            }`}
-          >
-            <div
-              className={`w-4 h-4 rounded-full bg-black transition-all ${
-                generateInParts ? 'translate-x-4' : 'translate-x-0'
-              }`}
-            />
-          </button>
-        </div>
-
-        {/* 8K Texture toggle */}
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-zinc-300">8K Texture</span>
-          <button
-            type="button"
-            onClick={() => setHighResTexture(!highResTexture)}
-            className={`w-9 h-5 rounded-full p-0.5 transition-all cursor-pointer ${
-              highResTexture ? 'bg-[#F9CF00]' : 'bg-white/10'
-            }`}
-          >
-            <div
-              className={`w-4 h-4 rounded-full bg-black transition-all ${
-                highResTexture ? 'translate-x-4' : 'translate-x-0'
-              }`}
-            />
-          </button>
-        </div>
-
-        {/* Privacy select */}
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-zinc-300">Privacy</span>
-          <select
-            value={privacy}
-            onChange={(e) => setPrivacy(e.target.value as any)}
-            className="bg-black/30 border border-white/10 rounded-lg px-2 py-1 text-xs text-zinc-200 outline-none cursor-pointer"
-          >
-            <option value="public">🌐 Public</option>
-            <option value="private">🔒 Private</option>
-          </select>
-        </div>
-      </div>
-
-      {/* 6. AI Model Section */}
-      <div className="border-t border-white/[0.08] pt-2.5 space-y-1.5">
-        <label className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
+      {/* 4. AI Model Section */}
+      <div className="border-t border-[hsl(var(--border))] pt-2.5 space-y-1.5" ref={modelDropdownRef}>
+        <label className="text-[10px] font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider block">
           AI Model
         </label>
 
         <div className="relative">
           <button
             type="button"
+            aria-haspopup="listbox"
+            aria-expanded={isModelDropdownOpen}
+            aria-label="Select AI Model"
             onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-            className="w-full p-2.5 rounded-xl bg-black/40 border border-white/10 hover:border-white/20 flex items-center justify-between text-left transition-all cursor-pointer"
+            className="w-full p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] flex items-center justify-between text-left transition-all cursor-pointer shadow-sm"
           >
-            <div>
-              <p className="text-xs font-bold text-white">
-                {availableModels.find((m) => m.id === selectedModel)?.label || 'Select Model'}
-              </p>
-              <p className="text-[10px] text-zinc-400 mt-0.5">
-                {availableModels.find((m) => m.id === selectedModel)?.tag} · High Precision
-              </p>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/25 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
+                <HugeiconsIcon icon={ThumbsUpIcon} size={15} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-[hsl(var(--foreground))] truncate">
+                  {availableModels.find((m) => m.id === selectedModel)?.label || 'Select Model'}
+                </p>
+                <p className="text-[10px] text-[hsl(var(--muted-foreground))] truncate">
+                  {availableModels.find((m) => m.id === selectedModel)?.tag}
+                </p>
+              </div>
             </div>
-            <HugeiconsIcon icon={ChevronDown} size={14} className="text-zinc-400" />
+            <HugeiconsIcon icon={ChevronDown} size={14} className="text-[hsl(var(--muted-foreground))] flex-shrink-0 ml-1" />
           </button>
 
           {isModelDropdownOpen && (
-            <div className="absolute bottom-full mb-1 left-0 right-0 rounded-xl bg-[#1c1c20] border border-white/10 shadow-2xl p-1 z-30 space-y-1">
+            <div
+              role="listbox"
+              aria-label="Available AI models"
+              className="absolute bottom-full mb-1 left-0 right-0 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] shadow-2xl p-1 z-30 space-y-1"
+            >
               {availableModels.map((m) => (
                 <button
                   key={m.id}
                   type="button"
-                  onClick={() => {
-                    setSelectedModel(m.id);
-                    setIsModelDropdownOpen(false);
-                  }}
+                  role="option"
+                  aria-selected={selectedModel === m.id}
+                  onClick={() => handleModelSelect(m.id)}
                   className={`w-full text-left p-2 rounded-lg text-xs transition-all cursor-pointer flex items-center justify-between ${
-                    selectedModel === m.id ? 'bg-[#F9CF00] text-black font-bold' : 'text-zinc-300 hover:bg-white/5'
+                    selectedModel === m.id ? 'bg-[#F9CF00] text-black font-bold' : 'text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface-3))]'
                   }`}
                 >
-                  <span>{m.label}</span>
+                  <div>
+                    <span className="block font-semibold">{m.label}</span>
+                    <span className="text-[9.5px] opacity-75">{m.note}</span>
+                  </div>
                   <span className="text-[10px] opacity-75">{m.tag}</span>
                 </button>
               ))}
@@ -549,25 +543,21 @@ export const GeneratePanel: React.FC = () => {
         </div>
       </div>
 
-      {/* 7. Bottom Action Button */}
+      {/* 5. Bottom Action CTA Button */}
       <div className="pt-2 mt-auto">
         <button
           type="button"
           onClick={handleGenerate}
           disabled={isExecuting}
-          className="w-full py-3 rounded-full bg-[#F9CF00] hover:bg-[#e5be00] text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/10 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full py-3 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isExecuting ? (
             <>
               <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
-              <span>Generating...</span>
+              <span>Generating Model...</span>
             </>
           ) : (
-            <>
-              <span>Generate</span>
-              <HugeiconsIcon icon={ZapIcon} size={15} className="fill-black" />
-              <span className="text-xs font-black">55</span>
-            </>
+            <span>Generate Model</span>
           )}
         </button>
       </div>

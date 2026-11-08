@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { usePathname } from 'next/navigation';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { ToolType } from '../types';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
@@ -37,8 +36,7 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
   isMobileDrawer = false,
   onToolSelect,
 }) => {
-  const pathname = usePathname();
-  const { activeTool, mainNav, navigateToTool, isExecuting } = useWorkspace();
+  const { activeTool, mainNav, navigateToTool, isExecuting, setIsSettingsOpen } = useWorkspace();
 
   const tools: ToolConfig[] = [
     {
@@ -105,12 +103,12 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
     <nav
       id="left-tool-rail"
       aria-label="Studio 3D Tools"
-      className={`h-full bg-[#121214] border-r border-white/[0.08] flex flex-col items-center select-none z-20 ${
-        isMobileDrawer ? 'w-full py-2 px-3' : 'w-[68px] py-3'
+      className={`h-full bg-[hsl(var(--surface-1))] border-r border-[hsl(var(--border))] flex flex-col items-center select-none z-20 ${
+        isMobileDrawer ? 'w-full py-2 px-3' : 'w-[54px] py-2'
       }`}
     >
       {/* Primary Tool Stack */}
-      <div className="flex-1 w-full flex flex-col items-center gap-1.5 overflow-y-auto overflow-x-hidden scrollbar-none px-1">
+      <div className="flex-1 w-full flex flex-col items-center gap-1 overflow-y-auto overflow-x-hidden scrollbar-none px-1">
         {tools.map((t, idx) => {
           const active = isCurrentActive(t);
           const executing = isExecuting && active;
@@ -120,7 +118,8 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
               <button
                 type="button"
                 onClick={() => handleSelect(t.id)}
-                className={`relative w-full group flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-all duration-200 cursor-pointer ${
+                aria-current={active ? 'page' : undefined}
+                className={`relative w-full group flex flex-col items-center justify-center py-1.5 px-0.5 rounded-lg transition-all duration-200 cursor-pointer ${
                   active
                     ? 'text-[#F9CF00] bg-white/[0.06] font-bold shadow-sm'
                     : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
@@ -128,37 +127,37 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
               >
                 {/* Active Indicator Bar on Left */}
                 {active && (
-                  <span className="absolute left-0.5 top-2.5 bottom-2.5 w-1 rounded-r-full bg-[#F9CF00]" />
+                  <span className="absolute left-0.5 top-2 bottom-2 w-0.5 rounded-r-full bg-[#F9CF00]" />
                 )}
 
                 {/* Badge pill */}
                 {t.badge && (
-                  <span className="absolute -top-1 px-1 py-0.2 rounded-full text-[7.5px] font-black uppercase tracking-wider bg-gradient-to-r from-cyan-500 to-indigo-500 text-white shadow-sm">
+                  <span className="absolute -top-1 px-1 py-0.2 rounded-full text-[7px] font-black uppercase tracking-wider bg-gradient-to-r from-cyan-500 to-indigo-500 text-white shadow-sm">
                     {t.badge}
                   </span>
                 )}
 
                 {/* Icon */}
-                <div className="relative mb-1">
+                <div className="relative mb-0.5">
                   <HugeiconsIcon
                     icon={t.icon}
-                    size={20}
+                    size={17}
                     className={`transition-transform duration-200 group-hover:scale-110 ${
                       active ? 'text-[#F9CF00]' : 'text-zinc-400 group-hover:text-white'
                     }`}
                   />
                   {executing && (
-                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#F9CF00] animate-ping" />
+                    <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-[#F9CF00] animate-ping" />
                   )}
                 </div>
 
                 {/* Label */}
                 <div className="flex items-center gap-0.5">
-                  <span className="text-[10px] tracking-tight leading-none text-center">
+                  <span className="text-[9.5px] tracking-tight leading-none text-center">
                     {t.label}
                   </span>
                   {t.hasDropdown && (
-                    <span className="text-[8px] opacity-60 leading-none">▾</span>
+                    <span className="text-[7.5px] opacity-60 leading-none">▾</span>
                   )}
                 </div>
               </button>
@@ -167,15 +166,17 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
         })}
       </div>
 
-      {/* Bottom App / Settings Icon */}
-      <div className="w-full pt-2 border-t border-white/[0.08] mt-auto flex flex-col items-center px-1">
+      {/* Bottom App / Settings Icon - seamlessly integrated into rail stack without isolated block divider */}
+      <div className="w-full mt-auto flex flex-col items-center px-1 pb-1">
         <SimpleTooltip label="Studio Settings" side="right">
           <button
             type="button"
-            className="w-full py-2 flex flex-col items-center justify-center rounded-xl text-zinc-400 hover:text-white hover:bg-white/[0.04] transition-all duration-200 cursor-pointer"
+            onClick={() => setIsSettingsOpen(true)}
+            aria-label="Open Studio Settings"
+            className="w-full py-1.5 flex flex-col items-center justify-center rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.04] transition-all duration-200 cursor-pointer"
           >
-            <HugeiconsIcon icon={SettingsIcon} size={18} className="mb-0.5" />
-            <span className="text-[10px] leading-none">App</span>
+            <HugeiconsIcon icon={SettingsIcon} size={17} className="mb-0.5 text-zinc-400 hover:text-white transition-colors" />
+            <span className="text-[9.5px] leading-none">App</span>
           </button>
         </SimpleTooltip>
       </div>

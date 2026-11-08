@@ -46,11 +46,12 @@
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ TOP HEADER (56px): ForMesh3D Logo | 3D Workspace ▾ | Nav (Home, Assets) | DCC Bridge, User Profile     │
+│ TOP HEADER (40px): ForMesh3D Logo | 3D Workspace ▾ | Status Pill | Snapshots, Profile                │
 ├────┬──────────────────────┬────────────────────────────────────────────────────────────┬────────────────┤
 │ N  │                      │                                                            │                │
-│ A  │ LEFT FLOATING PANEL  │                                                            │ RIGHT PANEL    │
-│ V  │ (340px rounded card) │                 CENTER 3D VIEWPORT                         │ (280px dock)   │
+│ A  │ LEFT CONTEXT PANEL   │                                                            │ RIGHT PANEL    │
+│ V  │ (276px, Docked Top/  │                 CENTER 3D VIEWPORT                         │ (250px, Docked │
+│    │ Left, rounded-r-22px)│                                                            │ Top, rounded-l)│
 │    │                      │                                                            │                │
 │ 68 │ Tool Header          │               [3D Orientation Gizmo]                       │ Tabs:          │
 │ px │ Visual Comparison    │               [Floating Camera/Wireframe Dock]             │ [Assets]       │
@@ -86,8 +87,10 @@
   - Preserved Three.js WebGL canvas, Draco/Meshopt loaders, bounding-box centering, turntable, wireframe, grid, and camera snaps.
   - Centered watermark empty state matching reference: Logo + `"Ready For A New 3D Model?"` + `"Instantly generate 3D from image or text"`.
 - [x] Floating Viewport Controls in `features/workspace/Viewport/ViewportToolOverlay.tsx`:
+  - Dynamic responsive positioning: Offsets tool dock by `right: 265px` when Right Panel is open (`isRightPanelOpen`) and `right: 16px` when closed, preventing panel overlap.
   - Floating 3D Orientation Gizmo with Front, Side, Top, and Iso camera snaps.
-  - Floating vertical toolbar: Settings Gear, Canvas Snapshot, Wireframe toggle, Help `?`.
+  - Floating vertical toolbar: Settings Gear (with popup for lighting tones, exposure slider, shading modes), Wireframe toggle, Turntable 360° auto-rotate toggle, Grid toggle, high-res PNG Camera Snapshot, Help `?`.
+  - Enabled `preserveDrawingBuffer` in `MeshViewer.tsx` for full-res snapshot capture without frame dropping.
 
 ### Phase 3: Unified Studio Tool Template & Secondary Views ✅
 - [x] Created `features/workspace/Panels/StudioToolTemplate.tsx` (~240 lines):
@@ -105,59 +108,88 @@
 
 ---
 
-## 3. Remaining Work (Part 2 — Phases 4, 5, 6)
+## 3. Completed Work (Part 2 — Phases 4 & 5) ✅
 
-### Phase 4: Generation Hub Rebuild (`GeneratePanel.tsx`) ⏳
-*Reference Image*: Inspect `/home/david/Documents/dev/ForMesh3D/.brain/generate.png`
-- [ ] **Mode Switcher**:
-  - Segmented pill: `HD Model` (white pill active) vs `Smart Mesh ⇡`.
-- [ ] **4 Input Mode Tabs**:
-  - Tab 1: Image (single image upload).
-  - Tab 2: Mesh (upload existing 3D model for conversion/refinement).
-  - Tab 3: Multi-view (multi-angle image slots).
-  - Tab 4: Text Prompt (text prompt textarea for text-to-3D).
-- [ ] **Checkered Upload Dropzone**:
-  - Checkered subtle background, cloud upload icon, `"Upload"`, `"JPG, PNG, WEBP · Max 20MB"`, and `"Generate Image for 3D ›"`.
-- [ ] **General Settings Accordion**:
-  - Collapsible row `"Geometry & Texture ›"`.
-- [ ] **Studio Settings / Members Only**:
-  - Gold badge `✪`.
-  - `"Generate in Parts"` with toggle switch.
-  - `"8K Texture"` with toggle switch.
-  - `"Privacy"` with Public/Private dropdown.
-- [ ] **AI Model Selector**:
-  - Dropdown with Thumbs-up icon:
-    - `Hunyuan3D-2 Mini Turbo (Fast Geometry) · Best Speed`
-    - `TaoFlowForge (Progressive Native Flow) · Native Topology`
-    - `Pixal3D (Neighborhood Attention Reconstruction) · High Precision`
-- [ ] **Bottom Action Button**:
-  - Full-width vibrant gold pill button: `"Generate ⚡ 55"`.
+### Phase 4: Generation Hub Rebuild (`GeneratePanel.tsx`) ✅
+*Reference Image*: `.brain/generate.png`
+- [x] **Header**: HD Model indicator with `#F9CF00` icon. Removed third-party "Smart Mesh" per personal-use user directive.
+- [x] **Seamless Docking & Slender Width**:
+  - Docked flush against the left navigation rail (`x=58`) and top navbar (`y=44`) with 0 margin.
+  - Reduced width from 360px down to 276px to match `generate.png` slender proportions.
+- [x] **Zero-Blink Tool Switching**:
+  - Replaced dynamic import with static import for `GeneratePanel`.
+  - Removed `mode="wait"` and exit animation lag in `WorkspaceShell.tsx` for immediate 0ms tool swapping.
+- [x] **Single Checkered Image Upload Dropzone (Matching generate.png)**:
+  - Removed multi-view, text prompt, and mesh tabs per user directive.
+  - Translucent checkered dropzone container (`bg-[#121214]/60` with radial dot grid).
+  - Cloud upload icon, "Upload" title, "JPG, PNG, WEBP · Size ≤ 20MB", and bottom link "Generate Image for 3D ›".
+  - Thumbnail preview with clear remove `(X)` button.
+- [x] **General Settings Accordion**:
+  - Collapsible drawer with verified production intent presets (`Game Ready` 50k, `Cinematic` 200k, `Mobile` 20k, `Raw Native`).
+- [x] **Studio Options (Personal Use)**:
+  - Clean `Generate in Parts` toggle.
+  - Stripped 8K texture and Public/Private paywall controls as directed by user.
+- [x] **AI Model Selector**:
+  - Clean dropdown with `ThumbsUpIcon` in `#F9CF00`:
+    - `Hunyuan3D-2 Mini Turbo (Best Speed & Geometry)`
+    - `TaoFlowForge (Native Flow Topology)`
+    - `Pixal3D (Neighborhood Reconstruction)`
+- [x] **Bottom Action CTA**:
+  - Full-width vibrant gold pill button: `"Generate Model"` (all energy/credit counters and token costs eliminated).
   - Animated spinner and disabled state during generation.
 
-### Phase 5: Right Inspector & Assets Dock ⏳
-*Reference Images*: Inspect `/home/david/Documents/dev/ForMesh3D/.brain/generate.png` and `/home/david/Documents/dev/ForMesh3D/.brain/segmentation.png`
-- [ ] **Header Tabs (`RightWorkspacePanel.tsx`)**:
-  - Segmented pill matching reference:
-    - `[ Assets ]` tab: Active white pill (`bg-white text-black font-semibold rounded-lg shadow-sm`).
-    - `[ Property ]` tab: Inactive zinc text (`text-zinc-400 hover:text-white`).
-- [ ] **Assets Sub-Toolbar (`RightAssetsPanel.tsx`)**:
-  - Left: 4-dots grid icon `::`, favorites star `★`, category filter funnel `Y`.
-  - Right: `Manage` pill button (with checklist icon + `"Manage"`).
-- [ ] **Upload 3D Model Dropzone Card**:
-  - Dashed card with subtle checkered pattern.
-  - Purple/indigo circular button with white upward arrow `↑`.
+### Phase 5: Right Inspector & Assets Dock ✅
+*Reference Images*: `.brain/generate.png` & `.brain/segmentation.png`
+- [x] **Slender Docking**:
+  - Docked flush against the right edge (`x=1190` at 1440px) and top navbar (`y=44`) with 0 margin.
+  - Reduced width from 320px down to 250px to match `generate.png` slender proportions.
+- [x] **Header Tabs (`RightWorkspacePanel.tsx`)**:
+  - Segmented switcher matching reference:
+    - `[ Assets ]`: Active white pill (`bg-white text-black font-bold rounded-lg shadow-sm`).
+    - `[ Property ]`: Inactive zinc text (`text-zinc-400 hover:text-white`).
+- [x] **Assets Sub-Toolbar (`RightAssetsPanel.tsx`)**:
+  - Left: 4-dots grid icon, favorites star, category filter dropdown (`All Assets`, `3D Models`, `PBR Textures`).
+  - Right: `Manage` pill button with checkmark icon.
+- [x] **Upload 3D Model Dropzone Card**:
+  - Dashed card with subtle checkered pattern (`#121214`).
+  - Gradient indigo/purple circular button with white upward arrow (`ArrowUp01Icon`).
   - Title: `"Upload 3D Model"`.
   - Subtitle 1: `"OBJ, FBX, STL, GLB"`.
   - Subtitle 2: `"Size ≤ 150MB"`.
-- [ ] **Asset Cards List**:
-  - Render local asset cards with thumbnail, name, format tag, and active selection state.
-- [ ] **Property Inspector (`RightPropertyPanel.tsx`)**:
-  - Telemetry summary: Triangles, Quads, Vertices, Dimensions (X, Y, Z).
-  - Material and texture map slots (Diffuse, Normal, Roughness, Metallic).
-  - Clean export buttons (GLB, OBJ, FBX).
+- [x] **Asset Cards & Property Inspector**:
+  - Format badges, telemetry, and fast export triggers (`GLB`, `OBJ`, `FBX`).
 
-### Phase 6: Verification, Type Safety & Delivery ⏳
-- [ ] Run `bun x tsc --noEmit` — must pass with **0 errors**.
-- [ ] Run `bun test` — ensure all unit tests pass.
-- [ ] Verify zero canvas flickering / re-mounts on tool switches.
-- [ ] Verify keyboard shortcuts and smooth transitions.
+---
+
+## 4. Final Delivery & Verification (Phase 6) ✅
+- [x] Run `bun x tsc --noEmit` — verified **0 errors**.
+- [x] Run `bun test` — verified all unit tests **PASS**.
+- [x] DCC Bridge Complete Eradication:
+  - Completely excised all DCC Bridge modals, buttons, types, tests, and references per explicit user directive.
+- [x] Production Export Integration:
+  - Formats GLB, GLTF, FBX, OBJ, STL, PLY backed by `normalizeModelAsset` canonical job endpoints and `downloadArtifact`.
+  - Ponytail cleanup: trimmed unbacked fake controls from `RightPropertyPanel.tsx`.
+  - Connected `ExportModal.tsx` LOD cascade selection and Complete Asset ZIP packaging.
+- [x] Viewport Spotlight Radial Vignette:
+  - Soft dark gray `#606368` in center smoothly fading to deep obsidian dark `#070809` near tool panels.
+- [x] Verified zero tool-switching flicker/blinking in browser across `Model`, `Segment`, and `Retopo`.
+
+---
+
+## 5. Next Phase Handoff: Major Remaining Work (Phase 7 - In Progress) 🚧
+
+> **NOTICE FOR PARALLEL AGENTS & BACKGROUND WORKERS**:
+> The foundational studio shell, docked panel architecture (zero top/left gaps), `40px` sleek top header, unified left navigation rail, and CSS token theming are now locked and stable on branch `dev`.
+> **DO NOT BREAK** these docked panel boundaries, CSS tokens, or native BF16 inference pipelines.
+
+### Major Remaining Work Items:
+1. **Model Generation Pipelines & Backend Worker Binding**:
+   - Live end-to-end inference verification for Hunyuan3D-2 Mini Turbo, TaoFlowForge, and Pixal3D.
+   - Quad Remesh worker integration with real-time topology reduction feedback.
+   - PBR Material Generation flow with automatic live texture binding in Three.js viewport.
+2. **Interactive 3D Stage & Mesh Manipulation**:
+   - Full 3D transform gizmos (Translate / Rotate / Scale) over loaded assets.
+   - Sub-mesh part selection and interactive material region segmentation.
+3. **Asset Management & Export Enhancements**:
+   - Batch asset operations, multi-select, and complete asset bundle packaging.
+   - SSE job progression refinements and background task error recovery.

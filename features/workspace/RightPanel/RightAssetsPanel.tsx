@@ -3,13 +3,26 @@ import { useWorkspace } from '../store/WorkspaceContext';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
 import { MeshUploadStatus } from '../Panels/MeshUploadStatus';
-import { UploadDiagnosticModal } from '../Modals/UploadDiagnosticModal';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import { toast } from 'sonner';
 
 import { HugeiconsIcon } from '@hugeicons/react';
-import { Box, CableIcon, CheckIcon, ChevronLeft, ChevronRight, Copy, FilterIcon, FolderOpenIcon, GridIcon, MoreVerticalIcon, StarIcon, Trash2, ZoomInIcon } from '@hugeicons/core-free-icons';
-import { DCC_PRESETS, type DccApp } from '../Modals/DccBridgeModal';
+import {
+  ArrowUp01Icon,
+  Box,
+  CheckIcon,
+  CheckmarkCircle02Icon,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  FilterIcon,
+  FolderOpenIcon,
+  GridIcon,
+  MoreVerticalIcon,
+  StarIcon,
+  Trash2,
+  ZoomInIcon,
+} from '@hugeicons/core-free-icons';
 import { settingsPersistence } from '@/services/settingsPersistence';
 import { QualityBadge } from '../Panels/GeneratePanel';
 
@@ -22,27 +35,21 @@ export const RightAssetsPanel: React.FC = () => {
     setAssetFilter,
     duplicateAsset,
     deleteAsset,
-    setActiveTool,
     updateAssetProperties,
-    setIsDccBridgeOpen,
   } = useWorkspace();
 
-  const { assetCollections, addAssetCollection, removeAssetCollection } = useAppStore();
+  const { assetCollections, addAssetCollection } = useAppStore();
 
   const [activePage, setActivePage] = useState(1);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
-  const [collectionMenuOpen, setCollectionMenuOpen] = useState(false);
   const [activeMenuAssetId, setActiveMenuAssetId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const filterMenuRef = useRef<HTMLDivElement>(null);
-  const collectionMenuRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const { state: meshUploadState, upload: uploadMesh } = useMeshAssetUpload();
   const uploadActive = meshUploadState.status === 'uploading' || meshUploadState.status === 'verifying';
-  const [isDiagnosticOpen, setIsDiagnosticOpen] = useState(false);
-  const [diagnosticFile, setDiagnosticFile] = useState<File | null>(null);
 
   const ITEMS_PER_PAGE = 8;
 
@@ -56,9 +63,6 @@ export const RightAssetsPanel: React.FC = () => {
       if (filterMenuRef.current && !filterMenuRef.current.contains(e.target as Node)) {
         setFilterMenuOpen(false);
       }
-      if (collectionMenuRef.current && !collectionMenuRef.current.contains(e.target as Node)) {
-        setCollectionMenuOpen(false);
-      }
       if (activeMenuAssetId && !(e.target as HTMLElement).closest(`[data-asset-menu="${activeMenuAssetId}"]`)) {
         setActiveMenuAssetId(null);
       }
@@ -66,7 +70,6 @@ export const RightAssetsPanel: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setFilterMenuOpen(false);
-        setCollectionMenuOpen(false);
         setActiveMenuAssetId(null);
       }
     };
@@ -77,24 +80,6 @@ export const RightAssetsPanel: React.FC = () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [activeMenuAssetId]);
-
-  const handleDeleteCollection = (colName: string) => {
-    assets.forEach((a) => {
-      if (a.collection === colName || a.tags?.includes(colName)) {
-        updateAssetProperties(a.id, {
-          collection: undefined,
-          tags: (a.tags || []).filter((t) => t !== colName),
-        });
-      }
-    });
-    removeAssetCollection(colName);
-    if (selectedCollection === colName) {
-      setSelectedCollection(null);
-    }
-    toast.success(`Deleted collection "${colName}"`, {
-      description: 'Assets have been ungrouped without deleting any files.',
-    });
-  };
 
   const processModelFile = useCallback(async (file: File) => {
     await uploadMesh(file);
@@ -127,33 +112,6 @@ export const RightAssetsPanel: React.FC = () => {
     if (file) processModelFile(file);
   };
 
-  const handleQuickSendToDcc = (asset: (typeof assets)[0]) => {
-    const lastDcc = settingsPersistence.getLastDccTarget() as DccApp | null;
-    const preset = DCC_PRESETS.find((p) => p.id === lastDcc);
-
-    if (!lastDcc || !preset) {
-      setCurrentAsset(asset);
-      setIsDccBridgeOpen(true);
-      setActiveMenuAssetId(null);
-      toast.info('Select a target DCC application to configure the Bridge');
-      return;
-    }
-
-    setCurrentAsset(asset);
-    setActiveMenuAssetId(null);
-
-    toast.promise(
-      new Promise<void>((resolve) => {
-        setTimeout(resolve, 800);
-      }),
-      {
-        loading: `Connecting to ${preset.name.split(' ')[0]} on port ${preset.defaultPort}...`,
-        success: `"${asset.name}" dispatched to ${preset.name.split(' ')[0]}!`,
-        error: `Failed to connect to ${preset.name.split(' ')[0]}`,
-      }
-    );
-  };
-
   const filteredAssets = assets.filter(a => {
     if (showFavoritesOnly && !a.isFavorite) return false;
     if (selectedCollection && a.collection !== selectedCollection && !a.tags?.includes(selectedCollection)) return false;
@@ -179,192 +137,146 @@ export const RightAssetsPanel: React.FC = () => {
         onChange={handleModelUpload}
       />
 
-      {/* Top Action Sub-bar */}
-      <div className="px-2.5 py-2 border-b border-white/[0.08] bg-[hsl(var(--surface-1))]">
+      {/* Top Action Sub-bar matching Studio Reference */}
+      <div className="px-3 py-2 border-b border-[hsl(var(--border))] bg-[hsl(var(--surface-1))]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            {/* GridIcon / All View */}
+            {/* Grid / All View */}
             <SimpleTooltip label="All Assets">
               <button
+                type="button"
+                aria-label="All Assets"
                 onClick={() => { setShowFavoritesOnly(false); setAssetFilter('all'); }}
-                className={`p-1.5 rounded-lg transition-colors ${
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                   !showFavoritesOnly && assetFilter === 'all'
-                    ? 'bg-[hsl(var(--surface-2))] text-primary'
-                    : 'text-zinc-400 hover:text-white hover:bg-[hsl(var(--surface-2))]'
+                    ? 'bg-white/10 text-[#F9CF00]'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
                 }`}
               >
-                <HugeiconsIcon icon={GridIcon} size={16} className="w-3.5 h-3.5" />
+                <HugeiconsIcon icon={GridIcon} size={15} />
               </button>
             </SimpleTooltip>
 
-            {/* Favorite FilterIcon */}
-            <SimpleTooltip label="Favorites Only">
+            {/* Favorite Filter */}
+            <SimpleTooltip label="Favorites">
               <button
+                type="button"
+                aria-label="Favorites"
                 onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
-                className={`p-1.5 rounded-lg transition-colors ${
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                   showFavoritesOnly
-                    ? 'bg-[hsl(var(--surface-2))] text-primary'
-                    : 'text-zinc-400 hover:text-white hover:bg-[hsl(var(--surface-2))]'
+                    ? 'bg-white/10 text-[#F9CF00]'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
                 }`}
               >
-                <HugeiconsIcon icon={StarIcon} size={16} className="w-3.5 h-3.5" />
+                <HugeiconsIcon icon={StarIcon} size={15} />
               </button>
             </SimpleTooltip>
 
-            {/* Category FilterIcon */}
+            {/* Category Filter */}
             <div className="relative" ref={filterMenuRef}>
-              <SimpleTooltip label="FilterIcon by Category">
+              <SimpleTooltip label="Filter by Type">
                 <button
+                  type="button"
+                  aria-label="Filter by Type"
                   onClick={() => setFilterMenuOpen(!filterMenuOpen)}
                   className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                     assetFilter !== 'all'
-                      ? 'bg-[hsl(var(--surface-2))] text-primary'
-                      : 'text-zinc-400 hover:text-white hover:bg-[hsl(var(--surface-2))]'
+                      ? 'bg-white/10 text-[#F9CF00]'
+                      : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
                   }`}
                 >
-                  <HugeiconsIcon icon={FilterIcon} size={16} className="w-3.5 h-3.5" />
+                  <HugeiconsIcon icon={FilterIcon} size={15} />
                 </button>
               </SimpleTooltip>
 
               {filterMenuOpen && (
-                <div className="absolute top-full left-0 mt-1.5 w-36 py-1.5 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.1] shadow-2xl z-50 text-xs font-medium animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute top-full left-0 mt-1.5 w-36 py-1.5 rounded-xl bg-[#242428] border border-white/[0.1] shadow-2xl z-50 text-xs font-medium animate-in fade-in zoom-in-95 duration-100">
                   <button
+                    type="button"
                     onClick={() => { setAssetFilter('all'); setFilterMenuOpen(false); }}
-                    className="w-full text-left px-3 py-1.5 hover:bg-[hsl(var(--surface-3))] text-zinc-200 cursor-pointer flex items-center justify-between"
+                    className="w-full text-left px-3 py-1.5 hover:bg-white/5 text-zinc-200 cursor-pointer flex items-center justify-between"
                   >
                     <span>All Assets</span>
-                    {assetFilter === 'all' && <HugeiconsIcon icon={CheckIcon} size={16} className="w-3 h-3 text-primary" />}
+                    {assetFilter === 'all' && <HugeiconsIcon icon={CheckIcon} size={14} className="text-[#F9CF00]" />}
                   </button>
                   <button
+                    type="button"
                     onClick={() => { setAssetFilter('models'); setFilterMenuOpen(false); }}
-                    className="w-full text-left px-3 py-1.5 hover:bg-[hsl(var(--surface-3))] text-zinc-200 cursor-pointer flex items-center justify-between"
+                    className="w-full text-left px-3 py-1.5 hover:bg-white/5 text-zinc-200 cursor-pointer flex items-center justify-between"
                   >
                     <span>3D Models</span>
-                    {assetFilter === 'models' && <HugeiconsIcon icon={CheckIcon} size={16} className="w-3 h-3 text-primary" />}
+                    {assetFilter === 'models' && <HugeiconsIcon icon={CheckIcon} size={14} className="text-[#F9CF00]" />}
                   </button>
                   <button
+                    type="button"
                     onClick={() => { setAssetFilter('textures'); setFilterMenuOpen(false); }}
-                    className="w-full text-left px-3 py-1.5 hover:bg-[hsl(var(--surface-3))] text-zinc-200 cursor-pointer flex items-center justify-between"
+                    className="w-full text-left px-3 py-1.5 hover:bg-white/5 text-zinc-200 cursor-pointer flex items-center justify-between"
                   >
                     <span>PBR Textures</span>
-                    {assetFilter === 'textures' && <HugeiconsIcon icon={CheckIcon} size={16} className="w-3 h-3 text-primary" />}
+                    {assetFilter === 'textures' && <HugeiconsIcon icon={CheckIcon} size={14} className="text-[#F9CF00]" />}
                   </button>
-                </div>
-              )}
-            </div>
-
-            {/* Collection Filter */}
-            <div className="relative" ref={collectionMenuRef}>
-              <SimpleTooltip label={selectedCollection ? `Collection: ${selectedCollection}` : 'Filter by Collection'}>
-                <button
-                  onClick={() => setCollectionMenuOpen(!collectionMenuOpen)}
-                  className={`p-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
-                    selectedCollection
-                      ? 'bg-[hsl(var(--surface-2))] text-primary'
-                      : 'text-zinc-400 hover:text-white hover:bg-[hsl(var(--surface-2))]'
-                  }`}
-                >
-                  <HugeiconsIcon icon={FolderOpenIcon} size={16} className="w-3.5 h-3.5" />
-                  {selectedCollection && (
-                    <span className="text-[10px] font-bold max-w-[55px] truncate text-primary">{selectedCollection}</span>
-                  )}
-                </button>
-              </SimpleTooltip>
-
-              {collectionMenuOpen && (
-                <div className="absolute top-full left-0 mt-1.5 w-48 py-1.5 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.1] shadow-2xl z-50 text-xs font-medium animate-in fade-in zoom-in-95 duration-100">
-                  <div className="px-3 py-1 text-[9px] font-bold text-zinc-400 uppercase tracking-wider">
-                    Asset Collections
-                  </div>
-                  <button
-                    onClick={() => { setSelectedCollection(null); setCollectionMenuOpen(false); }}
-                    className="w-full text-left px-3 py-1.5 hover:bg-[hsl(var(--surface-3))] text-zinc-200 cursor-pointer flex items-center justify-between"
-                  >
-                    <span>All Collections</span>
-                    {!selectedCollection && <HugeiconsIcon icon={CheckIcon} size={16} className="w-3 h-3 text-primary" />}
-                  </button>
-                  {assetCollections.map((col) => (
-                    <div key={col} className="flex items-center justify-between px-3 py-1 hover:bg-[hsl(var(--surface-3))] group">
-                      <button
-                        onClick={() => { setSelectedCollection(col); setCollectionMenuOpen(false); }}
-                        className="text-left text-zinc-200 cursor-pointer flex-1 truncate flex items-center justify-between"
-                      >
-                        <span className="truncate">{col}</span>
-                        {selectedCollection === col && <HugeiconsIcon icon={CheckIcon} size={16} className="w-3 h-3 text-primary ml-1" />}
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteCollection(col);
-                        }}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-500 hover:text-rose-400 transition-opacity ml-1.5"
-                        title={`Delete collection "${col}" (ungroups assets)`}
-                      >
-                        <HugeiconsIcon icon={Trash2} size={12} className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                  <div className="border-t border-white/[0.06] mt-1 pt-1 px-3">
-                    <button
-                      onClick={() => {
-                        const name = window.prompt('New collection name:');
-                        if (name && name.trim()) {
-                          addAssetCollection(name.trim());
-                          setSelectedCollection(name.trim());
-                        }
-                        setCollectionMenuOpen(false);
-                      }}
-                      className="text-[10px] text-primary hover:underline font-bold py-1 block w-full text-left cursor-pointer"
-                    >
-                      + New Collection
-                    </button>
-                  </div>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Import Button */}
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => !uploadActive && fileInputRef.current?.click()}
-              disabled={uploadActive}
-              className="px-2.5 py-1 rounded-lg text-xs font-bold text-zinc-200 hover:text-primary hover:bg-[hsl(var(--surface-2))] border border-white/[0.08] transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1"
-            >
-              <span>Import</span>
-            </button>
-          </div>
+          {/* Manage Pill Button matching Reference */}
+          <button
+            type="button"
+            onClick={() => {
+              if (selectedCollection) setSelectedCollection(null);
+            }}
+            className="px-2.5 py-1 rounded-full text-[11px] font-semibold text-zinc-300 hover:text-white bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] transition-all cursor-pointer flex items-center gap-1.5"
+          >
+            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} className="text-zinc-400" />
+            <span>Manage</span>
+          </button>
         </div>
       </div>
 
-      {/* Main Asset GridIcon Body */}
-      <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5 no-scrollbar">
+      {/* Main Asset Body */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
         <MeshUploadStatus state={meshUploadState} />
-        {/* UploadIcon 3D Model Card - Centered Dropzone */}
+
+        {/* Upload 3D Model Dropzone Card - Matching Studio Reference */}
         <div
           id="btn-upload-3d-model-card"
+          role="button"
+          tabIndex={0}
+          aria-label="Upload 3D model"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           onClick={() => !uploadActive && fileInputRef.current?.click()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              if (!uploadActive) fileInputRef.current?.click();
+            }
+          }}
           aria-disabled={uploadActive}
-          className={`group relative w-full rounded-xl border border-dashed ${uploadActive ? 'cursor-wait opacity-60' : 'cursor-pointer'} p-3 flex flex-col items-center justify-center text-center transition-all ${
+          className={`group relative w-full rounded-2xl border border-dashed ${
+            uploadActive ? 'cursor-wait opacity-60' : 'cursor-pointer'
+          } p-5 flex flex-col items-center justify-center text-center transition-all bg-[hsl(var(--surface-2))] bg-[radial-gradient(#ffffff0a_1px,transparent_1px)] [background-size:12px_12px] ${
             isDragOver
-              ? 'border-primary bg-primary/15 shadow-[0_0_16px_rgba(255,204,0,0.25)]'
-              : 'border-white/[0.12] hover:border-primary/70 bg-[hsl(var(--surface-0))] hover:bg-[hsl(var(--surface-1))]'
+              ? 'border-[#F9CF00] bg-[#F9CF00]/10 shadow-[0_0_16px_rgba(249,207,0,0.2)]'
+              : 'border-[hsl(var(--border))] hover:border-[#F9CF00]/50 hover:bg-[hsl(var(--surface-3))]'
           }`}
         >
           <div className="flex flex-col items-center justify-center">
-            <div className={`w-9 h-9 rounded-full bg-[hsl(var(--surface-2))] border border-white/[0.08] flex items-center justify-center transition-all mb-1.5 ${
-              isDragOver ? 'text-primary border-primary' : 'text-zinc-400 group-hover:text-primary group-hover:border-primary/40'
-            }`}>
-              <HugeiconsIcon icon={Box} size={16} className="w-4 h-4" />
+            {/* Purple / Indigo circular button with upward arrow matching reference */}
+            <div className="w-10 h-10 rounded-full bg-gradient-to-b from-[#6366F1] to-[#4F46E5] text-white flex items-center justify-center shadow-lg shadow-indigo-500/25 group-hover:scale-105 transition-transform mb-2.5">
+              <HugeiconsIcon icon={ArrowUp01Icon} size={18} className="stroke-[2.5]" />
             </div>
-            <span className="text-xs font-bold text-white leading-tight">
-              {isDragOver ? 'Drop 3D Model Here' : 'Import 3D Model'}
+            <span className="text-xs font-bold text-white tracking-wide">
+              Upload 3D Model
             </span>
-            <span className="text-[10px] text-zinc-400 mt-0.5 font-medium">
-              GLB, GLTF, OBJ, FBX, STL, PLY
+            <span className="text-[10px] text-zinc-400 mt-1 font-medium">
+              OBJ, FBX, STL, GLB
+            </span>
+            <span className="text-[9.5px] text-zinc-500 font-mono mt-0.5">
+              Size ≤ 150MB
             </span>
           </div>
         </div>
@@ -455,6 +367,8 @@ export const RightAssetsPanel: React.FC = () => {
                   {/* 3-Dots Menu */}
                   <div className="relative" data-asset-menu={asset.id}>
                     <button
+                      type="button"
+                      aria-label={`Options for ${asset.name}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         setActiveMenuAssetId(activeMenuAssetId === asset.id ? null : asset.id);
@@ -534,25 +448,6 @@ export const RightAssetsPanel: React.FC = () => {
                             + Create New
                           </button>
 
-                          <div className="border-t border-white/[0.06] my-1" />
-
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleQuickSendToDcc(asset);
-                            }}
-                            className="w-full text-left px-2.5 py-1.5 text-zinc-200 hover:bg-[hsl(var(--surface-3))] flex items-center gap-1.5 cursor-pointer text-[11px]"
-                          >
-                            <HugeiconsIcon icon={CableIcon} size={14} className="w-3.5 h-3.5 text-primary" />
-                            <span>
-                              Send to {(() => {
-                                const last = settingsPersistence.getLastDccTarget() as DccApp | null;
-                                const p = DCC_PRESETS.find(item => item.id === last);
-                                return p ? p.name.split(' ')[0] : 'DCC Bridge';
-                              })()}
-                            </span>
-                          </button>
-
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -593,6 +488,8 @@ export const RightAssetsPanel: React.FC = () => {
         </span>
         <div className="flex items-center gap-1">
           <button
+            type="button"
+            aria-label="Previous page"
             onClick={() => setActivePage(Math.max(1, activePage - 1))}
             disabled={activePage <= 1}
             className="p-1 rounded-lg hover:text-white hover:bg-[hsl(var(--surface-2))] disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
@@ -603,6 +500,8 @@ export const RightAssetsPanel: React.FC = () => {
           {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
             <button
               key={page}
+              type="button"
+              aria-label={`Page ${page}`}
               onClick={() => setActivePage(page)}
               className={`w-6 h-6 rounded-lg flex items-center justify-center text-[11px] font-bold transition-all cursor-pointer ${
                 safePage === page ? 'bg-primary text-black shadow-sm font-extrabold' : 'hover:text-white hover:bg-[hsl(var(--surface-2))] text-zinc-400'
@@ -613,6 +512,8 @@ export const RightAssetsPanel: React.FC = () => {
           ))}
 
           <button
+            type="button"
+            aria-label="Next page"
             onClick={() => setActivePage(Math.min(totalPages, activePage + 1))}
             disabled={activePage >= totalPages}
             className="p-1 rounded-lg hover:text-white hover:bg-[hsl(var(--surface-2))] disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
@@ -621,16 +522,6 @@ export const RightAssetsPanel: React.FC = () => {
           </button>
         </div>
       </div>
-
-      {/* UploadIcon Diagnostic Modal */}
-      <UploadDiagnosticModal
-        isOpen={isDiagnosticOpen}
-        onClose={() => {
-          setIsDiagnosticOpen(false);
-          setDiagnosticFile(null);
-        }}
-        initialFile={diagnosticFile}
-      />
     </div>
   );
 };
