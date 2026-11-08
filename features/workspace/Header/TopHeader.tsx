@@ -63,7 +63,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onMobileMenuToggle, isMobi
   return (
     <header
       id="persistent-top-header"
-      className="h-10 px-2.5 md:px-3 bg-[hsl(var(--surface-0))] flex items-center justify-between border-b border-[hsl(var(--border))] select-none z-50 text-xs w-full flex-shrink-0 min-w-0 shadow-sm"
+      className="h-10 px-2.5 md:px-3 bg-[hsl(var(--surface-0))] flex items-center justify-between border-b border-white/[0.06] select-none z-50 text-xs w-full flex-shrink-0 min-w-0 shadow-sm"
     >
       {/* Left Branding & Mode Dropdown */}
       <div className="flex items-center gap-2 md:gap-2.5 min-w-0">

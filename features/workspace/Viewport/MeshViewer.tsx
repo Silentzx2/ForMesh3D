@@ -12,9 +12,11 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 
 import { useWorkspace } from '../store/WorkspaceContext';
+import type { ShadingMode } from '../types';
 import { useViewerStore } from '@/stores/useViewerStore';
 import { useAnimationStore } from '@/stores/useAnimationStore';
 
+import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { SparklesIcon } from '@hugeicons/core-free-icons';
 
@@ -98,10 +100,25 @@ const disposeObject3D = (obj: THREE.Object3D) => {
   obj.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       child.geometry?.dispose();
-      if (Array.isArray(child.material)) {
-        child.material.forEach((m) => m.dispose());
-      } else if (child.material) {
-        child.material.dispose();
+      const orig = child.userData?.__originalMaterial;
+      if (orig) {
+        if (Array.isArray(orig)) orig.forEach((m) => m?.dispose?.());
+        else orig?.dispose?.();
+      }
+      const helperMats = [
+        child.userData?.__clayMaterial,
+        child.userData?.__normalMaterial,
+        child.userData?.__goldMaterial,
+        child.userData?.__chromeMaterial,
+        child.userData?.__wireMaterial,
+      ];
+      helperMats.forEach((m) => m?.dispose?.());
+      if (child.material && child.material !== orig && !helperMats.includes(child.material)) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach((m) => m?.dispose?.());
+        } else {
+          child.material?.dispose?.();
+        }
       }
     }
   });
@@ -339,6 +356,59 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     };
   }, []);
 
+  // 4. Asynchronous Zero-Load High-Definition Snapshot Capture Listener
+  useEffect(() => {
+    const handleSnapshot = () => {
+      const renderer = rendererRef.current;
+      const scene = sceneRef.current;
+      const camera = cameraRef.current;
+      if (!renderer || !scene || !camera) {
+        toast.error('3D Viewport is not ready for snapshot');
+        return;
+      }
+
+      // Schedule asynchronously via requestAnimationFrame to avoid blocking the main event loop
+      requestAnimationFrame(() => {
+        try {
+          const currentRenderer = rendererRef.current;
+          const currentScene = sceneRef.current;
+          const currentCamera = cameraRef.current;
+          if (!currentRenderer || !currentScene || !currentCamera) return;
+
+          // Render current high-quality frame aligned with RAF
+          currentRenderer.render(currentScene, currentCamera);
+
+          // Capture asynchronously via toBlob on browser background thread - ZERO main-thread freeze
+          currentRenderer.domElement.toBlob(
+            (blob) => {
+              if (!blob) {
+                toast.error('Failed to create snapshot image');
+                return;
+              }
+              const blobUrl = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = blobUrl;
+              a.download = `formesh3d-snapshot-${Date.now()}.png`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+              toast.success('High-resolution snapshot saved to Downloads!');
+            },
+            'image/png',
+            1.0
+          );
+        } catch (err: any) {
+          console.error('Failed to capture snapshot:', err);
+          toast.error('Failed to capture snapshot');
+        }
+      });
+    };
+
+    window.addEventListener('takeViewportSnapshot', handleSnapshot as EventListener);
+    return () => window.removeEventListener('takeViewportSnapshot', handleSnapshot as EventListener);
+  }, []);
+
   // Sync environment settings with Three.js scene lights & exposure
   useEffect(() => {
     if (!environmentSettings) return;
@@ -366,33 +436,84 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     }
   }, [showGrid]);
 
+  // Helper to cleanly apply shading mode to a mesh without corrupting original materials
+  const applyShadingToMesh = useCallback((mesh: THREE.Mesh, mode: ShadingMode, wireframe: boolean) => {
+    if (!mesh.userData.__originalMaterial && mesh.material) {
+      mesh.userData.__originalMaterial = mesh.material;
+    }
+    const orig = mesh.userData.__originalMaterial;
+    if (!orig) return;
+
+    if (mode === 'normals' || mode === 'matcap-normal') {
+      if (!mesh.userData.__normalMaterial) {
+        mesh.userData.__normalMaterial = new THREE.MeshNormalMaterial({
+          wireframe: Boolean(wireframe),
+        });
+      }
+      mesh.userData.__normalMaterial.wireframe = Boolean(wireframe);
+      mesh.material = mesh.userData.__normalMaterial;
+    } else if (mode === 'clay') {
+      if (!mesh.userData.__clayMaterial) {
+        mesh.userData.__clayMaterial = new THREE.MeshStandardMaterial({
+          color: 0xb0b3b8,
+          roughness: 0.85,
+          metalness: 0.05,
+          wireframe: Boolean(wireframe),
+        });
+      }
+      mesh.userData.__clayMaterial.wireframe = Boolean(wireframe);
+      mesh.material = mesh.userData.__clayMaterial;
+    } else if (mode === 'matcap-gold') {
+      if (!mesh.userData.__goldMaterial) {
+        mesh.userData.__goldMaterial = new THREE.MeshStandardMaterial({
+          color: 0xffd700,
+          roughness: 0.25,
+          metalness: 0.85,
+          wireframe: Boolean(wireframe),
+        });
+      }
+      mesh.userData.__goldMaterial.wireframe = Boolean(wireframe);
+      mesh.material = mesh.userData.__goldMaterial;
+    } else if (mode === 'matcap-chrome') {
+      if (!mesh.userData.__chromeMaterial) {
+        mesh.userData.__chromeMaterial = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.05,
+          metalness: 0.98,
+          wireframe: Boolean(wireframe),
+        });
+      }
+      mesh.userData.__chromeMaterial.wireframe = Boolean(wireframe);
+      mesh.material = mesh.userData.__chromeMaterial;
+    } else if (mode === 'wireframe') {
+      if (!mesh.userData.__wireMaterial) {
+        mesh.userData.__wireMaterial = new THREE.MeshBasicMaterial({
+          color: 0x00ffcc,
+          wireframe: true,
+        });
+      }
+      mesh.material = mesh.userData.__wireMaterial;
+    } else {
+      // 'textured' or default
+      mesh.material = orig;
+      const mats = Array.isArray(orig) ? orig : [orig];
+      mats.forEach((m) => {
+        if ('wireframe' in m) {
+          m.wireframe = Boolean(wireframe);
+          m.needsUpdate = true;
+        }
+      });
+    }
+  }, []);
+
   useEffect(() => {
     if (!modelGroupRef.current) return;
     modelGroupRef.current.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material) {
-        const mats = Array.isArray(child.material) ? child.material : [child.material];
-        mats.forEach((m) => {
-          if ('wireframe' in m) {
-            m.wireframe = Boolean(showWireframe || shadingMode === 'wireframe');
-            m.needsUpdate = true;
-          }
-          if (m instanceof THREE.MeshStandardMaterial) {
-            if (shadingMode === 'clay') {
-              m.color.setHex(0xb0b3b8);
-              m.roughness = 0.85;
-              m.metalness = 0.05;
-              m.needsUpdate = true;
-            } else if (shadingMode === 'textured') {
-              m.color.setHex(0xffffff);
-              m.roughness = 0.5;
-              m.metalness = 0.1;
-              m.needsUpdate = true;
-            }
-          }
-        });
+      if (child instanceof THREE.Mesh) {
+        applyShadingToMesh(child, shadingMode, Boolean(showWireframe));
       }
     });
-  }, [showWireframe, shadingMode]);
+  }, [showWireframe, shadingMode, applyShadingToMesh]);
 
   // 3. Reset Camera / Fit to screen helper
   const fitCameraToModel = useCallback((object: THREE.Object3D) => {
@@ -448,7 +569,14 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       mixerRef.current = null;
     }
 
-    const format = modelUrl.split('?')[0].split('.').pop()?.toLowerCase() || 'glb';
+    const detectedExt = modelUrl.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase();
+    const assetFormat = currentAsset?.format?.toLowerCase();
+    const knownFormats = ['glb', 'gltf', 'obj', 'fbx', 'stl', 'ply'];
+    const format = (assetFormat && knownFormats.includes(assetFormat))
+      ? assetFormat
+      : (detectedExt && knownFormats.includes(detectedExt))
+        ? detectedExt
+        : 'glb';
 
     const handleObjectLoaded = (object: THREE.Object3D, animations?: THREE.AnimationClip[]) => {
       if (isCancelled || !modelGroupRef.current) {
@@ -468,26 +596,12 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       object.position.y += (size.y * scale) / 2;
       object.scale.setScalar(scale);
 
-      // Enable shadows and apply materials
+      // Enable shadows, cache original materials, and apply active shading mode cleanly
       object.traverse((child) => {
         if (child instanceof THREE.Mesh) {
           child.castShadow = true;
           child.receiveShadow = true;
-          if (child.material) {
-            const mats = Array.isArray(child.material) ? child.material : [child.material];
-            mats.forEach((m) => {
-              if (m instanceof THREE.MeshStandardMaterial) {
-                if (shadingMode === 'clay') {
-                  m.color.setHex(0xb0b3b8);
-                  m.roughness = 0.85;
-                  m.metalness = 0.05;
-                }
-                if (showWireframe || shadingMode === 'wireframe') {
-                  m.wireframe = true;
-                }
-              }
-            });
-          }
+          applyShadingToMesh(child, shadingMode, Boolean(showWireframe));
         }
       });
 
@@ -570,7 +684,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     return () => {
       isCancelled = true;
     };
-  }, [modelUrl, fitCameraToModel, shadingMode, showWireframe]);
+  }, [modelUrl, fitCameraToModel, shadingMode, showWireframe, applyShadingToMesh]);
 
   return (
     <div

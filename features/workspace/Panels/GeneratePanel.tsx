@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useWorkspace } from '../store/WorkspaceContext';
 import type { ModelAsset } from '../types';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
@@ -20,8 +21,13 @@ import {
   Idea01Icon,
   Image01Icon,
   Image02Icon,
+  FolderOpenIcon,
+  ViewIcon,
+  HelpCircleIcon,
+  SlidersHorizontalIcon,
 } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
+import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
 
 // ==========================================
 // 1. Quality Metrics & QualityBadge Export
@@ -245,6 +251,9 @@ export type GenerationIntent = 'game_ready' | 'cinematic' | 'mobile' | 'native';
 export const GeneratePanel: React.FC = () => {
   const {
     isExecuting,
+    executionProgress,
+    executionStep,
+    cancelExecution,
     generate3DModel,
     generationSettings,
     setGenerationSettings,
@@ -254,20 +263,116 @@ export const GeneratePanel: React.FC = () => {
   const [intent, setIntent] = useState<GenerationIntent>('game_ready');
   const [selectedModel, setSelectedModel] = useState('hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh');
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
-
-  // Sync default model and intent into workspace settings on mount
-  useEffect(() => {
-    setGenerationSettings((prev) => {
-      const updates: Partial<typeof prev> = {};
-      if (!prev.aiModel && selectedModel) updates.aiModel = selectedModel;
-      if (!prev.intent && intent) updates.intent = intent;
-      return Object.keys(updates).length > 0 ? { ...prev, ...updates } : prev;
-    });
-  }, [selectedModel, intent, setGenerationSettings]);
+  const { state: meshUploadState, upload: uploadMesh } = useMeshAssetUpload();
+  const isMeshUploading = meshUploadState.status === 'uploading' || meshUploadState.status === 'verifying';
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const meshInputRef = useRef<HTMLInputElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const geomTextureFlyoutRef = useRef<HTMLDivElement>(null);
+  const geomTextureTriggerRef = useRef<HTMLButtonElement>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [inputTab, setInputTab] = useState<'image' | 'mesh'>('image');
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  // Geometry & Texture flyout settings matching Tripo reference
+  const [isGeomTextureOpen, setIsGeomTextureOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [enablePostprocess, setEnablePostprocess] = useState(true);
+  const [enableTexture, setEnableTexture] = useState(true);
+  const [textureQuality, setTextureQuality] = useState<'2K' | '4K'>('4K');
+  const [removeLighting, setRemoveLighting] = useState(true);
+  const [enablePbr, setEnablePbr] = useState(true);
+  const [topologyMode, setTopologyMode] = useState<'Quad' | 'Triangle'>('Triangle');
+  const [polycount, setPolycount] = useState(600000);
+  const dragCounterRef = useRef(0);
+
+  // Keep imagePreview in sync with workspace generationSettings
+  useEffect(() => {
+    if (generationSettings.image && generationSettings.image !== imagePreview) {
+      setImagePreview(generationSettings.image);
+    }
+  }, [generationSettings.image, imagePreview]);
+
+  // Sync initial parameters into workspace settings on mount
+  useEffect(() => {
+    setGenerationSettings((prev) => ({
+      ...prev,
+      aiModel: prev.aiModel || selectedModel,
+      intent: prev.intent || intent,
+      enablePostprocess: prev.enablePostprocess ?? enablePostprocess,
+      generateTexture: prev.generateTexture ?? enableTexture,
+      texture_enabled: prev.texture_enabled ?? enableTexture,
+      textureEnabled: prev.textureEnabled ?? enableTexture,
+      textureResolution: prev.textureResolution ?? textureQuality,
+      texture_resolution: prev.texture_resolution ?? textureQuality,
+      textureQuality: prev.textureQuality ?? (textureQuality === '4K' ? 'high' : 'medium'),
+      removeBackground: prev.removeBackground ?? removeLighting,
+      highResolutionNormalBaking: prev.highResolutionNormalBaking ?? enablePbr,
+      quadTopology: prev.quadTopology ?? (topologyMode === 'Quad'),
+      topologyMode: prev.topologyMode ?? (topologyMode === 'Quad' ? 'quad' : 'triangle'),
+      autoOptimizeSettings: {
+        ...prev.autoOptimizeSettings,
+        targetPolycount: prev.autoOptimizeSettings?.targetPolycount || polycount,
+      },
+      polycount: prev.polycount || polycount,
+      targetPolycount: prev.targetPolycount || polycount,
+      target_polycount: prev.target_polycount || polycount,
+    }));
+  }, [setGenerationSettings]);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Close Geometry & Texture flyout on outside click or Escape
+  useEffect(() => {
+    if (!isGeomTextureOpen) return;
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (
+        geomTextureFlyoutRef.current &&
+        !geomTextureFlyoutRef.current.contains(target) &&
+        geomTextureTriggerRef.current &&
+        !geomTextureTriggerRef.current.contains(target)
+      ) {
+        setIsGeomTextureOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsGeomTextureOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isGeomTextureOpen]);
+
+  // Clear sticky drag glow on global window dragend, drop, or dragleave
+  useEffect(() => {
+    const handleGlobalDragEnd = () => {
+      dragCounterRef.current = 0;
+      setIsDragOver(false);
+    };
+    const handleWindowDragLeave = (e: DragEvent) => {
+      if (!e.relatedTarget || e.relatedTarget === document.documentElement) {
+        dragCounterRef.current = 0;
+        setIsDragOver(false);
+      }
+    };
+    window.addEventListener('dragend', handleGlobalDragEnd);
+    window.addEventListener('drop', handleGlobalDragEnd);
+    window.addEventListener('dragleave', handleWindowDragLeave);
+    return () => {
+      window.removeEventListener('dragend', handleGlobalDragEnd);
+      window.removeEventListener('drop', handleGlobalDragEnd);
+      window.removeEventListener('dragleave', handleWindowDragLeave);
+    };
+  }, []);
 
   // Close AI model dropdown on outside click or Escape
   useEffect(() => {
@@ -309,7 +414,45 @@ export const GeneratePanel: React.FC = () => {
     },
   ];
 
+  const isMeshFile = (file: File) => {
+    const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+    return ['.glb', '.gltf', '.obj', '.fbx', '.stl', '.ply'].includes(ext);
+  };
+
+  const isImageFile = (file: File) => {
+    return (
+      file.type.startsWith('image/') ||
+      ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.svg'].some((ext) =>
+        file.name.toLowerCase().endsWith(ext)
+      )
+    );
+  };
+
+  // Inspect dataTransfer items during dragover/dragenter before user releases/drops file
+  const detectDraggedFileType = (e: React.DragEvent): 'image' | 'mesh' | null => {
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      for (let i = 0; i < e.dataTransfer.files.length; i++) {
+        const file = e.dataTransfer.files[i];
+        if (isMeshFile(file)) return 'mesh';
+        if (isImageFile(file)) return 'image';
+      }
+    }
+    if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
+      for (let i = 0; i < e.dataTransfer.items.length; i++) {
+        const item = e.dataTransfer.items[i];
+        if (item.kind === 'file') {
+          if (item.type.startsWith('image/')) return 'image';
+          // 3D model files (.glb, .obj, .fbx, .stl) usually present as 'model/*', 'application/*', or empty string ''
+          return 'mesh';
+        }
+      }
+    }
+    return null;
+  };
+
   const processImageFile = (file: File) => {
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
     if (file.size > 20 * 1024 * 1024) {
       toast.error('Image exceeds 20MB limit');
       return;
@@ -321,27 +464,105 @@ export const GeneratePanel: React.FC = () => {
       setGenerationSettings((prev) => ({
         ...prev,
         image: result,
+        imageName: file.name,
       }));
+      setInputTab('image');
       toast.success(`Image selected: ${file.name}`);
     };
     reader.readAsDataURL(file);
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) processImageFile(file);
+  // Automatic pre-drop switch while user is hovering with dragged file
+  const handleCardDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+    const detected = detectDraggedFileType(e);
+    if (detected === 'mesh' && inputTab !== 'mesh') {
+      setInputTab('mesh');
+    } else if (detected === 'image' && inputTab !== 'image') {
+      setInputTab('image');
+    }
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleCardDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
+    dragCounterRef.current += 1;
+    handleCardDragOver(e);
+  };
+
+  const handleCardDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    const related = e.relatedTarget as Node | null;
+    if (!related || !e.currentTarget.contains(related) || dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragOver(false);
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
+    const file = e.target.files?.[0];
+    if (file) {
+      if (isMeshFile(file)) {
+        setInputTab('mesh');
+        await uploadMesh(file);
+        toast.success(`3D Mesh loaded: ${file.name}`);
+      } else {
+        processImageFile(file);
+      }
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleMeshUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
+    const file = e.target.files?.[0];
+    if (file) {
+      if (isImageFile(file)) {
+        setInputTab('image');
+        processImageFile(file);
+      } else {
+        setInputTab('mesh');
+        await uploadMesh(file);
+        toast.success(`3D Mesh loaded: ${file.name}`);
+      }
+    }
+    if (meshInputRef.current) meshInputRef.current.value = '';
+  };
+
+  const handleUnifiedDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
+
     const file = e.dataTransfer.files?.[0];
-    if (file) processImageFile(file);
+    if (!file) return;
+
+    if (isMeshFile(file)) {
+      setInputTab('mesh');
+      await uploadMesh(file);
+      toast.success(`3D Mesh loaded: ${file.name}`);
+    } else if (isImageFile(file)) {
+      setInputTab('image');
+      processImageFile(file);
+    } else {
+      if (inputTab === 'mesh') {
+        await uploadMesh(file);
+        toast.success(`3D Mesh loaded: ${file.name}`);
+      } else {
+        processImageFile(file);
+      }
+    }
   };
 
   const handleRemoveImage = (e?: React.MouseEvent) => {
     e?.stopPropagation();
     setImagePreview(null);
-    setGenerationSettings((prev) => ({ ...prev, image: null }));
+    setGenerationSettings((prev) => ({ ...prev, image: null, imageName: undefined }));
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -359,10 +580,23 @@ export const GeneratePanel: React.FC = () => {
   };
 
   const handleGenerate = async () => {
+    if (!generationSettings.image && !imagePreview) {
+      toast.error('Please upload or select an image first');
+      return;
+    }
     try {
       await generate3DModel();
     } catch (err: any) {
       toast.error(`Generation failed: ${err.message || 'Unknown error'}`);
+    }
+  };
+
+  const handleCancel = async () => {
+    try {
+      await cancelExecution();
+      toast.info('Generation cancelled');
+    } catch (err: any) {
+      toast.error(`Cancel failed: ${err.message || 'Unknown error'}`);
     }
   };
 
@@ -379,189 +613,513 @@ export const GeneratePanel: React.FC = () => {
         </span>
       </div>
 
-      {/* 2. Studio Image Upload Card (Matching Tripo Reference Design, Layout & Colors) */}
+      {/* 2. Studio Input Card (Matching Tripo Reference Design, Layout & Colors) */}
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/png,image/jpeg,image/webp"
+        accept="image/png,image/jpeg,image/webp,image/*,.glb,.gltf,.obj,.fbx,.stl,.ply"
         onChange={handleImageUpload}
         className="hidden"
       />
-      <div className="p-2.5 rounded-2xl border border-[#48457D] bg-[#161626] shadow-xl space-y-2">
-        {/* Top 4-Pill Mode Selector Bar */}
-        <div className="h-8 px-1 rounded-xl bg-[#0f0f1c] border border-white/[0.04] flex items-center justify-between">
+      <input
+        ref={meshInputRef}
+        type="file"
+        accept=".glb,.gltf,.obj,.fbx,.stl,.ply,image/png,image/jpeg,image/webp,image/*"
+        onChange={handleMeshUpload}
+        className="hidden"
+      />
+      <div
+        className={`p-2.5 rounded-2xl border transition-colors space-y-2 ${
+          isDragOver
+            ? 'border-[#F9CF00] ring-1 ring-[#F9CF00]/40 bg-[#161726]'
+            : 'border-white/[0.08] bg-[#12131d]'
+        }`}
+        onDragOver={handleCardDragOver}
+        onDragEnter={handleCardDragEnter}
+        onDragLeave={handleCardDragLeave}
+        onDrop={handleUnifiedDrop}
+      >
+        {/* Top 2-Pill Mode Selector Bar: Image & 3D Mesh */}
+        <div className="h-8 p-1 rounded-xl bg-[#0f0f1c] border border-white/[0.04] flex items-center gap-1">
           <button
             type="button"
-            className="h-6 px-3 rounded-lg bg-white text-black font-bold flex items-center justify-center shadow-sm cursor-pointer"
+            onClick={() => setInputTab('image')}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (inputTab !== 'image') setInputTab('image');
+            }}
+            className={`flex-1 h-6 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              inputTab === 'image'
+                ? 'bg-white text-black shadow-sm'
+                : 'text-zinc-400 hover:text-white'
+            }`}
             title="Image to 3D"
           >
-            <HugeiconsIcon icon={Image01Icon} size={15} />
+            <HugeiconsIcon icon={Image01Icon} size={14} />
+            <span>Image</span>
           </button>
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="h-6 px-3 rounded-lg text-zinc-400 hover:text-white transition-colors flex items-center justify-center cursor-pointer"
-            title="3D Mesh Input"
+            onClick={() => setInputTab('mesh')}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (inputTab !== 'mesh') setInputTab('mesh');
+            }}
+            className={`flex-1 h-6 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              inputTab === 'mesh'
+                ? 'bg-white text-black shadow-sm'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+            title="Upload 3D Mesh"
           >
-            <HugeiconsIcon icon={Box} size={15} />
-          </button>
-          <button
-            type="button"
-            onClick={() => toast.info('Multi-View input ready')}
-            className="h-6 px-3 rounded-lg text-zinc-400 hover:text-white transition-colors flex items-center justify-center cursor-pointer"
-            title="Multi-View Images"
-          >
-            <HugeiconsIcon icon={Image02Icon} size={15} />
-          </button>
-          <button
-            type="button"
-            onClick={() => toast.info('Text & Sketch mode ready')}
-            className="h-6 px-3 rounded-lg text-zinc-400 hover:text-white transition-colors flex items-center justify-center cursor-pointer"
-            title="Sketch / Prompt"
-          >
-            <HugeiconsIcon icon={Edit02Icon} size={15} />
+            <HugeiconsIcon icon={Box} size={14} />
+            <span>3D Mesh</span>
           </button>
         </div>
 
-        {/* Dropzone Container */}
-        {imagePreview || generationSettings.image ? (
-          <div className="relative w-full h-[195px] rounded-xl overflow-hidden bg-[#0d0e17] border border-[#48457D]/40 flex items-center justify-center group/preview">
-            <img
-              src={imagePreview || generationSettings.image || ''}
-              alt="Uploaded concept"
-              className="max-h-[190px] w-auto max-w-full object-contain"
-            />
+        {/* Dropzone Container depending on Tab */}
+        {inputTab === 'image' ? (
+          imagePreview || generationSettings.image ? (
+            <div className="relative w-full h-[195px] rounded-xl overflow-hidden bg-[#0c0d14] border border-white/[0.08] flex items-center justify-center group/preview">
+              <img
+                src={imagePreview || generationSettings.image || ''}
+                alt="Uploaded concept"
+                className="max-h-[190px] w-auto max-w-full object-contain"
+              />
 
-            {/* Top-Right Trash Delete Button */}
-            <button
-              type="button"
-              onClick={handleRemoveImage}
-              aria-label="Remove uploaded image"
-              title="Remove image"
-              className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/75 hover:bg-black/95 text-white flex items-center justify-center border border-white/10 shadow-lg cursor-pointer transition-all group-hover/preview:scale-105"
-            >
-              <HugeiconsIcon icon={Delete02Icon} size={14} />
-            </button>
-
-            {/* Bottom Floating Actions (Edit + Multi-Views) */}
-            <div className="absolute bottom-2 inset-x-2 flex items-center justify-between pointer-events-none">
-              {/* Pencil Edit button */}
+              {/* Top-Right Trash Delete Button */}
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
-                title="Edit or Replace Image"
-                className="pointer-events-auto w-7 h-7 rounded-full bg-[#1b1c2b]/90 hover:bg-[#25273b] border border-white/10 text-white flex items-center justify-center shadow-lg cursor-pointer transition-all active:scale-95"
+                onClick={handleRemoveImage}
+                aria-label="Remove uploaded image"
+                title="Remove image"
+                className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/75 hover:bg-black/95 text-white flex items-center justify-center border border-white/10 shadow-lg cursor-pointer transition-all group-hover/preview:scale-105"
               >
-                <HugeiconsIcon icon={Edit02Icon} size={13} />
+                <HugeiconsIcon icon={Delete02Icon} size={14} />
               </button>
 
-              {/* Generate Multi-Views Pill */}
-              <button
-                type="button"
-                onClick={() => toast.info('Multi-view synthesis ready for processing')}
-                className="pointer-events-auto h-7 px-2.5 rounded-full bg-[#1b1c2b]/90 hover:bg-[#25273b] border border-white/10 text-white text-[10px] font-semibold flex items-center gap-1.5 shadow-lg cursor-pointer transition-all active:scale-95"
-              >
-                <span className="w-3.5 h-3.5 rounded-full bg-[#F9CF00] text-black flex items-center justify-center text-[8px] font-black">
-                  ★
-                </span>
-                <span>Generate Multi-Views</span>
-              </button>
+              {/* Bottom Floating Replace Action */}
+              <div className="absolute bottom-2.5 right-2.5 pointer-events-none">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Replace Image"
+                  className="pointer-events-auto h-7 px-3 rounded-full bg-[#1b1c2b]/90 hover:bg-[#25273b] border border-white/10 text-white text-[10px] font-semibold flex items-center gap-1.5 shadow-lg cursor-pointer transition-all active:scale-95"
+                >
+                  <HugeiconsIcon icon={Edit02Icon} size={13} />
+                  <span>Replace</span>
+                </button>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label="Upload concept image"
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={handleCardDragOver}
+              onDragEnter={handleCardDragEnter}
+              onDragLeave={handleCardDragLeave}
+              onDrop={handleUnifiedDrop}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  fileInputRef.current?.click();
+                }
+              }}
+              className={`relative group w-full h-[195px] rounded-xl border border-dashed transition-all p-2.5 flex flex-col items-center justify-between cursor-pointer shadow-inner ${
+                isDragOver
+                  ? 'border-[#F9CF00] bg-[#1c1d2c] ring-1 ring-[#F9CF00]/40'
+                  : 'border-white/[0.12] hover:border-white/25 bg-[#0f1019]'
+              } [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:16px_16px] [background-position:0_0,0_8px,8px_-8px,-8px_0px]`}
+            >
+              {/* Top Right Tip Lightbulb */}
+              <div className="w-full flex justify-end">
+                <span className="p-0.5 text-zinc-400/70 hover:text-[#F9CF00] transition-colors" title="Image prompt tips">
+                  <HugeiconsIcon icon={Idea01Icon} size={14} />
+                </span>
+              </div>
+
+              {/* Center Upload Prompt */}
+              <div className="flex flex-col items-center text-center -mt-1">
+                <HugeiconsIcon
+                  icon={Image01Icon}
+                  size={28}
+                  className={`transition-all mb-1 ${
+                    isDragOver ? 'text-[#F9CF00] scale-110' : 'text-zinc-300 group-hover:text-white group-hover:scale-105'
+                  }`}
+                />
+                <span className="text-xs font-bold text-white tracking-wide">
+                  {isDragOver ? 'Drop Image Here' : 'Upload Image'}
+                </span>
+                <span className="text-[10px] text-zinc-400 font-mono mt-0.5">JPG, PNG, WEBP · Size ≤ 20MB</span>
+              </div>
+
+              {/* Bottom Helper Note */}
+              <div className="text-[10px] font-medium text-zinc-400 group-hover:text-zinc-300 flex items-center gap-1 transition-colors pb-0.5">
+                <span>Front view or clean background recommended</span>
+              </div>
+            </div>
+          )
         ) : (
+          /* 3D Mesh Upload Tab View */
           <div
             role="button"
             tabIndex={0}
-            aria-label="Upload concept image"
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleDrop}
+            aria-label="Upload 3D Mesh"
+            onClick={() => !isMeshUploading && meshInputRef.current?.click()}
+            onDragOver={handleCardDragOver}
+            onDragEnter={handleCardDragEnter}
+            onDragLeave={handleCardDragLeave}
+            onDrop={handleUnifiedDrop}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                fileInputRef.current?.click();
+                if (!isMeshUploading) meshInputRef.current?.click();
               }
             }}
-            className="relative group w-full h-[195px] rounded-xl border border-dashed border-[#48457D]/60 hover:border-[#6366F1] bg-[#12131F] [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:16px_16px] [background-position:0_0,0_8px,8px_-8px,-8px_0px] p-2.5 flex flex-col items-center justify-between cursor-pointer transition-all shadow-inner"
+            className={`relative group w-full h-[195px] rounded-xl border border-dashed transition-all p-3 flex flex-col items-center justify-center text-center cursor-pointer shadow-inner ${
+              isDragOver
+                ? 'border-[#F9CF00] bg-[#1c1d2c] ring-1 ring-[#F9CF00]/40'
+                : 'border-white/[0.12] hover:border-white/25 bg-[#0f1019]'
+            } [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:16px_16px] [background-position:0_0,0_8px,8px_-8px,-8px_0px]`}
           >
-            {/* Top Right Tip Lightbulb */}
-            <div className="w-full flex justify-end">
-              <span className="p-0.5 text-zinc-400/70 hover:text-[#F9CF00] transition-colors" title="Image prompt tips">
-                <HugeiconsIcon icon={Idea01Icon} size={14} />
-              </span>
+            <div
+              className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-transform mb-2 ${
+                isDragOver
+                  ? 'bg-[#F9CF00] text-black scale-110 shadow-[#F9CF00]/30'
+                  : 'bg-gradient-to-br from-[#6366F1] to-[#8B5CF6] text-white shadow-indigo-500/25 group-hover:scale-105'
+              }`}
+            >
+              <HugeiconsIcon icon={Box} size={20} />
             </div>
-
-            {/* Center Upload Prompt */}
-            <div className="flex flex-col items-center text-center -mt-1">
-              <HugeiconsIcon icon={Image01Icon} size={28} className="text-zinc-300 group-hover:text-white group-hover:scale-105 transition-all mb-1" />
-              <span className="text-xs font-bold text-white tracking-wide">Upload</span>
-              <span className="text-[10px] text-zinc-400 font-mono mt-0.5">JPG, PNG, WEBP Size ≤ 20MB</span>
-            </div>
-
-            {/* Bottom Generate Image Link */}
-            <div className="text-[10.5px] font-medium text-zinc-300 group-hover:text-white flex items-center gap-1 transition-colors pb-0.5">
-              <span>Generate Image for 3D</span>
-              <span className="text-zinc-400 group-hover:translate-x-0.5 transition-transform">›</span>
-            </div>
+            <span className="text-xs font-bold text-white tracking-wide">
+              {isDragOver ? 'Drop 3D Mesh Here' : isMeshUploading ? 'Uploading Mesh...' : 'Upload 3D Mesh'}
+            </span>
+            <span className="text-[10px] text-zinc-400 mt-1 font-medium">
+              OBJ, FBX, STL, GLB, PLY
+            </span>
+            <span className="text-[9px] text-zinc-500 font-mono mt-0.5">
+              Size ≤ 150MB
+            </span>
           </div>
         )}
       </div>
 
-      {/* 3. General Settings Accordion */}
-      <div className="border-t border-[hsl(var(--border))] pt-2">
+      {/* 3. General Settings: Geometry & Texture (Matching Tripo Reference & Dynamic Loading) */}
+      <div className="border-t border-[hsl(var(--border))] pt-2 relative">
+        <div className="flex items-center justify-between pb-1">
+          <span className="text-[10px] font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">
+            General Settings
+          </span>
+        </div>
+
+        {/* Geometry & Texture Trigger Button */}
         <button
+          ref={geomTextureTriggerRef}
           type="button"
-          aria-expanded={isGeneralSettingsOpen}
-          aria-label="Toggle General Settings"
-          onClick={() => setIsGeneralSettingsOpen(!isGeneralSettingsOpen)}
-          className="w-full flex items-center justify-between p-1.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-xs font-semibold text-[hsl(var(--foreground))] transition-all cursor-pointer shadow-sm"
+          aria-expanded={isGeomTextureOpen}
+          onClick={() => setIsGeomTextureOpen((prev) => !prev)}
+          className={`w-full flex items-center justify-between p-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-sm ${
+            isGeomTextureOpen
+              ? 'bg-[#1b1b2f] border-[#6366F1] text-white ring-1 ring-[#6366F1]/50'
+              : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-[hsl(var(--foreground))]'
+          }`}
         >
-          <div className="flex items-center gap-1.5">
-            <span>General Settings</span>
-            <span className="text-[10px] text-[#F9CF00] font-mono font-bold">
-              {intent === 'game_ready' ? '50k Tris' : intent === 'cinematic' ? '200k Tris' : intent === 'mobile' ? '20k Tris' : 'Raw'}
-            </span>
+          <div className="flex items-center gap-2">
+            <HugeiconsIcon icon={SlidersHorizontalIcon} size={14} className="text-[#6366F1]" />
+            <span>Geometry &amp; Texture</span>
           </div>
-          <HugeiconsIcon icon={isGeneralSettingsOpen ? ChevronDown : ChevronRight} size={14} className="text-[hsl(var(--muted-foreground))]" />
+          <HugeiconsIcon
+            icon={ChevronRight}
+            size={14}
+            className={`text-[hsl(var(--muted-foreground))] transition-transform duration-200 ${
+              isGeomTextureOpen ? 'rotate-90 text-[#6366F1]' : ''
+            }`}
+          />
         </button>
 
-        {isGeneralSettingsOpen && (
-          <div className="p-3 rounded-xl bg-[hsl(var(--surface-1))] border border-[hsl(var(--border))] text-xs space-y-2.5 mt-1.5">
-            <div>
-              <label className="text-[10px] font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider block mb-1.5">
-                Production Intent Preset
-              </label>
-              <div className="grid grid-cols-2 gap-1.5">
-                {[
-                  { id: 'game_ready', label: 'Game Ready', desc: '50k Tris · PBR' },
-                  { id: 'cinematic', label: 'Cinematic', desc: '200k Tris · High' },
-                  { id: 'mobile', label: 'Mobile', desc: '20k Tris · Fast' },
-                  { id: 'native', label: 'Raw Native', desc: 'Immutable Master' },
-                ].map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => handleIntentSelect(item.id as GenerationIntent)}
-                    className={`p-2 rounded-lg text-left transition-all cursor-pointer border ${
-                      intent === item.id
-                        ? 'bg-[#F9CF00]/15 border-[#F9CF00] text-white shadow-sm'
-                        : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface-3))]'
-                    }`}
-                  >
-                    <p className={`text-[11px] font-bold ${intent === item.id ? 'text-[#F9CF00]' : 'text-[hsl(var(--foreground))]'}`}>
-                      {item.label}
-                    </p>
-                    <p className="text-[9px] text-[hsl(var(--muted-foreground))] mt-0.5">{item.desc}</p>
-                  </button>
-                ))}
+        {/* Dynamic Flying Side Geometry & Texture Settings Panel - Rendered via Portal into document.body to prevent overflow-hidden clipping */}
+        {mounted && isGeomTextureOpen && typeof document !== 'undefined' && createPortal(
+          <div
+            ref={geomTextureFlyoutRef}
+            id="geometry-texture-flyout"
+            role="dialog"
+            aria-label="Geometry and Texture Settings"
+            className="fixed left-4 right-4 md:left-[336px] md:right-auto bottom-12 md:bottom-16 w-auto md:w-[280px] p-3.5 rounded-2xl bg-[#141421] border border-[#6366F1]/50 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-2.5 animate-in fade-in zoom-in-95 duration-150 z-50 pointer-events-auto select-none"
+          >
+            {/* Header with Title and Close Button */}
+            <div className="flex items-start justify-between pb-1 border-b border-white/[0.08]">
+              <div>
+                <h3 className="text-xs font-bold text-white tracking-wide">Geometry &amp; Texture</h3>
+                <p className="text-[9px] text-zinc-400 mt-0.5">Settings automatically saved</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsGeomTextureOpen(false)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                aria-label="Close Geometry & Texture settings"
+              >
+                <HugeiconsIcon icon={Cancel} size={13} />
+              </button>
+            </div>
+
+            {/* Toggle 1: Post-Processing */}
+            <div className="flex items-center justify-between py-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-zinc-200 font-medium">Post-Processing</span>
+                <span title="Automatic mesh cleanup, manifold healing, smoothing and feature edge preservation" className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                  <HugeiconsIcon icon={HelpCircleIcon} size={12} />
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={enablePostprocess}
+                onClick={() => {
+                  const next = !enablePostprocess;
+                  setEnablePostprocess(next);
+                  setGenerationSettings((prev) => ({ ...prev, enablePostprocess: next }));
+                }}
+                className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer ${
+                  enablePostprocess ? 'bg-[#6366F1]' : 'bg-white/15'
+                }`}
+              >
+                <div
+                  className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                    enablePostprocess ? 'translate-x-3.5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Toggle 3: Texture Enable */}
+            <div className="flex items-center justify-between py-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-zinc-200 font-medium">Texture</span>
+                <span title="Generate high-resolution texture map" className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                  <HugeiconsIcon icon={HelpCircleIcon} size={12} />
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={enableTexture}
+                onClick={() => {
+                  const next = !enableTexture;
+                  setEnableTexture(next);
+                  setGenerationSettings((prev) => ({
+                    ...prev,
+                    generateTexture: next,
+                    texture_enabled: next,
+                    textureEnabled: next,
+                  }));
+                }}
+                className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer ${
+                  enableTexture ? 'bg-[#6366F1]' : 'bg-white/15'
+                }`}
+              >
+                <div
+                  className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                    enableTexture ? 'translate-x-3.5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Texture Quality: 2K / 4K pills (8K removed as requested) */}
+            <div className="space-y-1 pt-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-zinc-300 font-medium">Texture Quality</span>
+                <span title="Texture map resolution" className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                  <HugeiconsIcon icon={HelpCircleIcon} size={12} />
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
+                {(['2K', '4K'] as const).map((res) => {
+                  const isSelected = textureQuality === res;
+                  return (
+                    <button
+                      key={res}
+                      type="button"
+                      onClick={() => {
+                        setTextureQuality(res);
+                        setGenerationSettings((prev) => ({
+                          ...prev,
+                          textureResolution: res,
+                          texture_resolution: res,
+                          textureQuality: res === '4K' ? 'high' : 'medium',
+                        }));
+                      }}
+                      className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#3b3577] text-white border border-[#6366F1] shadow-sm'
+                          : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      <span>{res}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
-          </div>
+
+            {/* Toggle 4: Remove Lighting */}
+            <div className="flex items-center justify-between py-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-zinc-200 font-medium">Remove Lighting</span>
+                <span title="De-light albedo textures to extract true material colors" className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                  <HugeiconsIcon icon={HelpCircleIcon} size={12} />
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={removeLighting}
+                onClick={() => {
+                  const next = !removeLighting;
+                  setRemoveLighting(next);
+                  setGenerationSettings((prev) => ({ ...prev, removeBackground: next }));
+                }}
+                className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer ${
+                  removeLighting ? 'bg-[#6366F1]' : 'bg-white/15'
+                }`}
+              >
+                <div
+                  className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                    removeLighting ? 'translate-x-3.5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Toggle 5: PBR */}
+            <div className="flex items-center justify-between py-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-zinc-200 font-medium">PBR</span>
+                <span title="Generate physically based roughness, metallic and normal maps" className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                  <HugeiconsIcon icon={HelpCircleIcon} size={12} />
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={enablePbr}
+                onClick={() => {
+                  const next = !enablePbr;
+                  setEnablePbr(next);
+                  setGenerationSettings((prev) => ({ ...prev, highResolutionNormalBaking: next }));
+                }}
+                className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer ${
+                  enablePbr ? 'bg-[#6366F1]' : 'bg-white/15'
+                }`}
+              >
+                <div
+                  className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                    enablePbr ? 'translate-x-3.5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Topology Mode: Quad / Triangle (Controlled by Post-Processing) */}
+            <div className={`space-y-1 pt-0.5 transition-all duration-200 ${!enablePostprocess ? 'opacity-35 pointer-events-none select-none cursor-not-allowed' : ''}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-zinc-300 font-medium">Topology</span>
+                  <span title="Target mesh face topology structure (requires Post-Processing)" className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                    <HugeiconsIcon icon={HelpCircleIcon} size={12} />
+                  </span>
+                </div>
+                {!enablePostprocess && (
+                  <span className="text-[9px] font-semibold text-zinc-500 uppercase tracking-wider">Off</span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
+                <button
+                  type="button"
+                  disabled={!enablePostprocess}
+                  onClick={() => {
+                    setTopologyMode('Quad');
+                    setGenerationSettings((prev) => ({ ...prev, quadTopology: true, topologyMode: 'quad' }));
+                  }}
+                  className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                    !enablePostprocess ? 'cursor-not-allowed' : 'cursor-pointer'
+                  } ${
+                    topologyMode === 'Quad'
+                      ? 'bg-[#3b3577] text-white border border-[#6366F1] shadow-sm'
+                      : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
+                  }`}
+                >
+                  <span className="text-[11px]">▢</span>
+                  <span>Quad</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={!enablePostprocess}
+                  onClick={() => {
+                    setTopologyMode('Triangle');
+                    setGenerationSettings((prev) => ({ ...prev, quadTopology: false, topologyMode: 'triangle' }));
+                  }}
+                  className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                    !enablePostprocess ? 'cursor-not-allowed' : 'cursor-pointer'
+                  } ${
+                    topologyMode === 'Triangle'
+                      ? 'bg-[#3b3577] text-white border border-[#6366F1] shadow-sm'
+                      : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
+                  }`}
+                >
+                  <span className="text-[11px]">△</span>
+                  <span>Triangle</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Polycount Slider (Controlled by Post-Processing, Max 600K) */}
+            <div className={`space-y-1 pt-1 border-t border-white/[0.08] transition-all duration-200 ${!enablePostprocess ? 'opacity-35 pointer-events-none select-none cursor-not-allowed' : ''}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-zinc-300 font-medium">Polycount (Target)</span>
+                  {!enablePostprocess && (
+                    <span className="text-[9px] font-semibold text-zinc-500 uppercase tracking-wider">Off</span>
+                  )}
+                </div>
+                <span className="text-[11px] font-mono text-[#F9CF00] font-bold">
+                  {polycount.toLocaleString()}
+                </span>
+              </div>
+              <input
+                type="range"
+                disabled={!enablePostprocess}
+                min="500"
+                max="600000"
+                step="2500"
+                value={polycount}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  setPolycount(val);
+                  setGenerationSettings((prev) => ({
+                    ...prev,
+                    polycount: val,
+                    targetPolycount: val,
+                    target_polycount: val,
+                    autoOptimizeSettings: { ...prev.autoOptimizeSettings, targetPolycount: val },
+                  }));
+                }}
+                className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#6366F1] disabled:cursor-not-allowed"
+              />
+              <div className="flex items-center justify-between text-[9px] font-mono text-zinc-500">
+                <span>500</span>
+                <span>600,000 (Max 600K)</span>
+              </div>
+            </div>
+          </div>,
+          document.body
         )}
       </div>
 
       {/* 4. AI Model Section */}
-      <div className="border-t border-[hsl(var(--border))] pt-2.5 space-y-1.5" ref={modelDropdownRef}>
+      <div className="border-t border-[hsl(var(--border))] pt-2 space-y-1" ref={modelDropdownRef}>
         <label className="text-[10px] font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider block">
           AI Model
         </label>
@@ -573,29 +1131,35 @@ export const GeneratePanel: React.FC = () => {
             aria-expanded={isModelDropdownOpen}
             aria-label="Select AI Model"
             onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-            className="w-full p-1.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] flex items-center justify-between text-left transition-all cursor-pointer shadow-sm"
+            className="w-full h-8 px-2 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] flex items-center justify-between text-left transition-all cursor-pointer shadow-sm"
           >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/25 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-                <HugeiconsIcon icon={ThumbsUpIcon} size={15} />
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-5 h-5 rounded-md bg-[#F9CF00]/10 border border-[#F9CF00]/25 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
+                <HugeiconsIcon icon={ThumbsUpIcon} size={12} />
               </div>
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-[hsl(var(--foreground))] truncate">
+              <div className="min-w-0 flex items-baseline gap-1.5">
+                <p className="text-[11px] font-bold text-[hsl(var(--foreground))] truncate">
                   {availableModels.find((m) => m.id === selectedModel)?.label || 'Select Model'}
                 </p>
-                <p className="text-[10px] text-[hsl(var(--muted-foreground))] truncate">
+                <span className="text-[9px] text-[hsl(var(--muted-foreground))] truncate hidden sm:inline opacity-75">
                   {availableModels.find((m) => m.id === selectedModel)?.tag}
-                </p>
+                </span>
               </div>
             </div>
-            <HugeiconsIcon icon={ChevronDown} size={14} className="text-[hsl(var(--muted-foreground))] flex-shrink-0 ml-1" />
+            <HugeiconsIcon
+              icon={ChevronDown}
+              size={12}
+              className={`text-[hsl(var(--muted-foreground))] flex-shrink-0 ml-1 transition-transform duration-200 ${
+                isModelDropdownOpen ? 'rotate-180 text-primary' : ''
+              }`}
+            />
           </button>
 
           {isModelDropdownOpen && (
             <div
               role="listbox"
               aria-label="Available AI models"
-              className="absolute bottom-full mb-1 left-0 right-0 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] shadow-2xl p-1 z-30 space-y-1"
+              className="absolute bottom-full mb-1 left-0 right-0 rounded-xl bg-[#1a1b26] border border-white/10 shadow-2xl p-1 z-30 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
             >
               {availableModels.map((m) => (
                 <button
@@ -604,15 +1168,17 @@ export const GeneratePanel: React.FC = () => {
                   role="option"
                   aria-selected={selectedModel === m.id}
                   onClick={() => handleModelSelect(m.id)}
-                  className={`w-full text-left p-2 rounded-lg text-xs transition-all cursor-pointer flex items-center justify-between ${
-                    selectedModel === m.id ? 'bg-[#F9CF00] text-black font-bold' : 'text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface-3))]'
+                  className={`w-full text-left px-2 py-1.5 rounded-lg text-[11px] transition-all cursor-pointer flex items-center justify-between ${
+                    selectedModel === m.id
+                      ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
+                      : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
                   }`}
                 >
-                  <div>
-                    <span className="block font-semibold">{m.label}</span>
-                    <span className="text-[9.5px] opacity-75">{m.note}</span>
+                  <div className="min-w-0 pr-1">
+                    <span className="block font-semibold truncate leading-tight">{m.label}</span>
+                    <span className="text-[9px] opacity-70 block truncate leading-tight">{m.note}</span>
                   </div>
-                  <span className="text-[10px] opacity-75">{m.tag}</span>
+                  <span className="text-[9px] font-mono opacity-65 flex-shrink-0">{m.tag}</span>
                 </button>
               ))}
             </div>
@@ -620,23 +1186,52 @@ export const GeneratePanel: React.FC = () => {
         </div>
       </div>
 
-      {/* 5. Bottom Action CTA Button */}
-      <div className="pt-2 mt-auto">
-        <button
-          type="button"
-          onClick={handleGenerate}
-          disabled={isExecuting}
-          className="w-full py-2 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isExecuting ? (
-            <>
-              <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
-              <span>Generating Model...</span>
-            </>
-          ) : (
+      {/* 5. Bottom Action CTA Button & Execution Progress */}
+      <div className="pt-2 mt-auto space-y-2">
+        {isExecuting ? (
+          <div className="p-3 rounded-2xl bg-[#141524] border border-[#F9CF00]/30 shadow-xl space-y-2.5 animate-in fade-in">
+            {/* Live Progress Header */}
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 min-w-0 pr-2">
+                <div className="w-4 h-4 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <span className="font-semibold text-white truncate text-[11px]">
+                  {executionStep || 'Generating 3D model...'}
+                </span>
+              </div>
+              <span className="font-mono font-bold text-[#F9CF00] text-xs flex-shrink-0">
+                {Math.round(executionProgress)}%
+              </span>
+            </div>
+
+            {/* Progress Bar Track */}
+            <div className="w-full h-2 rounded-full bg-black/40 overflow-hidden border border-white/10">
+              <div
+                className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-300 rounded-full"
+                style={{ width: `${Math.max(4, Math.min(100, Math.round(executionProgress)))}%` }}
+              />
+            </div>
+
+            {/* Cancel Button */}
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="w-full py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 hover:text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-[0.98]"
+            >
+              <HugeiconsIcon icon={Cancel} size={14} />
+              <span>Cancel Generation</span>
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={!generationSettings.image && !imagePreview}
+            className="w-full py-2.5 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <HugeiconsIcon icon={SparklesIcon} size={16} className="text-black" />
             <span>Generate Model</span>
-          )}
-        </button>
+          </button>
+        )}
       </div>
     </div>
   );

@@ -29,6 +29,9 @@ import {
 import { StudioToolTemplate } from './Panels/StudioToolTemplate';
 import { settingsPersistence } from '@/services/settingsPersistence';
 import { useUIStore } from '@/stores/useUIStore';
+import { useRiggingStore } from '@/stores/useRiggingStore';
+import { useAnimationStore } from '@/stores/useAnimationStore';
+import { toast } from 'sonner';
 // Dynamic imports for heavy 3D components and panels
 const MeshViewer = dynamic(() => import('./Viewport/MeshViewer').then(mod => mod.MeshViewer), {
   ssr: false,
@@ -106,7 +109,7 @@ export const WorkspaceShell: React.FC = () => {
     navigateToTool, navigateToMainNav,
     runRemeshGeneration, runTextureGeneration,
     runUVUnwrapGeneration, runSegmentation,
-    environmentSettings,
+    environmentSettings, currentAsset,
   } = useWorkspace();
 
   // Mobile menu state: left navigation drawer
@@ -442,6 +445,16 @@ export const WorkspaceShell: React.FC = () => {
               { label: 'Aquatic', icon: CheckmarkCircle02Icon },
               { label: 'Serpentine', icon: CheckmarkCircle02Icon },
             ]}
+            onExecute={async () => {
+              if (!currentAsset) {
+                toast.warning('Select or upload a 3D model first');
+                return;
+              }
+              const { generateRig } = useRiggingStore.getState();
+              toast.info('Starting Auto-Rigging...');
+              const ok = await generateRig(currentAsset.source?.viewUrl || currentAsset.source?.localUrl, currentAsset.fileId);
+              if (ok) toast.success('Model rigged successfully!');
+            }}
           />
         );
       case 'animation':
@@ -451,6 +464,18 @@ export const WorkspaceShell: React.FC = () => {
             icon={FilmIcon}
             heroType="animate"
             actionLabel="Apply Animation"
+            onExecute={async () => {
+              if (!currentAsset) {
+                toast.warning('Select or upload a 3D model first');
+                return;
+              }
+              const { applyPresetClip, animations } = useAnimationStore.getState();
+              const clip = animations[0];
+              if (clip) {
+                applyPresetClip(clip.id);
+                toast.success(`Applied ${clip.name} animation!`);
+              }
+            }}
           />
         );
       default:
@@ -459,13 +484,13 @@ export const WorkspaceShell: React.FC = () => {
   };
 
   return (
-    <div id="forge3d-app-root" className="flex flex-col h-screen w-screen overflow-hidden bg-[hsl(var(--surface-0))] text-[#E0E2E8]">
+    <div id="forge3d-app-root" className="flex flex-col h-screen w-screen overflow-hidden bg-[#0c0d12] text-[#E0E2E8]">
       <div className="flex-shrink-0 relative z-50">
         <TopHeader onMobileMenuToggle={() => setIsMobileNavOpen(!isMobileNavOpen)} isMobileNavOpen={isMobileNavOpen} />
       </div>
-      <div className="flex flex-1 overflow-hidden relative bg-[hsl(var(--surface-1))]">
+      <div className="flex flex-1 overflow-hidden relative bg-[#0c0d12]">
         {/* Left tool rail - desktop: docked | mobile: hidden (drawer used instead) */}
-        <div className="z-30 h-full w-[54px] flex-shrink-0 relative hidden md:block">
+        <div className="z-30 h-full w-[52px] flex-shrink-0 relative hidden md:block bg-[#0c0d12]">
           <LeftNavigation />
         </div>
 
@@ -515,16 +540,16 @@ export const WorkspaceShell: React.FC = () => {
         </AnimatePresence>
 
         {/* Center Workspace & 3D Stage */}
-        <div className="flex-1 h-full relative overflow-hidden min-w-0">
-          {/* Continuous Full-Bleed 3D Viewport in Background */}
+        <div className="flex-1 h-full relative overflow-hidden min-w-0 bg-[#090a0f]">
+          {/* Continuous Full-Bleed 3D Viewport in Background with Tripo-style radial studio vignette */}
           {mainNav === 'workspace' && (
             <main
               id="center-viewport-stage"
-              className="absolute inset-0 z-0 overflow-hidden"
+              className="absolute inset-0 z-0 overflow-hidden bg-[#090a0f]"
               style={{
                 background: environmentSettings?.backgroundColor && environmentSettings.backgroundColor !== 'transparent'
                   ? environmentSettings.backgroundColor
-                  : 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
+                  : 'radial-gradient(ellipse 70% 65% at 50% 50%, #2e3036 0%, #202227 35%, #131418 70%, #090a0f 100%)',
               }}
             >
               <MeshViewer />
@@ -532,18 +557,18 @@ export const WorkspaceShell: React.FC = () => {
             </main>
           )}
 
-              {/* Context Tool Panel (Left) - Studio card flush-docked to navbar and rail */}
-              <AnimatePresence initial={false}>
-                {mainNav === 'workspace' && isLeftPanelOpen && (
-                  <motion.aside
-                    id="context-tool-panel-container"
-                    aria-label="Context tools"
-                    initial={{ opacity: 0, x: -15 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -15 }}
-                    transition={MOTION_FAST}
-                    className="absolute inset-x-0 top-0 bottom-0 md:inset-auto md:left-0 md:top-0 md:bottom-2.5 w-full md:w-[276px] md:rounded-r-[22px] md:rounded-l-none border-t-0 border-l-0 border-r border-b border-[hsl(var(--border))] shadow-2xl overflow-hidden bg-[hsl(var(--surface-1))] flex flex-col z-20"
-                  >
+          {/* Context Tool Panel (Left) - Tripo-style seamless docking flush with header and left rail */}
+          <AnimatePresence initial={false}>
+            {mainNav === 'workspace' && isLeftPanelOpen && (
+              <motion.aside
+                id="context-tool-panel-container"
+                aria-label="Context tools"
+                initial={{ opacity: 0, x: -15 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -15 }}
+                transition={MOTION_FAST}
+                className="absolute inset-x-0 top-0 bottom-0 md:inset-auto md:left-0 md:top-0 md:bottom-0 w-full md:w-[280px] md:border-r md:border-white/[0.08] shadow-2xl overflow-hidden bg-[#0e0f16] flex flex-col z-20"
+              >
                 {/* Mobile panel header with close button */}
                 <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/[0.08] bg-[hsl(var(--surface-0))] md:hidden flex-shrink-0">
                   <span className="font-bold text-xs text-white">Tool Panel</span>
@@ -597,7 +622,7 @@ export const WorkspaceShell: React.FC = () => {
             </div>
           )}
 
-          {/* Context-Aware Control & Property Panel (Right) - Studio card flush-docked to navbar and edge */}
+          {/* Context-Aware Control & Property Panel (Right) - Tripo-style seamless docking flush with header */}
           <AnimatePresence initial={false}>
             {mainNav === 'workspace' && isRightPanelOpen && (
               <motion.aside
@@ -607,7 +632,7 @@ export const WorkspaceShell: React.FC = () => {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 15 }}
                 transition={MOTION_FAST}
-                className="absolute inset-x-0 top-0 bottom-0 md:inset-auto md:right-0 md:top-0 md:bottom-2.5 w-full md:w-[250px] md:rounded-l-[22px] md:rounded-r-none border-t-0 border-r-0 border-l border-b border-[hsl(var(--border))] shadow-2xl overflow-hidden bg-[hsl(var(--surface-1))] flex flex-col z-20"
+                className="absolute inset-x-0 top-0 bottom-0 md:inset-auto md:right-0 md:top-0 md:bottom-0 w-full md:w-[260px] md:border-l md:border-white/[0.08] shadow-2xl overflow-hidden bg-[#0e0f16] flex flex-col z-20"
               >
                 {/* Mobile close button for right panel */}
                 <div className="flex items-center justify-between px-3.5 py-2 border-b border-[hsl(var(--border))] bg-[hsl(var(--surface-0))] md:hidden flex-shrink-0">

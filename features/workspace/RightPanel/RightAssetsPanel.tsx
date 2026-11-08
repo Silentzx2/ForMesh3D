@@ -48,7 +48,7 @@ export const RightAssetsPanel: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  const { state: meshUploadState, upload: uploadMesh } = useMeshAssetUpload();
+  const { state: meshUploadState, upload: uploadMesh, reset: resetMeshUpload } = useMeshAssetUpload();
   const uploadActive = meshUploadState.status === 'uploading' || meshUploadState.status === 'verifying';
 
   const ITEMS_PER_PAGE = 8;
@@ -237,7 +237,7 @@ export const RightAssetsPanel: React.FC = () => {
 
       {/* Main Asset Body */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
-        <MeshUploadStatus state={meshUploadState} />
+        <MeshUploadStatus state={meshUploadState} onDismiss={resetMeshUpload} />
 
         {/* Upload 3D Model Dropzone Card - Matching Studio Reference */}
         <div
@@ -258,10 +258,10 @@ export const RightAssetsPanel: React.FC = () => {
           aria-disabled={uploadActive}
           className={`group relative w-full rounded-2xl border border-dashed ${
             uploadActive ? 'cursor-wait opacity-60' : 'cursor-pointer'
-          } p-4 flex flex-col items-center justify-center text-center transition-all bg-[#12131F] [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:14px_14px] [background-position:0_0,0_7px,7px_-7px,-7px_0px] shadow-inner ${
+          } p-4 flex flex-col items-center justify-center text-center transition-all shadow-inner [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:14px_14px] [background-position:0_0,0_7px,7px_-7px,-7px_0px] ${
             isDragOver
-              ? 'border-[#6366F1] bg-[#18192A] shadow-[0_0_16px_rgba(99,102,241,0.25)]'
-              : 'border-[#48457D]/50 hover:border-[#6366F1]'
+              ? 'border-[#F9CF00] bg-[#1e2038] ring-2 ring-[#F9CF00]/40 scale-[1.01] shadow-[0_0_18px_rgba(249,207,0,0.3)]'
+              : 'border-[#48457D]/50 hover:border-[#6366F1] bg-[#12131F]'
           }`}
         >
           <div className="flex flex-col items-center justify-center">

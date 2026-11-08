@@ -2356,9 +2356,6 @@ class MultiprocessModelScheduler:
                         and job_request.inputs.get("enable_postprocess", True)
                     ) if ("enable_postprocess" in job_request.metadata or "enable_postprocess" in job_request.inputs) else (postprocess_mode == "production_mesh")
 
-                    if not enable_postprocess and postprocess_mode == "production_mesh":
-                        postprocess_mode = "none"
-
                 # Normalize texture_enabled into post-processing rather than launching redundant independent child workflows.
                 texture_enabled = bool(
                     job_request.metadata.get("texture_enabled")
@@ -2373,6 +2370,9 @@ class MultiprocessModelScheduler:
                 job_request.metadata["texture_enabled"] = texture_enabled
                 job_request.inputs["texture_enabled"] = texture_enabled
 
+                if not enable_postprocess and not texture_enabled and postprocess_mode == "production_mesh":
+                    postprocess_mode = "none"
+
                 if postprocess_mode == "manual_mesh_tool":
                     from postprocess.pipeline import persist_manual_mesh_result
 
@@ -2384,8 +2384,8 @@ class MultiprocessModelScheduler:
                         job_request.metadata,
                     )
 
-                # Postprocessing runs for raw-mesh jobs with production_mesh mode when postprocess is enabled.
-                if final_result.get("output_mesh_path") and postprocess_mode == "production_mesh" and enable_postprocess:
+                # Postprocessing runs for raw-mesh jobs with production_mesh mode when postprocess or texture is enabled.
+                if final_result.get("output_mesh_path") and postprocess_mode == "production_mesh" and (enable_postprocess or texture_enabled):
                     current_job = await self.job_queue.get_job(job_id)
                     if (current_job and _extract_job_status(current_job) in {"failed", "cancelled"}) or job_id in self._cancel_requested_jobs:
                         self._cleanup_temporary_inputs(job_request)

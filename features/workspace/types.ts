@@ -464,6 +464,9 @@ export interface GenerationSettings {
   textureEnabled?: boolean;
   texture_resolution?: '1K' | '2K' | '4K' | '8K';
   textureResolution?: '1K' | '2K' | '4K' | '8K';
+  targetPolycount?: number;
+  target_polycount?: number;
+  polycount?: number;
   gameReady?: boolean;
   targetPlatform?: 'generic' | 'mobile' | 'low' | 'medium' | 'high' | 'cinematic';
   generateLOD?: boolean;

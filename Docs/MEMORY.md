@@ -6,6 +6,22 @@
 **Project phase:** Beta (Streamlined Studio Workspace)  
 **Model readiness:** NOT VERIFIED — registry entries and source directories do not prove successful inference.
 
+## 2026-11-08 — Generate Panel Backend Integration, Tripo Shader Dock & Zero-Load Snapshot
+
+- **Generate Panel Backend Integration**:
+  - Decoupled texture generation parameters from mesh decimation post-processing: texture toggle, 2K/4K resolution, and PBR baking are preserved regardless of `enablePostprocess`.
+  - Wired `polycount` slider (clamped up to 600K) and `topology_mode` directly to `/api/v1/mesh-generation/image-to-raw-mesh`.
+  - Added live progress bar, backend step name (`executionStep`), progress percentage (`executionProgress`), and a working Cancel button calling `cancelExecution()`.
+- **Top Header & Sidebar Seamless Docking**:
+  - Removed artificial rounded cuts and dividing borders between `TopHeader`, `LeftNavigation`, and `GeneratePanel`.
+  - Applied solid pure dark backdrop (`#0c0d12` / `#090a0f`) beneath panels to eliminate 3D mesh peeking through margins.
+  - Viewport canvas enhanced with a soft radial studio vignette fading from dark boundaries into lit center.
+- **Bottom Material Preview Spheres & Zero-Load Snapshot**:
+  - Added Tripo 3D-style bottom floating dock with 5 material spheres: PBR Textured, Clay Matte, Surface Normals, Wireframe, and MatCap Gold.
+  - Caches original model textures and materials on `userData.__originalMaterial` without in-place mutation.
+  - Switched snapshot capture from synchronous 3840px buffer reallocation to asynchronous `canvas.toBlob(...)` inside `requestAnimationFrame`, eliminating laptop freezing.
+- **Verification**: `bun x tsc --noEmit` passed with 0 errors; `bun test` passed with 8 pass, 0 fail (added 5 new parameter builder unit tests).
+
 ## 2026-11-08 — Studio Workspace Layout Flush-Docking, Header Slimming & Rail Unification
 
 - **Seamless Panel-to-Navbar Flush Docking**:

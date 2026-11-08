@@ -42,20 +42,23 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
     {
       id: 'model',
       label: 'Model',
-      tooltip: 'Generate 3D Model (Image to 3D)',
+      tooltip: 'Create / Generate 3D Model',
       icon: Box,
+      badge: '+',
     },
     {
       id: 'segment',
       label: 'Segment',
       tooltip: 'Mesh Part Segmentation',
       icon: ScissorsIcon,
+      hasDropdown: true,
     },
     {
       id: 'remesh',
       label: 'Retopo',
       tooltip: 'Quad Retopology & Remeshing',
       icon: CircleDashedIcon,
+      hasDropdown: true,
     },
     {
       id: 'uv',
@@ -68,12 +71,7 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
       label: 'Texture',
       tooltip: '3D Texture Generator',
       icon: LayersIcon,
-    },
-    {
-      id: 'pbr',
-      label: 'PBR',
-      tooltip: 'PBR Material Maps Generator',
-      icon: SparklesIcon,
+      hasDropdown: true,
     },
     {
       id: 'rigging',
@@ -104,7 +102,7 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
       id="left-tool-rail"
       aria-label="Studio 3D Tools"
       className={`h-full bg-[hsl(var(--surface-1))] border-r border-[hsl(var(--border))] flex flex-col items-center select-none z-20 ${
-        isMobileDrawer ? 'w-full py-2 px-3' : 'w-[54px] py-2'
+        isMobileDrawer ? 'w-full py-2 px-3' : 'w-[52px] py-1.5'
       }`}
     >
       {/* Primary Tool Stack */}

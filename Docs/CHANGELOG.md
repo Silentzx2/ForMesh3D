@@ -1,5 +1,23 @@
 # ForMesh3D Changelog
 
+## 2026-11-08 — Generate Panel Backend Wiring, Seamless Docking, Shader Spheres & Zero-Load Snapshot
+
+- **Generate Panel Backend Wiring & Execution Progress (`GeneratePanel.tsx`, `buildGenerationParameters.ts`)**:
+  - Decoupled texture generation from mesh post-processing decimation: Texture toggle, 2K/4K resolution, and PBR baking are no longer forced to false when post-processing is off.
+  - Wired `polycount` slider (up to 600K) and `topology_mode` ('quad' / 'triangle') to backend API generation payload.
+  - Added live progress display with spinning indicator, current backend step name (`executionStep`), percentage (`executionProgress`), progress bar track, and working Cancel button calling `cancelExecution()`.
+- **Top Header & Panel Seamless Docking (`TopHeader.tsx`, `WorkspaceShell.tsx`)**:
+  - Removed artificial rounded cuts and dividing borders between `TopHeader`, `LeftNavigation`, and `GeneratePanel`.
+  - Applied solid pure dark backdrop (`#0c0d12` / `#090a0f`) beneath panels to eliminate 3D mesh peeking through margins.
+  - Central 3D viewport canvas enhanced with a soft radial studio vignette fading from dark boundaries into lit center.
+- **Bottom Material Preview Spheres & Zero-Load Snapshot (`ViewportToolOverlay.tsx`, `MeshViewer.tsx`)**:
+  - Added Tripo 3D-style bottom floating dock with 5 material spheres: PBR Textured, Clay Matte, Surface Normals, Wireframe, and MatCap Gold.
+  - Caches original model textures and materials on `userData.__originalMaterial` without in-place mutation.
+  - Switched snapshot capture from synchronous 3840px buffer reallocation to asynchronous `canvas.toBlob(...)` inside `requestAnimationFrame`, eliminating laptop freezing.
+- **Verification**: `bun x tsc --noEmit` passed with 0 errors; `bun test` passed with 8 pass, 0 fail (added 5 new parameter builder unit tests).
+
+---
+
 ## 2026-11-08 — Studio Upload Box Design, Layout & Colors Matched to Reference
 
 - **Image Upload Dropzone Alignment (`GeneratePanel.tsx`)**:
@@ -27,21 +45,4 @@
 - **Left Navigation Rail Unification**:
   - Eliminated the dividing border (`border-t`) and separate block wrapper from the bottom App/Settings button in `LeftNavigation.tsx`, blending it directly into the tool stack.
   - Adjusted rail width to `54px` with icon size `17px` and text `9.5px` for compact precision.
-- **Verification**: `bun x tsc --noEmit` passed with 0 errors; `bun test` passed (3/3 unit tests passing).
-
----
-
-## 2026-11-08 — DCC Eradication, Studio Viewport Vignette Alignment, and Studio UI Streamlining
-
-- **Complete DCC Eradication**:
-  - Permanently removed all DCC Bridge components, modals, button actions, context-menu items, and test suites per user directive.
-  - Replaced duplicate backend/frontend generation services with native, battle-tested `WorkspaceContext.tsx` orchestration (`buildGenerationParameters`, `bindBackendJob`).
-- **Canvas Gradient Alignment & Panel Dark Harmony**:
-  - Configured center-to-edge radial vignette: `#3a3c40` (subtle dark charcoal in mesh viewer center) smoothly fading outward through `#2d2f33` and `#1e1f22` to `#08090a` (deep obsidian dark near tool panels).
-  - Left panels (`GeneratePanel.tsx`, `StudioToolTemplate.tsx`) and floating shells unified 100% with the Property Panel's design tokens (`bg-[hsl(var(--surface-1))]`, `bg-[hsl(var(--surface-2))]`, `border-[hsl(var(--border))]`).
-  - Balanced natural studio lighting (Ambient 0.75, Key 1.6, Fill 0.9, Rim 1.1, Exposure 1.0) with zero texture bleaching.
-- **TopHeader & Panel Polishing**:
-  - Fixed panel dimensions: Left rail 58px, Left context panel 276px, Right inspector 250px with rounded-2xl floating glass aesthetic.
-  - TopHeader streamlined to 48px height with scaled icons (15px) and micro-interactions; middle page pill navigation removed.
-  - Viewport tools repositioned dynamically to guarantee visibility whether right panel is open or closed.
 - **Verification**: `bun x tsc --noEmit` passed with 0 errors; `bun test` passed (3/3 unit tests passing).

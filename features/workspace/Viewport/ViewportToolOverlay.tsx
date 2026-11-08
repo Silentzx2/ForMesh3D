@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { toast } from 'sonner';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
@@ -44,24 +44,42 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
   const [lightingTone, setLightingTone] = useState<LightTone>('studio');
   const [exposure, setExposure] = useState<number>(1.15);
 
-  // 1. Camera Snapshot (downloads full-resolution PNG)
+  const settingsPopoverRef = useRef<HTMLDivElement>(null);
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
+
+  // Auto-close settings popover on outside click or Escape
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (
+        settingsPopoverRef.current &&
+        !settingsPopoverRef.current.contains(target) &&
+        settingsTriggerRef.current &&
+        !settingsTriggerRef.current.contains(target)
+      ) {
+        setIsSettingsOpen(false);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsSettingsOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isSettingsOpen]);
+
+  // 1. Camera Snapshot (Zero-Load High-Definition Capture)
   const handleSnapshot = () => {
-    const canvas = document.querySelector('#center-viewport-stage canvas') as HTMLCanvasElement;
-    if (!canvas) {
-      toast.error('Canvas not ready for snapshot');
-      return;
-    }
-    try {
-      const dataUrl = canvas.toDataURL('image/png');
-      const a = document.createElement('a');
-      a.href = dataUrl;
-      a.download = `formesh3d-snapshot-${Date.now()}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      toast.success('Screenshot saved to Downloads');
-    } catch {
-      toast.error('Failed to capture screenshot');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('takeViewportSnapshot'));
     }
   };
 
@@ -100,51 +118,27 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
       id="viewport-tool-overlay"
       className="absolute inset-0 pointer-events-none z-10 overflow-hidden select-none"
     >
-      {/* Top-Right Control Cluster (Orientation Gizmo + Vertical Tool Dock) */}
+      {/* Top-Right Control Cluster (Tripo-Style Vertical Tool Dock) */}
       <div
-        className={`pointer-events-auto absolute top-3.5 flex flex-col items-center gap-2 transition-[right] duration-200 ease-out ${
+        className={`pointer-events-auto absolute top-16 md:top-20 flex flex-col items-center gap-2 transition-[right] duration-200 ease-out z-20 ${
           isRightPanelOpen ? 'hidden md:flex' : 'flex'
         }`}
         style={{
-          right: isRightPanelOpen ? '265px' : '16px',
+          right: isRightPanelOpen ? '276px' : '16px',
         }}
       >
-        {/* 3D Orientation Gizmo */}
-        <div className="p-1 rounded-2xl bg-[hsl(var(--surface-1))] border border-[hsl(var(--border))] shadow-xl flex items-center gap-1">
-          <div className="px-1.5 py-1 flex items-center gap-1 border-r border-white/[0.08] text-zinc-400">
-            <HugeiconsIcon icon={CompassIcon} size={13} className="text-[#F9CF00]" />
-            <span className="text-[10px] font-black tracking-wider text-zinc-300">3D</span>
-          </div>
-          <div className="flex items-center gap-0.5">
-            {(['Front', 'Side', 'Top', 'Iso'] as const).map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => handleSnapCamera(p)}
-                className={`px-2 py-1 rounded-xl text-[10px] font-bold transition-all cursor-pointer ${
-                  activePreset === p
-                    ? 'bg-[#F9CF00] text-black shadow-sm font-black'
-                    : 'text-zinc-400 hover:text-white hover:bg-white/[0.06]'
-                }`}
-                title={`Snap to ${p} view`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Vertical Floating Tool Dock */}
-        <div className="relative p-1 rounded-2xl bg-[hsl(var(--surface-1))] border border-[hsl(var(--border))] shadow-xl flex flex-col items-center gap-1">
+        {/* Floating Pill Tool Dock */}
+        <div className="relative p-1 rounded-2xl bg-[#161722]/90 backdrop-blur-md border border-white/[0.08] shadow-[0_12px_40px_rgba(0,0,0,0.65)] flex flex-col items-center gap-1">
           {/* 1. Viewport Settings button */}
           <SimpleTooltip label="Viewport Settings" side="left">
             <button
+              ref={settingsTriggerRef}
               type="button"
               onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-              className={`p-2 rounded-xl transition-all cursor-pointer ${
+              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
                 isSettingsOpen
-                  ? 'bg-[#F9CF00] text-black shadow-sm'
-                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.06]'
+                  ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
               }`}
               aria-label="Viewport Settings"
             >
@@ -152,7 +146,19 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
             </button>
           </SimpleTooltip>
 
-          {/* 2. Wireframe toggle button */}
+          {/* 2. Camera Snapshot button (4K High Resolution) */}
+          <SimpleTooltip label="Capture 4K Snapshot (PNG)" side="left">
+            <button
+              type="button"
+              onClick={handleSnapshot}
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer active:scale-90"
+              aria-label="Capture 4K Snapshot"
+            >
+              <HugeiconsIcon icon={CameraIcon} size={16} />
+            </button>
+          </SimpleTooltip>
+
+          {/* 3. Wireframe toggle button */}
           <SimpleTooltip
             label={showWireframe ? 'Wireframe: ON' : 'Wireframe: OFF'}
             side="left"
@@ -160,10 +166,10 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
             <button
               type="button"
               onClick={() => setShowWireframe(!showWireframe)}
-              className={`p-2 rounded-xl transition-all cursor-pointer ${
+              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
                 showWireframe
-                  ? 'bg-[#F9CF00] text-black shadow-sm'
-                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.06]'
+                  ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
               }`}
               aria-label="Toggle Wireframe"
             >
@@ -171,7 +177,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
             </button>
           </SimpleTooltip>
 
-          {/* 3. Turntable 360° Auto-Rotate toggle button */}
+          {/* 4. Turntable 360° Auto-Rotate toggle button */}
           <SimpleTooltip
             label={isTurntable ? 'Turntable: ON' : 'Turntable: OFF'}
             side="left"
@@ -179,10 +185,10 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
             <button
               type="button"
               onClick={() => setIsTurntable(!isTurntable)}
-              className={`p-2 rounded-xl transition-all cursor-pointer ${
+              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
                 isTurntable
-                  ? 'bg-[#F9CF00] text-black shadow-sm'
-                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.06]'
+                  ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
               }`}
               aria-label="Toggle Turntable"
             >
@@ -194,7 +200,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
             </button>
           </SimpleTooltip>
 
-          {/* 4. Ground Grid toggle button */}
+          {/* 5. Ground Grid toggle button */}
           <SimpleTooltip
             label={showGrid !== false ? 'Grid: ON' : 'Grid: OFF'}
             side="left"
@@ -202,26 +208,14 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
             <button
               type="button"
               onClick={() => setShowGrid(showGrid === false ? true : false)}
-              className={`p-2 rounded-xl transition-all cursor-pointer ${
+              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
                 showGrid !== false
-                  ? 'bg-[#F9CF00] text-black shadow-sm'
-                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.06]'
+                  ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
               }`}
               aria-label="Toggle Ground Grid"
             >
               <HugeiconsIcon icon={GridIcon} size={16} />
-            </button>
-          </SimpleTooltip>
-
-          {/* 5. Camera Snapshot button */}
-          <SimpleTooltip label="Capture Snapshot (PNG)" side="left">
-            <button
-              type="button"
-              onClick={handleSnapshot}
-              className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-all cursor-pointer active:scale-95"
-              aria-label="Capture Snapshot"
-            >
-              <HugeiconsIcon icon={CameraIcon} size={16} />
             </button>
           </SimpleTooltip>
 
@@ -232,7 +226,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
           >
             <button
               type="button"
-              className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-all cursor-pointer"
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer"
               aria-label="Navigation Shortcuts"
             >
               <HugeiconsIcon icon={HelpCircleIcon} size={16} />
@@ -241,7 +235,10 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
 
           {/* Settings Popover */}
           {isSettingsOpen && (
-            <div className="absolute right-full mr-2.5 top-0 w-64 p-3 rounded-2xl bg-[hsl(var(--surface-1))] border border-[hsl(var(--border))] shadow-2xl z-30 space-y-3.5 text-xs text-white">
+            <div
+              ref={settingsPopoverRef}
+              className="absolute right-full mr-2.5 top-0 w-64 p-3 rounded-2xl bg-[#161722]/95 backdrop-blur-md border border-white/[0.1] shadow-2xl z-30 space-y-3.5 text-xs text-white"
+            >
               <div className="flex items-center justify-between pb-1.5 border-b border-white/[0.08]">
                 <span className="text-[11px] font-black uppercase tracking-wider text-zinc-300">
                   Viewport Settings
@@ -256,25 +253,51 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
                 </button>
               </div>
 
+              {/* Camera Angle Snap */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                  Camera Angle
+                </label>
+                <div className="grid grid-cols-4 gap-1">
+                  {(['Front', 'Side', 'Top', 'Iso'] as const).map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => handleSnapCamera(p)}
+                      className={`py-1 px-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                        activePreset === p
+                          ? 'bg-[#F9CF00] text-black shadow-sm font-black'
+                          : 'bg-white/[0.04] text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+                      }`}
+                      title={`Snap to ${p} view`}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Shading Mode */}
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
                   Shading Mode
                 </label>
-                <div className="grid grid-cols-3 gap-1">
+                <div className="grid grid-cols-5 gap-1">
                   {(
                     [
-                      { id: 'textured', label: 'Texture' },
+                      { id: 'textured', label: 'PBR' },
                       { id: 'clay', label: 'Clay' },
+                      { id: 'normals', label: 'Normal' },
                       { id: 'wireframe', label: 'Wire' },
+                      { id: 'matcap-gold', label: 'Gold' },
                     ] as const
                   ).map((m) => (
                     <button
                       key={m.id}
                       type="button"
                       onClick={() => handleShadingChange(m.id)}
-                      className={`py-1 px-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                        shadingMode === m.id
+                      className={`py-1 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer text-center ${
+                        shadingMode === m.id || (m.id === 'normals' && shadingMode === 'matcap-normal')
                           ? 'bg-[#F9CF00] text-black shadow-sm font-black'
                           : 'bg-white/[0.04] text-zinc-400 hover:text-white hover:bg-white/[0.08]'
                       }`}
@@ -377,6 +400,112 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
             </div>
           )}
         </div>
+      </div>
+
+      {/* Bottom Floating Material & Shader Spheres Dock (Tripo 3D style) */}
+      <div
+        id="viewport-material-dock"
+        className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 p-1.5 rounded-2xl bg-[#141522]/90 backdrop-blur-md border border-white/[0.1] shadow-[0_12px_40px_rgba(0,0,0,0.65)] z-20 select-none animate-in fade-in slide-in-from-bottom-2 duration-200"
+      >
+        {/* Sphere 1: PBR Textured */}
+        <SimpleTooltip label="PBR Textured Shader" side="top">
+          <button
+            type="button"
+            onClick={() => handleShadingChange('textured')}
+            aria-label="PBR Textured Shader"
+            className={`w-7 h-7 rounded-full transition-all duration-150 cursor-pointer relative ${
+              shadingMode === 'textured'
+                ? 'ring-2 ring-[#F9CF00] ring-offset-2 ring-offset-[#141522] scale-110 shadow-[0_0_12px_rgba(249,207,0,0.4)]'
+                : 'hover:scale-105 opacity-80 hover:opacity-100'
+            }`}
+          >
+            <div className="w-full h-full rounded-full bg-gradient-to-tr from-[#3b82f6] via-[#a855f7] to-[#f59e0b] shadow-[inset_-2px_-2px_4px_rgba(0,0,0,0.6),inset_2px_2px_4px_rgba(255,255,255,0.4)]" />
+          </button>
+        </SimpleTooltip>
+
+        {/* Sphere 2: Clay Solid */}
+        <SimpleTooltip label="Clay Matte Shader" side="top">
+          <button
+            type="button"
+            onClick={() => handleShadingChange('clay')}
+            aria-label="Clay Matte Shader"
+            className={`w-7 h-7 rounded-full transition-all duration-150 cursor-pointer relative ${
+              shadingMode === 'clay'
+                ? 'ring-2 ring-[#F9CF00] ring-offset-2 ring-offset-[#141522] scale-110 shadow-[0_0_12px_rgba(249,207,0,0.4)]'
+                : 'hover:scale-105 opacity-80 hover:opacity-100'
+            }`}
+          >
+            <div className="w-full h-full rounded-full bg-gradient-to-tr from-[#64748b] via-[#94a3b8] to-[#cbd5e1] shadow-[inset_-2px_-2px_4px_rgba(0,0,0,0.6),inset_2px_2px_4px_rgba(255,255,255,0.4)]" />
+          </button>
+        </SimpleTooltip>
+
+        {/* Sphere 3: Normal Map Vectors */}
+        <SimpleTooltip label="Surface Normals Shader" side="top">
+          <button
+            type="button"
+            onClick={() => handleShadingChange('normals')}
+            aria-label="Surface Normals Shader"
+            className={`w-7 h-7 rounded-full transition-all duration-150 cursor-pointer relative ${
+              shadingMode === 'normals' || shadingMode === 'matcap-normal'
+                ? 'ring-2 ring-[#F9CF00] ring-offset-2 ring-offset-[#141522] scale-110 shadow-[0_0_12px_rgba(249,207,0,0.4)]'
+                : 'hover:scale-105 opacity-80 hover:opacity-100'
+            }`}
+          >
+            <div className="w-full h-full rounded-full bg-gradient-to-tr from-[#6366f1] via-[#06b6d4] to-[#f43f5e] shadow-[inset_-2px_-2px_4px_rgba(0,0,0,0.6),inset_2px_2px_4px_rgba(255,255,255,0.4)]" />
+          </button>
+        </SimpleTooltip>
+
+        {/* Sphere 4: Wireframe Topology */}
+        <SimpleTooltip label="Wireframe Topology Shader" side="top">
+          <button
+            type="button"
+            onClick={() => handleShadingChange('wireframe')}
+            aria-label="Wireframe Topology Shader"
+            className={`w-7 h-7 rounded-full transition-all duration-150 cursor-pointer relative ${
+              shadingMode === 'wireframe'
+                ? 'ring-2 ring-[#F9CF00] ring-offset-2 ring-offset-[#141522] scale-110 shadow-[0_0_12px_rgba(249,207,0,0.4)]'
+                : 'hover:scale-105 opacity-80 hover:opacity-100'
+            }`}
+          >
+            <div className="w-full h-full rounded-full bg-[#0a0f1d] border border-[#10b981] flex items-center justify-center shadow-[inset_0_0_6px_rgba(16,185,129,0.4)]">
+              <span className="text-[10px] text-[#10b981] font-mono leading-none">#</span>
+            </div>
+          </button>
+        </SimpleTooltip>
+
+        {/* Sphere 5: MatCap Gold */}
+        <SimpleTooltip label="Gold MatCap Metallic" side="top">
+          <button
+            type="button"
+            onClick={() => handleShadingChange('matcap-gold')}
+            aria-label="Gold MatCap Metallic"
+            className={`w-7 h-7 rounded-full transition-all duration-150 cursor-pointer relative ${
+              shadingMode === 'matcap-gold'
+                ? 'ring-2 ring-[#F9CF00] ring-offset-2 ring-offset-[#141522] scale-110 shadow-[0_0_12px_rgba(249,207,0,0.4)]'
+                : 'hover:scale-105 opacity-80 hover:opacity-100'
+            }`}
+          >
+            <div className="w-full h-full rounded-full bg-gradient-to-tr from-[#b45309] via-[#f59e0b] to-[#fef08a] shadow-[inset_-2px_-2px_4px_rgba(0,0,0,0.6),inset_2px_2px_4px_rgba(255,255,255,0.5)]" />
+          </button>
+        </SimpleTooltip>
+
+        <div className="h-4 w-[1px] bg-white/10 mx-0.5" />
+
+        {/* Wireframe Overlay Quick Toggle */}
+        <SimpleTooltip label={showWireframe ? 'Wireframe Overlay: ON' : 'Wireframe Overlay: OFF'} side="top">
+          <button
+            type="button"
+            onClick={() => setShowWireframe(!showWireframe)}
+            aria-label="Toggle Wireframe Overlay"
+            className={`w-7 h-7 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+              showWireframe
+                ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
+                : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+            }`}
+          >
+            <HugeiconsIcon icon={LayersIcon} size={15} />
+          </button>
+        </SimpleTooltip>
       </div>
     </div>
   );

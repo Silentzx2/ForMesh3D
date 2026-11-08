@@ -43,10 +43,33 @@ export const StudioToolTemplate: React.FC<StudioToolConfig> = ({
 }) => {
   const { currentAsset, addAsset, setCurrentAsset, isExecuting } = useWorkspace();
   const [isUploading, setIsUploading] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsUploading(true);
+      toast.info(`Uploading 3D model: ${file.name}...`);
+      const asset = await uploadMeshAsset(file);
+      addAsset(asset);
+      setCurrentAsset(asset);
+      toast.success(`Model loaded: ${asset.name}`);
+    } catch (err: any) {
+      toast.error(`Upload failed: ${err.message || 'Network error'}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    const file = e.dataTransfer.files?.[0];
     if (!file) return;
 
     try {
@@ -86,7 +109,25 @@ export const StudioToolTemplate: React.FC<StudioToolConfig> = ({
       </div>
 
       {/* 2. Hero Transformation Banner matching reference */}
-      <div className="p-4 rounded-2xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] flex items-center justify-center gap-3 relative overflow-hidden shadow-sm">
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragOver(true);
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragOver(false);
+        }}
+        onDrop={handleDrop}
+        onClick={() => !isUploading && fileInputRef.current?.click()}
+        className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-center justify-center gap-3 relative overflow-hidden shadow-sm ${
+          isDragOver
+            ? 'border-[#F9CF00] bg-[#1e2038] ring-2 ring-[#F9CF00]/40 scale-[1.01]'
+            : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:border-[#F9CF00]/40'
+        }`}
+      >
         {/* Left Input Graphic */}
         <div className="flex flex-col items-center gap-1.5">
           <div className="w-14 h-14 rounded-xl bg-[hsl(var(--surface-3))] border border-[hsl(var(--border))] flex items-center justify-center text-[hsl(var(--muted-foreground))]">
