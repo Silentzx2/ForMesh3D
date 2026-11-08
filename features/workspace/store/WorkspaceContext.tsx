@@ -145,16 +145,16 @@ interface WorkspaceContextType {
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
 
 const TOOL_TO_ROUTE: Record<ToolType, string> = {
-  tools: '/workspace/tools',
+  tools: '/workspace/generate',
   model: '/workspace/generate',
-  remesh: '/workspace/remesh',
+  remesh: '/workspace/retopology',
   texture: '/workspace/texture',
-  uv: '/workspace/uv',
-  segment: '/workspace/segment',
-  edit: '/workspace/edit',
-  pbr: '/workspace/tools',
+  uv: '/workspace/smart-uv',
+  segment: '/workspace/segmentation',
+  edit: '/workspace/texture-edit',
+  pbr: '/workspace/texture-pbr',
   environment: '/workspace/generate',
-  animation: '/workspace/animation',
+  animation: '/workspace/animate',
   rigging: '/workspace/rigging',
 };
 
@@ -536,7 +536,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [executionStep, setExecutionStep] = useState('');
   const [activeTask, setActiveTask] = useState<ActiveTask | null>(null);
   const [jobsById, setJobsById] = useState<Record<string, ActiveTask>>({});
-  const [comparisonGroups, setComparisonGroups] = useState<Record<string, ComparisonGroup>>({});
   const [activeComparisonGroup, setActiveComparisonGroup] = useState<string | null>(null);
   const [nextComparisonGroupId, setNextComparisonGroupId] = useState(1);
   const jobsByIdRef = useRef(jobsById);
@@ -1544,92 +1543,6 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     parseApiData,
   ]);
 
-  const startComparisonGroup = useCallback((name: string, sourceImage: string | null, sourceImageName: string | null, modelIds: string[], prompts: string[]) => {
-    const groupId = `comp_${nextComparisonGroupId}`;
-    const group: ComparisonGroup = {
-      id: groupId,
-      name,
-      sourceImage,
-      sourceImageName,
-      modelIds,
-      prompts,
-      status: 'pending',
-      createdAt: Date.now(),
-      completedAt: null,
-      results: {},
-      selectedModelId: null
-    };
-    
-    // Initialize results for each model
-    const initialResults: Record<string, ActiveTask | null> = {};
-    modelIds.forEach(modelId => {
-      initialResults[modelId] = null;
-    });
-    
-    setComparisonGroups(prev => ({
-      ...prev,
-      [groupId]: { ...group, results: initialResults }
-    }));
-    setNextComparisonGroupId(prev => prev + 1);
-    setActiveComparisonGroup(groupId);
-    return groupId;
-  }, [nextComparisonGroupId]);
-
-  const addModelToComparisonGroup = useCallback((groupId: string, modelId: string, prompt: string) => {
-    setComparisonGroups(prev => {
-      const group = prev[groupId];
-      if (!group) return prev;
-      
-      const updatedResults = { ...group.results, [modelId]: null };
-      const updatedModelIds = [...group.modelIds, modelId];
-      const updatedPrompts = [...group.prompts, prompt];
-      
-      return {
-        ...prev,
-        [groupId]: {
-          ...group,
-          modelIds: updatedModelIds,
-          prompts: updatedPrompts,
-          results: updatedResults
-        }
-      };
-    });
-  }, []);
-
-  const updateComparisonGroupStatus = useCallback((groupId: string, status: ComparisonGroup['status']) => {
-    setComparisonGroups(prev => {
-      const group = prev[groupId];
-      if (!group) return prev;
-      
-      return {
-        ...prev,
-        [groupId]: {
-          ...group,
-          status,
-          completedAt: status === 'completed' || status === 'failed' ? Date.now() : null
-        }
-      };
-    });
-  }, []);
-
-  const setComparisonGroupSelectedModel = useCallback((groupId: string, modelId: string) => {
-    setComparisonGroups(prev => {
-      const group = prev[groupId];
-      if (!group) return prev;
-      
-      return {
-        ...prev,
-        [groupId]: {
-          ...group,
-          selectedModelId: modelId
-        }
-      };
-    });
-  }, []);
-
-  const getComparisonGroupResults = useCallback((groupId: string) => {
-    return comparisonGroups[groupId]?.results ?? {};
-  }, [comparisonGroups]);
 
 
   const generate3DModel = useCallback(async () => {

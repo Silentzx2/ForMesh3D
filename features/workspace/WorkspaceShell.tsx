@@ -10,7 +10,24 @@ import { LeftNavigation } from './Navigation/LeftNavigation';
 
 
 import { HugeiconsIcon } from '@hugeicons/react';
-import { Cancel, FolderOpenIcon, PanelLeftClose, PanelLeftOpen, PanelRightOpen, SlidersHorizontalIcon } from '@hugeicons/core-free-icons';
+import {
+  AlertCircle,
+  BoneIcon,
+  Cancel,
+  CheckmarkCircle02Icon,
+  CircleDashedIcon,
+  FilmIcon,
+  FolderOpenIcon,
+  GridIcon,
+  LayersIcon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightOpen,
+  ScissorsIcon,
+  SlidersHorizontalIcon,
+  SparklesIcon,
+} from '@hugeicons/core-free-icons';
+import { StudioToolTemplate } from './Panels/StudioToolTemplate';
 import { settingsPersistence } from '@/services/settingsPersistence';
 import { useUIStore } from '@/stores/useUIStore';
 // Dynamic imports for heavy 3D components and panels
@@ -63,18 +80,26 @@ import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 
 const ROUTE_SEGMENT_TO_TOOL: Record<string, ToolType> = {
   'generate': 'model',
+  'generate-image': 'model',
   'model': 'model',
   '3d-gen': 'model',
+  'retopology': 'remesh',
   'remesh': 'remesh',
   'texture': 'texture',
   'textures': 'texture',
+  'texture-edit': 'texture',
+  'texture-upscale': 'texture',
+  'texture-pbr': 'pbr',
+  'smart-uv': 'uv',
   'uv': 'uv',
+  'segmentation': 'segment',
   'segment': 'segment',
-  'edit': 'edit',
-  'pbr': 'tools',
+  'edit': 'texture',
+  'pbr': 'pbr',
   'animation': 'animation',
   'animate': 'animation',
   'rigging': 'rigging',
+  'rig': 'rigging',
   'tools': 'tools',
 };
 
@@ -88,6 +113,8 @@ export const WorkspaceShell: React.FC = () => {
     isLeftPanelOpen, isRightPanelOpen,
     setIsLeftPanelOpen, setIsRightPanelOpen,
     navigateToTool, navigateToMainNav,
+    runRemeshGeneration, runTextureGeneration,
+    runUVUnwrapGeneration, runSegmentation,
   } = useWorkspace();
 
   // Mobile menu state: left navigation drawer
@@ -352,17 +379,97 @@ export const WorkspaceShell: React.FC = () => {
 
   const renderToolPanel = () => {
     switch (activeTool) {
-      case 'model': return <GeneratePanel />;
-      case 'remesh': return <GeneratePanel />;
-      case 'texture': return <GeneratePanel />;
-      case 'uv': return <GeneratePanel />;
-      case 'segment': return <GeneratePanel />;
-      case 'edit': return <GeneratePanel />;
-      case 'animation': return <GeneratePanel />;
-      case 'rigging': return <GeneratePanel />;
-      case 'tools': return <GeneratePanel />;
-      case 'pbr': return <GeneratePanel />;
-      default: return <GeneratePanel />;
+      case 'model':
+      case 'tools':
+        return <GeneratePanel />;
+      case 'remesh':
+        return (
+          <StudioToolTemplate
+            title="Retopology"
+            icon={CircleDashedIcon}
+            heroType="retopo"
+            actionLabel="Start Retopology"
+            energyCost={30}
+            onExecute={runRemeshGeneration}
+          />
+        );
+      case 'segment':
+        return (
+          <StudioToolTemplate
+            title="Part Segmentation"
+            icon={ScissorsIcon}
+            heroType="segment"
+            actionLabel="Start Segmenting"
+            energyCost={40}
+            unavailableCards={[
+              { label: 'Quad models', icon: AlertCircle },
+              { label: 'Rigged models', icon: AlertCircle },
+            ]}
+            onExecute={runSegmentation}
+          />
+        );
+      case 'uv':
+        return (
+          <StudioToolTemplate
+            title="Smart UV"
+            icon={GridIcon}
+            heroType="uv"
+            actionLabel="Unwrap UVs"
+            energyCost={20}
+            constraintsBadge="Tris ≤ 80,000 / Quads ≤ 40,000"
+            onExecute={runUVUnwrapGeneration}
+          />
+        );
+      case 'texture':
+        return (
+          <StudioToolTemplate
+            title="3D Model Texture Generator"
+            icon={LayersIcon}
+            heroType="texture"
+            actionLabel="Generate Textures"
+            energyCost={35}
+            onExecute={runTextureGeneration}
+          />
+        );
+      case 'pbr':
+        return (
+          <StudioToolTemplate
+            title="PBR Generator"
+            icon={LayersIcon}
+            heroType="pbr"
+            actionLabel="Generate PBR Maps"
+            energyCost={25}
+            onExecute={runTextureGeneration}
+          />
+        );
+      case 'rigging':
+        return (
+          <StudioToolTemplate
+            title="3D Rigging"
+            icon={BoneIcon}
+            heroType="rig"
+            actionLabel="Auto Rig Model"
+            energyCost={40}
+            supportCards={[
+              { label: 'Humanoid', icon: CheckmarkCircle02Icon },
+              { label: 'Quadruped', icon: CheckmarkCircle02Icon },
+              { label: 'Aquatic', icon: CheckmarkCircle02Icon },
+              { label: 'Serpentine', icon: CheckmarkCircle02Icon },
+            ]}
+          />
+        );
+      case 'animation':
+        return (
+          <StudioToolTemplate
+            title="Animation"
+            icon={FilmIcon}
+            heroType="animate"
+            actionLabel="Apply Animation"
+            energyCost={20}
+          />
+        );
+      default:
+        return <GeneratePanel />;
     }
   };
 

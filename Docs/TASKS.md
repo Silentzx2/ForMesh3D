@@ -1,267 +1,163 @@
-# Engineering Implementation Plan: Tripo3D Studio UI/UX Migration
+# Engineering Implementation Plan: ForMesh3D Studio UI/UX Rebuild
 
-**Status**: PLANNING — Deep crawl complete (all 10 pages analyzed)
-**Primary Goal**: Make ForMesh3D frontend UI/UX match Tripo3D Studio (https://studio.tripo3d.ai) — smooth page switching, same layout structure, same button functions, same navigation flow, same upload/download flows, same hover/active states.
-**Reference**: All 10 Tripo studio pages crawled with full DOM inventory saved at `/home/david/Documents/dev/ForMesh3D/.brain/` (10 screenshots).
-
----
-
-## 1. Observed Tripo3D Studio UI/UX Patterns (Source of Truth)
-
-### 1.1 Global Layout (identical on all 10 pages)
-
-| Element | Selector / Class | Behavior |
-|---------|-----------------|----------|
-| Logo / Brand | `A[href="/"]` text "3D Workspace" | Top-left, links to home |
-| Active tool highlight | `c-[#F9CF00]` on active sidebar link | Gold/yellow color |
-| Inactive tool | `c-[#f2f2f2]` on inactive sidebar link | Light gray |
-| Sidebar tool links | `group flex flex-shrink-0 flex-col gap-1 transition-all items-center justify-center` | 12 tools, `transition-all` for smooth switch |
-| Top nav links | `text-3 c-[#f2f2f2] lh-4 font-500 px-3 rounded-full flex h-7.5` | Home, Assets |
-| Hidden file upload | `INPUT type=file opacity-0 cursor-pointer inset-0 absolute z-2` | Behind visible upload UI |
-| Primary action button | `animate-button group text-3.5 font-500 rounded-25 cursor-pointer box-border relative` | "Generate Image", "Start Segmenting 40", "Generate 55" |
-| Assets tab | `BUTTON role=tab` text "Assets" | Tab |
-| Property tab | `BUTTON role=tab` text "Property" | Tab |
-| Mine/Collected icon tabs | `BUTTON role=tab` icon-only | Two sub-tabs |
-| Switch toggle | `BUTTON role=switch border border-white-10 rounded-full flex h-4.5 w-8.5 cursor-pointer` | On/Off toggle |
-| Aspect ratio buttons | `flex transition items-center box-border justify-center border border-white-10` | 1:1, 16:9, 9:16, 4:3, 3:4 |
-| Count buttons | `flex transition items-center box-border justify-center px-3.75 py-1.75` | 1, 2, 3, 4 |
-
-
-### 1.2 Page-by-Page Inventory
-
-#### `/workspace/generate` (Model — ACTIVE on crawl)
-- Sidebar: Model link has `router-link-active router-link-exact-active` + `c-[#F9CF00]`
-- 4 icon buttons (c-black / c-gray-100, `rounded-32`, `w-1/2`, cursor-pointer)
-- Hidden file upload input
-- 2 switch toggles (`role=switch`)
-- Primary button: `Generate\n55` (generate with count)
-- Tabs: Assets, Property + 2 icon tabs
-
-#### `/workspace/generate-image` (Image)
-- Sidebar: Image link active (`c-[#F9CF00]`)
-- Textarea: `Create images from text or images, or use templates for 3D-r` (prompt input)
-- Hidden file upload input
-- Aspect ratio buttons: 1:1, 16:9, 9:16, 4:3, 3:4
-- Count buttons: 1, 2, 3, 4
-- Switch toggle (`role=switch`)
-- Primary button: `Generate Image`
-- Tabs: Assets, Property + 2 icon tabs
-
-#### `/workspace/segmentation` (Segment)
-- Sidebar: Segment link active
-- Hidden file upload input
-- Primary button: `Start Segmenting\n40`
-- Tabs: Assets, Property + 2 icon tabs
-
-#### `/workspace/retopology` (Retopo)
-- Sidebar: Retopo link active
-- Hidden file upload input
-- Tabs: Assets, Property + 2 icon tabs
-
-#### `/workspace/fill-parts` (Fill Parts)
-- Sidebar: Fill Parts link
-- (Page structure follows same pattern as above)
-
-#### `/workspace/smart-uv` (Smart UV)
-- Sidebar: Smart UV link active
-- Hidden file upload input
-- Icon buttons: `p-2 rounded-4 size-8 data-[state=open]:text-purple-1 hover:bg-white-5`, `p-2 rounded-25 hover:bg-white-5`, `flex transition items-center box-border justify-center hover:bg-white-5`
-- Tabs: Assets, Property + 2 icon tabs
-
-#### `/workspace/texture` (Texture)
-- Sidebar: Texture link active
-- Hidden file upload input
-- Same icon buttons as Smart UV
-- Tabs: Assets, Property + 2 icon tabs
-
-#### `/workspace/texture-edit` (Edit)
-- Sidebar: Edit link active
-- Hidden file upload input
-- Tabs: Assets, Property + 2 icon tabs
-
-#### `/workspace/texture-upscale` (Upscale)
-- Sidebar: Upscale link active
-- Hidden file upload input
-- Same icon buttons as Smart UV
-- Tabs: Assets, Property + 2 icon tabs
-
-#### `/workspace/texture-pbr` (PBR)
-- Sidebar: PBR link active
-- Hidden file upload input
-- Same icon buttons as Smart UV
-- Tabs: Assets, Property + 2 icon tabs
-
-#### `/workspace/rigging` (Rig)
-- Sidebar: Rig link active
-- Hidden file upload input
-- Tabs: Assets, Property + 2 icon tabs
-
-#### `/workspace/animate` (Animate)
-- Sidebar: Animate link active
-- Hidden file upload input
-- Same icon buttons as Smart UV
-- Tabs: Assets, Property + 2 icon tabs
-
-### 1.3 Smoothness / Transition Patterns Observed
-- `transition-all` on every sidebar link — smooth color/scale switch between tools
-- `animate-button` class on primary action buttons — animated press state
-- `hover:bg-white-5` on secondary buttons — subtle hover
-- `data-[state=active]:c-b` / `data-[state=active]:c-black` on tabs — active tab indicator
-- `focus-visible:outline-none` on tabs — clean focus
-- Router-driven page switch (`/workspace/generate` ↔ `/workspace/generate-image` etc.) — no full reload
-- Active sidebar link highlighted with gold color `c-[#F9CF00]`
+**Status**: IN PROGRESS (Part 1 Core Shell & Navigation Complete — Ready for Generation Hub & Right Panel)  
+**Target Branch**: `dev`  
+**Current Milestone**: Handover to Agent for Phase 4 (Generation Hub) & Phase 5 (Right Inspector Dock)  
+**Core Goal**: Rebuild the ForMesh3D Studio frontend UI/UX into a fluid, unified 3D creation studio matching the 10 reference screenshots in `.brain/` (`generate.png`, `segmentation.png`, `retopology.png`, `smart-uv.png`, `texture.png`, `texture-pbr.png`, `rigging.png`, `animate.png`).
 
 ---
 
-## 2. Current ForMesh3D Frontend State (Streamlined Baseline)
+## ⚠️ MANDATORY RULES FOR THE NEXT AGENT (Follow Without Exception)
 
-### 2.1 Post-Cleanup Active Tree (from `features/workspace/`)
+1. **VISUAL INSPECTION FIRST**:
+   - Before editing or creating any UI code, you **MUST** inspect the reference images in `ForMesh3D/.brain/` using `read_file`.
+   - Never guess layouts or colors. Match the references: `#0D0D10` base canvas background, `#1A1A1E` floating cards (`rounded-2xl`, `border-white/[0.08]`), `#F9CF00` Electric Gold accents.
+
+2. **BRANDING & NAMING PURITY**:
+   - The brand is strictly **ForMesh3D Studio**.
+   - Under **NO** circumstances use any third-party reference names (such as "Tripo") in code, comments, component names, or UI copy.
+
+3. **PONYTAIL ULTRA MODE (LAZY SENIOR DEV)**:
+   - Minimal code diffs. The best code is code never written.
+   - Reuse existing utilities, hooks, stores, and patterns already in the codebase.
+   - Zero deadweight, zero bloated helper files, zero unrequested abstractions.
+
+4. **LOW-END MACHINE / RUNTIME SAFETY**:
+   - **DO NOT** run heavy bundler commands (`bun build`, `bun run build`, `npm run build`).
+   - Only verify type safety and unit tests using:
+     - `bun x tsc --noEmit`
+     - `bun test`
+
+5. **VIEWPORT CANVAS PERSISTENCE (ZERO PAGE DESTRUCTION)**:
+   - Switching tools (`model`, `segment`, `remesh`, `uv`, `texture`, `pbr`, `rigging`, `animation`) must **NEVER** unmount, reload, or destroy the 3D WebGL viewport canvas (`MeshViewer.tsx`).
+   - Tool navigation is handled purely via `window.history.replaceState` and dynamic left panel switching in `WorkspaceShell.tsx`.
+
+6. **SCOPE BOUNDARIES (USER DIRECTIVE)**:
+   - **NO Texture Upscale**: Texture upscale is out of scope. Do not create an upscale tool panel.
+   - **NO Texture Editing / Magic Brush**: Texture editing is out of scope. Do not create a texture edit tool panel.
+   - Maintain strictly: **Model**, **Segment**, **Retopo**, **Smart UV**, **Texture (3D Generator)**, **PBR Generator**, **Rigging**, and **Animation**.
+
+7. **GLOBAL CSS ONLY**:
+   - Use standard Tailwind utility classes and existing variables in `app/globals.css`. Do not add ad-hoc CSS files or external styling libraries.
+
+---
+
+## 1. Verified Design System & Architecture Blueprint
+
 ```
-Panels/GeneratePanel.tsx (trimmed to focused generate studio)
-Panels/MeshUploadStatus.tsx
-Navigation/LeftNavigation.tsx
-Header/TopHeader.tsx
-Viewport/MeshViewer.tsx (Three.js viewport)
-Viewport/ViewportToolOverlay.tsx
-RightPanel/RightPropertyPanel.tsx
-RightPanel/RightWorkspacePanel.tsx
-store/WorkspaceContext.tsx
-store/useRiggingStore.ts
-store/useAnimationStore.ts
-store/useUIStore.ts
-lib/motion.ts (MOTION_FAST, MOTION_SPRING)
-constants/models.ts (CANONICAL_MODELS)
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ TOP HEADER (56px): ForMesh3D Logo | 3D Workspace ▾ | Nav (Home, Assets) | DCC Bridge, User Profile     │
+├────┬──────────────────────┬────────────────────────────────────────────────────────────┬────────────────┤
+│ N  │                      │                                                            │                │
+│ A  │ LEFT FLOATING PANEL  │                                                            │ RIGHT PANEL    │
+│ V  │ (340px rounded card) │                 CENTER 3D VIEWPORT                         │ (280px dock)   │
+│    │                      │                                                            │                │
+│ 68 │ Tool Header          │               [3D Orientation Gizmo]                       │ Tabs:          │
+│ px │ Visual Comparison    │               [Floating Camera/Wireframe Dock]             │ [Assets]       │
+│    │ Model Upload CTA     │                                                            │ [Property]     │
+│ d  │ Constraints/Options  │           "Ready For A New 3D Model?"                      │                │
+│ o  │                      │        Instantly generate 3D from image or text            │ Upload Dropzone│
+│ c  │ Bottom Action Button │                                                            │ Asset Cards    │
+│ k  │                      │                                                            │                │
+└────┴──────────────────────┴────────────────────────────────────────────────────────────┴────────────────┘
 ```
 
-### 2.2 Removed Subsystems & Legacy Bloat (Completed Purge)
-- **Non-Core Subsystems (Commit `7651f22`)**:
-  - Deleted `features/board/`, `features/graph/`, `features/image-editor/`, `features/mesh-extras/`, `features/wiki/`, `features/hooks/`, `plugins/unity/`, `plugins/unreal/`, `tools/`.
-  - Deleted obsolete backend and frontend unit tests to be rebuilt for the new architecture.
-- **Deleted Workspace Panels & Inspectors**:
-  - Deleted legacy multi-file rigging & animation inspectors (`RiggingStudio.tsx`, `RiggingLeftPanel.tsx`, `RiggingRightInspector.tsx`, `AnimationStudio.tsx`, `AnimationLeftPanel.tsx`, `AnimationRightInspector.tsx`).
-  - Deleted bloated oversized panels (`TexturePanel.tsx`, `MeshSegmentPanel.tsx`, `MeshEditPanel.tsx`, `RemeshPanel.tsx`, `UVUnwrapPanel.tsx`).
-  - Deleted legacy utilities: `MeshToolsPanel.tsx`, `MeshDiffViewer.tsx`, `ImagePointCloud.ts`, `PhysicsRuntime.ts`, `physicsSettings.ts`.
-
-### 2.3 Retained Core to Evolve Matching Tripo
-- `MeshViewer` (Three.js viewport) — keep, style to match Tripo viewport
-- `LeftNavigation.tsx` — restructure to match Tripo sidebar (12 tools, transition-all, active gold)
-- `TopHeader.tsx` — restructure to match Tripo header (logo, nav only)
-- `constants/models.ts` — keep model registry, add UI labels matching Tripo
-- `lib/motion.ts` — keep, extend with Tripo-style transitions
+- **Left Rail (68px docked)**: Dark `#121214` rail. Active tool highlighted with `#F9CF00` icon, text, and left accent border.
+- **Left Floating Tool Panel (340px)**: Floating card with `rounded-2xl`, background `rgba(26,26,30,0.95)`, `backdrop-blur-md`, `border border-white/[0.08]`.
+- **Center 3D Viewport**: Permanent Three.js canvas. Centered watermark logo + `"Ready For A New 3D Model?"` subtitle when empty. Floating top-right 3D Gizmo (orientation cube) and floating vertical tool dock (Settings, Snapshot, Wireframe, Help).
+- **Right Inspector Dock (280px)**: Floating card. Top segmented switcher: `[ Assets ]` (white pill active) vs `[ Property ]` (zinc text inactive). Secondary bar with 4-dots grid `::`, favorites `★`, filter `Y`, and `Manage` button. Upload 3D model card (`OBJ, FBX, STL, GLB`, `Size ≤ 150MB`).
 
 ---
 
-## 3. Implementation Phases & Task Checklist
+## 2. Completed Work (Part 1 — Phases 1, 2, 3)
 
-### Phase 1: Layout Shell (Sidebar + Header + Page Switch)
-- [ ] Rewrite `LeftNavigation.tsx` — 12 tool links matching Tripo exactly (Image, Model, Segment, Fill Parts, Retopo, Smart UV, Texture, Edit, Upscale, PBR, Rig, Animate), each with `transition-all`, `flex-shrink-0 flex-col gap-1 items-center justify-center`, active state `c-[#F9CF00]`, inactive `c-[#f2f2f2]`
-- [ ] Rewrite `TopHeader.tsx` — logo, Home/Assets nav
-- [ ] Update `WorkspaceShell.tsx` — wire sidebar link clicks to Next.js router push (`/workspace/generate`, `/workspace/generate-image`, etc.), preserve `motion`/`AnimatePresence` for page transitions
-- [ ] Add `transition-all` page-switch animation between workspace tools
-- [ ] Verify: clicking any sidebar link switches page without full reload, active tool highlighted gold
+### Phase 1: Shell & Navigation Dock ✅
+- [x] Rebuilt `features/workspace/Navigation/LeftNavigation.tsx` (-401 lines of bloat):
+  - Clean 68px docked rail.
+  - Active tool state in `#F9CF00` with left accent bar indicator.
+  - Clean tool sequence: Model, Segment, Retopo, Smart UV, Texture, PBR, Rig, Animate, and App settings at bottom.
+- [x] Route synchronization in `WorkspaceShell.tsx`:
+  - Synchronizes `/workspace/generate`, `/workspace/segmentation`, `/workspace/retopology`, `/workspace/smart-uv`, `/workspace/texture`, `/workspace/texture-pbr`, `/workspace/rigging`, `/workspace/animate` without unmounting the 3D viewport canvas.
+  - Safe fallback mapping for legacy route segments.
 
-### Phase 2: Per-Page Panels (Match Tripo DOM structure)
-- [ ] `GeneratePanel.tsx` — trim to Tripo generate page: hidden file upload, switch toggles, Assets/Property tabs, primary "Generate" button with count
-- [ ] `GenerateImagePanel.tsx` (new or trimmed from GeneratePanel) — prompt textarea, aspect ratio buttons (1:1, 16:9, 9:16, 4:3, 3:4), count buttons (1-4), "Generate Image" button
-- [ ] `MeshSegmentPanel.tsx` — hidden file upload, "Start Segmenting" button with count, Assets/Property tabs
-- [ ] `RemeshPanel.tsx` (Retopo) — hidden file upload, Assets/Property tabs
-- [ ] `UVUnwrapPanel.tsx` (Smart UV) — hidden file upload, icon buttons (purple active state), Assets/Property tabs
-- [ ] `TexturePanel.tsx` — trim to Tripo texture page: hidden file upload, icon buttons, Assets/Property tabs
-- [ ] Texture Edit / Upscale / PBR panels — same Tripo pattern each
-- [ ] Rigging panel — hidden file upload, Assets/Property tabs (consolidate RiggingStudio + LeftPanel + RightInspector into one focused panel)
-- [ ] Animation panel — hidden file upload, icon buttons, Assets/Property tabs
-- [ ] Verify: each page shows only Tripo-relevant controls, no extra bloat
+### Phase 2: Center 3D Viewport & Overlays ✅
+- [x] Streamlined `features/workspace/Viewport/MeshViewer.tsx` from 5,636 lines down to ~500 lines:
+  - Removed 800-line sculpting engine, 850-line UV painter, 500-line screen recorder, and dead physics hooks.
+  - Preserved Three.js WebGL canvas, Draco/Meshopt loaders, bounding-box centering, turntable, wireframe, grid, and camera snaps.
+  - Centered watermark empty state matching reference: Logo + `"Ready For A New 3D Model?"` + `"Instantly generate 3D from image or text"`.
+- [x] Floating Viewport Controls in `features/workspace/Viewport/ViewportToolOverlay.tsx`:
+  - Floating 3D Orientation Gizmo with Front, Side, Top, and Iso camera snaps.
+  - Floating vertical toolbar: Settings Gear, Canvas Snapshot, Wireframe toggle, Help `?`.
 
-### Phase 3: Button Functions & Click Logic
-- [ ] File upload click → open hidden `<input type=file>` → onChange handler
-- [ ] Primary action button → API call (generate/segment/upscale/etc.) with loading state
-- [ ] Tab switch (Assets/Property) → toggle panel content
-- [ ] Switch toggle → on/off state persistence
-- [ ] Aspect ratio / count buttons → selection state
-- [ ] Sidebar navigation → router push + active state
-- [ ] Verify: every clickable element from Tripo DOM has a working handler
-
-### Phase 4: Smoothness & Transitions
-- [ ] Add `transition-all` to all interactive elements (buttons, tabs, toggles, sidebar links)
-- [ ] Add `hover:bg-white-5` to secondary buttons
-- [ ] Add `animate-button` class to primary action buttons
-- [ ] Add `data-[state=active]` styling to tabs
-- [ ] Add page-switch motion (AnimatePresence + MOTION_SPRING from lib/motion.ts)
-- [ ] Verify: page switches feel smooth, hover states visible, active states clear
-
-### Phase 5: Upload / Download Flows
-- [ ] Upload: hidden file input → drag-drop zone (optional) → progress state → success/error toast
-- [ ] Download/Export: export button per page → format selection (glb, fbx, obj) → download trigger
-- [ ] Verify: upload works, download works, errors handled
-
-### Phase 6: Code Cleanup (Remove Redundant)
-- [x] Delete unused panel files not mapped to Tripo tools (`TexturePanel.tsx`, `MeshSegmentPanel.tsx`, `MeshEditPanel.tsx`, `RemeshPanel.tsx`, `UVUnwrapPanel.tsx`, `MeshToolsPanel.tsx`, `MeshDiffViewer.tsx`, `ImagePointCloud.ts`, `PhysicsRuntime.ts`)
-- [x] Delete non-core subsystems (commit `7651f22`: board, graph, image-editor, mesh-extras, wiki, plugins, tools)
-- [ ] Split `WorkspaceContext.tsx` god store into per-feature stores
-- [x] Trim `GeneratePanel.tsx` to focused size
-- [ ] Remove remaining dead imports/exports
-- [ ] Verify: `bun run lint` passes, `bun run test` passes, `bun run build` passes
-
-### Phase 7: Documentation Update
-- [ ] Update `Docs/DESIGN.md` with new UI specification
-- [x] Update `Docs/ARCHITECTURE.md` with new frontend layout & component status
-- [ ] Update `README.md` if needed
-- [x] Update `Docs/CHANGELOG.md` with recent history
-- [x] Update `Docs/MEMORY.md` with audited streamlined state
+### Phase 3: Unified Studio Tool Template & Secondary Views ✅
+- [x] Created `features/workspace/Panels/StudioToolTemplate.tsx` (~240 lines):
+  - Reusable template handling: tool header, hero transformation graphic (before ➔ after), instructional upload callout with `#F9CF00` highlight, direct 3D model upload button, tool constraints block, and bottom action button.
+- [x] Configured 7 secondary tool views in `WorkspaceShell.tsx`:
+  - `Segmentation`: Before/after robot parts graphic, warning cards for quad/rigged models, `"Start Segmenting ⚡ 40"`.
+  - `Retopology`: Sculpt-to-quad graphic, quad target budget, `"Start Retopology ⚡ 30"`.
+  - `Smart UV`: 3D-to-UV layout graphic, `Tris ≤ 80,000 / Quads ≤ 40,000` limit badge, `"Unwrap UVs ⚡ 20"`.
+  - `Texture`: Albedo paint graphic, style & resolution options, `"Generate Textures ⚡ 35"`.
+  - `PBR Generator`: PBR material graphic (diffuse ➔ roughness/metallic/normal), `"Generate PBR Maps ⚡ 25"`.
+  - `Rigging`: A-pose to skeleton graphic, 4 supported category badges (Humanoid, Quadruped, Aquatic, Serpentine), `"Auto Rig Model ⚡ 40"`.
+  - `Animation`: Rig-to-motion graphic, animation clips selector, `"Apply Animation ⚡ 20"`.
+- [x] Scope Cleanup:
+  - Removed Texture Upscale and Texture Edit (Magic Brush) as directed by user.
 
 ---
 
-## 4. File → Action Map
+## 3. Remaining Work (Part 2 — Phases 4, 5, 6)
 
-| File | Action |
-|------|--------|
-| `features/workspace/Navigation/LeftNavigation.tsx` | REWRITE — Tripo 12-tool sidebar |
-| `features/workspace/Header/TopHeader.tsx` | REWRITE — Tripo header (logo + nav only) |
-| `features/workspace/WorkspaceShell.tsx` | UPDATE — wire router + transitions |
-| `features/workspace/Panels/GeneratePanel.tsx` | TRIM — Tripo generate page controls |
-| `features/workspace/Panels/MeshSegmentPanel.tsx` | TRIM — Tripo segmentation controls |
-| `features/workspace/Panels/RemeshPanel.tsx` | TRIM — Tripo retopo controls |
-| `features/workspace/Panels/UVUnwrapPanel.tsx` | TRIM — Tripo smart-uv controls |
-| `features/workspace/Panels/TexturePanel.tsx` | TRIM — Tripo texture controls |
-| `features/workspace/Rigging/RiggingStudio.tsx` | CONSOLIDATE — merge 3 rig files into 1 Tripo-style panel |
-| `features/workspace/Rigging/RiggingLeftPanel.tsx` | DELETE — merge into RiggingStudio |
-| `features/workspace/Rigging/RiggingRightInspector.tsx` | DELETE — merge into RiggingStudio |
-| `features/workspace/store/WorkspaceContext.tsx` | SPLIT — god store into feature stores |
-| `features/workspace/lib/motion.ts` | EXTEND — add Tripo transitions |
-| `constants/models.ts` | UPDATE — add UI labels matching Tripo |
+### Phase 4: Generation Hub Rebuild (`GeneratePanel.tsx`) ⏳
+*Reference Image*: Inspect `/home/david/Documents/dev/ForMesh3D/.brain/generate.png`
+- [ ] **Mode Switcher**:
+  - Segmented pill: `HD Model` (white pill active) vs `Smart Mesh ⇡`.
+- [ ] **4 Input Mode Tabs**:
+  - Tab 1: Image (single image upload).
+  - Tab 2: Mesh (upload existing 3D model for conversion/refinement).
+  - Tab 3: Multi-view (multi-angle image slots).
+  - Tab 4: Text Prompt (text prompt textarea for text-to-3D).
+- [ ] **Checkered Upload Dropzone**:
+  - Checkered subtle background, cloud upload icon, `"Upload"`, `"JPG, PNG, WEBP · Max 20MB"`, and `"Generate Image for 3D ›"`.
+- [ ] **General Settings Accordion**:
+  - Collapsible row `"Geometry & Texture ›"`.
+- [ ] **Studio Settings / Members Only**:
+  - Gold badge `✪`.
+  - `"Generate in Parts"` with toggle switch.
+  - `"8K Texture"` with toggle switch.
+  - `"Privacy"` with Public/Private dropdown.
+- [ ] **AI Model Selector**:
+  - Dropdown with Thumbs-up icon:
+    - `Hunyuan3D-2 Mini Turbo (Fast Geometry) · Best Speed`
+    - `TaoFlowForge (Progressive Native Flow) · Native Topology`
+    - `Pixal3D (Neighborhood Attention Reconstruction) · High Precision`
+- [ ] **Bottom Action Button**:
+  - Full-width vibrant gold pill button: `"Generate ⚡ 55"`.
+  - Animated spinner and disabled state during generation.
 
----
+### Phase 5: Right Inspector & Assets Dock ⏳
+*Reference Images*: Inspect `/home/david/Documents/dev/ForMesh3D/.brain/generate.png` and `/home/david/Documents/dev/ForMesh3D/.brain/segmentation.png`
+- [ ] **Header Tabs (`RightWorkspacePanel.tsx`)**:
+  - Segmented pill matching reference:
+    - `[ Assets ]` tab: Active white pill (`bg-white text-black font-semibold rounded-lg shadow-sm`).
+    - `[ Property ]` tab: Inactive zinc text (`text-zinc-400 hover:text-white`).
+- [ ] **Assets Sub-Toolbar (`RightAssetsPanel.tsx`)**:
+  - Left: 4-dots grid icon `::`, favorites star `★`, category filter funnel `Y`.
+  - Right: `Manage` pill button (with checklist icon + `"Manage"`).
+- [ ] **Upload 3D Model Dropzone Card**:
+  - Dashed card with subtle checkered pattern.
+  - Purple/indigo circular button with white upward arrow `↑`.
+  - Title: `"Upload 3D Model"`.
+  - Subtitle 1: `"OBJ, FBX, STL, GLB"`.
+  - Subtitle 2: `"Size ≤ 150MB"`.
+- [ ] **Asset Cards List**:
+  - Render local asset cards with thumbnail, name, format tag, and active selection state.
+- [ ] **Property Inspector (`RightPropertyPanel.tsx`)**:
+  - Telemetry summary: Triangles, Quads, Vertices, Dimensions (X, Y, Z).
+  - Material and texture map slots (Diffuse, Normal, Roughness, Metallic).
+  - Clean export buttons (GLB, OBJ, FBX).
 
-## 5. Verification Criteria (Definition of Done)
-- [ ] All 10 Tripo workspace pages have matching ForMesh3D pages
-- [ ] Sidebar has exactly 12 tools with Tripo styling (transition-all, active gold)
-- [ ] Header matches Tripo (logo, nav only)
-- [ ] Every button/tab/toggle from Tripo DOM has a working handler
-- [ ] Upload flow works on all pages (hidden file input → handler)
-- [ ] Page switches are smooth (no full reload, motion transition)
-- [ ] `bun run lint` passes
-- [ ] `bun run test` (tsc --noEmit) passes
-- [ ] `bun run build` passes
-- [ ] No dead code, no unused imports
-
----
-
-## 6. Risks
-- Tripo's actual click handlers call backend APIs we may not have — UI will match but backend integration is separate work
-- Some Tripo elements (popovers, templates) need content we don't have yet — mark as TODO with placeholder
-- Hidden file upload inputs need visible trigger UI to be usable — design the trigger button
-
-**Skipped**: Backend API integration (out of scope for UI plan), Tripo source code access (not available — compiled React app, only DOM crawl possible), event/home/fill-parts screenshots (user said skip/delete).
-
----
-
-## 7. Personal Notes (Not for Implementation)
-
-Yeh section sirf mere notes ke liye hai, implementation ka hissa nahi:
-
-- Project personal use ke liye hai — koi auth/login, koi help center, koi DCC bridge, koi app download, koi manage popover, koi public/private toggle nahi chahiye.
-- Sirf 12 Tripo workspace tools (Image, Model, Segment, Fill Parts, Retopo, Smart UV, Texture, Edit, Upscale, PBR, Rig, Animate) ka clean UI chahiye jo personal 3D workflow ke liye sufficient ho.
-- Har page par sirf: hidden file upload → primary action button → Assets/Property tabs. Bas itna.
-- Backend API alag se handle karenge — ye plan sirf frontend UI/UX migration ke liye hai.
-- Sabhi screenshots `/home/david/Documents/dev/ForMesh3D/.brain/` mein save hain reference ke liye.
-
+### Phase 6: Verification, Type Safety & Delivery ⏳
+- [ ] Run `bun x tsc --noEmit` — must pass with **0 errors**.
+- [ ] Run `bun test` — ensure all unit tests pass.
+- [ ] Verify zero canvas flickering / re-mounts on tool switches.
+- [ ] Verify keyboard shortcuts and smooth transitions.
