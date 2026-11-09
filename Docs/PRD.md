@@ -411,3 +411,15 @@ One canonical enable_auto_rig flag runs SkinTokens after the final production me
 
 ### Smart Intent
 Five built-in intent presets (`game_ready`, `cinematic`, `animation`, `3d_print`, `mobile`) are backend-owned and deterministic in `backend/config/smart_presets.yaml`: game_ready 50K tris / 1K atlas with collision, cinematic 200K / 2K, animation 30K / 1K with auto-rig, 3d_print raw with printability check and auto-repair, mobile 20K / 1K. The Generate panel exposes these five plus a `Native` chip that bypasses post-processing and returns the raw generative mesh, and it mirrors the backend catalogue through a minimal offline fallback table in `constants/smartPresetFallback.json` guarded by `backend/tests/test_smart_preset_parity.py`. Explicit top-level budget inputs take precedence over nested defaults and presets (`_resolve_target_polycount_precedence`). Explicit model selection remains an override; the scheduler remains the final concurrency and VRAM authority.
+
+### Studio 3D Tool Suite & Canonical Panels
+The Studio 3D workspace provides dedicated, production-grade tool panels for all 7 primary workflows:
+- **Model Generation (`GeneratePanel.tsx`)**: Dual image/prompt intake, AI model selector with hardware readiness, polycount budget slider (up to 600K), quad/tri topology selector, and seed randomizer.
+- **PBR Texturing (`TexturePanel.tsx`)**: PBR map generation with resolution (1K/2K/4K) and lighting presets.
+- **Retopology & Remeshing (`RemeshPanel.tsx`)**: Quad/triangle remeshing with 120fps smooth budget slider (5K–200K) and quick presets.
+- **Smart UV Unwrap (`UVPanel.tsx`)**: Single-line pill selectors (Organic vs Hard-Surface, 1K–4K, Island Margins).
+- **Mesh Part Segmentation (`SegmentationPanel.tsx`)**: Semantic and geometric part decomposition (2–32 parts) with hierarchical tree grouping.
+- **Character Auto-Rigging (`RiggingPanel.tsx`)**: Skeleton templates (Humanoid, Quadruped, Generic), bind pose normalization (T-Pose / A-Pose), and facial/finger bone controls.
+- **3D Character Animation (`AnimationPanel.tsx`)**: Motion prompt chips (Walk, Run, Jump, Dance), duration slider (1.0–15.0s), and foot skating ground-lock cleanup.
+
+All panels preserve an identical 1-to-1 Image & 3D Mesh dropzone card, enforce zero model branding on CTAs, and integrate with contextual dynamic inspectors in `features/workspace/dynamic/`.

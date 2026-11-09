@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type * as THREE from 'three';
 
 export interface AssetItem {
   id: string;
@@ -80,6 +81,8 @@ interface ViewerState {
   setCompareSyncCamera: (enabled: boolean) => void;
   setCompareLeftAsset: (assetId: string | null) => void;
   setCompareRightAsset: (assetId: string | null) => void;
+  activeModelObject: THREE.Object3D | null;
+  setActiveModelObject: (obj: THREE.Object3D | null) => void;
 }
 
 export const useViewerStore = create<ViewerState>((set, get) => ({
@@ -95,6 +98,8 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   compareSyncCamera: false,
   compareLeftAssetId: null,
   compareRightAssetId: null,
+  activeModelObject: null,
+  setActiveModelObject: (obj) => set({ activeModelObject: obj }),
 
   setLoadedModel: (url, name = null, asset = null) => {
     const prev = get().loadedModelUrl;

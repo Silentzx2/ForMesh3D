@@ -43,10 +43,10 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
       icon: Box,
     },
     {
-      id: 'segment',
-      label: 'Segment',
-      tooltip: 'Mesh Part Segmentation',
-      icon: Scissors,
+      id: 'texture',
+      label: 'Texture',
+      tooltip: '3D Texture Generator',
+      icon: Palette,
       hasDropdown: true,
     },
     {
@@ -63,10 +63,10 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
       icon: Grid3X3,
     },
     {
-      id: 'texture',
-      label: 'Texture',
-      tooltip: '3D Texture Generator',
-      icon: Palette,
+      id: 'segment',
+      label: 'Segment',
+      tooltip: 'Mesh Part Segmentation',
+      icon: Scissors,
       hasDropdown: true,
     },
     {

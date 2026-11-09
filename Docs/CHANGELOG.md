@@ -1,50 +1,78 @@
 # ForMesh3D Changelog
 
-## 2026-11-09 — 8px Header Clearance, 274px Studio Panel, Natural Parameter Flow & Downward Dropdown
+## 2026-11-09 — Interactive 3D Dynamic Rigging & Segmentation Inspectors with Real Model Geometry & Armature
 
-- **8px Floating Header Clearance & 274px Panel Width (`WorkspaceShell.tsx`)**:
-  - Increased top clearance gap to 8px (`top-2`) below `TopHeader`, completely eliminating any header overlap or slicing while maintaining smooth floating rounded card styling (`rounded-2xl`).
-  - Increased Left Unified Panel width by 10px (`264px -> 274px`), allocating 46px to Left Rail (`w-[46px]`) and 228px to Tool Content (`w-[228px]`).
-  - Symmetrically elevated Right Panel with matching 8px top clearance (`top-2`).
-  - Solid pure dark `#0c0d12` behind panels guarantees zero 3D canvas/mesh bleed.
-- **Natural Parameter Deck Positioning & Downward AI Model Dropdown (`GeneratePanel.tsx`)**:
-  - Reverted `mt-auto` anchoring: General Settings (Geometry & Texture), AI Model selector, and Seed & Randomizer flow naturally right below the Studio Input Card (dropzone), leaving Generate CTA pinned cleanly at the bottom.
-  - Reconfigured AI Model dropdown to open downwards (`top-full mt-1 left-0 right-0 z-40`).
-- **High-Contrast Non-Transparent Icons & Clean Model Nav (`LeftNavigation.tsx`, `GeneratePanel.tsx`)**:
-  - Removed notification badge (`badge: '+'`) from above the `Model` icon.
-  - Upgraded navigation icons to crisp, bold Lucide strokeWidth 2 icons (`Box`, `Scissors`, `RefreshCw`, `Grid3X3`, `Palette`, `Bone`, `Film`, `Settings2`).
-  - Retained native `Settings` tool with gear icon at the bottom of the navigation rail.
-- **Verification**: `bun x tsc --noEmit` passed (0 errors); `bun test` passed (8 pass, 0 fail); verified visually in browser via `agent-browser` (clean screenshots confirmed at `/tmp/agent-browser-screenshots/workspace_pristine.png` and `/tmp/agent-browser-screenshots/dropdown_open.png`).
-
----
-
-## 2026-11-08 — Generate Panel Backend Wiring, Seamless Docking, Shader Spheres & Zero-Load Snapshot
-
-- **Generate Panel Backend Wiring & Execution Progress (`GeneratePanel.tsx`, `buildGenerationParameters.ts`)**:
-  - Decoupled texture generation from mesh post-processing decimation: Texture toggle, 2K/4K resolution, and PBR baking are no longer forced to false when post-processing is off.
-  - Wired `polycount` slider (up to 600K) and `topology_mode` ('quad' / 'triangle') to backend API generation payload.
-  - Added live progress display with spinning indicator, current backend step name (`executionStep`), percentage (`executionProgress`), progress bar track, and working Cancel button calling `cancelExecution()`.
-- **Top Header & Panel Seamless Docking (`TopHeader.tsx`, `WorkspaceShell.tsx`)**:
-  - Removed artificial rounded cuts and dividing borders between `TopHeader`, `LeftNavigation`, and `GeneratePanel`.
-  - Applied solid pure dark backdrop (`#0c0d12` / `#090a0f`) beneath panels to eliminate 3D mesh peeking through margins.
-  - Central 3D viewport canvas enhanced with a soft radial studio vignette fading from dark boundaries into lit center.
-- **Bottom Material Preview Spheres & Zero-Load Snapshot (`ViewportToolOverlay.tsx`, `MeshViewer.tsx`)**:
-  - Added Tripo 3D-style bottom floating dock with 5 material spheres: PBR Textured, Clay Matte, Surface Normals, Wireframe, and MatCap Gold.
-  - Caches original model textures and materials on `userData.__originalMaterial` without in-place mutation.
-  - Switched snapshot capture from synchronous 3840px buffer reallocation to asynchronous `canvas.toBlob(...)` inside `requestAnimationFrame`, eliminating laptop freezing.
-- **Verification**: `bun x tsc --noEmit` passed with 0 errors; `bun test` passed with 8 pass, 0 fail (added 5 new parameter builder unit tests).
+- **Interactive Dynamic Rigging Inspector (`DynamicRiggingInspector.tsx`)**:
+  - Implemented interactive 3D Armature mini-box with real bone joint linkages and humanoid wireframe envelope.
+  - Added clickable 3D joint nodes (Root, Hips, Spine, Chest, Neck, Head, Shoulders, Arms, Hands, Legs, Feet) with active selection rings.
+  - Interactive bone rotation sliders: Pitch (X-Axis), Yaw (Y-Axis), Roll (Z-Axis) ranging from -180° to +180° with live degree readouts.
+  - Instant pose presets (`T-Pose`, `A-Pose`, `Combat`, `Sitting`) with 0ms response and automatic symmetric mirroring.
+  - Dual toggles for Symmetry Mirroring and X-Ray Bone Vision (transparent mesh rendering).
+  - Wired into `RightPropertyPanel.tsx` to automatically mount whenever `activeTool === 'rigging'`.
+- **Real Model Data Binding (`DynamicUVInspector.tsx`, `DynamicSegmentationInspector.tsx`, `DynamicRiggingInspector.tsx`)**:
+  - Bound dynamic inspectors to `useViewerStore.getState().activeModelObject`:
+    - `DynamicUVInspector`: Extracts real UV coordinates (`geometry.attributes.uv`) from active model, computing true UV surface area, bounding boxes, packing density, and texel utilization, displaying a dynamic `Real UV` badge.
+    - `DynamicSegmentationInspector`: Extracts real mesh sub-objects and geometric vertex partitions from loaded models with interactive 3D click-to-select parts, live volume metrics, and `Real Mesh` badge.
+    - `DynamicRiggingInspector`: Detects real `THREE.Bone`/`SkinnedMesh` armature or adapts canonical humanoid joints to actual model bounding box dimensions with `Real Bones` badge.
+- **Eliminated Vertical Scrollbars on Left Tool Panels (`SegmentationPanel.tsx`, `AnimationPanel.tsx`)**:
+  - Streamlined primary controls to keep zero-scroll presentation across all viewport heights down to 577px.
+  - Secondary parameters (decomposition modes, duration fine-slider, hierarchical tree, ground lock) cleanly encapsulated inside dynamic portal flyouts.
+- **Quality Gate**: `bun x tsc --noEmit` passed (0 errors), `bun test` passed (8 pass, 0 fail), browser verification confirmed via `agent-browser`. Strictly zero git push.
 
 ---
 
-## 2026-11-08 — Studio Upload Box Design, Layout & Colors Matched to Reference
+## 2026-11-09 — Studio Panels Streamlining & Dynamic Inspectors (Zero Scroll, Segmentation & Animation)
 
-- **Image Upload Dropzone Alignment (`GeneratePanel.tsx`)**:
-  - Rebuilt image upload card with glowing indigo/violet border (`#48457D`), deep dark navy-slate background (`#161626`), and rounded corners (`rounded-2xl`).
-  - Added 4-pill segmented mode selector at top (`Image to 3D`, `3D Mesh`, `Multi-View`, `Prompt/Sketch`) with active white pill (`bg-white text-black font-bold`).
-  - Implemented classic studio dark checkerboard dropzone (`#12131F` / `#18192A`) with prompt tip lightbulb icon, upload title, format size indicator, and bottom `"Generate Image for 3D ›"` link.
-  - Added loaded preview state with top-right circular trash delete button and bottom floating action pills (`Edit` pencil and `"Generate Multi-Views"`).
-- **Assets 3D Model Upload Dropzone Alignment (`RightAssetsPanel.tsx`)**:
-  - Styled with matching studio dark checkerboard pattern, indigo dashed border (`border-[#48457D]/50 hover:border-[#6366F1]`), and purple/indigo gradient circular upload button.
-- **Tool Template Callout Alignment (`StudioToolTemplate.tsx`)**:
-  - Highlighted action keywords (`Select`, `upload your own`, `{title}`) in `#F9CF00` with direct `Upload 3D Model` action pill button.
-- **Verification**: `bun x tsc --noEmit` passed with 0 errors; `bun test` passed (3/3 unit tests passing).
+- **Eliminated Vertical Scrollbars on Left Tool Panels (`SegmentationPanel.tsx`, `AnimationPanel.tsx`)**:
+  - Main panels streamlined to retain only essential inputs directly below the canonical upload card:
+    - `SegmentationPanel`: Kept single-row Target Parts pills (`4 Parts`, `8 Parts`, `16 Parts`, `24 Parts`) and direct `Advanced Settings` trigger button. Moved Decomposition Algorithm mode, fine-grain 2-32 slider, and Hierarchical Tree into the Advanced portal flyout.
+    - `AnimationPanel`: Kept single-row Motion Prompt input + 4 instant preset chips (`Walk`, `Run`, `Jump`, `Dance`) and direct `Advanced Settings` trigger button with live parametric badge (`4.0s · 30F`). Moved fine duration slider, Foot Skating Cleanup (Ground Lock), FPS, Looping, and Skeleton profile into the Advanced portal flyout.
+  - Eliminated verbose multiline explanatory text and tightened inner spacing (`space-y-2`, `no-scrollbar`), achieving 100% visible, zero-scroll presentation across laptop and low-height viewports (down to 577px).
+- **Dynamic Right Property Panel Extension (`DynamicSegmentationInspector.tsx`, `DynamicAnimationInspector.tsx`)**:
+  - Created `features/workspace/dynamic/DynamicSegmentationInspector.tsx`:
+    - Live Part Hierarchy list with color badges, interactive part visibility toggles (Eye/EyeOff), total face count, volume percentages, 3D viewport boundary seam highlight, and colorize preview switches.
+    - Action button for exporting individual parts as a ZIP archive (`Export Separate Parts (.ZIP)`).
+  - Created `features/workspace/dynamic/DynamicAnimationInspector.tsx`:
+    - Interactive timeline scrubber (0.0s to 4.0s) with simulated Play/Pause, reset, loop toggle, and playback speed pills (`0.5x`, `1.0x`, `2.0x`).
+    - Ground contact diagnostics (Plant vs Swing, 0.01mm drift indicator), 3D viewport armature bones & trajectory arc overlays, and GLB/FBX export action.
+  - Wired into `RightPropertyPanel.tsx` to automatically activate when `activeTool === 'segment'` and `activeTool === 'animation'`.
+- **Retopology, Smart UV, and Auto-Rigging Panels Intact**:
+  - Canonical dropzone card (Image & 3D Mesh) 100% byte-for-byte identical across all panels.
+  - Header padding (`px-8`) with `truncate` ensures 0px collision with the floating collapse button (`PanelLeftClose`).
+- **Quality Gate**: `bun x tsc --noEmit` (0 errors), `bun test` (8 pass, 0 fail). Zero git push operations executed.
+
+---
+
+## 2026-11-09 — Multi-Agent Studio Panels Implementation (Retopo, Smart UV, Segmentation, Rigging, Animation)
+
+- **Retopology & Remeshing Panel (`RemeshPanel.tsx`)**:
+  - Implemented 1-to-1 canonical Image & 3D Mesh dropzone card matching `GeneratePanel.tsx`.
+  - Added Tripo-style 120fps smooth polycount budget slider (5K to 200K) with 4 quick presets (`5K Mob`, `20K Low`, `50K Game`, `100K Cine`).
+  - Added Pure Quads vs Triangles topology selector and dynamic portal flyout for feature angle, adaptive density, watertight healing, and export format.
+  - Zero model branding in CTA (`Run Retopology`).
+- **Smart UV Panel & Dynamic Right UV Inspector (`UVPanel.tsx`, `DynamicUVInspector.tsx`)**:
+  - Single-line ergonomic controls for Unwrap Strategy (`Organic` vs `Hard-Surface`), Atlas Resolution (`1K`, `2K`, `4K`), Island Margin (`2px`, `4px`, `8px`, `16px`).
+  - Dynamic portal flyout for distortion threshold (1.00x to 2.50x, default 1.25x), Blender Native boundary packer, symmetry stacking (texel saver), separate sub-parts, and format.
+  - Created `features/workspace/dynamic/DynamicUVInspector.tsx` automatically loaded in the Right Property Panel when Smart UV tool is active:
+    - Interactive 2D UV Atlas canvas with SVG island charts, hover tooltips (Island ID, Tris, Area %, Distortion), and mode switcher (`Wireframe`, `Checker Test`, `Texel Heatmap`).
+    - Live Space Utilization meter (`72.4% Optimal`), total charts, texel density, and overlap validation.
+    - 3D Viewport Sync: Highlight Seam Cuts toggle and Viewport Test Grid material toggle.
+- **Mesh Part Segmentation Panel (`SegmentationPanel.tsx`)**:
+  - Implemented via Agent 1 grounded in `backend/api/routers/mesh_segmentation.py`.
+  - Untouched 1-to-1 upload card; smooth slider (2 to 32 parts) + quick presets (`4`, `8`, `16`, `24`); decomposition mode (`Semantic` vs `Geometric`); hierarchical tree toggle; dynamic portal flyout.
+  - Action CTA: `Segment Mesh` (zero model name).
+- **Character Auto-Rigging Panel (`RiggingPanel.tsx`)**:
+  - Implemented via Agent 2 grounded in `backend/api/routers/auto_rigging.py`.
+  - Untouched 1-to-1 upload card; skeleton templates (`Humanoid`, `Quadruped`, `Generic`); bind pose normalization (`T-Pose Auto` vs `A-Pose Stand`); facial & finger bones toggle; dynamic portal flyout for skinning algorithms (Biharmonic Geodesic vs Linear Blend), max influences, format, symmetry snapping.
+  - Action CTA: `Auto-Rig Character` (zero model name).
+- **3D Character Animation Panel (`AnimationPanel.tsx`)**:
+  - Implemented via Agent 3 grounded in `backend/api/routers/motion_generation.py`.
+  - Untouched 1-to-1 upload card; motion prompt with preset chips (`Walk`, `Run`, `Jump`, `Dance`); animation duration slider (1.0s to 15.0s, default 4.0s); foot skating cleanup toggle; dynamic portal flyout for FPS (24/30/60), looping toggle, target skeleton, and random seed.
+  - Action CTA: `Apply Animation` (zero model name).
+- **Quality Gate & Inviolability**:
+  - Verified by Agent 4: `bun x tsc --noEmit` (0 errors), `bun test` (8 pass, 0 fail).
+  - Canonical upload card 100% byte-for-byte identical across all panels.
+  - RightPanel and existing pages untouched and preserved.
+  - Zero git push operations executed.
+
+

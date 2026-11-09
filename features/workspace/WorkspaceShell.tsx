@@ -41,6 +41,12 @@ const MeshViewer = dynamic(() => import('./Viewport/MeshViewer').then(mod => mod
 import { MOTION_FAST, MOTION_SPRING } from '@/lib/motion';
 
 import { GeneratePanel } from './Panels/GeneratePanel';
+import { TexturePanel } from './Panels/TexturePanel';
+import { SegmentationPanel } from './Panels/SegmentationPanel';
+import { RemeshPanel } from './Panels/RemeshPanel';
+import { UVPanel } from './Panels/UVPanel';
+import { RiggingPanel } from './Panels/RiggingPanel';
+import { AnimationPanel } from './Panels/AnimationPanel';
 const JobDetailView = dynamic(() => import('./Jobs/JobDetailView').then(mod => mod.JobDetailView), {
   ssr: false,
   loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
@@ -377,107 +383,19 @@ export const WorkspaceShell: React.FC = () => {
       case 'model':
       case 'tools':
         return <GeneratePanel />;
-      case 'remesh':
-        return (
-          <StudioToolTemplate
-            title="Retopology"
-            icon={CircleDashedIcon}
-            heroType="retopo"
-            actionLabel="Start Retopology"
-            onExecute={runRemeshGeneration}
-          />
-        );
       case 'segment':
-        return (
-          <StudioToolTemplate
-            title="Part Segmentation"
-            icon={ScissorsIcon}
-            heroType="segment"
-            actionLabel="Start Segmenting"
-            unavailableCards={[
-              { label: 'Quad models', icon: AlertCircle },
-              { label: 'Rigged models', icon: AlertCircle },
-            ]}
-            onExecute={runSegmentation}
-          />
-        );
+        return <SegmentationPanel />;
+      case 'remesh':
+        return <RemeshPanel />;
       case 'uv':
-        return (
-          <StudioToolTemplate
-            title="Smart UV"
-            icon={GridIcon}
-            heroType="uv"
-            actionLabel="Unwrap UVs"
-            constraintsBadge="Tris ≤ 80,000 / Quads ≤ 40,000"
-            onExecute={runUVUnwrapGeneration}
-          />
-        );
+        return <UVPanel />;
       case 'texture':
-        return (
-          <StudioToolTemplate
-            title="3D Model Texture Generator"
-            icon={LayersIcon}
-            heroType="texture"
-            actionLabel="Generate Textures"
-            onExecute={runTextureGeneration}
-          />
-        );
       case 'pbr':
-        return (
-          <StudioToolTemplate
-            title="PBR Generator"
-            icon={LayersIcon}
-            heroType="pbr"
-            actionLabel="Generate PBR Maps"
-            onExecute={runTextureGeneration}
-          />
-        );
+        return <TexturePanel />;
       case 'rigging':
-        return (
-          <StudioToolTemplate
-            title="3D Rigging"
-            icon={BoneIcon}
-            heroType="rig"
-            actionLabel="Auto Rig Model"
-            supportCards={[
-              { label: 'Humanoid', icon: CheckmarkCircle02Icon },
-              { label: 'Quadruped', icon: CheckmarkCircle02Icon },
-              { label: 'Aquatic', icon: CheckmarkCircle02Icon },
-              { label: 'Serpentine', icon: CheckmarkCircle02Icon },
-            ]}
-            onExecute={async () => {
-              if (!currentAsset) {
-                toast.warning('Select or upload a 3D model first');
-                return;
-              }
-              const { generateRig } = useRiggingStore.getState();
-              toast.info('Starting Auto-Rigging...');
-              const ok = await generateRig(currentAsset.source?.viewUrl || currentAsset.source?.localUrl, currentAsset.fileId);
-              if (ok) toast.success('Model rigged successfully!');
-            }}
-          />
-        );
+        return <RiggingPanel />;
       case 'animation':
-        return (
-          <StudioToolTemplate
-            title="Animation"
-            icon={FilmIcon}
-            heroType="animate"
-            actionLabel="Apply Animation"
-            onExecute={async () => {
-              if (!currentAsset) {
-                toast.warning('Select or upload a 3D model first');
-                return;
-              }
-              const { applyPresetClip, animations } = useAnimationStore.getState();
-              const clip = animations[0];
-              if (clip) {
-                applyPresetClip(clip.id);
-                toast.success(`Applied ${clip.name} animation!`);
-              }
-            }}
-          />
-        );
+        return <AnimationPanel />;
       default:
         return <GeneratePanel />;
     }

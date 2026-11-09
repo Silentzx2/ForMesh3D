@@ -379,7 +379,7 @@ export interface MeshSegmentationRequest {
 export interface AutoRiggingRequest {
   mesh_path?: string;
   mesh_file_id?: string; // preferred method
-  rig_mode: 'skeleton' | 'skin' | 'full';
+  rig_mode: 'skeleton' | 'skin' | 'full' | 'humanoid' | 'quadruped' | 'generic' | string;
   output_format: 'fbx' | 'glb';
   model_preference?: string;
   model_parameters?: Record<string, any>;

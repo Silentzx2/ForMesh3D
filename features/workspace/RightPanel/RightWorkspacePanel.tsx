@@ -17,10 +17,22 @@ export const RightWorkspacePanel: React.FC = () => {
     setIsRightPanelOpen,
     isExecuting,
     activeTask,
+    activeTool,
     currentAsset,
   } = useWorkspace();
 
   const isRunning = isExecuting || activeTask?.status === 'running' || activeTask?.status === 'queued';
+
+  // Context-aware auto-switching:
+  // When Smart UV tool is selected -> automatically load properties inspector
+  const prevActiveTool = React.useRef(activeTool);
+  useEffect(() => {
+    if (activeTool === 'uv' && prevActiveTool.current !== 'uv') {
+      setRightPanelMode('properties');
+      setIsRightPanelOpen(true);
+    }
+    prevActiveTool.current = activeTool;
+  }, [activeTool, setRightPanelMode, setIsRightPanelOpen]);
 
   // Context-aware auto-switching:
   // When generation starts running -> switch to live execution and ensure right panel is open

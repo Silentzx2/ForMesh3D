@@ -121,10 +121,10 @@ async def generate_rig(
     """
     user_id = None
     
-    if request.rig_mode.lower() not in ["skeleton", "skin", "full"]:
+    if request.rig_mode.lower() not in ["skeleton", "skin", "full", "humanoid", "quadruped", "generic"]:
         raise HTTPException(
             status_code=400,
-            detail="Invalid rig mode. Allowed: skeleton, skin, full",
+            detail="Invalid rig mode. Allowed: humanoid, quadruped, generic, skeleton, skin, full",
         )
 
     try:

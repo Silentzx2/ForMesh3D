@@ -564,6 +564,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       group.remove(child);
       disposeObject3D(child);
     }
+    useViewerStore.getState().setActiveModelObject(null);
     if (mixerRef.current) {
       mixerRef.current.stopAllAction();
       mixerRef.current = null;
@@ -619,6 +620,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       }
 
       group.add(object);
+      useViewerStore.getState().setActiveModelObject(object);
       fitCameraToModel(object);
       setHasModel(true);
     };

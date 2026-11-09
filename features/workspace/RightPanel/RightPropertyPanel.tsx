@@ -31,6 +31,11 @@ import {
 import { useViewerStore } from '@/stores/useViewerStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { DynamicUVInspector } from '../dynamic/DynamicUVInspector';
+import { DynamicSegmentationInspector } from '../dynamic/DynamicSegmentationInspector';
+import { DynamicAnimationInspector } from '../dynamic/DynamicAnimationInspector';
+import { DynamicRiggingInspector } from '../dynamic/DynamicRiggingInspector';
+import { Grid3X3, Scissors, Film, Bone } from 'lucide-react';
 
 export const RightPropertyPanel: React.FC = () => {
   const { 
@@ -73,7 +78,7 @@ export const RightPropertyPanel: React.FC = () => {
       let targetSection: string | null = null;
       if (activeTool === 'edit') {
         targetSection = 'transform';
-      } else if (activeTool === 'texture' || activeTool === 'pbr' || activeTool === 'remesh' || activeTool === 'model') {
+      } else if (activeTool === 'texture' || activeTool === 'pbr' || activeTool === 'remesh' || activeTool === 'model' || activeTool === 'uv' || activeTool === 'segment' || activeTool === 'animation' || activeTool === 'rigging') {
         targetSection = 'context';
       }
       if (targetSection && !manualOverridesRef.current.has(targetSection)) {
@@ -194,6 +199,102 @@ export const RightPropertyPanel: React.FC = () => {
   };
 
   if (!currentAsset) {
+    if (activeTool === 'uv') {
+      return (
+        <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
+          <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
+                <Grid3X3 className="w-4 h-4 text-[#F9CF00]" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Smart UV Inspector</h2>
+                <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Atlas Preview &amp; Quality Metrics</span>
+              </div>
+            </div>
+            <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
+              Active
+            </span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+            <DynamicUVInspector />
+          </div>
+        </div>
+      );
+    }
+
+    if (activeTool === 'segment') {
+      return (
+        <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
+          <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
+                <Scissors className="w-4 h-4 text-[#F9CF00]" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Segmentation Inspector</h2>
+                <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Part Layers &amp; Assembly Tree</span>
+              </div>
+            </div>
+            <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
+              Active
+            </span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+            <DynamicSegmentationInspector />
+          </div>
+        </div>
+      );
+    }
+
+    if (activeTool === 'animation') {
+      return (
+        <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
+          <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
+                <Film className="w-4 h-4 text-[#F9CF00]" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Motion Inspector</h2>
+                <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Playback Scrubber &amp; Diagnostics</span>
+              </div>
+            </div>
+            <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
+              Active
+            </span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+            <DynamicAnimationInspector />
+          </div>
+        </div>
+      );
+    }
+
+    if (activeTool === 'rigging') {
+      return (
+        <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
+          <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
+                <Bone className="w-4 h-4 text-[#F9CF00]" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Auto-Rigging & Armature</h2>
+                <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Interactive Armature &amp; Joint Hierarchy</span>
+              </div>
+            </div>
+            <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
+              Active
+            </span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+            <DynamicRiggingInspector />
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div id="panel-properties-inspector" className="flex flex-col h-full items-center justify-center bg-[hsl(var(--surface-1))] px-6 text-center select-none">
         <div className="w-12 h-12 rounded-2xl bg-[hsl(var(--surface-0))] border border-white/[0.08] flex items-center justify-center text-zinc-500 mb-3 shadow-inner">
@@ -215,6 +316,14 @@ export const RightPropertyPanel: React.FC = () => {
       ? ['retopology', 'quad', 'fastmesh', 'variant', 'polygons', 'flow', 'alignment', 'remesh']
       : activeTool === 'model'
       ? ['ai generator', 'pipeline', 'model engine', 'octree', 'diffusion', 'rmbg', 'cutout', 'generator']
+      : activeTool === 'rigging'
+      ? ['rigging', 'skeleton', 'armature', 'bone', 'joint', 'skinning', 'weights', 'pose', 't-pose']
+      : activeTool === 'segment'
+      ? ['segmentation', 'submesh', 'part', 'semantic', 'layer', 'cluster', 'group']
+      : activeTool === 'uv'
+      ? ['uv', 'unwrap', 'atlas', 'island', 'packing', 'texel', 'density', 'margin']
+      : activeTool === 'animation'
+      ? ['animation', 'motion', 'clip', 'fps', 'frame', 'playback', 'loop', 'speed']
       : ['pbr', 'material', 'roughness', 'metallic', 'normal', 'intensity', 'cavity', 'ambient occlusion', 'ao', 'baked', 'maps'];
   const shadingKeywords = ['shading', 'viewport', 'pbr lit', 'clay', 'gold', 'chrome', 'ceramic', 'normals', 'wire solo', 'wireframe', 'overlay'];
   const comparisonKeywords = ['model comparison', 'comparison', 'compare', 'lineage', 'qa', 'score', 'delta'];
@@ -606,7 +715,7 @@ export const RightPropertyPanel: React.FC = () => {
         })()}
 
         {/* 3. Dynamic Context-Aware Inspector Sections based on activeTool */}
-        {(activeTool === 'texture' || activeTool === 'pbr' || activeTool === 'remesh' || activeTool === 'model') && isSectionVisible(contextKeywords) && (
+        {(activeTool === 'texture' || activeTool === 'pbr' || activeTool === 'remesh' || activeTool === 'model' || activeTool === 'uv' || activeTool === 'segment' || activeTool === 'animation' || activeTool === 'rigging') && isSectionVisible(contextKeywords) && (
           <Collapsible
             open={isSectionExpanded('context', contextKeywords)}
             onOpenChange={() => handleManualToggle('context')}
@@ -622,6 +731,14 @@ export const RightPropertyPanel: React.FC = () => {
                     <HugeiconsIcon icon={HexagonIcon} size={16} className="w-3.5 h-3.5 text-primary shrink-0" />
                   ) : activeTool === 'model' ? (
                     <HugeiconsIcon icon={SparklesIcon} size={16} className="w-3.5 h-3.5 text-primary shrink-0" />
+                  ) : activeTool === 'uv' ? (
+                    <Grid3X3 className="w-3.5 h-3.5 text-[#F9CF00] shrink-0" />
+                  ) : activeTool === 'segment' ? (
+                    <Scissors className="w-3.5 h-3.5 text-[#F9CF00] shrink-0" />
+                  ) : activeTool === 'animation' ? (
+                    <Film className="w-3.5 h-3.5 text-[#F9CF00] shrink-0" />
+                  ) : activeTool === 'rigging' ? (
+                    <Bone className="w-3.5 h-3.5 text-[#F9CF00] shrink-0" />
                   ) : (
                     <HugeiconsIcon icon={PaletteIcon} size={16} className="w-3.5 h-3.5 text-primary shrink-0" />
                   )}
@@ -630,6 +747,14 @@ export const RightPropertyPanel: React.FC = () => {
                       ? 'Quad Retopology Inspector'
                       : activeTool === 'model'
                       ? '3D AI Generator Pipeline'
+                      : activeTool === 'uv'
+                      ? 'Smart UV Atlas & Health Inspector'
+                      : activeTool === 'segment'
+                      ? 'Mesh Segmentation Inspector'
+                      : activeTool === 'animation'
+                      ? '3D Motion Clip Inspector'
+                      : activeTool === 'rigging'
+                      ? 'Auto-Rigging & Armature Inspector'
                       : 'PBR Material Channels'}
                   </span>
                   <HugeiconsIcon
@@ -809,6 +934,18 @@ export const RightPropertyPanel: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* CASE E: Tool is Smart UV */}
+              {activeTool === 'uv' && <DynamicUVInspector />}
+
+              {/* CASE F: Tool is Segmentation */}
+              {activeTool === 'segment' && <DynamicSegmentationInspector />}
+
+              {/* CASE G: Tool is Animation */}
+              {activeTool === 'animation' && <DynamicAnimationInspector />}
+
+              {/* CASE H: Tool is Rigging */}
+              {activeTool === 'rigging' && <DynamicRiggingInspector />}
             </CollapsibleContent>
           </Collapsible>
         )}
