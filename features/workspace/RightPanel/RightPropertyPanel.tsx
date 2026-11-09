@@ -319,7 +319,7 @@ export const RightPropertyPanel: React.FC = () => {
             Active
           </span>
         </div>
-        <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+        <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
           <DynamicUVInspector />
         </div>
       </div>
@@ -343,7 +343,7 @@ export const RightPropertyPanel: React.FC = () => {
             Active
           </span>
         </div>
-        <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+        <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
           <DynamicSegmentationInspector />
         </div>
       </div>
@@ -367,7 +367,7 @@ export const RightPropertyPanel: React.FC = () => {
             Active
           </span>
         </div>
-        <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+        <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
           <DynamicAnimationInspector />
         </div>
       </div>
@@ -391,7 +391,7 @@ export const RightPropertyPanel: React.FC = () => {
             Active
           </span>
         </div>
-        <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+        <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
           <DynamicRiggingInspector />
         </div>
       </div>
@@ -415,7 +415,7 @@ export const RightPropertyPanel: React.FC = () => {
             Active
           </span>
         </div>
-        <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+        <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
           <div className="p-3 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-2.5">
             <div className="flex justify-between items-center text-xs">
               <span className="text-[hsl(var(--muted-foreground))]">FastMesh Variant</span>
@@ -490,7 +490,7 @@ export const RightPropertyPanel: React.FC = () => {
             Active
           </span>
         </div>
-        <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+        <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
           {/* Roughness */}
           <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-1.5">
             <div className="flex justify-between text-xs text-[hsl(var(--foreground))]">
@@ -729,7 +729,7 @@ export const RightPropertyPanel: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5 no-scrollbar">
+      <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
         {/* 3. 3D AI Generator Pipeline (Shown exclusively on Model page) */}
         {activeTool === 'model' && isSectionVisible(contextKeywords) && (
           <Collapsible

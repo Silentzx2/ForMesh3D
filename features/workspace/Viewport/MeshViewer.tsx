@@ -129,6 +129,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
   const {
     currentAsset,
+    activeTool,
     shadingMode,
     showWireframe,
     showGrid,
@@ -139,6 +140,26 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     executionStep,
     environmentSettings,
   } = useWorkspace();
+
+  const emptyStateCopy = (() => {
+    switch (activeTool) {
+      case 'texture':
+      case 'pbr':
+        return { title: 'Ready to Texture a Model?', description: 'Load a model or image to prepare its materials.' };
+      case 'remesh':
+        return { title: 'Ready to Optimize Topology?', description: 'Load a mesh to refine its topology and polygon density.' };
+      case 'uv':
+        return { title: 'Ready to Unwrap UVs?', description: 'Load a mesh to inspect UVs or create an atlas.' };
+      case 'segment':
+        return { title: 'Ready to Segment a Model?', description: 'Load a mesh to inspect and separate its parts.' };
+      case 'rigging':
+        return { title: 'Ready to Rig a Model?', description: 'Load a character mesh to prepare its skeleton.' };
+      case 'animation':
+        return { title: 'Ready to Animate a Model?', description: 'Load a rigged mesh to preview or generate motion.' };
+      default:
+        return { title: 'Ready For A New 3D Model?', description: 'Generate a model from an image or prompt, or load an existing mesh.' };
+    }
+  })();
 
   const loadedModelUrl = useViewerStore((state) => state.loadedModelUrl);
 
@@ -708,10 +729,10 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
             </div>
 
             <h2 className="text-xl font-bold tracking-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.6)] mb-1.5">
-              Ready For A New 3D Model?
+              {emptyStateCopy.title}
             </h2>
             <p className="text-xs text-zinc-300 font-medium drop-shadow-[0_1px_4px_rgba(0,0,0,0.5)]">
-              Instantly generate 3D from image or text
+              {emptyStateCopy.description}
             </p>
           </div>
         </div>

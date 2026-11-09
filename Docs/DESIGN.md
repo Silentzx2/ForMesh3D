@@ -1,7 +1,7 @@
 # UI Design System & Component Reference
 
-> **Design Version**: 0.1.0
-> **Last Updated**: October 20, 2026
+> **Design Version**: 0.2.0
+> **Last Updated**: November 9, 2026
 > **Design System**: Studio Gold (`#FFCC00`, `48 100% 50%`) on Matte Black (`#080808`)
 
 ---
@@ -353,9 +353,15 @@ The `WorkspaceShell` (`features/workspace/WorkspaceShell.tsx`) is the main appli
 ```
 
 ### Responsive Breakpoints
-- **Desktop (≥1024px)**: Full 3-column layout with docked left nav rail (64px) and right inspector panel.
-- **Tablet (768–1023px)**: Left nav rail stays; right panel collapses to overlay.
-- **Mobile (<768px)**: Both panels become slide-over overlays; bottom dock provides toggle buttons. Panels are mutually exclusive.
+- **Desktop (≥1024px)**: The left Studio dock (274px) and right inspector (260px) remain docked; the center viewport occupies the space between them.
+- **Compact tablet (768–1023px)**: Both side docks remain present. The right inspector narrows to 220px to preserve more usable viewport width; the left Studio dock remains 274px.
+- **Mobile (<768px)**: The existing navigation drawer and full-width inspector surface are retained for narrow screens. No new desktop panel-collapse control or navigation mode is introduced.
+
+### Zero-Scroll Workspace Panels
+- The seven tool parameter panels and contextual property inspector use fixed, non-scrolling content surfaces. Their controls fit within the available panel height instead of relying on hidden scrollbars.
+- Uploaded-model previews and empty upload dropzones scale with viewport height, up to the existing 200px maximum, to avoid consuming disproportionate vertical space on shorter displays.
+- The Assets library retains its existing pagination; the visible page fits in the panel without an internal scroll area. Unbounded execution logs retain their dedicated log-navigation behavior.
+- Keep the existing Studio Gold / matte-black palette, control hierarchy, upload-card design, sticky primary action, and docked side-panel composition. Visual polish must not introduce tools, controls, or decorative modules.
 
 ### Workspace Session Snapshots
 - **Explicit Snapshot Persistence**: User can save named snapshots capturing the active asset ID, active tool, right property panel section collapsed states, and current viewport camera transform (position and target vectors).

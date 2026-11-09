@@ -6,6 +6,18 @@
 **Governing Rule**: `AGENTS.md` (Lazy Senior Dev, Root Cause First, Modern GPU Parity, Zero Regressions, Zero Model Names in CTAs, Upload Card Inviolability)  
 **Strict Operational Boundary**: **NEVER TOUCH `setup.sh`** (User actively editing in host environment).
 
+
+## 2026-11-09 — Workspace UI/UX Polish (Implemented)
+
+- Synchronized `main` and `dev` at `da391ec70b0abff7feebfe93ee98945d3753388e` before implementation.
+- Kept the existing Studio Gold / matte-black design, Generate page reference, seven tool workflows, controls, upload cards, and docked desktop side panels. No new tools or UI actions were added.
+- Removed internal vertical scrolling from the seven tool parameter panels, contextual property inspectors, and paginated Assets panel. Existing Assets pagination remains the navigation mechanism for additional items.
+- Added viewport-height-aware upload previews and empty upload dropzones, plus compact vertical padding on shorter screens.
+- Kept both side panels docked on desktop/tablet; the right inspector uses 220px at 768–1023px and returns to 260px at 1024px+.
+- Made the viewport empty-state copy reflect the active tool without changing its visual treatment.
+- Increased the left-rail tool-label size from 8px to 9px.
+- **Verification:** Static source review only. TypeScript, lint, build, and browser-based visual checks were not run in this remote repository-editing session.
+
 ---
 
 ## 1. Executive Directive & Mission Overview

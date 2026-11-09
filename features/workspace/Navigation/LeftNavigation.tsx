@@ -141,7 +141,7 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
 
                 {/* Label */}
                 <div className="flex items-center gap-0.5">
-                  <span className={`text-[8px] tracking-tight leading-none text-center font-medium ${
+                  <span className={`text-[9px] tracking-tight leading-none text-center font-medium ${
                     active ? 'text-[#F9CF00] font-bold' : 'text-zinc-400 group-hover:text-zinc-200'
                   }`}>
                     {t.label}

@@ -435,7 +435,7 @@ export const WorkspaceShell: React.FC = () => {
           {mainNav === 'workspace' && (
             <main
               id="center-viewport-stage"
-              className="absolute inset-0 md:left-[284px] md:right-[270px] z-0 overflow-hidden bg-[#090a0f] md:rounded-2xl md:top-2 md:bottom-3 border md:border-white/[0.04]"
+              className="absolute inset-0 md:left-[284px] md:right-[230px] lg:right-[270px] z-0 overflow-hidden bg-[#090a0f] md:rounded-2xl md:top-2 md:bottom-3 border md:border-white/[0.04]"
               style={{
                 background: environmentSettings?.backgroundColor && environmentSettings.backgroundColor !== 'transparent'
                   ? environmentSettings.backgroundColor
@@ -477,7 +477,7 @@ export const WorkspaceShell: React.FC = () => {
             <aside
               id="right-inspector-assets-column"
               aria-label="Inspector and assets"
-              className="absolute inset-x-0 top-0 bottom-0 md:inset-auto md:right-2 md:top-2 md:bottom-3 w-full md:w-[260px] md:rounded-2xl border border-white/[0.08] shadow-2xl overflow-hidden bg-[#0c0d12] flex flex-col z-20"
+              className="absolute inset-x-0 top-0 bottom-0 md:inset-auto md:right-2 md:top-2 md:bottom-3 w-full md:w-[220px] lg:w-[260px] md:rounded-2xl border border-white/[0.08] shadow-2xl overflow-hidden bg-[#0c0d12] flex flex-col z-20"
             >
               <RightWorkspacePanel />
             </aside>

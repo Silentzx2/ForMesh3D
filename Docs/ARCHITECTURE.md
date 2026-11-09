@@ -3,7 +3,7 @@
 > **Evidence note (2026-11-07):** Live GPU verification is established for Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D (status: STABLE & LOCKED). GPU Doctor has been implemented in `patcher/doctor.py` as a standalone hardware execution planner and error-recovery utility. TaoFlowForge has received pre-Ampere FP16 Cutlass tensor core acceleration and bounded topology reconstruction. The repository has been streamlined (commit `7651f22`), removing 221 dead files and legacy peripheral subsystems (`board`, `graph`, `image-editor`, `mesh-extras`, `wiki`, `plugins/`, `tools/`). Workspace surfaces are actively trimmed (`MeshToolsPanel`, `MeshDiffViewer`, `ImagePointCloud`, `PhysicsRuntime`) to establish a clean, single-user modern Studio workflow across 12 core tools. Sibling model adapters remain strictly isolated. The current audited state is summarized in [MEMORY.md](MEMORY.md).
 
 > **Architecture Version**: 0.3.0 (FastAPI + Next.js 16 + GPU Doctor + Streamlined Studio UI)
-> **Last Reviewed**: November 7, 2026 (Subsystem deadweight purge and Studio workspace modernization)
+> **Last Reviewed**: November 9, 2026 (Workspace panel density and responsive dock refinement)
 > **Target Environments**: Linux (Ubuntu 20.04/22.04/24.04), Cloud GPU / Local Workstations
 
 ---
@@ -14,7 +14,7 @@
 
 ForMesh 3D is an end-to-end generative 3D asset pipeline. The system is architected around a clean separation of concerns:
 
-- **Presentation Layer**: Next.js 16 frontend with interactive Three.js 3D viewport, studio workspace tooling, persistent asset thumbnailing/previews, real-time hardware telemetry HUD, viewport background job capsule, and model management.
+- **Presentation Layer**: Next.js 16 frontend with interactive Three.js 3D viewport, seven dedicated studio tool panels, tool-aware property inspectors, non-scrolling panel surfaces, responsive dock sizing, persistent asset previews, hardware telemetry, and model management.
 - **API Gateway**: FastAPI backend (Python 3.10, Conda env `3daigc-api`) with VRAM-aware multiprocess scheduler, request validation, rate limiting, dual-store job synchronization (Redis + SQLite), and authorized artifact delivery.
 - **Model Adapters & ThirdParty Integration**: 17 adapter modules and their registry entries exist. They use `backend/loader.py` for model-weight path resolution and the `backend/thirdparty/` Git submodule for upstream source. The November 3, 2026 review corrected the Hunyuan3D-Shape package root/result handling and rewired Unique3D to its real image-to-mesh callable; both changes are syntax-checked but not GPU-validated. Other source/API defects remain. Registration must not be described as successful integration or production readiness. See **Current adapter integration audit** below and `Docs/MEMORY.md`.
 - **Scheduler & CPU Concurrency**: VRAM-aware scheduler with GPU monitoring, model-input sanitization, dual-store job synchronization (Redis + SQLite), and multi-core CPU concurrency allocating all available cores (`nproc=8`, `OMP_NUM_THREADS=8`) across scheduler workers, marching cubes, and postprocessing.

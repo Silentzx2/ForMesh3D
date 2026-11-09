@@ -6,6 +6,15 @@
 **Project phase:** Beta (Streamlined Studio Workspace)  
 **Model readiness:** NOT VERIFIED — registry entries and source directories do not prove successful inference.
 
+## 2026-11-09 — Workspace UI/UX Polish
+
+- Branch baseline before UI work: `main` and `dev` both at `da391ec70b0abff7feebfe93ee98945d3753388e`.
+- The seven tool parameter panels and contextual property inspectors are fixed non-scrolling surfaces; existing controls remain in place and no new tools or actions were introduced.
+- Upload previews and dropzones adapt to viewport height. Desktop side panels remain docked; the right inspector is 220px at 768–1023px and 260px from 1024px upward.
+- The viewport keeps its original visual treatment while its empty-state copy follows the active tool.
+- The Studio Gold / matte-black tokens and existing Generate-panel design reference remain canonical.
+- **Verification status:** Static GitHub source review only. TypeScript, lint, production build, and browser screenshots were not run in this remote editing session.
+
 ## 2026-11-09 — Dual-Engine Processing Bridge (AI vs Fast Script), Dynamic Parameter Forwarding, Task Abort Fix & Multi-Part GLB Viewport Presentation
 
 - **Unified Mesh Processing Bridge & Script Registry (`features/workspace/services/meshProcessingBridge.ts`)**:

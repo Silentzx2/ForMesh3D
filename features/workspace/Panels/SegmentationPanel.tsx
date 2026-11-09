@@ -553,8 +553,8 @@ export const SegmentationPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. Scrollable Body without scrollbar */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-2 min-h-0 no-scrollbar">
+      {/* 2. Fixed tool body — no internal scrolling */}
+      <div className="flex-1 overflow-hidden p-3 space-y-2 min-h-0 no-scrollbar workspace-tool-body">
         {/* Hidden File Inputs */}
         <input
           ref={fileInputRef}
@@ -624,7 +624,7 @@ export const SegmentationPanel: React.FC = () => {
           {/* Dropzone Container depending on Tab */}
           {inputTab === 'image' ? (
             imagePreview || generationSettings.image ? (
-              <div className="relative w-full h-[195px] rounded-xl overflow-hidden bg-[#0c0d14] border border-white/[0.08] flex items-center justify-center group/preview">
+              <div className="relative w-full h-[195px] workspace-upload-preview rounded-xl overflow-hidden bg-[#0c0d14] border border-white/[0.08] flex items-center justify-center group/preview">
                 <img
                   src={imagePreview || generationSettings.image || ''}
                   alt="Uploaded concept"
@@ -671,7 +671,7 @@ export const SegmentationPanel: React.FC = () => {
                     fileInputRef.current?.click();
                   }
                 }}
-                className={`relative group w-full h-[200px] rounded-xl border border-dashed transition-all p-2 flex flex-col items-center justify-between cursor-pointer shadow-inner ${
+                className={`relative group w-full h-[200px] workspace-upload-dropzone rounded-xl border border-dashed transition-all p-2 flex flex-col items-center justify-between cursor-pointer shadow-inner ${
                   isDragOver
                     ? 'border-[#F9CF00] bg-[#1c1d2c] ring-1 ring-[#F9CF00]/40'
                     : 'border-white/[0.12] hover:border-white/25 bg-[#0f1019]'
@@ -720,7 +720,7 @@ export const SegmentationPanel: React.FC = () => {
                   if (!isMeshUploading) meshInputRef.current?.click();
                 }
               }}
-              className={`relative group w-full h-[195px] rounded-xl border border-dashed transition-all p-3 flex flex-col items-center justify-center text-center cursor-pointer shadow-inner ${
+              className={`relative group w-full h-[195px] workspace-upload-dropzone rounded-xl border border-dashed transition-all p-3 flex flex-col items-center justify-center text-center cursor-pointer shadow-inner ${
                 isDragOver
                   ? 'border-[#F9CF00] bg-[#1c1d2c] ring-1 ring-[#F9CF00]/40'
                   : 'border-white/[0.12] hover:border-white/25 bg-[#0f1019]'

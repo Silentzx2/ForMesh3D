@@ -236,7 +236,7 @@ export const RightAssetsPanel: React.FC = () => {
       </div>
 
       {/* Main Asset Body */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+      <div className="flex-1 min-h-0 overflow-hidden p-3 space-y-3">
         <MeshUploadStatus state={meshUploadState} onDismiss={resetMeshUpload} />
 
         {/* Upload 3D Model Dropzone Card - Matching Studio Reference */}

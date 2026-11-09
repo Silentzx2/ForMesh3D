@@ -363,7 +363,7 @@ export const DynamicSegmentationInspector: React.FC = () => {
           </button>
         </div>
 
-        <div className="space-y-1 max-h-[140px] overflow-y-auto pr-0.5 no-scrollbar">
+        <div className="space-y-1 max-h-[140px] overflow-hidden pr-0.5 no-scrollbar">
           {parts.map((part) => {
             const isSelected = selectedPartId === part.id;
             return (
