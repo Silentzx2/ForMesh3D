@@ -321,6 +321,8 @@ class SegmentOptions(BaseModel):
                           description="Cast the thickness rays against the full-resolution mesh rather than the "
                                       "proxy. Slower without embreex installed, and the only way thin details "
                                       "measure as thin.")
+    num_parts: int | None = Field(default=None, ge=2, le=32,
+                                  description="Target parts to partition into GLB scene.")
 
 
 class CollisionOptions(BaseModel):

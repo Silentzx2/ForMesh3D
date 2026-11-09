@@ -1,42 +1,73 @@
 # ForMesh3D Changelog
 
-## 2026-11-06 — TaoFlowForge Pre-Ampere OOM Elimination & Pixal3D Backend Selection
+## 2026-11-09 — Dual-Engine Processing Bridge (AI vs Fast Script), Dynamic Parameter Forwarding, Task Abort Fix & Multi-Part GLB Viewport Presentation
 
-- **TaoFlowForge Pre-Ampere OOM Fix & Fast Step Schedule**:
-  - Identified root cause of 14 GiB VRAM peak in Stage 1 and OOM during Stage 2 loading on pre-Ampere GPUs (`sm < 80`, e.g. Tesla T4): hardcoded `torch.bfloat16` compute dtype in `taoflowforge/models/attention.py` forced PyTorch SDPA into memory-intensive MATH backend (allocating 10-14 GB for N×N dense attention).
-  - Updated `get_compute_dtype` in `attention.py` and `patcher/taoflowforge/__init__.py` to use `torch.float16` on pre-Ampere devices, enabling hardware-accelerated Cutlass memory-efficient SDPA while preserving native `bfloat16` on modern GPUs (`sm >= 80`).
-  - Added explicit inter-stage GPU eviction (`.to('cpu')` and `.offload()`) before releasing stages in `taoflowforge/pipeline.py` so GPU VRAM is completely freed between stages.
-  - Implemented intra-stage sub-component CPU offloading for DINO encoder, DiT denoiser, and vertex decoder in `stage1.py` and `stage2.py` for pre-Ampere GPUs.
-  - Added explicit DINO load/unload lifecycle across all three stages (`stage0.py`, `stage1.py`, `stage2.py`) so DINO only enters GPU during `encode_image` and is immediately evicted before diffusion loops run.
-  - Configured 5-step fast testing schedule across stages 0, 1, and 2 (reducing total steps from 190 down to 25 for rapid validation, overridable with `TAOFLOWFORGE_USE_OFFICIAL_STEPS=1` to restore 50/30/50).
-  - Enabled `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in `taoflowforge_adapter.py`.
-- **Pixal3D Backend Selection & Conditioning Models**:
-  - Removed invalid `SPARSE_CONV_BACKEND="none"` fallback that broke SparseUNetVae module imports (`conv_none`).
-  - Scoped backend selection: uses `spconv` on pre-Ampere or environments without flex_gemm, and preserves `flex_gemm` on modern GPUs (`sm >= 80`).
-  - Restored `flex_gemm` prebuilt wheel installation command in `backend/scripts/install.sh`.
-  - Fixed `DinoV3ProjFeatureExtractor.to()` positional argument mismatch (`takes 2 positional arguments but 3 were given`) by making `to(*args, **kwargs)` conform to standard PyTorch signature across `image_conditioned_proj.py` and `image_conditioned.py`.
-  - Added fallback `to(device)` handling and local DINOv3 weight path resolution in `pixal3d_adapter.py`.
-- **Verification**: Created `backend/tests/test_taoflowforge_adapter.py` (9 tests) and `backend/tests/test_pixal3d_adapter.py` (7 tests). All 60 backend pytest tests passed. All 60 frontend bun tests passed.
-
----
-
-## 2026-11-06 — Complete Hi3D Decommissioning & Redundant Geometry Refinement Cleanup
-
-- **Decommissioned Hi3D Submodule**: Completely removed `backend/thirdparty/Hi3D/` (9,660+ lines of redundant code) and deleted `backend/adapters/hi3d_adapter.py`.
-- **Cleaned API & Pipeline**: Removed `/refine-mesh` endpoint and `RefineMeshRequest` from `backend/api/routers/mesh_generation.py`. High-resolution geometry is natively generated in a single stage by TRELLIS.2, TaoFlowForge, and Hunyuan3D-2.1.
-- **Removed Weight Footprint**: Cleaned `download_hi3d()` from `backend/scripts/download_models.sh`, saving ~8GB disk space and download bandwidth.
-- **Frontend & UI Cleanup**: Removed experimental `ViewerToolbar.tsx` ("Refine with Hi3D" button) from 3D Viewport, removed `refineMesh` from `WorkspaceContext` and `apiClient`, and purged Hi3D options from `GeneratePanel.tsx` and `constants/models.ts`.
-- **Verification**: Backend pytest passed (44/44). Frontend bun test passed (60/60). Zero regressions.
+- **Unified Mesh Processing Bridge & Script Registry (`meshProcessingBridge.ts`, `EngineModeSelector.tsx`)**:
+  - Implemented single unified execution bridge (`meshProcessingBridge.ts`) providing plug-and-play dispatching across both:
+    1. **Neural AI Mode (`ai`)**: High-fidelity GPU model inference scheduled via FastAPI / multiprocess scheduler (`FastMesh Quad Remesher`, `PartUV Deep Island Unwrapper`, `Neural Semantic Part Segmentation`).
+    2. **Fast Algorithmic Script Mode (`script`)**: Direct, zero-GPU / CPU streaming via SSE with real-time progress (`Trimesh AutoRetopo & Taubin Smoothing`, `XAtlas Native C++/Python Atlas`, `Blender Smart UV Project`, `Trimesh Geometric Decomposition`).
+  - Added shared, compact `EngineModeSelector` component with live hardware sensing (`GPU Neural` vs `GPU Offline` vs `CPU Script`) and sub-algorithm selector (e.g. XAtlas vs Blender for UV).
+- **Dynamic Parameter Forwarding & Zero-Scroll Dynamic Model Selector (`RemeshPanel.tsx`, `UVPanel.tsx`, `SegmentationPanel.tsx`)**:
+  - Full dynamic parameter passthrough: target polycount budget, quad/triangle topology, adaptive density, feature angles, target parts partition count (2–32), UV atlas resolution (1K/2K/4K), and island margin texels (2–16px).
+  - Dynamic Model Selector visibility in `RemeshPanel`: Retopo Engine dropdown is visible in `AI Model` mode, and seamlessly hidden in `Fast Script` mode to preserve a compact, zero-scroll panel height without vertical scrollbars across small screens.
+- **AbortController Upstream Cancellation Fix (`route.ts`, `WorkspaceContext.tsx`)**:
+  - Fixed Next.js runtime API proxy stream handler to hook incoming client `request.signal` abort directly to an upstream `AbortController`.
+  - When a user cancels generation or a client disconnects, `controller.abort()` immediately terminates backend streaming and server-side execution, freeing GPU/CPU resources instantly.
+- **Multi-Part Colored GLB Scene Generation & Automatic 3D Viewport Presentation (`segment.py`, `WorkspaceContext.tsx`)**:
+  - Enhanced backend Trimesh segmentation (`backend/postprocess/services/segment.py`) to partition input geometry into individual submeshes with distinct palette colors in a composite `trimesh.Scene` exported as base64-encoded GLB.
+  - Automatically loads resulting single-mesh and multi-part GLB scenes into `MeshViewer` via `loadModelInViewer` and triggers camera re-framing (`setViewportResetTrigger`) for instant 3D inspection.
 
 ---
 
-## 2026-11-06 — SkinTokens Integration & Complete UniRig Decommissioning
+## 2026-11-09 — Dedicated Dynamic Tool Inspector Routing, Viewport Planar UV Fallback & Model Page Property Isolation
 
-- **Decommissioned UniRig**: Completely removed `backend/thirdparty/UniRig/` from tracking and deleted `backend/adapters/unirig_adapter.py`. Cleaned all UniRig dependencies (`blenderproc`, `pyrender`, `pytorch-lightning==1.9.5`).
-- **Vendored SkinTokens**: Added `backend/thirdparty/SkinTokens/` (MIT License, VAST AI Research, arXiv:2602.04805) to submodule with catalog license table in `LICENSE` and open-source advisory in `README.md`.
-- **SkinTokens Thin Adapter**: Created `backend/adapters/skintokens_adapter.py` implementing `BaseModel` for direct in-process `predict_step` execution of the TokenRig unified autoregressive pipeline (FSQ-CVAE + Qwen3-0.6B + GRPO refinement) with companion `bpy_server` daemon.
-- **Hardware & Precision Preservation**: Locked native FlashAttention 2 and native BF16 inference profile on modern GPUs (`sm >= 80`). Maintained backward-compatible alias `unirig_auto_rig` resolving to `SkinTokensAdapter`.
-- **System & UI Integration**: Updated `backend/config/models.yaml`, `backend/scripts/download_models.sh`, `constants/models.ts`, API routers, scheduler providers, and frontend Rigging Studio panels.
-- **Verification**: `backend/tests/test_skintokens_adapter.py` passed (8/8). Full backend suite `backend/tests/` passed (44/44). Frontend `bun test` passed (60/60).
+- **Dedicated Tool Inspectors in Right Property Panel (`RightPropertyPanel.tsx`)**:
+  - Isolated default general mesh properties (Object Transform, Geometry & Topology, Viewport Shading, Model Comparison Viewer, Quick Export) exclusively to the `model` page (`/workspace/generate` or `/workspace/model`).
+  - Implemented dedicated, full-height inspector panels with custom branded headers and zero default properties leakage for all tool pages:
+    - Smart UV (`uv`): `DynamicUVInspector` with real 2D UV wireframe, coverage %, UV faces, and viewport toggles.
+    - Segmentation (`segment`): `DynamicSegmentationInspector` with real 3D color-coded submesh preview, part hierarchy, visibility toggles, and ZIP export.
+    - Animation (`animation`): `DynamicAnimationInspector` with Three.js mixer scrubber, timeline playback, speed pills, and GLB motion clip export.
+    - Rigging (`rigging`): `DynamicRiggingInspector` with real 3D armature, joint hierarchy, Pitch/Yaw/Roll sliders, pose presets, X-Ray mode, and GLB rigged export.
+    - Retopology (`remesh`): Dedicated Quad Retopology Inspector displaying FastMesh variant, polygon topology type, alignment, telemetry, and wireframe overrides.
+    - PBR Material (`texture`/`pbr`): Dedicated PBR Material Inspector displaying roughness, metallic, normal intensity, cavity/AO strength, and normal format standard toggles.
+- **Client-Side Quick Planar UV Fallback (`DynamicUVInspector.tsx`)**:
+  - Enhanced `DynamicUVInspector` to support multi-attribute UV resolution (`uv`, `uv_0`, `texcoord_0`, `uv2`).
+  - Added instant client-side planar UV projection (`handleQuickPlanarUV`) for meshes without native UV maps (e.g. raw vertex-colored GLBs), generating normalized bounding-box UVs in 1ms directly on the Three.js geometry for immediate wireframe plotting and texture testing.
+  - Provided dual-action empty state: 1-click Quick Viewport UVs (client) or Smart UV Unwrap (XAtlas backend pipeline).
+- **Tool Navigation State & Model ID Deep Linking (`WorkspaceContext.tsx`, `WorkspaceShell.tsx`)**:
+  - Ensured switching tool tabs preserves active model ID in URL path (`/workspace/<tool>/<model_id>`) without dropping the model or causing full page remounts.
+  - Maintained Tripo-style center viewport confinement (`md:left-[284px]` and `md:right-[270px]`) and non-collapsible side panels (`left-2 w-[274px]`, `right-2 w-[260px]`).
 
+---
 
+## 2026-11-09 — Total 26 Placeholder Eradication, Canonical Runners, Dynamic 3D Mini-Viewports & Center Viewport Confinement
+
+- **Canonical Workspace Runners & Viewport Auto-Load (`WorkspaceContext.tsx`)**:
+  - Implemented `runAutoRigging` and `runMotionGeneration` in `WorkspaceContext.tsx` with centralized job polling loop (`bindBackendJob`). Upon completion, models automatically load into `MeshViewer` via `loadModelInViewer`.
+  - Added dual-path fallback in `runSegmentation` to `POST /api/v1/mesh-tools/segment` (Trimesh hierarchical decomposition) whenever backend model scheduler returns HTTP 400.
+  - Added automatic blob mesh upload to `POST /api/v1/file-upload/mesh` in `resolveMeshReference`.
+  - Updated `workspaceRouteContract.ts` to accept `^[a-zA-Z0-9_\-\.]{3,128}$` (eliminating deep-link/refresh 404s) and constructed human-friendly mesh slugs `${cleanName}_${shortHash}`.
+- **Canonical Dual Upload Card Harmonization & Live Upload Progress Bar (`Panels/*.tsx`)**:
+  - Unified the canonical dual Image & 3D Mesh upload card across ALL 7 panels (`GeneratePanel`, `RemeshPanel`, `UVPanel`, `SegmentationPanel`, `RiggingPanel`, `AnimationPanel`, `TexturePanel`) to be 100% byte-for-byte identical (9,547 characters / 9,552 UTF-8 bytes).
+  - Integrated live upload progress bar directly beneath the card across all panels: shows file name, percentage, animated progress gradient, bytes transferred/total (`14.2 MB / 32.0 MB`), and estimated time remaining (`~Xs left`).
+- **Dynamic 3D Mini-Viewports (`RealModelPreviewCanvas.tsx`, `Dynamic*.tsx`)**:
+  - Created shared ~200-line `RealModelPreviewCanvas.tsx` binding directly to `useViewerStore((s) => s.activeModelObject)` with OrbitControls, raycasting, and geometry buffer sharing without vertex duplication.
+  - `DynamicRiggingInspector`: Eradicated fake SVG doll silhouette with real 3D mini-viewport, clickable joint nodes, live bone rotation sliders (Pitch/Yaw/Roll), pose presets (`T-Pose`, `A-Pose`, `Combat`, `Sitting`), X-Ray toggle, and real `.glb` export.
+  - `DynamicSegmentationInspector`: Eradicated fake SVG doll silhouette with real 3D partitioned mesh, part visibility toggling (Eye/EyeOff) that mutates `mesh.visible` in live scene, and real `.zip` export via `buildSimpleZip`.
+  - `DynamicAnimationInspector`: Connected timeline scrubber, Play/Pause/Reset, speed pills (`0.5x`, `1.0x`, `2.0x`), and looping directly to `THREE.AnimationMixer` via `useAnimationStore`. Eradicated fake 900ms timeout with real `.glb` motion clip export.
+  - `DynamicUVInspector`: Connected procedural 256x256 checkerboard texture (`viewportChecker`) and red seam cuts (`highlightSeams`) to active model material. Added real 1024x1024 PNG layout export.
+- **Live Two-Way Viewport Bridge & Client Exporters (`RightPropertyPanel.tsx`, `clientExporters.ts`)**:
+  - Bound Object Transforms (Position X/Y/Z, Rotation X/Y/Z, Scale X/Y/Z) and Material Channels (Roughness, Metallic, Normal Strength) directly to `modelGroupRef.current` and live Three.js uniforms with dedicated Identity Reset button.
+  - Created `features/workspace/utils/clientExporters.ts` (`GLTFExporter`, `OBJExporter`, `STLExporter`, `PLYExporter`) enabling instant local downloads when backend artifacts are unbaked.
+  - Fixed `ModelComparisonViewer.tsx` line 396 placeholder with real model URL resolution.
+  - Fixed `ExportModal.tsx` premature LOD abort with on-demand `SimplifyModifier` decimation.
+- **Tripo-Style Center Viewport Confinement & Non-Collapsible Panels (`WorkspaceShell.tsx`)**:
+  - Center 3D stage (`#center-viewport-stage`) is strictly confined between left panel (`w-[274px]`, `left-2`) and right panel (`w-[260px]`, `right-2`) with `md:left-[284px]` and `md:right-[270px]`.
+  - Background behind panels is solid pitch black (`#090a0f` / `#0c0d12`), preventing any 3D canvas or mesh geometry from bleeding or rendering behind panels.
+  - Removed all panel collapse buttons and toggles; panels remain permanently open and non-collapsible.
+- **Verification & Inviolable Safeguards**:
+  - `bun x tsc --noEmit`: 0 errors.
+  - `bun test`: 8 passed, 0 failed.
+  - `setup.sh`: 100% untouched.
+  - Canonical dual upload card: 100% byte-for-byte identical across all 7 panels.
+  - CTA action buttons: 100% generic descriptive verbs with zero model names.

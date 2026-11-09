@@ -103,7 +103,6 @@ export interface BatchQueueItem {
   exportFormats?: GenerationSettings['exportFormats'];
   slicerHandoff?: GenerationSettings['slicerHandoff'];
   generateCollision?: GenerationSettings['generateCollision'];
-  physics?: GenerationSettings['physics'];
   enablePrintabilityCheck?: GenerationSettings['enablePrintabilityCheck'];
   enableAutoRepair?: GenerationSettings['enableAutoRepair'];
   enableAutoRig?: GenerationSettings['enableAutoRig'];

@@ -126,9 +126,9 @@ export const ResourceMonitor: React.FC = () => {
   if (!stats) {
     return (
       <SimpleTooltip label="System Resources" side="bottom">
-        <div className="flex items-center gap-1.5 h-7 px-2.5 rounded-full bg-[hsl(var(--surface-1))] border border-white/[0.08] text-zinc-400">
-          <HugeiconsIcon icon={GaugeIcon} size={16} className="w-3 h-3" />
-          <span className="font-mono text-[10px]">Loading...</span>
+        <div className="flex items-center gap-1 h-6 px-2 rounded-full bg-[hsl(var(--surface-0))] border border-white/[0.08] text-zinc-400">
+          <HugeiconsIcon icon={GaugeIcon} size={12} className="w-2.5 h-2.5" />
+          <span className="font-mono text-[9px]">Loading...</span>
         </div>
       </SimpleTooltip>
     );
@@ -149,7 +149,7 @@ export const ResourceMonitor: React.FC = () => {
       <SimpleTooltip label="System Telemetry (GPU / RAM / CPU) • Click to open details" side="bottom">
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className={`group flex items-center gap-2 h-7 px-2.5 rounded-full bg-[hsl(var(--surface-1))] border transition-all cursor-pointer select-none active:scale-95 ${
+          className={`group flex items-center gap-1.5 h-6 px-2 rounded-full bg-[hsl(var(--surface-0))] border transition-all cursor-pointer select-none active:scale-95 ${
             isExpanded ? 'border-primary/50 bg-[hsl(var(--surface-2))] shadow-sm' : 'border-white/[0.08] hover:border-white/[0.18] hover:bg-[hsl(var(--surface-2))]'
           }`}
           aria-label={isExpanded ? 'Collapse resource monitor' : 'Expand resource monitor'}
@@ -159,9 +159,9 @@ export const ResourceMonitor: React.FC = () => {
             const status = getStatusColor(m.value);
             const clampedVal = Math.min(Math.max(m.value, 6), 100);
             return (
-              <div key={m.id} className="flex items-center gap-1">
+              <div key={m.id} className="flex items-center gap-0.5">
                 {/* Vertical Pipe Bar */}
-                <div className="relative w-2 h-5 bg-black/60 rounded-full overflow-hidden flex flex-col justify-end p-[1.5px] border border-white/10 shadow-inner">
+                <div className="relative w-1.5 h-3.5 bg-black/60 rounded-full overflow-hidden flex flex-col justify-end p-[1px] border border-white/10 shadow-inner">
                   <div
                     className={`w-full rounded-full transition-all duration-500 ${status.bg}`}
                     style={{ height: `${clampedVal}%` }}
@@ -169,10 +169,10 @@ export const ResourceMonitor: React.FC = () => {
                 </div>
                 {/* Metric percentage & label */}
                 <div className="flex flex-col leading-none text-left">
-                  <span className="text-[8px] font-semibold text-zinc-400 uppercase tracking-tighter">
+                  <span className="text-[7px] font-semibold text-zinc-400 uppercase tracking-tighter">
                     {m.label}
                   </span>
-                  <span className={`font-mono text-[9px] font-bold ${status.text}`}>
+                  <span className={`font-mono text-[8px] font-bold ${status.text}`}>
                     {Math.round(m.value)}%
                   </span>
                 </div>
@@ -182,8 +182,8 @@ export const ResourceMonitor: React.FC = () => {
 
           <HugeiconsIcon
             icon={isExpanded ? ChevronUp : ChevronDown}
-            size={12}
-            className={`w-3 h-3 text-zinc-400 transition-transform ml-0.5 ${isExpanded ? 'rotate-180 text-primary' : 'group-hover:text-zinc-200'}`}
+            size={10}
+            className={`w-2.5 h-2.5 text-zinc-400 transition-transform ml-0.5 ${isExpanded ? 'rotate-180 text-primary' : 'group-hover:text-zinc-200'}`}
           />
         </button>
       </SimpleTooltip>

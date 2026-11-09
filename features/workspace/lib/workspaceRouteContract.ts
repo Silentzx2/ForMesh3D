@@ -1,13 +1,15 @@
 const WORKSPACE_TOOL_SEGMENTS = new Set([
-  'generate', 'model', '3d-gen', 'remesh', 'texture', 'textures', 'uv',
-  'segment', 'edit', 'pbr', 'animation', 'animate', 'rigging', 'tools',
+  'generate', 'generate-image', 'model', '3d-gen', 'retopology', 'remesh',
+  'texture', 'textures', 'texture-edit', 'texture-upscale', 'texture-pbr',
+  'smart-uv', 'uv', 'segmentation', 'segment', 'fill-parts', 'edit', 'pbr',
+  'animation', 'animate', 'rigging', 'rig', 'tools',
 ]);
 
 const WORKSPACE_VIEW_SEGMENTS = new Set([
   'overview', 'dashboard', 'assets', 'outputs', 'system', 'jobs', 'models',
 ]);
 
-const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const JOB_ID_PATTERN = /^[a-zA-Z0-9_\-\.]{3,128}$/;
 
 /**
  * Validate the path handled by app/workspace/[...tool].

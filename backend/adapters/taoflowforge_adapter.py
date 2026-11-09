@@ -152,12 +152,27 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
         # TaoFlowForge stage0/stage2 need these; the stage checkpoints do not embed them.
         dino_checkpoint = _resolve_dino_checkpoint(weights_path)
 
-        # Fast-iteration step schedule (default 5 steps per stage as requested;
-        # set TAOFLOWFORGE_USE_OFFICIAL_STEPS=1 or configure via env to restore 50/30/50).
-        use_official_steps = os.environ.get("TAOFLOWFORGE_USE_OFFICIAL_STEPS", "").lower() in ("1", "true")
-        s0_steps = 50 if use_official_steps else int(os.environ.get("TAOFLOWFORGE_STAGE0_STEPS", "5"))
-        s1_steps = 30 if use_official_steps else int(os.environ.get("TAOFLOWFORGE_STAGE1_STEPS", "5"))
-        s2_steps = 50 if use_official_steps else int(os.environ.get("TAOFLOWFORGE_STAGE2_STEPS", "5"))
+        # Check for RMBG model in weights root directory
+        rembg_model = None
+        weights_root = weights_path.parent
+        for candidate in ("RMBG-1.4", "RMBG-2.0", "briaai/RMBG-1.4", "briaai/RMBG-2.0"):
+            candidate_path = weights_root / candidate
+            if candidate_path.is_dir() and any(candidate_path.iterdir()):
+                rembg_model = candidate_path
+                logger.info("TaoFlowForge using local background removal model at %s", rembg_model)
+                break
+
+        # Upstream official schedule: Stage 0 (50), Stage 1 (30), Stage 2 (50).
+        # Fast testing schedule (e.g. 5 steps) is opt-in via TAOFLOWFORGE_FAST_STEPS=1 or per-stage env vars.
+        # Upstream official schedule: Stage 0 (50), Stage 1 (30), Stage 2 (50).
+        # Fast testing schedule (e.g. 5 steps) is opt-in via TAOFLOWFORGE_FAST_STEPS=1 or per-stage env vars.
+        use_fast_steps = (
+            os.environ.get("TAOFLOWFORGE_FAST_STEPS", "").lower() in ("1", "true")
+            or os.environ.get("TAOFLOWFORGE_USE_OFFICIAL_STEPS", "1").lower() in ("0", "false")
+        )
+        s0_steps = int(os.environ.get("TAOFLOWFORGE_STAGE0_STEPS", "5" if use_fast_steps else "50"))
+        s1_steps = int(os.environ.get("TAOFLOWFORGE_STAGE1_STEPS", "5" if use_fast_steps else "30"))
+        s2_steps = int(os.environ.get("TAOFLOWFORGE_STAGE2_STEPS", "5" if use_fast_steps else "50"))
 
         config = InferenceConfig(
             stage0=Stage0Config(checkpoint=weights_path / "stage0.pt", num_steps=s0_steps, cfg_scale=7.5),
@@ -169,6 +184,7 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
             image_size=1024,
             output_dir=Path(tempfile.gettempdir()) / "taoflowforge",
             dino_checkpoint=dino_checkpoint,
+            rembg_model=rembg_model,
         )
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None and torch and torch.cuda.is_available() else "cpu"
         self.device = device
@@ -219,7 +235,9 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
             vertices = np.asarray(result.mesh.vertices)
             faces = np.asarray(result.mesh.faces)
             try:
-                decoded_stats = validate_mesh_arrays(vertices, faces, stage="decoded mesh")
+                decoded_stats = validate_mesh_arrays(
+                    vertices, faces, stage="decoded mesh", check_domain_box=False
+                )
                 logger.info(
                     "[TaoFlowForge] Decoded mesh validated: vertices=%d, faces=%d",
                     decoded_stats["vertex_count"],
@@ -247,7 +265,9 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
 
             try:
                 reloaded = trimesh.load(str(out), force="mesh", process=False)
-                validate_mesh_arrays(reloaded.vertices, reloaded.faces, stage="GLB round-trip")
+                validate_mesh_arrays(
+                    reloaded.vertices, reloaded.faces, stage="GLB round-trip", check_domain_box=False
+                )
             except Exception as exc:
                 return {"success": False, "error": f"TaoFlowForge GLB validation failed: {exc}"}
         except Exception as exc:

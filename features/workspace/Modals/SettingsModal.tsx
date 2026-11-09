@@ -330,12 +330,14 @@ export const SettingsModal: React.FC = () => {
                 <label className="font-semibold text-zinc-300">Viewport Background Style</label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
-                    { id: 'radial', label: 'Studio Dark', bg: 'radial-gradient(ellipse 75% 65% at 50% 50%, #161616 0%, #0d0d0d 55%, #060606 100%)' },
+                    { id: 'radial', label: 'Studio Vignette', bg: 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)' },
                     { id: '#0b0c10', label: 'Deep Onyx', bg: '#0b0c10' },
                     { id: '#1a1d24', label: 'Slate Gray', bg: '#1a1d24' },
-                    { id: 'transparent', label: 'Transparent', bg: '#111' },
+                    { id: 'transparent', label: 'Studio Dark', bg: '#111' },
                   ].map((preset) => {
-                    const isSelected = environmentSettings.backgroundColor === (preset.id === 'radial' ? 'transparent' : preset.id);
+                    const isSelected =
+                      environmentSettings.backgroundColor === preset.id ||
+                      (preset.id === 'radial' && (environmentSettings.backgroundColor === 'transparent' || environmentSettings.backgroundColor?.startsWith('radial-gradient')));
                     return (
                       <button
                         key={preset.id}
@@ -343,7 +345,7 @@ export const SettingsModal: React.FC = () => {
                         onClick={() =>
                           setEnvironmentSettings((prev) => ({
                             ...prev,
-                            backgroundColor: preset.id === 'radial' ? 'transparent' : preset.id,
+                            backgroundColor: preset.id === 'radial' ? 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)' : preset.id,
                           }))
                         }
                         className={`p-2.5 rounded-xl border text-left flex items-center justify-between transition-all cursor-pointer ${
@@ -391,14 +393,14 @@ export const SettingsModal: React.FC = () => {
                 <div className="pt-2 border-t border-white/[0.08] space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-zinc-300">Studio Key Light Intensity</span>
-                    <span className="font-mono text-primary font-bold">{(environmentSettings.keyLightIntensity || 1.0).toFixed(1)}x</span>
+                    <span className="font-mono text-primary font-bold">{(environmentSettings.keyLightIntensity || 1.6).toFixed(1)}x</span>
                   </div>
                   <input
                     type="range"
                     min={0.2}
                     max={3.0}
                     step={0.1}
-                    value={environmentSettings.keyLightIntensity || 1.0}
+                    value={environmentSettings.keyLightIntensity || 1.6}
                     onChange={(e) =>
                       setEnvironmentSettings((prev) => ({
                         ...prev,

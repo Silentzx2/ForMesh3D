@@ -579,6 +579,71 @@ def run_segment(mesh: trimesh.Trimesh, options: SegmentOptions, progress=None) -
     emit("map", 0.75, f"Mapping {face_count:,} faces onto the proxy…")
     mapping = _map_to_proxy(mesh, proxy, progress=emit)
 
+    mesh_b64 = None
+    if options.num_parts is not None and options.num_parts >= 2:
+        target_k = int(max(2, min(options.num_parts, 32)))
+        emit("partition", 0.85, f"Partitioning mesh into {target_k} parts…")
+
+        parent = np.arange(len(faces), dtype=np.int32)
+        def _find(i):
+            curr = i
+            while parent[curr] != curr:
+                parent[curr] = parent[parent[curr]]
+                curr = parent[curr]
+            return curr
+
+        merges = max(0, len(faces) - target_k)
+        for i in range(min(merges, len(history))):
+            u, v = history[i]
+            ru, rv = _find(u), _find(v)
+            if ru != rv:
+                parent[rv] = ru
+
+        face_roots = np.array([_find(mapping[f]) for f in range(len(mapping))])
+        unique_roots = np.unique(face_roots)
+        root_to_part = {r: idx for idx, r in enumerate(unique_roots)}
+        labels = np.array([root_to_part[r] for r in face_roots], dtype=np.int32)
+
+        palette = [
+            [59, 130, 246, 255],
+            [16, 185, 129, 255],
+            [245, 158, 11, 255],
+            [239, 68, 68, 255],
+            [139, 92, 246, 255],
+            [236, 72, 153, 255],
+            [6, 182, 212, 255],
+            [249, 115, 22, 255],
+            [168, 85, 247, 255],
+            [34, 197, 94, 255],
+            [234, 179, 8, 255],
+            [99, 102, 241, 255],
+            [244, 63, 94, 255],
+            [20, 184, 166, 255],
+            [132, 204, 22, 255],
+            [168, 162, 158, 255],
+        ]
+
+        scene = trimesh.Scene()
+        for part_idx in range(len(unique_roots)):
+            face_mask = (labels == part_idx)
+            if not np.any(face_mask):
+                continue
+            try:
+                submesh = mesh.submesh([face_mask], append=True)
+                col = np.array(palette[part_idx % len(palette)], dtype=np.uint8)
+                submesh.visual.face_colors = np.tile(col, (len(submesh.faces), 1))
+                part_name = f"Part {part_idx + 1}"
+                scene.add_geometry(submesh, node_name=part_name, geom_name=part_name)
+            except Exception:
+                pass
+
+        try:
+            glb_bytes = scene.export(file_type="glb")
+            if isinstance(glb_bytes, (bytes, bytearray)):
+                mesh_b64 = base64.b64encode(glb_bytes).decode("ascii")
+        except Exception:
+            pass
+
     emit("done", 1.0, "Segmentation analysis complete.")
     return {
         "faceCount": int(face_count),
@@ -594,4 +659,5 @@ def run_segment(mesh: trimesh.Trimesh, options: SegmentOptions, progress=None) -
         "history_b64": _b64(np.asarray(history, dtype=np.int32).reshape(-1, 2), np.int32),
         "costs_b64": _b64(np.asarray(costs, dtype=np.float32), np.float32),
         "mapping_b64": _b64(mapping, np.int32),
+        "mesh_b64": mesh_b64,
     }

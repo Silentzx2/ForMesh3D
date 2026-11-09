@@ -145,18 +145,18 @@ export const SnapshotMenu: React.FC = () => {
             setIsOpen(!isOpen);
             if (!isOpen) loadList();
           }}
-          className={`flex items-center gap-1.5 h-7 px-2.5 rounded-full border text-[11px] font-semibold transition-all shadow-sm cursor-pointer ${
+          className={`flex items-center gap-1 h-6 px-2 rounded-full border text-[10px] font-semibold transition-all shadow-sm cursor-pointer ${
             isOpen
               ? 'bg-primary text-black border-primary'
-              : 'bg-[hsl(var(--surface-1))] border-white/[0.08] hover:bg-[hsl(var(--surface-2))] text-zinc-300 hover:text-white'
+              : 'bg-[hsl(var(--surface-0))] border-white/[0.08] hover:bg-[hsl(var(--surface-2))] text-zinc-300 hover:text-white'
           }`}
           aria-label="Workspace snapshots"
         >
-          <HugeiconsIcon icon={Bookmark02Icon} size={14} className={isOpen ? 'text-black' : 'text-primary'} />
+          <HugeiconsIcon icon={Bookmark02Icon} size={12} className={`w-3 h-3 ${isOpen ? 'text-black' : 'text-primary'}`} />
           <span className="hidden md:inline">Snapshots</span>
           {snapshots.length > 0 && (
             <span
-              className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono ${
+              className={`px-1 py-0 rounded-full text-[8px] font-mono leading-none ${
                 isOpen ? 'bg-black text-white' : 'bg-[hsl(var(--surface-3))] text-zinc-300'
               }`}
             >

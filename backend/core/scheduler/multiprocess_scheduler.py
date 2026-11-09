@@ -1116,6 +1116,46 @@ def _process_job_in_worker(
                 # Provenance must never convert a successful model inference into a failed job.
                 logger.warning("Could not attach geometry telemetry for %s", job_id, exc_info=True)
 
+        if isinstance(result, dict) and result.get("success") is False:
+            elapsed = time.time() - start_time
+            err_msg = result.get("error", "Model inference returned failure")
+            logger.error(f"[GENERATION FAILED] job_id={job_id} model={model_id} elapsed={elapsed:.2f}s error={err_msg}")
+            logger.info(
+                "\n" + format_box(
+                    "GENERATION: INFERENCE FAILED",
+                    [
+                        ("Job ID", job_id),
+                        ("Model ID", model_id),
+                        ("Elapsed Time", f"{elapsed:.2f}s"),
+                        ("Error Details", err_msg),
+                        ("GPU Memory State", "CPU-only (GPU intentionally unused)" if cpu_only else get_gpu_memory_summary(gpu_id)),
+                    ],
+                )
+            )
+            if auto_unload_after_job_enabled():
+                try:
+                    logger.info(
+                        f"[MODEL UNLOAD QUEUED] job_id={job_id} model={model_id} reason=AUTO_UNLOAD_AFTER_JOB"
+                    )
+                    loaded_model.unload()
+                    loaded_model = None
+                except Exception as unload_err:
+                    logger.error(
+                        f"[GPU UNLOAD FAILED] job_id={job_id} model={model_id}: {unload_err}",
+                        exc_info=True,
+                    )
+            return (
+                {
+                    "success": False,
+                    "error": err_msg,
+                    "result": result,
+                    "job_id": job_id,
+                    "model_id": model_id,
+                },
+                loaded_model,
+                None,
+            )
+
         elapsed = time.time() - start_time
         logger.info(f"[GENERATION SUCCESS] job_id={job_id} model={model_id} elapsed={elapsed:.2f}s")
 
@@ -2316,9 +2356,6 @@ class MultiprocessModelScheduler:
                         and job_request.inputs.get("enable_postprocess", True)
                     ) if ("enable_postprocess" in job_request.metadata or "enable_postprocess" in job_request.inputs) else (postprocess_mode == "production_mesh")
 
-                    if not enable_postprocess and postprocess_mode == "production_mesh":
-                        postprocess_mode = "none"
-
                 # Normalize texture_enabled into post-processing rather than launching redundant independent child workflows.
                 texture_enabled = bool(
                     job_request.metadata.get("texture_enabled")
@@ -2333,6 +2370,9 @@ class MultiprocessModelScheduler:
                 job_request.metadata["texture_enabled"] = texture_enabled
                 job_request.inputs["texture_enabled"] = texture_enabled
 
+                if not enable_postprocess and not texture_enabled and postprocess_mode == "production_mesh":
+                    postprocess_mode = "none"
+
                 if postprocess_mode == "manual_mesh_tool":
                     from postprocess.pipeline import persist_manual_mesh_result
 
@@ -2344,8 +2384,8 @@ class MultiprocessModelScheduler:
                         job_request.metadata,
                     )
 
-                # Postprocessing runs for raw-mesh jobs with production_mesh mode when postprocess is enabled.
-                if final_result.get("output_mesh_path") and postprocess_mode == "production_mesh" and enable_postprocess:
+                # Postprocessing runs for raw-mesh jobs with production_mesh mode when postprocess or texture is enabled.
+                if final_result.get("output_mesh_path") and postprocess_mode == "production_mesh" and (enable_postprocess or texture_enabled):
                     current_job = await self.job_queue.get_job(job_id)
                     if (current_job and _extract_job_status(current_job) in {"failed", "cancelled"}) or job_id in self._cancel_requested_jobs:
                         self._cleanup_temporary_inputs(job_request)

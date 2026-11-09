@@ -1371,7 +1371,8 @@ async def image_to_raw_mesh(
         )
 
         if not mesh_request.enable_postprocess:
-            texture_enabled = False
+            # When post-processing is disabled, decimation, LOD, and QA checks are skipped,
+            # but texture options remain active if texture is enabled.
             lod_enabled = False
             enable_printability = False
             enable_auto_repair = False
@@ -1777,7 +1778,8 @@ async def image_to_textured_mesh(
         physics_enabled = bool(_resolve_preset_option(mesh_request.physics_enabled, preset, "collision", False))
 
         if not mesh_request.enable_postprocess:
-            texture_enabled = False
+            # When post-processing is disabled, decimation, LOD, and QA checks are skipped,
+            # but texture options remain active if texture is enabled.
             lod_enabled = False
             enable_printability = False
             enable_auto_repair = False

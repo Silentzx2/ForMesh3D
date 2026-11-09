@@ -1,11 +1,9 @@
 # Architecture — ForMesh 3D
 
-> **Evidence note (2026-11-05):** This document contains live audited system architecture and historical design records. Live GPU verification is established for Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D (status: STABLE & LOCKED). GPU Doctor has been implemented in `patcher/doctor.py` as a standalone hardware execution planner and error-recovery utility. TaoFlowForge has received pre-Ampere query chunking attention (eliminating 10.06 GiB SDPA Math OOM) and stage-wise offloading. TRELLIS.2 features adaptive top-k percentile voxel fallback and rembg zero-alpha guard. Sibling model adapters remain strictly isolated. The current state is summarized in [MEMORY.md](MEMORY.md).
+> **Evidence note (2026-11-07):** Live GPU verification is established for Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D (status: STABLE & LOCKED). GPU Doctor has been implemented in `patcher/doctor.py` as a standalone hardware execution planner and error-recovery utility. TaoFlowForge has received pre-Ampere FP16 Cutlass tensor core acceleration and bounded topology reconstruction. The repository has been streamlined (commit `7651f22`), removing 221 dead files and legacy peripheral subsystems (`board`, `graph`, `image-editor`, `mesh-extras`, `wiki`, `plugins/`, `tools/`). Workspace surfaces are actively trimmed (`MeshToolsPanel`, `MeshDiffViewer`, `ImagePointCloud`, `PhysicsRuntime`) to establish a clean, single-user modern Studio workflow across 12 core tools. Sibling model adapters remain strictly isolated. The current audited state is summarized in [MEMORY.md](MEMORY.md).
 
-> **Model Readiness — Not Tested (no live GPU inference run):** TRELLIS.2 (`not_tested`, `verified: false`) — `sparse_structure_decoder` checkpoint in `pipeline.json` references `microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16` (original TRELLIS repo, not compatible with TRELLIS.2 flow model), producing all-negative logits (~ -75) → zero occupied voxels → hollow box output. See microsoft/TRELLIS.2#160. Works on HF Spaces demo (Microsoft-hosted infrastructure); local self-hosted broken until compatible decoder checkpoint available. Pixal3D (`not_tested`, `verified: false`) — shares TRELLIS.2 sparse_structure_decoder checkpoint lineage; same decoder incompatibility risk, no top-k fallback in Pixal3D decoder path → empty mesh risk. TaoFlowForge (`not_tested`, `verified: false`) — Stage 2 topology decoding hits CUDA OOM on pre-Ampere GPUs due to SDPA MATH backend fallback; `patcher/taoflowforge/` provides float16 + query-chunked SDPA fix, requires clean worker restart to activate.
-
-> **Architecture Version**: 0.2.0 (FastAPI + Next.js 16 + GPU Doctor)
-> **Last Reviewed**: November 5, 2026 (GPU Doctor, hardware execution planning, and live model verification audit)
+> **Architecture Version**: 0.3.0 (FastAPI + Next.js 16 + GPU Doctor + Streamlined Studio UI)
+> **Last Reviewed**: November 7, 2026 (Subsystem deadweight purge and Studio workspace modernization)
 > **Target Environments**: Linux (Ubuntu 20.04/22.04/24.04), Cloud GPU / Local Workstations
 
 ---
@@ -29,6 +27,7 @@ Use this map to find the owner of a behavior before editing it.
 |---|---|---|---|
 | Workspace navigation and page mounts | `app/`, `features/workspace/` | A page, workspace tool, or route alias is added/removed | Next.js route files and workspace route allow-list |
 | Generation UI state and serialization | `features/workspace/Panels/GeneratePanel.tsx`, `features/workspace/utils/buildGenerationParameters.ts` | A visible generation control or request field changes | UI state is serialized by the builder; no inference schedule belongs here |
+| Studio tool panels & dynamic inspectors | `features/workspace/Panels/` (`GeneratePanel`, `TexturePanel`, `RemeshPanel`, `UVPanel`, `SegmentationPanel`, `RiggingPanel`, `AnimationPanel`), `features/workspace/dynamic/`, `features/workspace/RightPanel/` | A 3D Studio tool panel, parameters, or tool-specific dynamic right inspector changes (dedicated inspector mode for non-model tools, full general properties for model tool) | Backend routers (`mesh_generation`, `texture_generation`, `remesh`, `uv`, `mesh_segmentation`, `auto_rigging`, `motion_generation`) |
 | HTTP validation and job construction | `backend/api/routers/mesh_generation.py` | Request shape, intent resolution, file intake, or job metadata changes | Pydantic request model, `backend/config/smart_presets.yaml`, `backend/config/planner_rules.yaml` |
 | Model choice and worker lifecycle | `backend/core/planner.py`, `backend/core/scheduler/` | Auto-selection, resource feasibility, model loading, fallback, or queue behavior changes | `backend/config/planner_rules.yaml`, `backend/config/models.yaml`, runtime probe |
 | Model inference contract | `backend/adapters/` and adapter-owned model schemas | A model's native call, supported runtime input, or fixed inference profile changes | Adapter profile and model facts in `backend/config/models.yaml`; GPU behavior still requires runtime validation |
@@ -330,8 +329,7 @@ flowchart TB
 | **App Router** | `app/` | Next.js 16 App Router with server components, layouts, and API proxy routes |
 | **Workspace Shell** | `features/workspace/WorkspaceShell.tsx` | Main workspace UI with tabbed panels, persistent asset store, and model viewport |
 | **API Client** | `services/apiClient.ts` | Unified axios client for all FastAPI backend REST/SSE communication |
-| **3D Canvas** | `features/workspace/Viewport/MeshViewer.tsx` | High-performance Three.js WebGL viewport with zero-allocation shading switcher, event-driven reflection capture, TransformControls 3D manipulator, axial camera presets, physics smoke test, and HUD background job capsule |
-| **Mesh Diff Viewer** | `features/workspace/Viewport/MeshDiffViewer.tsx` | Side-by-side comparative WebGL mesh inspection with uncoupled requestAnimationFrame loop and synchronized dual-scene orbit controls |
+| **3D Canvas** | `features/workspace/Viewport/MeshViewer.tsx` | High-performance Three.js WebGL viewport with zero-allocation shading switcher, event-driven reflection capture, TransformControls 3D manipulator, axial camera presets, and HUD background job capsule |
 | **Telemetry HUD** | `components/Header.tsx` | Real-time vertical-pipe hardware gauges (VRAM/RAM/CPU) with saturated load colors and outside-click auto-dismissal |
 | **Asset Persistence** | `stores/useAppStore.ts` | Durable image & mesh reference tracking backed by `/api/v1/file-upload/` persistent storage endpoints |
 | **State Stores** | `stores/` | Zustand stores for global client state (`useAppStore`, `useViewerStore`, `useAnimationStore`, `useRiggingStore`, `useUIStore`) |
@@ -904,10 +902,12 @@ The Next.js 16 Presentation Layer unifies all creation, editing, retopology, rig
 
 - **Continuous 3D Viewport**: `MeshViewer` and `ViewportToolOverlay` remain continuously mounted in `#center-viewport-stage` across all workspace tool selections (`model`, `remesh`, `texture`, `uv`, `segment`, `edit`, `animation`, `rigging`). Canvas destructions and WebGL context recreation (200–500ms latency) are eliminated.
 - **Rig-to-animation handoff**: SkinTokens produces a rigged GLB asset (with optional FBX export via Blender) for the shared viewport. ARDY motion JSON joint names, per-frame quaternions and root positions are mapped to the loaded skeleton; motion generation requires a real rig, and retarget playback options drive root-motion scaling and floor clamping.
-- **Dynamic Modular Panel Rail**:
-  - The left floating context tool panel routes dynamically through `renderToolPanel()` to lightweight tool modules (`AnimationLeftPanel`, `RiggingLeftPanel`, etc.) with zero viewport disruption.
-  - The right property rail routes through `RightWorkspacePanel` to tool-specific inspectors (`AnimationRightInspector`, `RiggingRightInspector`, `UVInspector`, `SegmentInspector`, `MeshEditInspector`, `RightPropertyPanel`).
-  - Viewport-anchored overlays (such as `AnimationTimelineDock`) render directly over the canvas, keeping 3D model transforms, playback clocks, and keyframe markers synchronized in memory.
+- **Dynamic Modular Panel Rail & Flush-Docked Cards**:
+  - The sleek 40px top header (`TopHeader.tsx`, `bg-[hsl(var(--surface-0))]`) sets visual hierarchy above the workspace.
+  - The left 54px tool rail (`LeftNavigation.tsx`) and 276px context tool panel are docked flush with 0 margin against the top header and screen edge, with canvas-facing corners rounded (`rounded-r-[22px]`) floating over the viewport.
+  - The right 250px property rail (`RightWorkspacePanel.tsx`) is symmetrically docked flush with 0 margin against the top header and right screen edge, with canvas-facing corners rounded (`rounded-l-[22px]`).
+  - Viewport-anchored overlays (`ViewportToolOverlay.tsx`) adapt with dynamic clearance (`right: 265px` when open, `right: 16px` when closed).
+  - DCC bridge quick-send modals and legacy bridge controls are completely eradicated.
 - **Non-Destructive Route State**: `navigateToMain` in `WorkspaceContext` uses `window.history.replaceState` when switching between tool editing and studio hub overlays (`overview`, `assets`, `system`, `jobs`), preserving 3D assets, camera angle, and scene state in browser memory.
 
 ## 2026-10-14 High-Performance Viewport Engine & Production Postprocessing Architecture
@@ -929,10 +929,8 @@ The Next.js 16 Presentation Layer unifies all creation, editing, retopology, rig
 - **Axial Camera Alignment Presets (`ViewportToolOverlay.tsx`)**:
   - Floating `ViewportToolOverlay` exposes standard axial camera angles: `Perspective`, `Front`, `Side`, and `Top`.
   - Snaps the camera smoothly along cardinal axes with bounding-sphere recentering and distance normalization, providing CAD-grade orthographic-style inspection.
-- **Smooth MeshDiffViewer Animation Loop (`features/workspace/Viewport/MeshDiffViewer.tsx`)**:
-  - Eradicates the React state re-render loop anti-pattern (`setAnimationFrame(prev => prev + 1)` called inside RAF), which previously forced 60–120 full React component tree re-renders per second.
-  - Uses an uncoupled native `requestAnimationFrame(animate)` loop that updates `leftControls.current.update()`, `rightControls.current.update()`, and renders both Three.js scenes into WebGL canvases with zero React re-renders.
-  - Guarantees clean component lifecycle with `cancelAnimationFrame(animId)` on unmount and an empty dependency array.
+- **Streamlined Single-Scene Viewport (Decommissioned MeshDiffViewer)**:
+  - Previously, dual-scene comparison was mounted in `MeshDiffViewer.tsx`. As part of the November 7, 2026 workspace cleanup and Studio modernization, `MeshDiffViewer.tsx` and `ImagePointCloud.ts` were decommissioned to eliminate multi-context WebGL overhead and keep the viewport lightweight, memory-efficient, and single-canvas focused.
 
 ### 2. Production Postprocessing Pipeline Hardening
 - **Quad OBJ Polygonal Export (`backend/postprocess/pipeline.py`)**:
@@ -992,3 +990,62 @@ To run contemporary 2025/2026 cascaded flow models on pre-Ampere hardware withou
 - **TRELLIS.2 Sparse Structure Adaptive Top-K Recovery**:
   - In `trellis2_image_to_3d.py:sample_sparse_structure()`, when 12-step Euler flow matching produces logits below zero (e.g. peak foreground at -74.8), the pipeline falls back to top-1% percentile voxels (`coords = torch.argwhere(pooled >= threshold)`), allowing downstream SLat cascade sampling to proceed with valid foreground coordinates instead of hard-crashing.
   - In `preprocess_image`, if background removal detects no foreground alpha (`bbox_coords.shape[0] == 0`), the pipeline safely uses `input.convert('RGB')` instead of multiplying by zero alpha and passing a pitch-black image to the conditioning network.
+
+## Dual-Engine Mesh Processing Bridge & Upstream Task Abort Architecture (2026-11-09)
+
+### 1. Single Bridge Architecture (`meshProcessingBridge.ts`)
+To unify mesh post-processing and editing across generative Studio panels (`RemeshPanel`, `UVPanel`, `SegmentationPanel`), the frontend routes all execution through a single unified bridge: `features/workspace/services/meshProcessingBridge.ts`.
+
+The bridge encapsulates an extensible Script Registry (`SCRIPT_REGISTRY`, `registerCustomScript`, `DEFAULT_SCRIPTS`). Adding a new Python algorithmic pipeline or headless Blender script requires zero modifications to studio UI components — registering a new `ScriptDefinition` makes it immediately discoverable and executable across studio panels.
+
+```mermaid
+flowchart TD
+    Panel["Studio Panels<br/>(RemeshPanel, UVPanel, SegmentationPanel)"] --> EngineSel["EngineModeSelector<br/>('ai' vs 'script')"]
+    EngineSel --> Bridge["Mesh Processing Bridge<br/>(meshProcessingBridge.ts)"]
+
+    subgraph AI Path ["Path A: Neural AI Mode (GPU Scheduler)"]
+        Bridge -->|JSON Job Request| FastAPIAI["FastAPI AI Routers<br/>(/api/v1/mesh-retopology/*)<br/>(/api/v1/mesh-uv-unwrapping/*)<br/>(/api/v1/mesh-segmentation/*)"]
+        FastAPIAI --> Scheduler["Multiprocess Scheduler<br/>(GPU Worker Lock & VRAM Plan)"]
+        Scheduler --> AIModels["Deep Learning Inference<br/>(FastMesh V1K/V4K, PartUV, Semantic Seg)"]
+        AIModels --> Poll["WorkspaceContext Job Poller"]
+    end
+
+    subgraph Script Path ["Path B: Fast Algorithmic Script Mode (CPU / SSE)"]
+        Bridge -->|FormData + Options JSON| FastAPIScript["FastAPI Mesh Tools<br/>(/api/v1/mesh-tools/auto-retopo)<br/>(/api/v1/mesh-tools/auto-uv)<br/>(/api/v1/mesh-tools/segment)"]
+        FastAPIScript --> Algorithmic["Zero-GPU Algorithms<br/>(Trimesh Taubin, XAtlas, Blender Smart UV)"]
+        Algorithmic --> SSEStream["Direct SSE Progress Stream<br/>(Real-time chunks & Base64 GLB)"]
+    end
+
+    Poll --> Viewport["3D Viewport<br/>(loadModelInViewer & auto-recenter)"]
+    SSEStream --> Viewport
+
+    subgraph Abort System ["Upstream Cancellation Circuit"]
+        ClientCancel["User Cancel / Disconnect"] --> AbortSig["request.signal Abort"]
+        AbortSig --> ProxyAbort["Proxy AbortController<br/>(app/api/v1/[...path]/route.ts)"]
+        ProxyAbort --> Halt["Immediate Backend Process Termination"]
+    end
+```
+
+### 2. Dual AI / Script Execution Contracts
+1. **Neural AI Mode (`engine: 'ai'`)**:
+   - Dispatches requests to backend neural inference routers (`/api/v1/mesh-retopology/retopologize-mesh`, `/api/v1/mesh-uv-unwrapping/unwrap-mesh`, `/api/v1/mesh-segmentation/segment-mesh`).
+   - Managed by the multiprocess scheduler with GPU memory reservation, model warm-up locks, and queued background tracking.
+   - Result is durable, tracked in SQLite/Redis, and polled by `WorkspaceContext`.
+2. **Fast Algorithmic Script Mode (`engine: 'script'`)**:
+   - Executes direct CPU / algorithmic operations with zero GPU dependencies (`/api/v1/mesh-tools/auto-retopo`, `/api/v1/mesh-tools/auto-uv`, `/api/v1/mesh-tools/segment`).
+   - Streams live progress chunks via Server-Sent Events (SSE) (`data: {"type": "progress", "frac": 0.45}`).
+   - Returns base64-encoded GLB geometry directly in terminal `done` event chunk, reconstructing local blobs instantly without file server polling delays.
+   - Dynamic parameter passthrough: Target polycount budget, Quad vs Triangle topology, feature angles, adaptive density, target parts count (2–32), UV atlas resolution (1K/2K/4K), and island margin texels (2–16px).
+   - Dynamic Model Selector visibility: In `RemeshPanel`, the Retopo Engine dropdown is visible in `AI Model` mode, and seamlessly hidden in `Fast Script` mode to preserve a compact, zero-scroll panel height without vertical scrollbars across small screens.
+
+### 3. Upstream Task Cancellation Circuit (`AbortController`)
+In `app/api/v1/[...path]/route.ts`, long-running streaming and proxy routes are bound to client disconnect signals:
+- Incoming client `request.signal` is monitored via an event listener (`request.signal.addEventListener('abort', onDisconnect)`).
+- On client abort or UI cancellation (`cancelExecution`), an upstream `AbortController` triggers `controller.abort()`.
+- The `TransformStream` safely absorbs downstream pipe cancellations without unhandled Next.js stream errors while halting upstream backend execution immediately, freeing GPU/CPU resources instantly.
+
+### 4. Multi-Part Colored GLB Scene Generation & 3D Viewport Presentation
+In `backend/postprocess/services/segment.py`, Trimesh geometric segmentation partitions the mesh into $k$ submeshes matching user-selected parts count ($k \in [2, 32]$):
+- Each submesh receives a distinct palette color applied to its face visuals.
+- The submeshes are combined into a composite `trimesh.Scene` and exported as a binary GLB.
+- Upon completion, `WorkspaceContext` creates a normalized model asset, mounts it into `MeshViewer` via `loadModelInViewer`, and resets camera orientation for immediate visual inspection.

@@ -18,6 +18,7 @@ export type ToolType =
 
 export interface ActiveTask {
   id: string;
+  backendJobId?: string;
   isLocal?: boolean;
   type: 'image-to-3d' | 'segment' | 'remesh' | 'texture' | 'animation' | 'rigging' | 'uv' | 'edit' | 'refine';
   title: string;
@@ -63,7 +64,7 @@ export interface ModelAsset {
   id: string;
   fileId?: string;
   name: string;
-  category: 'all' | 'mesh' | 'texture' | 'generation';
+  category: 'all' | 'mesh' | 'texture' | 'generation' | 'edit';
   thumbnail: string;
   referenceImage?: string;
   referenceImageFileId?: string;
@@ -110,9 +111,6 @@ export interface ModelAsset {
     pbrMaps?: Record<string, string>;
     gameReadyFormats?: Record<string, string>;
     zipUrl?: string;
-    physicsUrl?: string;
-    physicsReady?: boolean;
-    physics?: Record<string, unknown>;
     rigged?: string;
     riggedFbx?: string;
   };
@@ -145,17 +143,7 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
       ? rawArtifacts.collision
       : (rawArtifacts.collision?.url || raw.collision_url || raw.collision || undefined);
 
-  const physics = rawArtifacts.physics || raw.physics || undefined;
-  const physicsUrl =
-    typeof rawArtifacts.physicsUrl === 'string'
-      ? rawArtifacts.physicsUrl
-      : (raw.physics_url || undefined);
 
-  const physicsReady = Boolean(
-    rawArtifacts.physicsReady ??
-    raw.physics_ready ??
-    (collisionUrl && physics)
-  );
 
   const qaReport = rawArtifacts.qaReport || raw.qa_report || raw.quality_trace?.game_ready?.qa || undefined;
   // Generation assets are always addressable through the job download API:
@@ -183,7 +171,24 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
       ? Object.values(rawLods).map((l: any) => (typeof l === 'string' ? l : l?.url || '')).filter(Boolean)
       : undefined;
   const pbrMaps = rawArtifacts.pbrMaps || raw.pbr_maps || undefined;
-  const gameReadyFormats = rawArtifacts.gameReadyFormats || raw.game_ready_formats || (rawArtifacts.game_ready && typeof rawArtifacts.game_ready === 'object' ? Object.fromEntries(Object.entries(rawArtifacts.game_ready).map(([k, v]: [string, any]) => [k, v?.url || v]).filter(([, u]) => Boolean(u))) : undefined);
+  const rawRiggedFbx =
+    typeof rawArtifacts.riggedFbx === 'string'
+      ? rawArtifacts.riggedFbx
+      : (rawArtifacts.riggedFbx?.url || raw.rigged_fbx_url || raw.output_fbx_path || undefined);
+  const defaultJobFormats = jobArtifactBase
+    ? {
+        glb: `${jobArtifactBase}?artifact_format=glb`,
+        gltf: `${jobArtifactBase}?artifact_format=gltf`,
+        obj: `${jobArtifactBase}?artifact_format=obj`,
+        stl: `${jobArtifactBase}?artifact_format=stl`,
+        ply: `${jobArtifactBase}?artifact_format=ply`,
+        ...(rawRiggedFbx ? { fbx: `${jobArtifactBase}?artifact_format=fbx` } : {}),
+      }
+    : undefined;
+  const parsedGameReadyFormats = rawArtifacts.gameReadyFormats || raw.game_ready_formats || (rawArtifacts.game_ready && typeof rawArtifacts.game_ready === 'object' ? Object.fromEntries(Object.entries(rawArtifacts.game_ready).map(([k, v]: [string, any]) => [k, v?.url || v]).filter(([, u]) => Boolean(u))) : undefined);
+  const gameReadyFormats = parsedGameReadyFormats
+    ? { ...defaultJobFormats, ...parsedGameReadyFormats }
+    : defaultJobFormats;
   const zipUrl = rawArtifacts.zipUrl || raw.zip_url || undefined;
   const riggedUrl =
     typeof rawArtifacts.rigged === 'string'
@@ -195,7 +200,7 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
       : (rawArtifacts.riggedFbx?.url || raw.rigged_fbx_url || undefined);
 
   const hasArtifacts = Boolean(
-    raw.artifacts || collisionUrl || physicsReady || physics || qaReport || sourceUrl || gameReadyUrl || lods || pbrMaps || gameReadyFormats || zipUrl || riggedUrl || riggedFbxUrl
+    raw.artifacts || collisionUrl || qaReport || sourceUrl || gameReadyUrl || lods || pbrMaps || gameReadyFormats || zipUrl || riggedUrl || riggedFbxUrl
   );
 
   const artifacts = hasArtifacts ? {
@@ -208,11 +213,8 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
     pbrMaps,
     gameReadyFormats,
     zipUrl,
-    physicsUrl,
-    physicsReady,
     rigged: riggedUrl,
     riggedFbx: riggedFbxUrl,
-    physics,
   } : undefined;
 
   return {
@@ -446,21 +448,6 @@ export interface AutoOptimizeSettings {
   targetPolycount: number;
 }
 
-export interface PhysicsSettings {
-  bodyType: 'auto' | 'static' | 'dynamic' | 'kinematic';
-  massMode: 'auto' | 'manual';
-  massKg: number;
-  densityMode: 'auto' | 'manual';
-  densityKgM3: number;
-  friction: number;
-  restitution: number;
-  linearDamping: number;
-  angularDamping: number;
-  gravityEnabled: boolean;
-  collisionQuality: 'fast' | 'balanced' | 'precise';
-  deformation: 'off';
-}
-
 export interface GenerationSettings {
   mode: 'image-to-3d';
   image: string | null;
@@ -469,7 +456,7 @@ export interface GenerationSettings {
   textureQuality: 'low' | 'medium' | 'high' | '8k';
   quadTopology: boolean;
   topologyMode?: 'triangle' | 'quad';
-  seed: number;
+  seed?: number;
   removeBackground: boolean;
   autoOptimizeSettings: AutoOptimizeSettings;
   highResolutionNormalBaking?: boolean;
@@ -478,13 +465,15 @@ export interface GenerationSettings {
   textureEnabled?: boolean;
   texture_resolution?: '1K' | '2K' | '4K' | '8K';
   textureResolution?: '1K' | '2K' | '4K' | '8K';
+  targetPolycount?: number;
+  target_polycount?: number;
+  polycount?: number;
   gameReady?: boolean;
   targetPlatform?: 'generic' | 'mobile' | 'low' | 'medium' | 'high' | 'cinematic';
   generateLOD?: boolean;
   lodPreset?: 'mobile' | 'low' | 'medium' | 'high' | 'cinematic';
   lodCount?: number;
   generateCollision?: boolean;
-  physics?: PhysicsSettings;
   generatePBR?: boolean;
   prompt?: string;
   imageName?: string;

@@ -17,7 +17,6 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   Box,
-  CableIcon,
   Camera01Icon,
   Download01Icon,
   EyeIcon,
@@ -61,7 +60,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     assets = [],
     currentAsset,
     setIsSettingsOpen,
-    setIsDccBridgeOpen,
     setShowWireframe,
     showWireframe,
     setShowGrid,
@@ -378,14 +376,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           >
             <HugeiconsIcon icon={LayersIcon} size={16} className="mr-2 h-4 w-4 shrink-0" />
             <span>Open Asset Library Drawer</span>
-          </CommandItem>
-
-          <CommandItem
-            value="dcc bridge blender maya unity unreal connect"
-            onSelect={() => runAction(() => setIsDccBridgeOpen(true))}
-          >
-            <HugeiconsIcon icon={CableIcon} size={16} className="mr-2 h-4 w-4 shrink-0" />
-            <span>Open DCC Bridge (Blender / Maya)</span>
           </CommandItem>
         </CommandGroup>
       </CommandList>

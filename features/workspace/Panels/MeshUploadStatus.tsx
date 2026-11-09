@@ -3,7 +3,13 @@
 import React from 'react';
 import type { MeshAssetUploadState } from '@/hooks/useMeshAssetUpload';
 
-export function MeshUploadStatus({ state }: { state: MeshAssetUploadState }) {
+export function MeshUploadStatus({
+  state,
+  onDismiss,
+}: {
+  state: MeshAssetUploadState;
+  onDismiss?: () => void;
+}) {
   if (state.status === 'idle') return null;
 
   const label = state.status === 'uploading'
@@ -27,11 +33,23 @@ export function MeshUploadStatus({ state }: { state: MeshAssetUploadState }) {
       role={state.status === 'error' ? 'alert' : 'status'}
       aria-live={state.status === 'error' ? 'assertive' : 'polite'}
       aria-atomic="true"
-      className={`rounded-lg border px-2.5 py-2 text-[10px] leading-relaxed ${state.status === 'error' ? 'border-rose-500/25 bg-rose-500/[0.06] text-rose-300' : state.status === 'saved' ? 'border-emerald-500/25 bg-emerald-500/[0.06] text-emerald-300' : 'border-white/[0.08] bg-[hsl(var(--surface-0))] text-zinc-200'}`}
+      className={`rounded-lg border px-2.5 py-2 text-[10px] leading-relaxed transition-opacity animate-in fade-in duration-200 ${state.status === 'error' ? 'border-rose-500/25 bg-rose-500/[0.06] text-rose-300' : state.status === 'saved' ? 'border-emerald-500/25 bg-emerald-500/[0.06] text-emerald-300' : 'border-white/[0.08] bg-[hsl(var(--surface-0))] text-zinc-200'}`}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="min-w-0 truncate font-semibold">{state.fileName}</span>
-        <span className="shrink-0 font-medium">{label}</span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="font-medium">{label}</span>
+          {onDismiss && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="p-0.5 rounded text-zinc-400 hover:text-white transition-colors"
+              aria-label="Dismiss upload status"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
       {state.status === 'error' ? (
         <p className="mt-1 break-words">{state.error}</p>

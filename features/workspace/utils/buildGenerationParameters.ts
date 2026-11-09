@@ -81,8 +81,10 @@ export function buildGenerationParameters(
   const isPaintModel = modelCapabilities.paint_autochain === true;
   const enablePostprocess = settings.enablePostprocess !== false;
 
-  // Texture generation is a post-processing stage; if post-process is bypassed, texture is disabled.
-  const textureEnabled = enablePostprocess && Boolean(
+  // Texture generation is independent of mesh decimation/retopology postprocessing.
+  // When enablePostprocess is false, decimation and LODs are bypassed,
+  // but texture generation options remain active if texture is enabled.
+  const textureEnabled = Boolean(
     settings.texture_enabled ??
     settings.textureEnabled ??
     (settings.generateTexture !== false)
@@ -94,6 +96,7 @@ export function buildGenerationParameters(
     (
       settings.textureQuality === 'low' ? '1K' :
       settings.textureQuality === 'medium' ? '1K' :
+      settings.textureQuality === 'high' ? '4K' :
       settings.textureQuality === '8k' ? '8K' :
       '2K'
     );
@@ -157,7 +160,18 @@ export function buildGenerationParameters(
   const lodCount = Math.max(2, Math.min(4, Math.floor(Number(settings.lodCount) || 4)));
 
   const endpoint = '/api/v1/mesh-generation/image-to-raw-mesh';
-  const targetPolycount = enablePostprocess ? (settings.autoOptimizeSettings?.targetPolycount ?? 0) : 0;
+  const rawTargetPolycount =
+    (settings as any).polycount ??
+    (settings as any).targetPolycount ??
+    (settings as any).target_polycount ??
+    settings.autoOptimizeSettings?.targetPolycount;
+
+  const parsedPolycount = Number(rawTargetPolycount);
+  const targetPolycount = enablePostprocess && Number.isFinite(parsedPolycount) && parsedPolycount > 0
+    ? Math.max(500, Math.min(600000, Math.round(parsedPolycount)))
+    : 0;
+
+  const modelPreference = resolveGenerationModelChoice(settings.aiModel, undefined);
 
   const body: Record<string, unknown> = {
     ...imageInput,
@@ -165,7 +179,7 @@ export function buildGenerationParameters(
     asset_name: cleanStem,
     image_name: cleanStem,
     output_format: 'glb',
-    model_preference: settings.aiModel || undefined,
+    model_preference: modelPreference || undefined,
     auto_mode: false,
     intent: enablePostprocess ? settings.intent : undefined,
     preprocessing_artifact_id: settings.preprocessingArtifactId || undefined,
@@ -182,14 +196,14 @@ export function buildGenerationParameters(
     lod_count: lodEnabled ? lodCount : undefined,
     model_parameters: modelParameters,
     physics_enabled: enablePostprocess && Boolean(settings.generateCollision),
-    physics_config: (enablePostprocess && Boolean(settings.generateCollision)) ? settings.physics : undefined,
+    physics_config: undefined,
     topology_mode: enablePostprocess ? topologyMode : 'triangle',
     quad_topology: enablePostprocess && topologyMode === 'quad',
     part_count_range: enablePostprocess ? settings.partCountRange : undefined,
     rig_type: enablePostprocess ? settings.rigType : undefined,
     export_formats: enablePostprocess ? settings.exportFormats : undefined,
     slicer_handoff: enablePostprocess ? Boolean(settings.slicerHandoff) : undefined,
-    bake_normal_maps: enablePostprocess && (settings.highResolutionNormalBaking ?? true),
+    bake_normal_maps: Boolean(settings.highResolutionNormalBaking ?? true),
     texture_enabled: textureEnabled,
     generate_texture: textureEnabled,
     ...(textureEnabled ? {

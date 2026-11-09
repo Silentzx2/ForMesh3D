@@ -1,7 +1,29 @@
 # Architecture Decisions — ForMesh 3D
 
 > **Version**: 0.1.0
-> **Last Updated**: November 1, 2026
+> **Last Updated**: November 9, 2026
+
+---
+
+## ADR-101: Studio 3D Unified Tool Panel Architecture & Dynamic Right Panel Extension (2026-11-09)
+
+**Context:** The Studio 3D workspace previously used placeholder cards (`StudioToolTemplate`) for specialized processing workflows (Smart UV, Segmentation, Auto-Rigging, Animation), while right inspector panels were static and did not offer contextual tool inspections (e.g. UV atlas layout visualization or texel density inspection). In addition, disparate panel widths and multiline wrapping degraded usability on smaller laptop displays.
+
+**Decision:**
+1. **Canonical Tool Panels**: Implement dedicated, production-grade panels for all 7 left-rail studio tools:
+   - `GeneratePanel.tsx`: 3D generation studio with image intake, model preference, polycount budget, and topology.
+   - `TexturePanel.tsx`: 3D PBR texturing with resolution (1K/2K/4K) and lighting presets.
+   - `RemeshPanel.tsx`: Quad/triangle remeshing with 120fps smooth budget slider (5K–200K) and quick presets.
+   - `UVPanel.tsx`: Smart UV unwrap with single-line pill selectors (Organic vs Hard-Surface, 1K–4K, Island Margins).
+   - `SegmentationPanel.tsx`: Mesh part decomposition (2–32 parts, Semantic vs Geometric, hierarchical tree toggle).
+   - `RiggingPanel.tsx`: Character auto-rigging (Humanoid, Quadruped, Generic templates, T/A bind poses, facial/finger bones).
+   - `AnimationPanel.tsx`: 3D motion generation (duration slider 1.0–15.0s, prompt chips, ground lock cleanup).
+2. **Untouched Input Dropzone Card**: Standardize the top Image & 3D Mesh dropzone card across all panels to be 100% byte-for-byte identical, guaranteeing zero workflow disruption when switching tools.
+3. **No Model Branding in CTAs**: Action buttons and subtitles use purely action-oriented terminology (`Generate Model`, `Run Retopology`, `Run Smart UV`, `Segment Mesh`, `Auto-Rig Character`, `Apply Animation`) without leaking internal model names.
+4. **Dynamic Right Panel Extension**: Create `features/workspace/dynamic/` as a modular extension point. When `activeTool === 'uv'`, `RightPropertyPanel.tsx` dynamically mounts `DynamicUVInspector.tsx`; when `activeTool === 'segment'`, it mounts `DynamicSegmentationInspector.tsx`; when `activeTool === 'animation'`, it mounts `DynamicAnimationInspector.tsx`. Essential controls are preserved on the left panel with zero vertical scroll down to 577px viewport heights, and fine-tuning knobs are placed in dynamic portal flyouts.
+5. **Ergonomic Sizing & Clearance**: Ensure 8px top clearance (`top-2`), 228px inner panel width with `px-8` header padding so centered tool headers never collide with the floating panel collapse button.
+
+**Consequences:** Users have immediate, full control over all 7 primary 3D studio workflows with consistent, responsive single-line controls and zero horizontal overflow. Dedicated tool inspectors can be added to `features/workspace/dynamic/` in the future without modifying core property inspector logic.
 
 ---
 

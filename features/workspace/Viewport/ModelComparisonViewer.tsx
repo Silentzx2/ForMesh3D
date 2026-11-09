@@ -77,6 +77,25 @@ export const ModelComparisonViewer: React.FC<ModelComparisonViewerProps> = ({
   const [animationFrame, setAnimationFrame] = useState<number>(0);
   const animationFrameRef = useRef<number | null>(null);
 
+  // Real model URL resolver
+  const resolveModelUrl = useCallback((modelId: string): string => {
+    if (!modelId) return '';
+    if (modelId.startsWith('http://') || modelId.startsWith('https://') || modelId.startsWith('/') || modelId.startsWith('blob:')) {
+      return modelId;
+    }
+    const asset = (currentAsset && (modelId === currentAsset.id || modelId === currentAsset.name))
+      ? currentAsset
+      : assets.find((a: ModelAsset) => a.id === modelId || a.name === modelId);
+
+    return (
+      (asset as any)?.model_url ||
+      asset?.artifacts?.gameReady ||
+      asset?.source?.viewUrl ||
+      asset?.source?.localUrl ||
+      `/api/v1/system/jobs/${modelId}/download?artifact_format=glb`
+    );
+  }, [currentAsset, assets]);
+
   // Initialize scenes, cameras, controls, and renderers for each model
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -151,17 +170,7 @@ export const ModelComparisonViewer: React.FC<ModelComparisonViewerProps> = ({
         const loadedModels = await Promise.all(
           modelIds.map(async (modelId) => {
             try {
-              let url: string | undefined;
-              if (modelId.startsWith('http://') || modelId.startsWith('https://') || modelId.startsWith('/') || modelId.startsWith('blob:')) {
-                url = modelId;
-              } else if (currentAsset && modelId === currentAsset.id) {
-                url = currentAsset.artifacts?.gameReady || currentAsset.source?.viewUrl || currentAsset.source?.localUrl;
-              } else {
-                const asset = assets.find((a: ModelAsset) => a.id === modelId);
-                if (asset) {
-                  url = asset.artifacts?.gameReady || asset.source?.viewUrl || asset.source?.localUrl;
-                }
-              }
+              const url = resolveModelUrl(modelId);
               if (url) {
                 return await loadModelFromUrl(url);
               }
@@ -388,18 +397,14 @@ export const ModelComparisonViewer: React.FC<ModelComparisonViewerProps> = ({
     return num.toLocaleString();
   };
 
-  // Get model URLs based on modelIds for display (simplified)
+  // Get model URLs based on modelIds for display
   const getModelUrls = useCallback((): { [key: string]: string } => {
     const urls: { [key: string]: string } = {};
     modelIds.forEach(modelId => {
-      // In a real implementation, we would get the actual model URLs from job results or asset data
-      // For now, we'll use a placeholder
-      urls[modelId] = currentAsset && modelId === currentAsset.id ? 
-        (currentAsset.artifacts?.gameReady || currentAsset.source?.viewUrl || currentAsset.source?.localUrl || 'Not available') : 
-        'Not available';
+      urls[modelId] = resolveModelUrl(modelId);
     });
     return urls;
-  }, [modelIds, currentAsset]);
+  }, [modelIds, resolveModelUrl]);
 
   if (modelIds.length === 0) {
     return (
@@ -407,7 +412,7 @@ export const ModelComparisonViewer: React.FC<ModelComparisonViewerProps> = ({
         <div className="w-12 h-12 rounded-2xl bg-[hsl(var(--surface-0))] border border-white/[0.08] flex items-center justify-center text-zinc-500 mb-4">
           <HugeiconsIcon icon={Box} size={16} className="w-6 h-6" />
         </div>
-        <div className="text-xs font-bold text-white">Select Models to Compare</div>
+        <div className="text-xs font-bold text-white uppercase tracking-wider">Select Models to Compare</div>
         <div className="text-[11px] text-zinc-400 mt-2">Select 2-3 models from the generation results to compare</div>
       </div>
     );
@@ -416,14 +421,14 @@ export const ModelComparisonViewer: React.FC<ModelComparisonViewerProps> = ({
   return (
     <div className={`w-full h-full flex flex-col ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.08] bg-[hsl(var(--surface-1))]">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.08] bg-[hsl(var(--surface-1))]">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-[hsl(var(--surface-2))] flex items-center justify-center">
-            <HugeiconsIcon icon={ZapIcon} size={16} className="w-4 h-4 text-primary" />
+          <div className="w-7 h-7 rounded-lg bg-[hsl(var(--surface-2))] flex items-center justify-center">
+            <HugeiconsIcon icon={ZapIcon} size={14} className="w-3.5 h-3.5 text-primary" />
           </div>
           <div>
-            <h3 className="font-bold text-sm text-white">{currentAsset?.name || 'Model Comparison'}</h3>
-            <div className="text-xs text-zinc-400">Model Comparison Viewer</div>
+            <h3 className="font-bold text-xs text-white">{currentAsset?.name || 'Model Comparison'}</h3>
+            <div className="text-[10px] text-zinc-400 uppercase tracking-wider">Model Comparison Viewer</div>
           </div>
         </div>
         
@@ -432,12 +437,11 @@ export const ModelComparisonViewer: React.FC<ModelComparisonViewerProps> = ({
           <div className="relative">
             <button
               onClick={() => {
-                // Simple model selection - in a real implementation, this would open a model picker
                 const nextIndex = (selectedModelId ? modelIds.indexOf(selectedModelId) : -1) + 1;
                 const nextModelId = modelIds[nextIndex >= modelIds.length ? 0 : nextIndex];
                 setSelectedModelId(nextModelId);
               }}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[hsl(var(--surface-2))] border border-white/[0.1] text-zinc-300 hover:bg-[hsl(var(--surface-3))] hover:text-white transition-all"
+              className="flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-[hsl(var(--surface-2))] border border-white/[0.1] text-zinc-300 hover:bg-[hsl(var(--surface-3))] hover:text-white transition-all text-xs font-semibold cursor-pointer"
             >
               <span className="text-xs font-mono">
                 {selectedModelId ? `Selected: ${selectedModelId.slice(-6)}` : 'Select Model'}
@@ -548,12 +552,12 @@ export const ModelComparisonViewer: React.FC<ModelComparisonViewerProps> = ({
             
             {/* Difference Metrics (for 2 models) */}
             {modelIds.length === 2 && modelStats[0] && modelStats[1] && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-xs font-semibold text-zinc-300">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
                   <span>Difference Metrics</span>
-                  <span> (Model 1 → Model 2)</span>
+                  <span>(Model 1 → Model 2)</span>
                 </div>
-                <div className="text-sm space-y-2">
+                <div className="text-xs space-y-1.5">
                   <div className="flex justify-between">
                     <span className="text-zinc-400">Vertex Count Δ:</span>
                     <span className="font-mono">
@@ -583,8 +587,8 @@ export const ModelComparisonViewer: React.FC<ModelComparisonViewerProps> = ({
             )}
             
             {/* Model Information */}
-            <div className="border-t border-white/[0.08] pt-3">
-              <div className="flex items-center justify-between text-xs font-semibold text-zinc-300">
+            <div className="border-t border-white/[0.08] pt-2.5">
+              <div className="flex items-center justify-between text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">
                 <span>Model Information</span>
               </div>
               <div className="text-xs space-y-1">

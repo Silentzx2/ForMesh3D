@@ -1,359 +1,511 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { toast } from 'sonner';
-
+import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 
 import { HugeiconsIcon } from '@hugeicons/react';
-import { Box, CameraIcon, CheckIcon, GridIcon, LayersIcon, Maximize02Icon, MoveIcon, RotateCcwIcon } from '@hugeicons/core-free-icons';
-import { useViewerStore } from '@/stores/useViewerStore';
-import { AnimationTimelineDock } from '../Animation/AnimationTimelineDock';
+import {
+  CameraIcon,
+  CompassIcon,
+  GridIcon,
+  HelpCircleIcon,
+  LayersIcon,
+  RotateCw,
+  SettingsIcon,
+} from '@hugeicons/core-free-icons';
+import type { LightTone } from './MeshViewer';
+import type { ShadingMode } from '../types';
 
-export const ViewportToolOverlay: React.FC = () => {
+interface ViewportToolOverlayProps {
+  isRightPanelOpen?: boolean;
+}
+
+export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
+  isRightPanelOpen: propRightPanelOpen,
+}) => {
   const {
-    activeTool,
-    currentAsset,
-    shadingMode,
-    setShadingMode,
     showWireframe,
     setShowWireframe,
-    navigateToTool,
+    showGrid,
+    setShowGrid,
+    isTurntable,
+    setIsTurntable,
+    shadingMode,
+    setShadingMode,
+    isRightPanelOpen: contextRightPanelOpen,
   } = useWorkspace();
 
-  const modelStats = useViewerStore((s) => s.modelStats);
+  const isRightPanelOpen = propRightPanelOpen ?? contextRightPanelOpen ?? false;
 
-  // Bottom gallery tab states
-  const [uvGalleryTab, setUvGalleryTab] = useState<'Preview' | 'Part View' | 'Island View' | '3D / UV Split'>('Preview');
-  const [segmentGalleryTab, setSegmentGalleryTab] = useState<'Preview' | 'Part Hierarchy' | 'Statistics' | 'Logs'>('Preview');
-  const [segmentIsolatedPart, setSegmentIsolatedPart] = useState('Head');
-  const [cameraPreset, setCameraPreset] = useState<'Perspective' | 'Front' | 'Side' | 'Top'>('Perspective');
-  const [activeEditMode, setActiveEditMode] = useState<'select' | 'move' | 'rotate' | 'scale'>('select');
+  const [activePreset, setActivePreset] = useState<'Front' | 'Top' | 'Side' | 'Iso'>('Iso');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [lightingTone, setLightingTone] = useState<LightTone>('studio');
+  const [exposure, setExposure] = useState<number>(1.15);
 
-  if (activeTool !== 'uv' && activeTool !== 'segment' && activeTool !== 'edit' && activeTool !== 'animation' && activeTool !== 'rigging') {
-    return null;
-  }
+  const settingsPopoverRef = useRef<HTMLDivElement>(null);
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
 
-  const handleUseResultChaining = (targetTool: any) => {
-    toast.success(`Asset chained to ${targetTool} workflow`);
-    navigateToTool(targetTool);
+  // Auto-close settings popover on outside click or Escape
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (
+        settingsPopoverRef.current &&
+        !settingsPopoverRef.current.contains(target) &&
+        settingsTriggerRef.current &&
+        !settingsTriggerRef.current.contains(target)
+      ) {
+        setIsSettingsOpen(false);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsSettingsOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isSettingsOpen]);
+
+  // 1. Camera Snapshot (Zero-Load High-Definition Capture)
+  const handleSnapshot = () => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('takeViewportSnapshot'));
+    }
   };
 
-  const verticesDisplay = currentAsset?.vertices
-    ? currentAsset.vertices.toLocaleString()
-    : modelStats?.vertices
-    ? modelStats.vertices.toLocaleString()
-    : '—';
+  // 2. Camera Preset Snapping
+  const handleSnapCamera = (preset: 'Front' | 'Top' | 'Side' | 'Iso') => {
+    setActivePreset(preset);
+    const key = preset === 'Iso' ? 'perspective' : preset.toLowerCase();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('setCameraPreset', { detail: key }));
+    }
+  };
 
-  const facesDisplay = currentAsset?.faces
-    ? currentAsset.faces.toLocaleString()
-    : modelStats?.triangles
-    ? modelStats.triangles.toLocaleString()
-    : '—';
+  // 3. Viewport Lighting Tone
+  const handleLightingChange = (tone: LightTone) => {
+    setLightingTone(tone);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('setViewportLighting', { detail: { tone } }));
+    }
+  };
+
+  // 4. Viewport Exposure
+  const handleExposureChange = (val: number) => {
+    setExposure(val);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('setViewportExposure', { detail: val }));
+    }
+  };
+
+  // 5. Shading Mode
+  const handleShadingChange = (mode: ShadingMode) => {
+    setShadingMode(mode);
+  };
 
   return (
-    <div id="viewport-tool-overlay" className="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between p-4 overflow-hidden">
-      {/* TOP HEADER CONTROLS */}
-      <div className="flex items-start justify-between w-full">
-        {/* Top Left: Camera Pills or Stats */}
-        <div className="pointer-events-auto flex items-center gap-2">
-          {activeTool === 'uv' ? (
-            /* UV stats card overlay */
-            <div className="px-3 py-2 rounded-xl bg-[hsl(var(--surface-1))]/90 backdrop-blur-md border border-white/[0.08] text-[11px] font-mono space-y-1 shadow-xl">
-              <div className="flex gap-4 justify-between"><span className="text-zinc-400">Vertices</span><span className="text-white font-bold">{verticesDisplay}</span></div>
-              <div className="flex gap-4 justify-between"><span className="text-zinc-400">Faces</span><span className="text-white font-bold">{facesDisplay}</span></div>
-              <div className="flex gap-4 justify-between"><span className="text-zinc-400">UV Charts</span><span className="text-primary font-bold">{modelStats?.uvCharts ?? currentAsset?.uvCharts ?? 1} charts</span></div>
-              <div className="flex gap-4 justify-between"><span className="text-zinc-400">Surface Area</span><span className="text-white font-bold">{modelStats?.surfaceArea ?? currentAsset?.surfaceArea ? `${modelStats?.surfaceArea ?? currentAsset?.surfaceArea} m²` : '—'}</span></div>
-              <div className="flex gap-4 justify-between"><span className="text-zinc-400">Manifold</span><span className={(modelStats?.isManifold ?? currentAsset?.isManifold ?? true) ? "text-[hsl(var(--neon-green))] font-bold" : "text-amber-400 font-bold"}>{(modelStats?.isManifold ?? currentAsset?.isManifold ?? true) ? "Watertight" : "Non-Manifold"}</span></div>
-              <div className="flex gap-4 justify-between"><span className="text-zinc-400">Format</span><span className="text-primary font-bold">{currentAsset?.format || 'GLB'}</span></div>
-            </div>
-          ) : (
-            /* Perspective / Front / Side / Top Pills for Segment, Edit, Animation, Rigging */
-            <div className="flex gap-1 p-1 bg-[hsl(var(--surface-1))]/90 backdrop-blur-md rounded-xl border border-white/[0.08] shadow-xl">
-              {(['Perspective', 'Front', 'Side', 'Top'] as const).map((cam) => (
+    <div
+      id="viewport-tool-overlay"
+      className="absolute inset-0 pointer-events-none z-10 overflow-hidden select-none"
+    >
+      {/* Top-Right Control Cluster (Tripo-Style Vertical Tool Dock) */}
+      <div
+        className={`pointer-events-auto absolute top-16 md:top-20 flex flex-col items-center gap-2 transition-[right] duration-200 ease-out z-20 ${
+          isRightPanelOpen ? 'hidden md:flex' : 'flex'
+        }`}
+        style={{
+          right: isRightPanelOpen ? '276px' : '16px',
+        }}
+      >
+        {/* Floating Pill Tool Dock */}
+        <div className="relative p-1 rounded-2xl bg-[#161722]/90 backdrop-blur-md border border-white/[0.08] shadow-[0_12px_40px_rgba(0,0,0,0.65)] flex flex-col items-center gap-1">
+          {/* 1. Viewport Settings button */}
+          <SimpleTooltip label="Viewport Settings" side="left">
+            <button
+              ref={settingsTriggerRef}
+              type="button"
+              onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                isSettingsOpen
+                  ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+              }`}
+              aria-label="Viewport Settings"
+            >
+              <HugeiconsIcon icon={SettingsIcon} size={16} />
+            </button>
+          </SimpleTooltip>
+
+          {/* 2. Camera Snapshot button (4K High Resolution) */}
+          <SimpleTooltip label="Capture 4K Snapshot (PNG)" side="left">
+            <button
+              type="button"
+              onClick={handleSnapshot}
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer active:scale-90"
+              aria-label="Capture 4K Snapshot"
+            >
+              <HugeiconsIcon icon={CameraIcon} size={16} />
+            </button>
+          </SimpleTooltip>
+
+          {/* 3. Wireframe toggle button */}
+          <SimpleTooltip
+            label={showWireframe ? 'Wireframe: ON' : 'Wireframe: OFF'}
+            side="left"
+          >
+            <button
+              type="button"
+              onClick={() => setShowWireframe(!showWireframe)}
+              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                showWireframe
+                  ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+              }`}
+              aria-label="Toggle Wireframe"
+            >
+              <HugeiconsIcon icon={LayersIcon} size={16} />
+            </button>
+          </SimpleTooltip>
+
+          {/* 4. Turntable 360° Auto-Rotate toggle button */}
+          <SimpleTooltip
+            label={isTurntable ? 'Turntable: ON' : 'Turntable: OFF'}
+            side="left"
+          >
+            <button
+              type="button"
+              onClick={() => setIsTurntable(!isTurntable)}
+              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                isTurntable
+                  ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+              }`}
+              aria-label="Toggle Turntable"
+            >
+              <HugeiconsIcon
+                icon={RotateCw}
+                size={16}
+                className={isTurntable ? 'animate-spin' : ''}
+              />
+            </button>
+          </SimpleTooltip>
+
+          {/* 5. Ground Grid toggle button */}
+          <SimpleTooltip
+            label={showGrid !== false ? 'Grid: ON' : 'Grid: OFF'}
+            side="left"
+          >
+            <button
+              type="button"
+              onClick={() => setShowGrid(showGrid === false ? true : false)}
+              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                showGrid !== false
+                  ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+              }`}
+              aria-label="Toggle Ground Grid"
+            >
+              <HugeiconsIcon icon={GridIcon} size={16} />
+            </button>
+          </SimpleTooltip>
+
+          {/* 6. Help / Navigation shortcuts */}
+          <SimpleTooltip
+            label="Orbit: Left Drag · Pan: Right Drag · Zoom: Scroll"
+            side="left"
+          >
+            <button
+              type="button"
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer"
+              aria-label="Navigation Shortcuts"
+            >
+              <HugeiconsIcon icon={HelpCircleIcon} size={16} />
+            </button>
+          </SimpleTooltip>
+
+          {/* Settings Popover */}
+          {isSettingsOpen && (
+            <div
+              ref={settingsPopoverRef}
+              className="absolute right-full mr-2.5 top-0 w-64 p-3 rounded-2xl bg-[#161722]/95 backdrop-blur-md border border-white/[0.1] shadow-2xl z-30 space-y-3.5 text-xs text-white"
+            >
+              <div className="flex items-center justify-between pb-1.5 border-b border-white/[0.08]">
+                <span className="text-[11px] font-black uppercase tracking-wider text-zinc-300">
+                  Viewport Settings
+                </span>
                 <button
-                  key={cam}
                   type="button"
-                  onClick={() => {
-                    setCameraPreset(cam);
-                    const presetName = cam === 'Side' ? 'left' : cam.toLowerCase();
-                    if (typeof window !== 'undefined') {
-                      window.dispatchEvent(new CustomEvent('setCameraPreset', { detail: presetName }));
-                    }
-                    toast.info(`Camera aligned to ${cam}`);
-                  }}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    cameraPreset === cam
-                      ? 'bg-primary text-black font-extrabold shadow-sm'
-                      : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-                  }`}
+                  onClick={() => setIsSettingsOpen(false)}
+                  className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-colors"
+                  aria-label="Close settings"
                 >
-                  {cam}
+                  ✕
                 </button>
-              ))}
+              </div>
+
+              {/* Camera Angle Snap */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                  Camera Angle
+                </label>
+                <div className="grid grid-cols-4 gap-1">
+                  {(['Front', 'Side', 'Top', 'Iso'] as const).map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => handleSnapCamera(p)}
+                      className={`py-1 px-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                        activePreset === p
+                          ? 'bg-[#F9CF00] text-black shadow-sm font-black'
+                          : 'bg-white/[0.04] text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+                      }`}
+                      title={`Snap to ${p} view`}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Shading Mode */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                  Shading Mode
+                </label>
+                <div className="grid grid-cols-5 gap-1">
+                  {(
+                    [
+                      { id: 'textured', label: 'PBR' },
+                      { id: 'clay', label: 'Clay' },
+                      { id: 'normals', label: 'Normal' },
+                      { id: 'wireframe', label: 'Wire' },
+                      { id: 'matcap-gold', label: 'Gold' },
+                    ] as const
+                  ).map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => handleShadingChange(m.id)}
+                      className={`py-1 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer text-center ${
+                        shadingMode === m.id || (m.id === 'normals' && shadingMode === 'matcap-normal')
+                          ? 'bg-[#F9CF00] text-black shadow-sm font-black'
+                          : 'bg-white/[0.04] text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Lighting Tone */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                  Lighting
+                </label>
+                <div className="grid grid-cols-2 gap-1">
+                  {(
+                    [
+                      { id: 'studio', label: 'Studio Gold' },
+                      { id: 'neutral', label: 'Neutral' },
+                      { id: 'warm', label: 'Warm' },
+                      { id: 'cool', label: 'Cyber Cool' },
+                    ] as const
+                  ).map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => handleLightingChange(t.id)}
+                      className={`py-1 px-2 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                        lightingTone === t.id
+                          ? 'bg-[#F9CF00] text-black shadow-sm font-black'
+                          : 'bg-white/[0.04] text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Exposure Slider */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                    Exposure
+                  </span>
+                  <span className="text-[10px] font-mono text-[#F9CF00] font-bold">
+                    {exposure.toFixed(2)}x
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2.5"
+                  step="0.05"
+                  value={exposure}
+                  onChange={(e) => handleExposureChange(parseFloat(e.target.value))}
+                  className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#F9CF00]"
+                />
+              </div>
+
+              {/* Quick Toggles in popup */}
+              <div className="space-y-2 pt-1 border-t border-white/[0.08]">
+                {/* Turntable */}
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-300 text-[11px]">Auto Rotate</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsTurntable(!isTurntable)}
+                    className={`w-7 h-4 rounded-full p-0.5 transition-all cursor-pointer ${
+                      isTurntable ? 'bg-[#F9CF00]' : 'bg-white/10'
+                    }`}
+                  >
+                    <div
+                      className={`w-3 h-3 rounded-full bg-black transition-all ${
+                        isTurntable ? 'translate-x-3' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Ground Grid */}
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-300 text-[11px]">Ground Grid</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowGrid(showGrid === false ? true : false)}
+                    className={`w-7 h-4 rounded-full p-0.5 transition-all cursor-pointer ${
+                      showGrid !== false ? 'bg-[#F9CF00]' : 'bg-white/10'
+                    }`}
+                  >
+                    <div
+                      className={`w-3 h-3 rounded-full bg-black transition-all ${
+                        showGrid !== false ? 'translate-x-3' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
+      </div>
 
-        {/* Top Right: Shading / Material / Wireframe Pills */}
-        <div className="pointer-events-auto flex items-center gap-1.5 p-1 bg-[hsl(var(--surface-1))]/90 backdrop-blur-md rounded-xl border border-white/[0.08] shadow-xl text-xs">
+      {/* Bottom Floating Material & Shader Spheres Dock (Tripo 3D style) */}
+      <div
+        id="viewport-material-dock"
+        className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 p-1.5 rounded-2xl bg-[#141522]/90 backdrop-blur-md border border-white/[0.1] shadow-[0_12px_40px_rgba(0,0,0,0.65)] z-20 select-none animate-in fade-in slide-in-from-bottom-2 duration-200"
+      >
+        {/* Sphere 1: PBR Textured */}
+        <SimpleTooltip label="PBR Textured Shader" side="top">
           <button
             type="button"
-            onClick={() => {
-              setShadingMode('clay');
-              setShowWireframe(false);
-            }}
-            className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-              shadingMode === 'clay' && !showWireframe
-                ? 'bg-primary text-black shadow-sm'
-                : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
+            onClick={() => handleShadingChange('textured')}
+            aria-label="PBR Textured Shader"
+            className={`w-7 h-7 rounded-full transition-all duration-150 cursor-pointer relative ${
+              shadingMode === 'textured'
+                ? 'ring-2 ring-[#F9CF00] ring-offset-2 ring-offset-[#141522] scale-110 shadow-[0_0_12px_rgba(249,207,0,0.4)]'
+                : 'hover:scale-105 opacity-80 hover:opacity-100'
             }`}
           >
-            Solid
+            <div className="w-full h-full rounded-full bg-gradient-to-tr from-[#3b82f6] via-[#a855f7] to-[#f59e0b] shadow-[inset_-2px_-2px_4px_rgba(0,0,0,0.6),inset_2px_2px_4px_rgba(255,255,255,0.4)]" />
           </button>
+        </SimpleTooltip>
+
+        {/* Sphere 2: Clay Solid */}
+        <SimpleTooltip label="Clay Matte Shader" side="top">
+          <button
+            type="button"
+            onClick={() => handleShadingChange('clay')}
+            aria-label="Clay Matte Shader"
+            className={`w-7 h-7 rounded-full transition-all duration-150 cursor-pointer relative ${
+              shadingMode === 'clay'
+                ? 'ring-2 ring-[#F9CF00] ring-offset-2 ring-offset-[#141522] scale-110 shadow-[0_0_12px_rgba(249,207,0,0.4)]'
+                : 'hover:scale-105 opacity-80 hover:opacity-100'
+            }`}
+          >
+            <div className="w-full h-full rounded-full bg-gradient-to-tr from-[#64748b] via-[#94a3b8] to-[#cbd5e1] shadow-[inset_-2px_-2px_4px_rgba(0,0,0,0.6),inset_2px_2px_4px_rgba(255,255,255,0.4)]" />
+          </button>
+        </SimpleTooltip>
+
+        {/* Sphere 3: Normal Map Vectors */}
+        <SimpleTooltip label="Surface Normals Shader" side="top">
+          <button
+            type="button"
+            onClick={() => handleShadingChange('normals')}
+            aria-label="Surface Normals Shader"
+            className={`w-7 h-7 rounded-full transition-all duration-150 cursor-pointer relative ${
+              shadingMode === 'normals' || shadingMode === 'matcap-normal'
+                ? 'ring-2 ring-[#F9CF00] ring-offset-2 ring-offset-[#141522] scale-110 shadow-[0_0_12px_rgba(249,207,0,0.4)]'
+                : 'hover:scale-105 opacity-80 hover:opacity-100'
+            }`}
+          >
+            <div className="w-full h-full rounded-full bg-gradient-to-tr from-[#6366f1] via-[#06b6d4] to-[#f43f5e] shadow-[inset_-2px_-2px_4px_rgba(0,0,0,0.6),inset_2px_2px_4px_rgba(255,255,255,0.4)]" />
+          </button>
+        </SimpleTooltip>
+
+        {/* Sphere 4: Wireframe Topology */}
+        <SimpleTooltip label="Wireframe Topology Shader" side="top">
+          <button
+            type="button"
+            onClick={() => handleShadingChange('wireframe')}
+            aria-label="Wireframe Topology Shader"
+            className={`w-7 h-7 rounded-full transition-all duration-150 cursor-pointer relative ${
+              shadingMode === 'wireframe'
+                ? 'ring-2 ring-[#F9CF00] ring-offset-2 ring-offset-[#141522] scale-110 shadow-[0_0_12px_rgba(249,207,0,0.4)]'
+                : 'hover:scale-105 opacity-80 hover:opacity-100'
+            }`}
+          >
+            <div className="w-full h-full rounded-full bg-[#0a0f1d] border border-[#10b981] flex items-center justify-center shadow-[inset_0_0_6px_rgba(16,185,129,0.4)]">
+              <span className="text-[10px] text-[#10b981] font-mono leading-none">#</span>
+            </div>
+          </button>
+        </SimpleTooltip>
+
+        {/* Sphere 5: MatCap Gold */}
+        <SimpleTooltip label="Gold MatCap Metallic" side="top">
+          <button
+            type="button"
+            onClick={() => handleShadingChange('matcap-gold')}
+            aria-label="Gold MatCap Metallic"
+            className={`w-7 h-7 rounded-full transition-all duration-150 cursor-pointer relative ${
+              shadingMode === 'matcap-gold'
+                ? 'ring-2 ring-[#F9CF00] ring-offset-2 ring-offset-[#141522] scale-110 shadow-[0_0_12px_rgba(249,207,0,0.4)]'
+                : 'hover:scale-105 opacity-80 hover:opacity-100'
+            }`}
+          >
+            <div className="w-full h-full rounded-full bg-gradient-to-tr from-[#b45309] via-[#f59e0b] to-[#fef08a] shadow-[inset_-2px_-2px_4px_rgba(0,0,0,0.6),inset_2px_2px_4px_rgba(255,255,255,0.5)]" />
+          </button>
+        </SimpleTooltip>
+
+        <div className="h-4 w-[1px] bg-white/10 mx-0.5" />
+
+        {/* Wireframe Overlay Quick Toggle */}
+        <SimpleTooltip label={showWireframe ? 'Wireframe Overlay: ON' : 'Wireframe Overlay: OFF'} side="top">
           <button
             type="button"
             onClick={() => setShowWireframe(!showWireframe)}
-            className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+            aria-label="Toggle Wireframe Overlay"
+            className={`w-7 h-7 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
               showWireframe
-                ? 'bg-primary text-black shadow-sm'
-                : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
+                ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
+                : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
             }`}
           >
-            Wireframe
+            <HugeiconsIcon icon={LayersIcon} size={15} />
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setShadingMode('textured');
-              setShowWireframe(false);
-            }}
-            className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-              shadingMode === 'textured' && !showWireframe
-                ? 'bg-primary text-black shadow-sm'
-                : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-            }`}
-          >
-            Material
-          </button>
-        </div>
-      </div>
-
-      {/* FLOATING VERTICAL TOOLBARS (Left for Edit) */}
-      {activeTool === 'edit' && (
-        <div className="pointer-events-auto absolute left-4 top-20 flex flex-col gap-1 p-1 bg-[hsl(var(--surface-1))]/90 backdrop-blur-md rounded-xl border border-white/[0.08] shadow-xl">
-          <button 
-            type="button" 
-            title="Select Tool" 
-            onClick={() => {
-              setActiveEditMode('select');
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('setInteractionMode', { detail: 'orbit' }));
-              }
-            }}
-            className={`p-2 rounded-lg cursor-pointer transition-all ${
-              activeEditMode === 'select' ? 'bg-primary text-black shadow-sm font-bold' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-            }`}
-          >
-            <span className="text-xs font-bold">▲</span>
-          </button>
-          <button 
-            type="button" 
-            title="Move Manipulator" 
-            onClick={() => {
-              setActiveEditMode('move');
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('setInteractionMode', { detail: 'move' }));
-              }
-            }}
-            className={`p-2 rounded-lg cursor-pointer transition-all ${
-              activeEditMode === 'move' ? 'bg-primary text-black shadow-sm font-bold' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-            }`}
-          >
-            <HugeiconsIcon icon={MoveIcon} size={16} className="w-4 h-4" />
-          </button>
-          <button 
-            type="button" 
-            title="Rotate Selection" 
-            onClick={() => {
-              setActiveEditMode('rotate');
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('setInteractionMode', { detail: 'rotate' }));
-              }
-            }}
-            className={`p-2 rounded-lg cursor-pointer transition-all ${
-              activeEditMode === 'rotate' ? 'bg-primary text-black shadow-sm font-bold' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-            }`}
-          >
-            <HugeiconsIcon icon={RotateCcwIcon} size={16} className="w-4 h-4" />
-          </button>
-          <button 
-            type="button" 
-            title="Scale Selection" 
-            onClick={() => {
-              setActiveEditMode('scale');
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('setInteractionMode', { detail: 'scale' }));
-              }
-            }}
-            className={`p-2 rounded-lg cursor-pointer transition-all ${
-              activeEditMode === 'scale' ? 'bg-primary text-black shadow-sm font-bold' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-            }`}
-          >
-            <HugeiconsIcon icon={Maximize02Icon} size={16} className="w-4 h-4" />
-          </button>
-          <button 
-            type="button" 
-            title="Toggle Grid" 
-            onClick={() => {
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('toggleGrid'));
-              }
-            }}
-            className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.04] cursor-pointer"
-          >
-            <HugeiconsIcon icon={GridIcon} size={16} className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {/* BOTTOM GALLERY & COMPARISON OVERLAYS */}
-      <div className="pointer-events-auto flex flex-col items-center gap-2 w-full max-w-4xl mx-auto mb-1">
-        {/* UV BOTTOM GALLERY */}
-        {activeTool === 'uv' && (
-          <div className="w-full bg-[hsl(var(--surface-1))]/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl p-3 shadow-2xl space-y-2.5">
-            {/* Gallery Tabs */}
-            <div className="flex gap-1 border-b border-white/[0.06] pb-2">
-              {(['Preview', 'Part View', 'Island View', '3D / UV Split'] as const).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => setUvGalleryTab(tab)}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    uvGalleryTab === tab
-                      ? 'bg-primary text-black shadow-sm'
-                      : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-
-            {/* 4 Preview Cards */}
-            <div className="grid grid-cols-4 gap-2.5">
-              <div className="p-2 rounded-xl bg-[hsl(var(--surface-0))] border border-white/[0.06] hover:border-primary/50 transition-all cursor-pointer text-center group">
-                <div className="h-16 rounded-lg bg-[hsl(var(--surface-2))] mb-1.5 flex items-center justify-center text-zinc-500 group-hover:text-white">
-                  <HugeiconsIcon icon={Box} size={16} className="w-6 h-6" />
-                </div>
-                <div className="text-[11px] font-bold text-white">Original Mesh</div>
-                <div className="text-[9px] text-zinc-400 font-mono">248,864 faces</div>
-              </div>
-
-              <div className="p-2 rounded-xl bg-[hsl(var(--surface-0))] border border-white/[0.06] hover:border-primary/50 transition-all cursor-pointer text-center group">
-                <div className="h-16 rounded-lg bg-[hsl(var(--surface-2))] mb-1.5 flex items-center justify-center text-primary">
-                  <HugeiconsIcon icon={LayersIcon} size={16} className="w-6 h-6" />
-                </div>
-                <div className="text-[11px] font-bold text-white">Part Visualization</div>
-                <div className="text-[9px] text-zinc-400 font-mono">8 parts</div>
-              </div>
-
-              <div className="p-2 rounded-xl bg-[hsl(var(--surface-0))] border border-white/[0.06] hover:border-primary/50 transition-all cursor-pointer text-center group">
-                <div className="h-16 rounded-lg bg-[hsl(var(--surface-2))] mb-1.5 flex items-center justify-center text-zinc-400 group-hover:text-white">
-                  <HugeiconsIcon icon={GridIcon} size={16} className="w-6 h-6" />
-                </div>
-                <div className="text-[11px] font-bold text-white">UV Checker</div>
-                <div className="text-[9px] text-zinc-400 font-mono">2048 resolution</div>
-              </div>
-
-              <div className="p-2 rounded-xl bg-[hsl(var(--surface-0))] border border-white/[0.06] hover:border-primary/50 transition-all cursor-pointer text-center group">
-                <div className="h-16 rounded-lg bg-[hsl(var(--surface-2))] mb-1.5 flex items-center justify-center text-emerald-400">
-                  <HugeiconsIcon icon={CheckIcon} size={16} className="w-6 h-6" />
-                </div>
-                <div className="text-[11px] font-bold text-white">UV Wireframe</div>
-                <div className="text-[9px] text-zinc-400 font-mono">Clean topology</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* MESH SEGMENTATION BOTTOM GALLERY */}
-        {activeTool === 'segment' && (
-          <div className="w-full bg-[hsl(var(--surface-1))]/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl p-3 shadow-2xl space-y-2.5">
-            {/* Gallery Tabs */}
-            <div className="flex gap-1 border-b border-white/[0.06] pb-2">
-              {(['Preview', 'Part Hierarchy', 'Statistics', 'Logs'] as const).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => setSegmentGalleryTab(tab)}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    segmentGalleryTab === tab
-                      ? 'bg-primary text-black shadow-sm'
-                      : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-
-            {/* 4 Multi-angle Views and Part Isolation Card */}
-            <div className="grid grid-cols-4 gap-2.5">
-              <div className="p-2 rounded-xl bg-[hsl(var(--surface-0))] border border-white/[0.06] hover:border-primary/50 transition-all cursor-pointer text-center group">
-                <div className="h-16 rounded-lg bg-[hsl(var(--surface-2))] mb-1.5 flex items-center justify-center text-zinc-400 group-hover:text-white">
-                  <HugeiconsIcon icon={CameraIcon} size={16} className="w-6 h-6" />
-                </div>
-                <div className="text-[11px] font-bold text-white">Front View</div>
-              </div>
-
-              <div className="p-2 rounded-xl bg-[hsl(var(--surface-0))] border border-white/[0.06] hover:border-primary/50 transition-all cursor-pointer text-center group">
-                <div className="h-16 rounded-lg bg-[hsl(var(--surface-2))] mb-1.5 flex items-center justify-center text-zinc-400 group-hover:text-white">
-                  <HugeiconsIcon icon={CameraIcon} size={16} className="w-6 h-6" />
-                </div>
-                <div className="text-[11px] font-bold text-white">Side View</div>
-              </div>
-
-              <div className="p-2 rounded-xl bg-[hsl(var(--surface-0))] border border-white/[0.06] hover:border-primary/50 transition-all cursor-pointer text-center group">
-                <div className="h-16 rounded-lg bg-[hsl(var(--surface-2))] mb-1.5 flex items-center justify-center text-zinc-400 group-hover:text-white">
-                  <HugeiconsIcon icon={CameraIcon} size={16} className="w-6 h-6" />
-                </div>
-                <div className="text-[11px] font-bold text-white">Back View</div>
-              </div>
-
-              <div className="p-2 rounded-xl bg-[hsl(var(--surface-0))] border border-white/[0.06] hover:border-primary/50 transition-all cursor-pointer text-center group">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] text-zinc-400 font-semibold">Part Isolation</span>
-                  <select
-                    value={segmentIsolatedPart}
-                    onChange={(e) => setSegmentIsolatedPart(e.target.value)}
-                    className="bg-[hsl(var(--surface-2))] text-white text-[10px] rounded px-1.5 py-0.5 border border-white/[0.1] focus:outline-none"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <option value="Head">Head</option>
-                    <option value="Torso">Torso</option>
-                    <option value="Left Arm">Left Arm</option>
-                    <option value="Right Arm">Right Arm</option>
-                  </select>
-                </div>
-                <div className="h-12 rounded-lg bg-[hsl(var(--surface-2))] flex items-center justify-center text-emerald-400 font-bold text-xs">
-                  {segmentIsolatedPart} Isolated
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ANIMATION TIMELINE DOCK */}
-        {activeTool === 'animation' && (
-          <div className="pointer-events-auto w-full -mx-4 -mb-4">
-            <AnimationTimelineDock />
-          </div>
-        )}
-
-        {/* ponytail: Removed static MESH EDIT COMPARISON BOTTOM CARD — hardcoded dummy data
-           that permanently blocked the viewport bottom HUD (camera/shading/export).
-           If a real comparison UI is needed later, render it conditionally after an edit completes. */}
+        </SimpleTooltip>
       </div>
     </div>
   );

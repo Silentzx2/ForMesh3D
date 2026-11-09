@@ -446,10 +446,6 @@ The `WorkspaceShell` (`features/workspace/WorkspaceShell.tsx`) is the main appli
 - **Studio Environment Engine**:
   - Real-time Three.js scene environment customization with 6 backdrop color presets, 5 lighting atmospheres, and 4 chromatic light tones (Studio, Warm Gold, Cyber Cool, Neutral).
   - Fully dynamic directional lighting calculation (Key, Fill, Rim, Ambient) and contact shadow intensity.
-- **DCC Live Bridge (`DccBridgeModal.tsx`) & Quick-Send (`RightAssetsPanel.tsx`)**:
-  - Out-of-the-box bridge support for Blender 4.x/5.x, Unreal Engine 5 (Remote Control API), Unity Editor, and Autodesk Maya.
-  - Features local daemon health checking, custom port binding, pipeline toggle flags, and 1-click Python ingestion scripts.
-  - Quick-Send from asset 3-dots menu ("Send to {last-used DCC}") bypasses the full modal when a target application has been used, testing/dispatching directly to configured local ports with real-time toast feedback and fallback to modal configuration when unconfigured.
 
 ---
 
