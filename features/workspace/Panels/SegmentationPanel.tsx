@@ -28,6 +28,8 @@ import {
 } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
+import { EngineModeSelector } from './EngineModeSelector';
+import type { EngineMode } from '../services/meshProcessingBridge';
 
 // ==========================================
 // 1. Quality Metrics & QualityBadge Export
@@ -270,6 +272,7 @@ export const SegmentationPanel: React.FC = () => {
   const dragCounterRef = useRef(0);
 
   // Core Segmentation parameter state
+  const [engineMode, setEngineMode] = useState<EngineMode>('ai');
   const [numParts, setNumParts] = useState<number>(8);
   const [decompositionMode, setDecompositionMode] = useState<'semantic' | 'geometric'>('semantic');
   const [hierarchical, setHierarchical] = useState<boolean>(false);
@@ -504,6 +507,7 @@ export const SegmentationPanel: React.FC = () => {
     try {
       if (runSegmentation) {
         await runSegmentation({
+          engineMode,
           numParts,
           method: decompositionMode,
           hierarchical,
@@ -780,6 +784,13 @@ export const SegmentationPanel: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Dual-Engine Mode Switcher: AI Model vs Fast Script */}
+        <EngineModeSelector
+          mode={engineMode}
+          onChange={setEngineMode}
+          tool="segment"
+        />
 
         {/* 3. Target Parts (Single-Row Preset Pills) */}
         <div className="space-y-1">
@@ -1096,7 +1107,7 @@ export const SegmentationPanel: React.FC = () => {
               className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Scissors className="w-3.5 h-3.5 text-black" />
-              <span>Segment Mesh</span>
+              <span>{engineMode === 'ai' ? 'Run AI Segmentation' : 'Run Fast Segmentation (Trimesh)'}</span>
             </button>
             <div className="flex items-center justify-center text-[9.5px] text-zinc-400 px-1 font-mono">
               <span>

@@ -1,7 +1,7 @@
 # ForMesh3D — End-to-End System Wiring & Total Placeholder Eradication Blueprint
 
-**Document Version**: 2.2.0  
-**Status**: COMPLETED & VERIFIED (100% Placeholders Eradicated)  
+**Document Version**: 2.3.0  
+**Status**: COMPLETED & VERIFIED (Dual-Engine Bridge, Script Mode Passthrough & Abort Fix Landed)  
 **Target Branch**: `dev`  
 **Governing Rule**: `AGENTS.md` (Lazy Senior Dev, Root Cause First, Modern GPU Parity, Zero Regressions, Zero Model Names in CTAs, Upload Card Inviolability)  
 **Strict Operational Boundary**: **NEVER TOUCH `setup.sh`** (User actively editing in host environment).
@@ -251,6 +251,15 @@ export const RealModelPreviewCanvas: React.FC<{
 - [x] Inviolable safeguards verified: `setup.sh` 100% untouched, zero model names in CTA buttons, 100% free with no paywalls.
 - [x] Authorized git push to branch `dev` executed.
 - [x] Project documentation updated in `Docs/TASKS.md`, `Docs/MEMORY.md`, `Docs/CHANGELOG.md`, and `Docs/ARCHITECTURE.md`.
+
+### Slice 6: Dual-Engine Bridge, Script Mode Passthrough, AbortController Upstream Cancellation & Multi-Part GLB Presentation
+- [x] **Unified Dual-Engine Processing Bridge (`meshProcessingBridge.ts`)**: Built extensible single-bridge dispatcher uniting GPU Neural AI models (FastMesh, PartUV, Neural Segmentation) and CPU Fast Algorithmic Scripts (Trimesh AutoRetopo, XAtlas, Blender Smart UV, Trimesh Decomposition) via unified `executeMeshOperation` and plug-and-play `SCRIPT_REGISTRY`.
+- [x] **Shared `EngineModeSelector.tsx` Component**: Created dual-engine toggle component (`AI Model` vs `Fast Script`) with live GPU availability sensing (`GPU Neural` vs `GPU Offline` vs `CPU Script`) and algorithm sub-selectors (XAtlas vs Blender).
+- [x] **Dynamic Parameter Forwarding**: Full passthrough of target polycount budgets, quad vs triangle topology, feature angles, adaptive density, target parts count (2–32), UV atlas resolution (1K/2K/4K), and island margin texels across panels (`RemeshPanel.tsx`, `UVPanel.tsx`, `SegmentationPanel.tsx`).
+- [x] **Dynamic Model Selector Visibility in `RemeshPanel`**: Retopo Engine selector is visible when in `AI Model` mode and completely hidden (`gayab`) in `Fast Script` mode, maintaining an ultra-compact panel layout without vertical scrollbars across small screens.
+- [x] **AbortController Upstream Task Cancellation Fix**: Hooked Next.js runtime API proxy stream handler to an upstream `AbortController` coupled with client request abort signals (`app/api/v1/[...path]/route.ts`). Cancelled tasks and disconnects now immediately abort backend execution instead of continuing in background.
+- [x] **Multi-Part Colored GLB Scene Generation & Viewport Presentation**: Extended backend Trimesh segmentation (`backend/postprocess/services/segment.py`, `schemas.py`) to partition meshes into colored submesh parts exported as GLB scenes. Wired automatic viewport loading (`loadModelInViewer`) and re-centering in `WorkspaceContext.tsx`.
+- [x] **Quality Gate**: Verified `bun x tsc --noEmit` passes with 0 errors, `bun test` passes (8 pass, 0 fail).
 
 ---
 

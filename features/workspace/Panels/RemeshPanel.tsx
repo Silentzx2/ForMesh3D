@@ -32,6 +32,8 @@ import {
 } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
+import { EngineModeSelector } from './EngineModeSelector';
+import type { EngineMode } from '../services/meshProcessingBridge';
 
 // ==========================================
 // 1. Quality Metrics & QualityBadge Export
@@ -267,6 +269,7 @@ export const RemeshPanel: React.FC = () => {
   } = useWorkspace();
 
   // Core Parameters on Main Panel
+  const [engineMode, setEngineMode] = useState<EngineMode>('ai');
   const [polyType, setPolyType] = useState<'quad' | 'tri'>(remeshSettings.polyType || 'quad');
   const [targetPolycount, setTargetPolycount] = useState<number>(remeshSettings.targetPolycount || 50000);
   const [localPolycount, setLocalPolycount] = useState<number>(remeshSettings.targetPolycount || 50000);
@@ -566,6 +569,7 @@ export const RemeshPanel: React.FC = () => {
     try {
       if (runRemeshGeneration) {
         await runRemeshGeneration({
+          engineMode,
           variant,
           polyType,
           targetPolycount,
@@ -850,6 +854,13 @@ export const RemeshPanel: React.FC = () => {
           </div>
         )}
 
+          {/* Dual-Engine Mode Switcher: Neural AI vs Script Mode */}
+          <EngineModeSelector
+            mode={engineMode}
+            onChange={setEngineMode}
+            tool="remesh"
+          />
+
           {/* 3. Topology Type: Pure Quads vs Triangles */}
           <div className="space-y-1.5">
             <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider block">
@@ -970,73 +981,75 @@ export const RemeshPanel: React.FC = () => {
             </button>
           </div>
 
-          {/* 6. Retopo Engine Dropdown */}
-          <div className="space-y-1.5 pt-1.5 border-t border-[hsl(var(--border))]" ref={modelDropdownRef}>
-            <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider block">
-              Retopo Engine
-            </label>
+          {/* 6. Retopo Engine Dropdown (Only visible in AI Mode) */}
+          {engineMode === 'ai' && (
+            <div className="space-y-1.5 pt-1.5 border-t border-[hsl(var(--border))]" ref={modelDropdownRef}>
+              <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider block">
+                Retopo Engine
+              </label>
 
-            <button
-              type="button"
-              aria-haspopup="listbox"
-              aria-expanded={isModelDropdownOpen}
-              aria-label="Select Retopo Engine"
-              onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-              className="w-full h-8.5 px-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] flex items-center justify-between text-left transition-all cursor-pointer shadow-sm"
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="w-5 h-5 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/25 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-                  <Cpu className="w-3 h-3 text-[#F9CF00]" />
-                </div>
-                <div className="min-w-0 flex items-baseline gap-1.5">
-                  <p className="text-xs font-bold text-[hsl(var(--foreground))] truncate">
-                    {availableModels.find((m) => m.id === variant)?.label || 'Select Engine'}
-                  </p>
-                  <span className="text-[10px] text-[hsl(var(--muted-foreground))] truncate opacity-80">
-                    {availableModels.find((m) => m.id === variant)?.tag}
-                  </span>
-                </div>
-              </div>
-              <ChevronDown
-                className={`w-3 h-3 text-[hsl(var(--muted-foreground))] flex-shrink-0 ml-1 transition-transform duration-200 ${
-                  isModelDropdownOpen ? 'rotate-180 text-primary' : ''
-                }`}
-              />
-            </button>
-
-            {/* Model Dropdown Menu */}
-            {isModelDropdownOpen && (
-              <div
-                role="listbox"
-                aria-label="Available Retopo Models"
-                className="absolute top-full mt-1 left-0 right-0 rounded-xl bg-[#1a1b26] border border-white/10 shadow-2xl p-1 z-40 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
+              <button
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={isModelDropdownOpen}
+                aria-label="Select Retopo Engine"
+                onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                className="w-full h-8.5 px-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] flex items-center justify-between text-left transition-all cursor-pointer shadow-sm"
               >
-                {availableModels.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    role="option"
-                    aria-selected={variant === m.id}
-                    onClick={() => {
-                      setVariant(m.id as 'V4K' | 'V1K');
-                      setIsModelDropdownOpen(false);
-                    }}
-                    className={`w-full text-left px-2.5 py-2 rounded-lg text-xs transition-all cursor-pointer flex items-center justify-between ${
-                      variant === m.id
-                        ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
-                        : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
-                    }`}
-                  >
-                    <div className="min-w-0 pr-1">
-                      <span className="block font-semibold truncate leading-tight">{m.label}</span>
-                      <span className="text-[10px] opacity-70 block truncate leading-tight">{m.note}</span>
-                    </div>
-                    <span className="text-[10px] font-mono opacity-75 flex-shrink-0">{m.badge}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-5 h-5 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/25 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
+                    <Cpu className="w-3 h-3 text-[#F9CF00]" />
+                  </div>
+                  <div className="min-w-0 flex items-baseline gap-1.5">
+                    <p className="text-xs font-bold text-[hsl(var(--foreground))] truncate">
+                      {availableModels.find((m) => m.id === variant)?.label || 'Select Engine'}
+                    </p>
+                    <span className="text-[10px] text-[hsl(var(--muted-foreground))] truncate opacity-80">
+                      {availableModels.find((m) => m.id === variant)?.tag}
+                    </span>
+                  </div>
+                </div>
+                <ChevronDown
+                  className={`w-3 h-3 text-[hsl(var(--muted-foreground))] flex-shrink-0 ml-1 transition-transform duration-200 ${
+                    isModelDropdownOpen ? 'rotate-180 text-primary' : ''
+                  }`}
+                />
+              </button>
+
+              {/* Model Dropdown Menu */}
+              {isModelDropdownOpen && (
+                <div
+                  role="listbox"
+                  aria-label="Available Retopo Models"
+                  className="absolute top-full mt-1 left-0 right-0 rounded-xl bg-[#1a1b26] border border-white/10 shadow-2xl p-1 z-40 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
+                >
+                  {availableModels.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      role="option"
+                      aria-selected={variant === m.id}
+                      onClick={() => {
+                        setVariant(m.id as 'V4K' | 'V1K');
+                        setIsModelDropdownOpen(false);
+                      }}
+                      className={`w-full text-left px-2.5 py-2 rounded-lg text-xs transition-all cursor-pointer flex items-center justify-between ${
+                        variant === m.id
+                          ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
+                          : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      <div className="min-w-0 pr-1">
+                        <span className="block font-semibold truncate leading-tight">{m.label}</span>
+                        <span className="text-[10px] opacity-70 block truncate leading-tight">{m.note}</span>
+                      </div>
+                      <span className="text-[10px] font-mono opacity-75 flex-shrink-0">{m.badge}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Dynamic Flying Side Advanced Retopo Settings Panel (Portal) */}
@@ -1237,7 +1250,7 @@ export const RemeshPanel: React.FC = () => {
               className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RefreshCw className="w-3.5 h-3.5 text-black" />
-              <span>Run Retopology</span>
+              <span>{engineMode === 'ai' ? 'Run Quad Retopology (FastMesh)' : 'Run Script Retopology (Trimesh / Python)'}</span>
             </button>
             <div className="flex items-center justify-between text-[10px] text-zinc-400 px-1 font-mono">
               <span>Target: {localPolycount.toLocaleString()} {polyType === 'quad' ? 'Quads' : 'Tris'}</span>

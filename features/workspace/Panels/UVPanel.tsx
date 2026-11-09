@@ -29,6 +29,8 @@ import {
 } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
+import { EngineModeSelector } from './EngineModeSelector';
+import type { EngineMode } from '../services/meshProcessingBridge';
 
 // ==========================================
 // 1. Quality Metrics & QualityBadge Export
@@ -271,6 +273,8 @@ export const UVPanel: React.FC = () => {
   const dragCounterRef = useRef(0);
 
   // Core Smart UV parameter state
+  const [engineMode, setEngineMode] = useState<EngineMode>('ai');
+  const [activeScriptId, setActiveScriptId] = useState<string>('xatlas_fast');
   const [unwrapStrategy, setUnwrapStrategy] = useState<'organic' | 'hard_surface'>('organic');
   const [atlasResolution, setAtlasResolution] = useState<'1K' | '2K' | '4K'>('2K');
   const [islandMargin, setIslandMargin] = useState<2 | 4 | 8 | 16>(8);
@@ -505,8 +509,10 @@ export const UVPanel: React.FC = () => {
     try {
       if (runUVUnwrapGeneration) {
         await runUVUnwrapGeneration({
+          engineMode,
+          scriptId: activeScriptId,
           distortionThreshold,
-          packMethod: 'blender',
+          packMethod: activeScriptId === 'blender_smart_uv' ? 'blender' : 'xatlas',
           outputFormat,
           saveIndividualParts,
           unwrapStrategy,
@@ -789,6 +795,15 @@ export const UVPanel: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Dual-Engine Mode Switcher: AI Model vs Fast Script */}
+        <EngineModeSelector
+          mode={engineMode}
+          onChange={setEngineMode}
+          tool="uv"
+          activeScriptId={activeScriptId}
+          onScriptChange={setActiveScriptId}
+        />
 
         {/* 3. Unwrap Strategy: Organic vs Hard-Surface */}
         <div className="space-y-1">
@@ -1089,7 +1104,7 @@ export const UVPanel: React.FC = () => {
               className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Grid3X3 className="w-3.5 h-3.5 text-black" />
-              <span>Run Smart UV</span>
+              <span>{engineMode === 'ai' ? 'Run AI UV (PartUV)' : 'Run Fast UV (XAtlas / Blender)'}</span>
             </button>
             <div className="flex items-center justify-between text-[9.5px] text-zinc-400 px-1 font-mono">
               <span>Atlas: {atlasResolution} · Margin: {islandMargin}px</span>

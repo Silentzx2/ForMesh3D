@@ -33,6 +33,7 @@ import {
 } from '../utils/buildGenerationParameters';
 import { buildTextureGenerationParameters } from '../utils/buildTextureGenerationParameters';
 import { taskPersistence } from '@/services/taskPersistence';
+import { executeMeshOperation, type EngineMode } from '../services/meshProcessingBridge';
 
 interface ComparisonGroup {
   id: string;
@@ -125,6 +126,7 @@ interface WorkspaceContextType {
   generate3DModel: () => Promise<void>;
   runModelGeneration: () => Promise<void>;
   runRemeshGeneration: (customSettings?: {
+    engineMode?: EngineMode;
     variant?: 'V1K' | 'V4K';
     polyType?: string;
     targetPolycount?: number;
@@ -136,6 +138,8 @@ interface WorkspaceContextType {
   }) => Promise<void>;
   runTextureGeneration: () => Promise<void>;
   runUVUnwrapGeneration: (customSettings?: {
+    engineMode?: EngineMode;
+    scriptId?: string;
     distortionThreshold?: number;
     packMethod?: string;
     outputFormat?: string;
@@ -148,6 +152,7 @@ interface WorkspaceContextType {
     modelParameters?: Record<string, any>;
   }) => Promise<void>;
   runSegmentation: (customSettings?: {
+    engineMode?: EngineMode;
     numParts?: number;
     method?: string;
     hierarchical?: boolean;
@@ -613,6 +618,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   jobsByIdRef.current = jobsById;
   const activeTaskRef = useRef<ActiveTask | null>(activeTask);
   activeTaskRef.current = activeTask;
+  const activeAbortControllerRef = useRef<AbortController | null>(null);
 
   const dismissActiveTask = useCallback(() => setActiveTask(null), []);
 
@@ -1398,85 +1404,81 @@ function dataURLtoFile(dataURL: string, filename: string): File {
   const fitToScreen = useCallback(() => setViewportResetTrigger(prev => prev + 1), []);
 
   const cancelExecution = useCallback(async () => {
-    const jobId = activeTask?.id;
+    // a) Call activeAbortControllerRef.current?.abort() to stop in-flight fetches/SSE streams
+    if (activeAbortControllerRef.current) {
+      activeAbortControllerRef.current.abort();
+      activeAbortControllerRef.current = null;
+    }
+
+    const currentTask = activeTaskRef.current || activeTask;
+    const jobId = currentTask?.id;
+
+    // c) Reset execution states cleanly
+    setIsExecuting(false);
+    setExecutionProgress(0);
+    setExecutionStep('Execution cancelled');
+
     if (!jobId) return;
 
-    if (jobId.startsWith('local_') || activeTask?.isLocal) {
-      setIsExecuting(false);
-      setExecutionProgress(0);
-      setExecutionStep('Execution cancelled');
-      setActiveTask(null);
-      setJobsById(prev => {
-        const next = { ...prev };
-        delete next[jobId];
-        jobsByIdRef.current = next;
-        return next;
-      });
-      return;
+    // b) If activeTask?.backendJobId or jobsById[jobId]?.backendJobId exists, call backend cancellation
+    const backendJobId = currentTask?.backendJobId ||
+      (jobsByIdRef.current[jobId]?.backendJobId) ||
+      (!jobId.startsWith('local_') ? jobId : undefined);
+
+    if (backendJobId) {
+      try {
+        const data = await getApiClient().cancelGenerationJob(backendJobId);
+        if (data?.cancelled || data?.status === 'cancelled') {
+          toast.success('Generation job cancelled');
+        } else {
+          const message = data?.message || 'Job stop requested.';
+          toast.info('Job cancelled', { description: message });
+        }
+      } catch (error) {
+        try {
+          await fetch(`/api/v1/system/jobs/${encodeURIComponent(backendJobId)}/cancel`, { method: 'POST' });
+        } catch (postErr) {
+          console.warn('Backend cancel endpoint fallback error:', postErr);
+        }
+        toast.info('Cancelled locally', { description: 'Cancellation request sent to server' });
+      }
+    } else {
+      toast.info('Operation cancelled');
     }
 
-    try {
-      const data = await getApiClient().cancelGenerationJob(jobId);
-      setIsExecuting(false);
-      setExecutionProgress(0);
-      setExecutionStep('Execution cancelled');
-      setActiveTask(prev => prev ? {
-        ...prev,
+    setActiveTask(prev => prev ? {
+      ...prev,
+      status: 'interrupted',
+      currentStep: 'Execution cancelled',
+      stage: 'cancelled',
+    } : null);
+
+    setJobsById(prev => {
+      const existing = prev[jobId] || activeTaskRef.current;
+      if (!existing) return prev;
+      const updated: ActiveTask = {
+        ...existing,
         status: 'interrupted',
         currentStep: 'Execution cancelled',
         stage: 'cancelled',
-      } : null);
-      setJobsById(prev => {
-        const existing = prev[jobId] || activeTaskRef.current;
-        if (!existing) return prev;
-        const updated: ActiveTask = {
-          ...existing,
-          status: 'interrupted',
-          currentStep: 'Execution cancelled',
-          stage: 'cancelled',
-        };
-        const next = { ...prev, [jobId]: updated };
-        jobsByIdRef.current = next;
-        return next;
-      });
-      if (data.cancelled || data.status === 'cancelled') {
-        toast.success('Generation job cancelled');
-      } else {
-        const message = data.message || 'Job stop requested.';
-        toast.info('Job cancelled', { description: message });
-      }
-    } catch (error) {
-      setIsExecuting(false);
-      setExecutionProgress(0);
-      setExecutionStep('Execution cancelled');
-      setActiveTask(prev => prev ? {
-        ...prev,
-        status: 'interrupted',
-        currentStep: 'Execution cancelled',
-        stage: 'cancelled',
-      } : null);
-      setJobsById(prev => {
-        const existing = prev[jobId] || activeTaskRef.current;
-        if (!existing) return prev;
-        const updated: ActiveTask = {
-          ...existing,
-          status: 'interrupted',
-          currentStep: 'Execution cancelled',
-          stage: 'cancelled',
-        };
-        const next = { ...prev, [jobId]: updated };
-        jobsByIdRef.current = next;
-        return next;
-      });
-      toast.info('Cancelled locally', { description: 'Cancellation request sent to server' });
-    }
-  }, [activeTask?.id, activeTask?.isLocal]);
+      };
+      const next = { ...prev, [jobId]: updated };
+      jobsByIdRef.current = next;
+      return next;
+    });
+  }, [activeTask, getApiClient]);
 
   const startTask = useCallback((type: ActiveTask['type'], title: string, promptId?: string, provider?: string, inputImage?: string, inputImageName?: string, comparisonGroupId?: string) => {
+    if (activeAbortControllerRef.current) {
+      activeAbortControllerRef.current.abort();
+    }
+    activeAbortControllerRef.current = new AbortController();
+
     const isLocal = !promptId;
     const taskId = promptId ?? `local_${crypto.randomUUID()}`;
     const task: ActiveTask = {
       id: taskId,
+      backendJobId: !isLocal ? taskId : undefined,
       isLocal,
       type,
       title,
@@ -1506,13 +1508,13 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     setJobsById(prev => {
       const task = prev[localTaskId] || activeTaskRef.current;
       if (!task) return prev;
-      const next: ActiveTask = { ...task, ...updates, id: jobId, isLocal: false };
+      const next: ActiveTask = { ...task, ...updates, id: jobId, backendJobId: jobId, isLocal: false };
       const copy = { ...prev };
       delete copy[localTaskId];
       copy[jobId] = next;
       return copy;
     });
-    setActiveTask(prev => prev && prev.id === localTaskId ? { ...prev, ...updates, id: jobId, isLocal: false } : prev);
+    setActiveTask(prev => prev && (prev.id === localTaskId || prev.id === jobId) ? { ...prev, ...updates, id: jobId, backendJobId: jobId, isLocal: false } : prev);
   }, []);
 
   const queueGenerationJob = useCallback(async (customSettings?: Partial<GenerationSettings>) => {
@@ -1595,6 +1597,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: activeAbortControllerRef.current?.signal,
       });
 
       if (!res.ok) throw await parseApiError(res);
@@ -1670,6 +1673,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       generationSettings.imageName || 'asset',
       comparisonGroupId ?? undefined
     );
+    const signal = activeAbortControllerRef.current?.signal;
 
     try {
       let effectiveSettings = generationSettings;
@@ -1704,6 +1708,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal,
       });
       if (!res.ok) throw await parseApiError(res);
       const data = await parseApiData<{ job_id?: string; id?: string; status?: string }>(res);
@@ -1717,6 +1722,10 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       });
       setExecutionStep('Generation queued on backend');
     } catch (error) {
+      if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
+        console.log('Generation cancelled by user');
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Generation submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
@@ -1741,7 +1750,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     setExecutionStep,
   ]);
 
-async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_file_id?: string; mesh_path?: string }> {
+async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSignal): Promise<{ mesh_file_id?: string; mesh_path?: string }> {
   if (!asset) {
     throw new Error('No model selected. Generate or import a model first.');
   }
@@ -1759,12 +1768,12 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
   }
   if (rawUrl.startsWith('blob:')) {
     try {
-      const blobRes = await fetch(rawUrl);
+      const blobRes = await fetch(rawUrl, { signal });
       const blob = await blobRes.blob();
       const fileName = asset.name ? (asset.name.endsWith('.glb') || asset.name.endsWith('.obj') ? asset.name : `${asset.name}.glb`) : 'model.glb';
       const formData = new FormData();
       formData.append('file', new File([blob], fileName, { type: blob.type || 'model/gltf-binary' }));
-      const uploadRes = await fetch('/api/v1/file-upload/mesh', { method: 'POST', body: formData });
+      const uploadRes = await fetch('/api/v1/file-upload/mesh', { method: 'POST', body: formData, signal });
       if (uploadRes.ok) {
         const uploadData = await uploadRes.json();
         const fileId = uploadData.file_id || uploadData.id;
@@ -1773,7 +1782,8 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
           return { mesh_file_id: fileId };
         }
       }
-    } catch (e) {
+    } catch (e: any) {
+      if (signal?.aborted || e?.name === 'AbortError') throw new Error('Operation cancelled by user');
       console.warn('Auto-upload local blob mesh failed:', e);
     }
   }
@@ -1781,6 +1791,7 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
 }
 
   const runRemeshGeneration = useCallback(async (customSettings?: {
+    engineMode?: EngineMode;
     variant?: 'V1K' | 'V4K';
     polyType?: string;
     targetPolycount?: number;
@@ -1790,15 +1801,83 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
     watertightHealing?: boolean;
     outputFormat?: string;
   }) => {
-    const localTaskId = startTask('remesh', 'Remesh / topology optimization', undefined, undefined, undefined, undefined, comparisonGroupId ?? undefined);
+    const engine = customSettings?.engineMode || 'ai';
+    const localTaskId = startTask(
+      'remesh',
+      engine === 'script' ? 'Algorithmic Remesh (Python)' : 'Neural Remesh (FastMesh)',
+      undefined,
+      engine === 'script' ? 'trimesh_autoretopo' : (customSettings?.variant === 'V4K' ? 'fastmesh_v4k_retopology' : 'fastmesh_v1k_retopology'),
+      undefined,
+      undefined,
+      comparisonGroupId ?? undefined
+    );
+    const signal = activeAbortControllerRef.current?.signal;
     try {
-      const meshRef = await resolveMeshReference(currentAsset);
+      setIsExecuting(true);
+      const meshRef = await resolveMeshReference(currentAsset, signal);
+      const targetPoly = customSettings?.targetPolycount ?? remeshSettings.targetPolycount;
+      const polyType = customSettings?.polyType || remeshSettings.polyType;
+      const meshUrl = currentAsset?.source?.localUrl || currentAsset?.source?.viewUrl || (meshRef.mesh_file_id ? `/api/v1/file-upload/download/${meshRef.mesh_file_id}` : '');
+
+      if (engine === 'script') {
+        setExecutionStep('Executing Python Trimesh AutoRetopo...');
+        const result = await executeMeshOperation({
+          tool: 'remesh',
+          engine: 'script',
+          meshUrl,
+          meshRef,
+          params: {
+            targetPolycount: targetPoly,
+            polyType,
+            preserveEdges: customSettings?.preserveEdges ?? true,
+            featureAngle: customSettings?.featureAngle ?? 45,
+            adaptiveDensity: customSettings?.adaptiveDensity ?? true,
+            watertightHealing: customSettings?.watertightHealing ?? true,
+          },
+          onProgress: (step, pct) => {
+            setExecutionStep(step);
+            setExecutionProgress(pct);
+          },
+          signal,
+        });
+
+        if (result.success && result.modelUrl) {
+          const newAssetId = `retopo-${Date.now()}`;
+          const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
+          const newAsset = normalizeModelAsset({
+            id: newAssetId,
+            name: `${cleanBaseName}_retopo_${polyType}`,
+            category: 'edit',
+            source: { filename: `${cleanBaseName}_retopo.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'retopo' },
+            format: 'GLB',
+            topology: polyType === 'quad' ? 'Quad' : 'Triangle',
+            faces: result.stats?.face_count || targetPoly,
+            vertices: result.stats?.vertex_count || Math.round(targetPoly / 2),
+            triangles: result.stats?.face_count || targetPoly,
+            statsAvailable: true,
+          });
+
+          addAsset(newAsset);
+          selectAsset(newAsset.id);
+          loadModelInViewer(result.modelUrl);
+          setViewportResetTrigger((p) => p + 1);
+
+          setIsExecuting(false);
+          setExecutionProgress(100);
+          setExecutionStep('Retopology completed successfully');
+          setActiveTask((prev) => (prev ? { ...prev, status: 'completed', progress: 100, currentStep: 'Retopology completed' } : null));
+          toast.success('Retopology completed!', { description: `Optimized to ${polyType.toUpperCase()} topology (${targetPoly.toLocaleString()} faces)` });
+          return;
+        }
+      }
+
+      // AI Mode Execution
       const variant = customSettings?.variant || remeshSettings.variant;
       const body: Record<string, unknown> = {
         output_format: customSettings?.outputFormat || 'glb',
         model_preference: variant === 'V4K' ? 'fastmesh_v4k_retopology' : 'fastmesh_v1k_retopology',
-        poly_type: customSettings?.polyType || remeshSettings.polyType,
-        target_polycount: customSettings?.targetPolycount ?? remeshSettings.targetPolycount,
+        poly_type: polyType,
+        target_polycount: targetPoly,
         preserve_edges: customSettings?.preserveEdges ?? true,
         feature_angle: customSettings?.featureAngle ?? 45,
         adaptive_density: customSettings?.adaptiveDensity ?? true,
@@ -1810,6 +1889,7 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal,
       });
       if (!res.ok) throw await parseApiError(res);
       const data = await parseApiData<{ job_id?: string; id?: string }>(res);
@@ -1818,13 +1898,17 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
       bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' });
       setExecutionStep('Remesh queued on backend');
     } catch (error) {
+      if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
+        console.log('Remesh cancelled by user');
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Remesh submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
-      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
+      setActiveTask((prev) => (prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null));
       toast.error('Remesh failed', { description: message });
     }
-  }, [remeshSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
+  }, [remeshSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId, addAsset, selectAsset, setViewportResetTrigger]);
 
   const runTextureGeneration = useCallback(async () => {
     const modelPreference = textureSettings.resolution === '4K' || textureSettings.resolution === '8K'
@@ -1832,8 +1916,9 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
       : 'paint3d';
 
     const localTaskId = startTask('texture', 'Texture generation', undefined, modelPreference, undefined, undefined, comparisonGroupId ?? undefined);
+    const signal = activeAbortControllerRef.current?.signal;
     try {
-      const meshRef = await resolveMeshReference(currentAsset);
+      const meshRef = await resolveMeshReference(currentAsset, signal);
       const originalRefImage = currentAsset?.referenceImage || currentAsset?.inputImage || (currentAsset?.category === 'generation' ? currentAsset?.thumbnail : undefined);
       const { endpoint, body } = buildTextureGenerationParameters(
         textureSettings,
@@ -1848,6 +1933,7 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal,
       });
       if (!res.ok) throw await parseApiError(res);
       const data = await parseApiData<{ job_id?: string; id?: string }>(res);
@@ -1856,6 +1942,10 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
       bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' });
       setExecutionStep('Texture generation queued on backend');
     } catch (error) {
+      if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
+        console.log('Texture generation cancelled by user');
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Texture generation submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
@@ -1872,6 +1962,8 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
   }, [textureSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
 
   const runUVUnwrapGeneration = useCallback(async (customSettings?: {
+    engineMode?: EngineMode;
+    scriptId?: string;
     distortionThreshold?: number;
     packMethod?: string;
     outputFormat?: string;
@@ -1883,9 +1975,73 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
     symmetryStacking?: boolean;
     modelParameters?: Record<string, any>;
   }) => {
-    const localTaskId = startTask('uv', 'Smart UV Unwrapping', undefined, 'partuv_uv_unwrapping', undefined, undefined, comparisonGroupId ?? undefined);
+    const engine = customSettings?.engineMode || 'ai';
+    const localTaskId = startTask(
+      'uv',
+      engine === 'script' ? 'Algorithmic UV Unwrap (Python)' : 'Smart UV Unwrapping (PartUV)',
+      undefined,
+      engine === 'script' ? (customSettings?.scriptId || 'xatlas_fast') : 'partuv_uv_unwrapping',
+      undefined,
+      undefined,
+      comparisonGroupId ?? undefined
+    );
+    const signal = activeAbortControllerRef.current?.signal;
     try {
-      const meshRef = await resolveMeshReference(currentAsset);
+      setIsExecuting(true);
+      const meshRef = await resolveMeshReference(currentAsset, signal);
+      const meshUrl = currentAsset?.source?.localUrl || currentAsset?.source?.viewUrl || (meshRef.mesh_file_id ? `/api/v1/file-upload/download/${meshRef.mesh_file_id}` : '');
+
+      if (engine === 'script') {
+        setExecutionStep('Running XAtlas / Python UV unwrapping...');
+        const result = await executeMeshOperation({
+          tool: 'uv',
+          engine: 'script',
+          scriptId: customSettings?.scriptId,
+          meshUrl,
+          meshRef,
+          params: {
+            atlasResolution: customSettings?.atlasResolution || 2048,
+            islandMargin: customSettings?.islandMargin ?? 4,
+            packMethod: customSettings?.packMethod || 'xatlas',
+            unwrapStrategy: customSettings?.unwrapStrategy || 'hybrid',
+          },
+          onProgress: (step, pct) => {
+            setExecutionStep(step);
+            setExecutionProgress(pct);
+          },
+          signal,
+        });
+
+        if (result.success && result.modelUrl) {
+          const newAssetId = `uv-${Date.now()}`;
+          const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
+          const newAsset = normalizeModelAsset({
+            id: newAssetId,
+            name: `${cleanBaseName}_uv_unwrapped`,
+            category: 'edit',
+            source: { filename: `${cleanBaseName}_uv.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'uv' },
+            format: 'GLB',
+            topology: currentAsset?.topology || 'Triangle',
+            faces: currentAsset?.faces || 0,
+            vertices: currentAsset?.vertices || 0,
+            statsAvailable: Boolean(currentAsset?.faces),
+          });
+
+          addAsset(newAsset);
+          selectAsset(newAsset.id);
+          loadModelInViewer(result.modelUrl);
+          setViewportResetTrigger((p) => p + 1);
+
+          setIsExecuting(false);
+          setExecutionProgress(100);
+          setExecutionStep('UV unwrapping completed');
+          setActiveTask((prev) => (prev ? { ...prev, status: 'completed', progress: 100, currentStep: 'UV unwrapping completed' } : null));
+          toast.success('UV Map generated successfully!', { description: 'Non-overlapping atlas packed into mesh' });
+          return;
+        }
+      }
+
+      // AI Mode Execution
       const body: Record<string, unknown> = {
         distortion_threshold: customSettings?.distortionThreshold ?? 1.25,
         pack_method: customSettings?.packMethod || 'blender',
@@ -1908,6 +2064,7 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal,
       });
       if (!res.ok) throw await parseApiError(res);
       const data = await parseApiData<{ job_id?: string; id?: string }>(res);
@@ -1916,15 +2073,20 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
       bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' });
       setExecutionStep('UV unwrapping queued on backend');
     } catch (error) {
+      if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
+        console.log('UV unwrapping cancelled by user');
+        return;
+      }
       const message = error instanceof Error ? error.message : 'UV unwrapping submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
-      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
+      setActiveTask((prev) => (prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null));
       toast.error('UV unwrapping failed', { description: message });
     }
-  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
+  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId, addAsset, selectAsset, setViewportResetTrigger]);
 
   const runSegmentation = useCallback(async (customSettings?: {
+    engineMode?: EngineMode;
     numParts?: number;
     method?: string;
     hierarchical?: boolean;
@@ -1932,51 +2094,116 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
     modelParameters?: Record<string, any>;
     modelPreference?: string;
   } | number) => {
-    const pref = (typeof customSettings === 'object' && customSettings?.modelPreference) || '';
-    const localTaskId = startTask('segment', 'Segment Mesh', undefined, undefined, undefined, undefined, comparisonGroupId ?? undefined);
-    try {
-      const meshRef = await resolveMeshReference(currentAsset);
-      const numParts = typeof customSettings === 'number' ? customSettings : (customSettings?.numParts ?? 8);
-      const outputFormat = typeof customSettings === 'object' ? (customSettings.outputFormat ?? 'glb') : 'glb';
+    const settingsObj = typeof customSettings === 'number' ? { numParts: customSettings } : (customSettings || {});
+    const engine = settingsObj.engineMode || 'ai';
+    const numParts = settingsObj.numParts ?? 8;
+    const outputFormat = settingsObj.outputFormat ?? 'glb';
+    const pref = settingsObj.modelPreference || '';
 
+    const localTaskId = startTask(
+      'segment',
+      engine === 'script' ? 'Geometric Segmentation (Trimesh)' : 'Semantic Part Segmentation (AI)',
+      undefined,
+      engine === 'script' ? 'trimesh_decomposition' : pref || undefined,
+      undefined,
+      undefined,
+      comparisonGroupId ?? undefined
+    );
+    const signal = activeAbortControllerRef.current?.signal;
+    try {
+      setIsExecuting(true);
+      const meshRef = await resolveMeshReference(currentAsset, signal);
+      const meshUrl = currentAsset?.source?.localUrl || currentAsset?.source?.viewUrl || (meshRef.mesh_file_id ? `/api/v1/file-upload/download/${meshRef.mesh_file_id}` : '');
+
+      if (engine === 'script') {
+        setExecutionStep(`Running Trimesh geometric decomposition into ${numParts} parts...`);
+        const result = await executeMeshOperation({
+          tool: 'segment',
+          engine: 'script',
+          meshUrl,
+          meshRef,
+          params: {
+            numParts,
+            method: settingsObj.method || 'geometric',
+          },
+          onProgress: (step, pct) => {
+            setExecutionStep(step);
+            setExecutionProgress(pct);
+          },
+          signal,
+        });
+
+        if (result.success && result.modelUrl) {
+          const newAssetId = `segment-${Date.now()}`;
+          const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
+          const newAsset = normalizeModelAsset({
+            id: newAssetId,
+            name: `${cleanBaseName}_segmented_${numParts}parts`,
+            category: 'edit',
+            source: { filename: `${cleanBaseName}_segmented.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'segment' },
+            format: 'GLB',
+            topology: currentAsset?.topology || 'Triangle',
+            faces: currentAsset?.faces || 0,
+            vertices: currentAsset?.vertices || 0,
+            statsAvailable: Boolean(currentAsset?.faces),
+          });
+
+          addAsset(newAsset);
+          selectAsset(newAsset.id);
+          loadModelInViewer(result.modelUrl);
+          setViewportResetTrigger((p) => p + 1);
+        }
+
+        setIsExecuting(false);
+        setExecutionProgress(100);
+        setExecutionStep('Segmentation complete');
+        setActiveTask((prev) => (prev ? { ...prev, status: 'completed', progress: 100, currentStep: 'Segmentation complete' } : null));
+        toast.success('Mesh segmented successfully', { description: `Partitioned into ${numParts} parts (Trimesh)` });
+        return;
+      }
+
+      // AI Mode Execution
       const body: Record<string, unknown> = {
         num_parts: numParts,
         output_format: outputFormat,
         model_preference: pref,
         ...meshRef,
       };
-      if (typeof customSettings === 'object' && customSettings?.modelParameters) {
-        body.model_parameters = customSettings.modelParameters;
+      if (settingsObj.modelParameters) {
+        body.model_parameters = settingsObj.modelParameters;
       }
 
       const res = await fetch('/api/v1/mesh-segmentation/segment-mesh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal,
       });
 
       if (!res.ok) {
         if (res.status === 400 || res.status === 404 || res.status === 500) {
           try {
-            setExecutionStep('Running Trimesh hierarchical segmentation...');
-            const meshUrl = currentAsset?.source?.localUrl || currentAsset?.source?.viewUrl || (meshRef.mesh_file_id ? `/api/v1/file-upload/download/${meshRef.mesh_file_id}` : '');
-            if (meshUrl) {
-              const blobRes = await fetch(meshUrl);
-              const blob = await blobRes.blob();
-              const formData = new FormData();
-              formData.append('meshFile', new File([blob], currentAsset?.name || 'mesh.glb', { type: blob.type || 'model/gltf-binary' }));
-              formData.append('options', JSON.stringify({ numParts, method: typeof customSettings === 'object' ? customSettings.method : 'hierarchical' }));
-
-              const fbRes = await fetch('/api/v1/mesh-tools/segment', { method: 'POST', body: formData });
-              if (fbRes.ok) {
-                setExecutionStep('Mesh partitioned into parts');
-                setIsExecuting(false);
-                setActiveTask(prev => prev ? { ...prev, status: 'completed', progress: 100, currentStep: 'Segmentation complete' } : null);
-                toast.success('Mesh segmented successfully', { description: `Partitioned into ${numParts} parts` });
-                return;
-              }
-            }
+            setExecutionStep(`AI scheduler offline. Gracefully falling back to Trimesh (${numParts} parts)...`);
+            const fbResult = await executeMeshOperation({
+              tool: 'segment',
+              engine: 'script',
+              meshUrl,
+              meshRef,
+              params: { numParts },
+              onProgress: (step, pct) => {
+                setExecutionStep(step);
+                setExecutionProgress(pct);
+              },
+              signal,
+            });
+            setIsExecuting(false);
+            setExecutionProgress(100);
+            setExecutionStep('Segmentation complete');
+            setActiveTask((prev) => (prev ? { ...prev, status: 'completed', progress: 100, currentStep: 'Segmentation complete' } : null));
+            toast.success('Mesh segmented successfully (Script fallback)', { description: `Partitioned into ${numParts} parts` });
+            return;
           } catch (fbErr) {
+            if (signal?.aborted) return;
             console.warn('Fallback segmentation error:', fbErr);
           }
         }
@@ -1988,10 +2215,14 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
       bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' });
       setExecutionStep('Mesh segmentation queued on backend');
     } catch (error) {
+      if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
+        console.log('Segmentation cancelled by user');
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Segmentation submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
-      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
+      setActiveTask((prev) => (prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null));
       toast.error('Segmentation failed', { description: message });
     }
   }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
@@ -2004,8 +2235,9 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
     customSettings?: Record<string, any>;
   }) => {
     const localTaskId = startTask('rigging', 'Auto-Rig Character', undefined, 'skintokens_auto_rigging', undefined, undefined, comparisonGroupId ?? undefined);
+    const signal = activeAbortControllerRef.current?.signal;
     try {
-      const meshRef = await resolveMeshReference(currentAsset);
+      const meshRef = await resolveMeshReference(currentAsset, signal);
       const body: Record<string, unknown> = {
         rig_mode: options?.skeletonTemplate || 'humanoid',
         output_format: (options?.exportFormat || 'glb').toLowerCase(),
@@ -2021,6 +2253,7 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal,
       });
       if (!res.ok) throw await parseApiError(res);
       const data = await parseApiData<{ job_id?: string; id?: string }>(res);
@@ -2029,6 +2262,10 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
       bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Auto-rigging queued on backend' });
       setExecutionStep('Auto-rigging queued on backend');
     } catch (error) {
+      if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
+        console.log('Auto-rigging cancelled by user');
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Auto-rigging submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
@@ -2049,6 +2286,7 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
   }) => {
     const promptText = options?.prompt || 'Walking motion cycle';
     const localTaskId = startTask('animation', 'Apply Animation', promptText, 'ardy_motion_generation', undefined, undefined, comparisonGroupId ?? undefined);
+    const signal = activeAbortControllerRef.current?.signal;
     try {
       const body: Record<string, unknown> = {
         prompt: promptText,
@@ -2064,6 +2302,7 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal,
       });
       if (!res.ok) throw await parseApiError(res);
       const data = await parseApiData<{ job_id?: string; id?: string }>(res);
@@ -2072,6 +2311,10 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
       bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Motion generation queued on backend' });
       setExecutionStep('Motion generation queued on backend');
     } catch (error) {
+      if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
+        console.log('Motion generation cancelled by user');
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Motion generation submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
@@ -2092,8 +2335,9 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
     strength?: number;
   }) => {
     const localTaskId = startTask('edit', customSettings?.mode === 'image' ? 'Mesh Editing (Image)' : 'Mesh Editing (Text)', undefined, undefined, undefined, undefined, comparisonGroupId ?? undefined);
+    const signal = activeAbortControllerRef.current?.signal;
     try {
-      const meshRef = await resolveMeshReference(currentAsset);
+      const meshRef = await resolveMeshReference(currentAsset, signal);
 
       const isImage = customSettings?.mode === 'image';
       const endpoint = isImage ? '/api/v1/mesh-editing/image-mesh-editing' : '/api/v1/mesh-editing/text-mesh-editing';
@@ -2130,6 +2374,7 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal,
       });
       if (!res.ok) throw await parseApiError(res);
       const data = await parseApiData<{ job_id?: string; id?: string }>(res);
@@ -2138,6 +2383,10 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
       bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' });
       setExecutionStep('Mesh editing queued on backend');
     } catch (error) {
+      if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
+        console.log('Mesh editing cancelled by user');
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Mesh editing submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
@@ -2260,6 +2509,7 @@ async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_f
            method: 'POST',
            headers: { 'Content-Type': 'application/json' },
            body: JSON.stringify(body),
+           signal: activeAbortControllerRef.current?.signal,
          });
          if (!res.ok) throw await parseApiError(res);
          const data = await parseApiData<{ job_id?: string; id?: string; status?: string }>(res);

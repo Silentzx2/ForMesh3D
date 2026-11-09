@@ -990,3 +990,62 @@ To run contemporary 2025/2026 cascaded flow models on pre-Ampere hardware withou
 - **TRELLIS.2 Sparse Structure Adaptive Top-K Recovery**:
   - In `trellis2_image_to_3d.py:sample_sparse_structure()`, when 12-step Euler flow matching produces logits below zero (e.g. peak foreground at -74.8), the pipeline falls back to top-1% percentile voxels (`coords = torch.argwhere(pooled >= threshold)`), allowing downstream SLat cascade sampling to proceed with valid foreground coordinates instead of hard-crashing.
   - In `preprocess_image`, if background removal detects no foreground alpha (`bbox_coords.shape[0] == 0`), the pipeline safely uses `input.convert('RGB')` instead of multiplying by zero alpha and passing a pitch-black image to the conditioning network.
+
+## Dual-Engine Mesh Processing Bridge & Upstream Task Abort Architecture (2026-11-09)
+
+### 1. Single Bridge Architecture (`meshProcessingBridge.ts`)
+To unify mesh post-processing and editing across generative Studio panels (`RemeshPanel`, `UVPanel`, `SegmentationPanel`), the frontend routes all execution through a single unified bridge: `features/workspace/services/meshProcessingBridge.ts`.
+
+The bridge encapsulates an extensible Script Registry (`SCRIPT_REGISTRY`, `registerCustomScript`, `DEFAULT_SCRIPTS`). Adding a new Python algorithmic pipeline or headless Blender script requires zero modifications to studio UI components — registering a new `ScriptDefinition` makes it immediately discoverable and executable across studio panels.
+
+```mermaid
+flowchart TD
+    Panel["Studio Panels<br/>(RemeshPanel, UVPanel, SegmentationPanel)"] --> EngineSel["EngineModeSelector<br/>('ai' vs 'script')"]
+    EngineSel --> Bridge["Mesh Processing Bridge<br/>(meshProcessingBridge.ts)"]
+
+    subgraph AI Path ["Path A: Neural AI Mode (GPU Scheduler)"]
+        Bridge -->|JSON Job Request| FastAPIAI["FastAPI AI Routers<br/>(/api/v1/mesh-retopology/*)<br/>(/api/v1/mesh-uv-unwrapping/*)<br/>(/api/v1/mesh-segmentation/*)"]
+        FastAPIAI --> Scheduler["Multiprocess Scheduler<br/>(GPU Worker Lock & VRAM Plan)"]
+        Scheduler --> AIModels["Deep Learning Inference<br/>(FastMesh V1K/V4K, PartUV, Semantic Seg)"]
+        AIModels --> Poll["WorkspaceContext Job Poller"]
+    end
+
+    subgraph Script Path ["Path B: Fast Algorithmic Script Mode (CPU / SSE)"]
+        Bridge -->|FormData + Options JSON| FastAPIScript["FastAPI Mesh Tools<br/>(/api/v1/mesh-tools/auto-retopo)<br/>(/api/v1/mesh-tools/auto-uv)<br/>(/api/v1/mesh-tools/segment)"]
+        FastAPIScript --> Algorithmic["Zero-GPU Algorithms<br/>(Trimesh Taubin, XAtlas, Blender Smart UV)"]
+        Algorithmic --> SSEStream["Direct SSE Progress Stream<br/>(Real-time chunks & Base64 GLB)"]
+    end
+
+    Poll --> Viewport["3D Viewport<br/>(loadModelInViewer & auto-recenter)"]
+    SSEStream --> Viewport
+
+    subgraph Abort System ["Upstream Cancellation Circuit"]
+        ClientCancel["User Cancel / Disconnect"] --> AbortSig["request.signal Abort"]
+        AbortSig --> ProxyAbort["Proxy AbortController<br/>(app/api/v1/[...path]/route.ts)"]
+        ProxyAbort --> Halt["Immediate Backend Process Termination"]
+    end
+```
+
+### 2. Dual AI / Script Execution Contracts
+1. **Neural AI Mode (`engine: 'ai'`)**:
+   - Dispatches requests to backend neural inference routers (`/api/v1/mesh-retopology/retopologize-mesh`, `/api/v1/mesh-uv-unwrapping/unwrap-mesh`, `/api/v1/mesh-segmentation/segment-mesh`).
+   - Managed by the multiprocess scheduler with GPU memory reservation, model warm-up locks, and queued background tracking.
+   - Result is durable, tracked in SQLite/Redis, and polled by `WorkspaceContext`.
+2. **Fast Algorithmic Script Mode (`engine: 'script'`)**:
+   - Executes direct CPU / algorithmic operations with zero GPU dependencies (`/api/v1/mesh-tools/auto-retopo`, `/api/v1/mesh-tools/auto-uv`, `/api/v1/mesh-tools/segment`).
+   - Streams live progress chunks via Server-Sent Events (SSE) (`data: {"type": "progress", "frac": 0.45}`).
+   - Returns base64-encoded GLB geometry directly in terminal `done` event chunk, reconstructing local blobs instantly without file server polling delays.
+   - Dynamic parameter passthrough: Target polycount budget, Quad vs Triangle topology, feature angles, adaptive density, target parts count (2–32), UV atlas resolution (1K/2K/4K), and island margin texels (2–16px).
+   - Dynamic Model Selector visibility: In `RemeshPanel`, the Retopo Engine dropdown is visible in `AI Model` mode, and seamlessly hidden in `Fast Script` mode to preserve a compact, zero-scroll panel height without vertical scrollbars across small screens.
+
+### 3. Upstream Task Cancellation Circuit (`AbortController`)
+In `app/api/v1/[...path]/route.ts`, long-running streaming and proxy routes are bound to client disconnect signals:
+- Incoming client `request.signal` is monitored via an event listener (`request.signal.addEventListener('abort', onDisconnect)`).
+- On client abort or UI cancellation (`cancelExecution`), an upstream `AbortController` triggers `controller.abort()`.
+- The `TransformStream` safely absorbs downstream pipe cancellations without unhandled Next.js stream errors while halting upstream backend execution immediately, freeing GPU/CPU resources instantly.
+
+### 4. Multi-Part Colored GLB Scene Generation & 3D Viewport Presentation
+In `backend/postprocess/services/segment.py`, Trimesh geometric segmentation partitions the mesh into $k$ submeshes matching user-selected parts count ($k \in [2, 32]$):
+- Each submesh receives a distinct palette color applied to its face visuals.
+- The submeshes are combined into a composite `trimesh.Scene` and exported as a binary GLB.
+- Upon completion, `WorkspaceContext` creates a normalized model asset, mounts it into `MeshViewer` via `loadModelInViewer`, and resets camera orientation for immediate visual inspection.

@@ -18,6 +18,7 @@ export type ToolType =
 
 export interface ActiveTask {
   id: string;
+  backendJobId?: string;
   isLocal?: boolean;
   type: 'image-to-3d' | 'segment' | 'remesh' | 'texture' | 'animation' | 'rigging' | 'uv' | 'edit' | 'refine';
   title: string;
@@ -63,7 +64,7 @@ export interface ModelAsset {
   id: string;
   fileId?: string;
   name: string;
-  category: 'all' | 'mesh' | 'texture' | 'generation';
+  category: 'all' | 'mesh' | 'texture' | 'generation' | 'edit';
   thumbnail: string;
   referenceImage?: string;
   referenceImageFileId?: string;
