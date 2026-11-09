@@ -20,9 +20,6 @@ import {
   FolderOpenIcon,
   GridIcon,
   LayersIcon,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PanelRightOpen,
   ScissorsIcon,
   SlidersHorizontalIcon,
 } from '@hugeicons/core-free-icons';
@@ -345,36 +342,16 @@ export const WorkspaceShell: React.FC = () => {
     handleInitialResponsiveLayout();
   }, [setIsLeftPanelOpen, setIsRightPanelOpen]);
 
-  // Mutually exclusive panel toggles on mobile (< 768px) to prevent messy overlapping panels
-  const toggleLeftPanel = useCallback((open: boolean) => {
-    if (open && typeof window !== 'undefined' && window.innerWidth < 768) {
-      setIsRightPanelOpen(false);
-    }
-    setIsLeftPanelOpen(open);
-  }, [setIsLeftPanelOpen, setIsRightPanelOpen]);
-
-  const toggleRightPanel = useCallback((open: boolean) => {
-    if (open && typeof window !== 'undefined' && window.innerWidth < 768) {
-      setIsLeftPanelOpen(false);
-    }
-    setIsRightPanelOpen(open);
-  }, [setIsLeftPanelOpen, setIsRightPanelOpen]);
-
-  // Ensure mutual exclusion on mobile resize as well
+  // Ensure mobile nav resets on desktop resize
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth >= 768 && isMobileNavOpen) {
         setIsMobileNavOpen(false);
       }
-      if (typeof window !== 'undefined' && window.innerWidth < 768) {
-        if (isLeftPanelOpen && isRightPanelOpen) {
-          setIsRightPanelOpen(false);
-        }
-      }
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [isLeftPanelOpen, isRightPanelOpen, isMobileNavOpen, setIsRightPanelOpen]);
+  }, [isMobileNavOpen]);
 
 
 
@@ -452,13 +429,13 @@ export const WorkspaceShell: React.FC = () => {
           )}
         </AnimatePresence>
 
-        {/* Center Workspace & 3D Stage */}
+        {/* Center Workspace & 3D Stage (Tripo-Style: Confined strictly between Left & Right Panels) */}
         <div className="flex-1 h-full relative overflow-hidden min-w-0 bg-[#090a0f]">
-          {/* Continuous Full-Bleed 3D Viewport in Background with Tripo-style radial studio vignette */}
+          {/* Center 3D Viewport Stage: Never bleeds or renders behind the side panels */}
           {mainNav === 'workspace' && (
             <main
               id="center-viewport-stage"
-              className="absolute inset-0 z-0 overflow-hidden bg-[#090a0f]"
+              className="absolute inset-0 md:left-[284px] md:right-[270px] z-0 overflow-hidden bg-[#090a0f] md:rounded-2xl md:top-2 md:bottom-3 border md:border-white/[0.04]"
               style={{
                 background: environmentSettings?.backgroundColor && environmentSettings.backgroundColor !== 'transparent'
                   ? environmentSettings.backgroundColor
@@ -466,22 +443,16 @@ export const WorkspaceShell: React.FC = () => {
               }}
             >
               <MeshViewer />
-              <ViewportToolOverlay isRightPanelOpen={isRightPanelOpen} />
+              <ViewportToolOverlay isRightPanelOpen={false} />
             </main>
           )}
 
-          {/* Left Unified Studio Panel (Nav Rail 46px + Tool Content 228px Fused = 274px) */}
+          {/* Left Unified Studio Panel (Nav Rail 46px + Tool Content 228px Fused = 274px, Permanent / Non-Collapsible) */}
           {mainNav === 'workspace' && (
-            <motion.aside
+            <aside
               id="left-unified-studio-panel"
               aria-label="Studio tools"
-              initial={false}
-              animate={{
-                width: isLeftPanelOpen ? 274 : 46,
-                opacity: 1,
-              }}
-              transition={MOTION_FAST}
-              className="absolute left-2 top-2 bottom-3 z-20 hidden md:flex flex-row rounded-2xl border border-white/[0.08] shadow-2xl overflow-hidden bg-[#0c0d12]"
+              className="absolute left-2 top-2 bottom-3 z-20 hidden md:flex flex-row w-[274px] rounded-2xl border border-white/[0.08] shadow-2xl overflow-hidden bg-[#0c0d12]"
             >
               {/* Left Rail Column: 46px */}
               <div className="w-[46px] h-full flex-shrink-0 bg-[hsl(var(--surface-1))] border-r border-[hsl(var(--border))]">
@@ -489,154 +460,27 @@ export const WorkspaceShell: React.FC = () => {
               </div>
 
               {/* Right Tool Content Column: 228px */}
-              <AnimatePresence initial={false}>
-                {isLeftPanelOpen && (
-                  <motion.div
-                    key="tool-content-drawer"
-                    initial={{ opacity: 0, width: 0 }}
-                    animate={{ opacity: 1, width: 228 }}
-                    exit={{ opacity: 0, width: 0 }}
-                    transition={MOTION_FAST}
-                    className="w-[228px] h-full flex flex-col overflow-hidden bg-[hsl(var(--surface-1))] relative"
-                  >
-                    {/* Floating Collapse Button */}
-                    <div className="absolute top-2.5 right-2.5 z-20">
-                      <SimpleTooltip label="Collapse panel" side="left">
-                        <button
-                          type="button"
-                          onClick={() => toggleLeftPanel(false)}
-                          className="p-1 rounded-lg bg-[hsl(var(--surface-2))] border border-white/[0.08] text-zinc-400 hover:text-white hover:bg-[hsl(var(--surface-3))] transition-all cursor-pointer"
-                          aria-label="Collapse tool panel"
-                        >
-                          <HugeiconsIcon icon={PanelLeftClose} size={14} className="w-3.5 h-3.5" />
-                        </button>
-                      </SimpleTooltip>
-                    </div>
-
-                    {/* Immediate 0ms tool swap without blink */}
-                    <div className="h-full w-full flex flex-col overflow-hidden">
-                      {renderToolPanel()}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.aside>
-          )}
-
-          {/* Mobile Tool Panel Sheet (md:hidden) */}
-          <AnimatePresence initial={false}>
-            {mainNav === 'workspace' && isLeftPanelOpen && (
-              <motion.aside
-                id="mobile-tool-panel-sheet"
-                aria-label="Context tools"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 20 }}
-                transition={MOTION_FAST}
-                className="fixed inset-x-0 bottom-0 top-12 bg-[#0c0d12] flex flex-col z-30 md:hidden"
+              <div
+                id="tool-content-drawer"
+                className="w-[228px] h-full flex flex-col overflow-hidden bg-[hsl(var(--surface-1))] relative"
               >
-                <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/[0.08] bg-[hsl(var(--surface-0))] flex-shrink-0">
-                  <span className="font-bold text-xs text-white">Tool Panel</span>
-                  <button
-                    type="button"
-                    onClick={() => toggleLeftPanel(false)}
-                    className="p-1.5 rounded-lg text-zinc-400 hover:text-primary hover:bg-[hsl(var(--surface-2))] transition-all cursor-pointer"
-                    aria-label="Close tool panel"
-                  >
-                    <HugeiconsIcon icon={Cancel} size={16} className="w-4 h-4" />
-                  </button>
-                </div>
-                <div className="flex-1 overflow-hidden">
+                {/* Immediate 0ms tool swap without blink */}
+                <div className="h-full w-full flex flex-col overflow-hidden">
                   {renderToolPanel()}
                 </div>
-              </motion.aside>
-            )}
-          </AnimatePresence>
-
-          {/* Left collapsed toggle button - hidden on mobile */}
-          {mainNav === 'workspace' && !isLeftPanelOpen && (
-            <div className="absolute left-[54px] top-1/2 -translate-y-1/2 z-20 hidden md:block">
-              <SimpleTooltip label="Open Tool Panel">
-                <button
-                  type="button"
-                  aria-label="Open Tool Panel"
-                  onClick={() => toggleLeftPanel(true)}
-                  className="w-4 h-10 rounded-r-lg bg-[hsl(var(--surface-1))] border border-l-0 border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-primary hover:border-primary/40 hover:bg-[hsl(var(--surface-2))] transition-all flex items-center justify-center shadow-xl cursor-pointer active:scale-95"
-                >
-                  <HugeiconsIcon icon={PanelLeftOpen} size={14} className="w-3 h-3" />
-                </button>
-              </SimpleTooltip>
-            </div>
+              </div>
+            </aside>
           )}
 
-          {/* Context-Aware Control & Property Panel (Right) */}
-          <AnimatePresence initial={false}>
-            {mainNav === 'workspace' && isRightPanelOpen && (
-              <motion.aside
-                id="right-inspector-assets-column"
-                aria-label="Inspector and assets"
-                initial={{ opacity: 0, x: 15 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 15 }}
-                transition={MOTION_FAST}
-                className="absolute inset-x-0 top-0 bottom-0 md:inset-auto md:right-2 md:top-2 md:bottom-3 w-full md:w-[260px] md:rounded-2xl border border-white/[0.08] shadow-2xl overflow-hidden bg-[#0c0d12] flex flex-col z-20"
-              >
-                {/* Mobile close button for right panel */}
-                <div className="flex items-center justify-between px-3.5 py-2 border-b border-[hsl(var(--border))] bg-[hsl(var(--surface-0))] md:hidden flex-shrink-0">
-                  <span className="font-bold text-xs text-white">Inspector &amp; Assets</span>
-                  <button
-                    type="button"
-                    onClick={() => toggleRightPanel(false)}
-                    className="p-1.5 rounded-lg text-zinc-400 hover:text-primary hover:bg-[hsl(var(--surface-2))] transition-all cursor-pointer"
-                    aria-label="Close inspector and assets panel"
-                  >
-                    <HugeiconsIcon icon={Cancel} size={16} className="w-4 h-4" />
-                  </button>
-                </div>
-                <RightWorkspacePanel />
-              </motion.aside>
-            )}
-          </AnimatePresence>
-
-          {/* Right collapsed toggle button - hidden on mobile */}
-          {mainNav === 'workspace' && !isRightPanelOpen && (
-            <div className="absolute right-0 top-1/2 -translate-y-1/2 z-20 hidden md:block">
-              <SimpleTooltip label="Open Asset Store / Inspector">
-                <button
-                  type="button"
-                  aria-label="Open Inspector and Assets Panel"
-                  onClick={() => toggleRightPanel(true)}
-                  className="w-5 h-11 rounded-l-lg bg-[hsl(var(--surface-1))] border border-r-0 border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-primary hover:border-primary/40 hover:bg-[hsl(var(--surface-2))] transition-all flex items-center justify-center shadow-xl cursor-pointer active:scale-95"
-                >
-                  <HugeiconsIcon icon={PanelRightOpen} size={16} className="w-3.5 h-3.5" />
-                </button>
-              </SimpleTooltip>
-            </div>
-          )}
-
-          {/* Mobile: unified bottom quick dock - only shown when both panels are closed to prevent any UI overlapping */}
-          {mainNav === 'workspace' && !isLeftPanelOpen && !isRightPanelOpen && (
-            <div className="md:hidden absolute bottom-2.5 inset-x-3 z-20 flex items-center justify-between pointer-events-none">
-              <button
-                type="button"
-                onClick={() => toggleLeftPanel(true)}
-                className="pointer-events-auto flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-primary text-black font-black text-xs shadow-xl shadow-black/50 hover:bg-primary/90 transition-all active:scale-95 cursor-pointer border border-primary/40"
-                aria-label="Open tool panel"
-              >
-                <HugeiconsIcon icon={SlidersHorizontalIcon} size={16} className="w-4 h-4 stroke-[2.5]" />
-                <span>Tools</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => toggleRightPanel(true)}
-                className="pointer-events-auto flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[hsl(var(--surface-1))]/95 backdrop-blur-md border border-white/[0.15] text-zinc-200 hover:text-white font-bold text-xs shadow-xl shadow-black/50 transition-all active:scale-95 cursor-pointer"
-                aria-label="Open inspector and assets"
-              >
-                <HugeiconsIcon icon={FolderOpenIcon} size={16} className="w-4 h-4 stroke-[2.2] text-primary" />
-                <span>Inspector</span>
-              </button>
-            </div>
+          {/* Context-Aware Control & Property Panel (Right, Permanent / Non-Collapsible) */}
+          {mainNav === 'workspace' && (
+            <aside
+              id="right-inspector-assets-column"
+              aria-label="Inspector and assets"
+              className="absolute inset-x-0 top-0 bottom-0 md:inset-auto md:right-2 md:top-2 md:bottom-3 w-full md:w-[260px] md:rounded-2xl border border-white/[0.08] shadow-2xl overflow-hidden bg-[#0c0d12] flex flex-col z-20"
+            >
+              <RightWorkspacePanel />
+            </aside>
           )}
         </div>
 

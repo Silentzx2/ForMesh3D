@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { uploadMeshAsset, type MeshUploadStage, type ModelAsset } from '@/features/workspace/types';
 import { useWorkspace } from '@/features/workspace/store/WorkspaceContext';
 import { getUploadPercent } from '@/features/workspace/lib/uploadProgress';
@@ -24,6 +25,7 @@ const initialState: MeshAssetUploadState = {
 };
 
 export function useMeshAssetUpload() {
+  const queryClient = useQueryClient();
   const { addAsset, setCurrentAsset, updateAssetProperties } = useWorkspace();
   const [state, setState] = useState(initialState);
   const uploadInProgress = useRef(false);
@@ -43,10 +45,13 @@ export function useMeshAssetUpload() {
     const formats: Record<string, ModelAsset['format']> = {
       glb: 'GLB', gltf: 'GLTF', obj: 'OBJ', ply: 'PLY', fbx: 'FBX', stl: 'STL',
     };
+    const cleanStem = file.name.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const shortHash = Math.random().toString(36).substring(2, 8);
+    const friendlyLocalId = `${cleanStem}_${shortHash}`;
     const localBlobUrl = URL.createObjectURL(file);
     const localAsset: ModelAsset = {
-      id: `local-upload-${Date.now()}`,
-      fileId: `local-${Date.now()}`,
+      id: friendlyLocalId,
+      fileId: friendlyLocalId,
       name: file.name.replace(/\.[^/.]+$/, ''),
       category: 'mesh',
       meshType: 'custom',
@@ -63,7 +68,7 @@ export function useMeshAssetUpload() {
         type: 'upload',
         viewUrl: localBlobUrl,
         localUrl: localBlobUrl,
-        fileId: `local-${Date.now()}`,
+        fileId: friendlyLocalId,
       },
       topology: 'Triangle',
       dateCreated: new Date().toISOString(),
@@ -95,6 +100,7 @@ export function useMeshAssetUpload() {
       // Synchronize with server asset info while preserving the fast local blob URL for smooth viewing
       const mergedAsset: ModelAsset = {
         ...serverAsset,
+        id: serverAsset.id || friendlyLocalId,
         source: {
           ...serverAsset.source,
           filename: serverAsset.source?.filename || file.name,
@@ -105,6 +111,7 @@ export function useMeshAssetUpload() {
       };
       updateAssetProperties(localAsset.id, mergedAsset);
       setCurrentAsset(mergedAsset);
+      queryClient.invalidateQueries({ queryKey: ['uploaded-assets'] });
       setState({ status: 'saved', fileName: file.name, loadedBytes: file.size, totalBytes: file.size, percent: 100, error: null });
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = setTimeout(() => {
@@ -130,7 +137,7 @@ export function useMeshAssetUpload() {
     } finally {
       uploadInProgress.current = false;
     }
-  }, [addAsset, setCurrentAsset, updateAssetProperties]);
+  }, [addAsset, setCurrentAsset, updateAssetProperties, queryClient]);
 
   return { state, upload, reset };
 }

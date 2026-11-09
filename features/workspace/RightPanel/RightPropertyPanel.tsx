@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
+import * as THREE from 'three';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { ShadingMode, ModelAsset } from '../types';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import { toast } from 'sonner';
 import { downloadArtifact } from '../lib/artifactDownload';
+import { triggerClientExport, type ClientSupportedExportFormat } from '../utils/clientExporters';
 import { ModelComparisonViewer } from '../Viewport/ModelComparisonViewer';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
@@ -52,6 +54,7 @@ export const RightPropertyPanel: React.FC = () => {
   } = useWorkspace();
 
   const modelStats = useViewerStore((s) => s.modelStats);
+  const activeModelObject = useViewerStore((s) => s.activeModelObject);
 
   // Accordion state persisted in UI store
   const rightPanelSections = useUIStore((s) => s.rightPanelSections);
@@ -103,6 +106,12 @@ export const RightPropertyPanel: React.FC = () => {
     if (normalizedFilter) {
       return isSectionVisible(keywords);
     }
+    // Context section is ALWAYS expanded by default for tool inspectors
+    if (sectionId === 'context') return true;
+    // When inside a dedicated dynamic tool, collapse general mesh properties by default to keep the dynamic inspector front & center
+    if (activeTool === 'rigging' || activeTool === 'segment' || activeTool === 'uv' || activeTool === 'animation') {
+      return rightPanelSections?.[sectionId] ?? false;
+    }
     return rightPanelSections?.[sectionId] ?? true;
   };
 
@@ -110,7 +119,7 @@ export const RightPropertyPanel: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [exportSuccess, setExportSuccess] = useState(false);
 
-  // ponytail: transforms are display-only — not applied to the 3D scene
+  // Live 3D object transform synchronized to Three.js model group
   const [transform, setTransform] = useState({
     posX: 0,
     posY: 0,
@@ -124,6 +133,38 @@ export const RightPropertyPanel: React.FC = () => {
     lockScale: true
   });
 
+  // Apply transforms live to Three.js modelGroupRef / activeModelObject
+  useEffect(() => {
+    if (!activeModelObject) return;
+    const target = (activeModelObject.parent && activeModelObject.parent.type === 'Group')
+      ? activeModelObject.parent
+      : activeModelObject;
+
+    target.position.set(transform.posX, transform.posY, transform.posZ);
+    target.rotation.set(
+      (transform.rotX * Math.PI) / 180,
+      (transform.rotY * Math.PI) / 180,
+      (transform.rotZ * Math.PI) / 180
+    );
+    target.scale.set(transform.scaleX, transform.scaleY, transform.scaleZ);
+  }, [transform, activeModelObject]);
+
+  // Reset transform state when switching assets
+  useEffect(() => {
+    setTransform({
+      posX: 0,
+      posY: 0,
+      posZ: 0,
+      rotX: 0,
+      rotY: 0,
+      rotZ: 0,
+      scaleX: 1.0,
+      scaleY: 1.0,
+      scaleZ: 1.0,
+      lockScale: true
+    });
+  }, [currentAsset?.id]);
+
   // Material & PBR Shader Settings
   const [materialSettings, setMaterialSettings] = useState({
     albedoColor: 'hsl(0, 0%, 100%)',
@@ -135,6 +176,26 @@ export const RightPropertyPanel: React.FC = () => {
     normalFormat: 'OpenGL' as 'OpenGL' | 'DirectX',
     uvProjection: 'Smart UV (xatlas)'
   });
+
+  // Live THREE.MeshStandardMaterial uniform updates in textured mode
+  useEffect(() => {
+    if (!activeModelObject) return;
+    activeModelObject.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        materials.forEach((mat) => {
+          if (mat instanceof THREE.MeshStandardMaterial || mat instanceof THREE.MeshPhysicalMaterial) {
+            mat.roughness = materialSettings.roughness;
+            mat.metalness = materialSettings.metallic;
+            if (mat.normalScale) {
+              mat.normalScale.set(materialSettings.normalStrength, materialSettings.normalStrength);
+            }
+            mat.needsUpdate = true;
+          }
+        });
+      }
+    });
+  }, [materialSettings.roughness, materialSettings.metallic, materialSettings.normalStrength, activeModelObject]);
 
   const handleScaleChange = (val: number) => {
     if (transform.lockScale) {
@@ -157,6 +218,14 @@ export const RightPropertyPanel: React.FC = () => {
       scaleZ: 1.0,
       lockScale: true
     });
+    if (activeModelObject) {
+      const target = (activeModelObject.parent && activeModelObject.parent.type === 'Group')
+        ? activeModelObject.parent
+        : activeModelObject;
+      target.position.set(0, 0, 0);
+      target.rotation.set(0, 0, 0);
+      target.scale.set(1, 1, 1);
+    }
   };
 
   const handleExportDownload = async () => {
@@ -169,6 +238,10 @@ export const RightPropertyPanel: React.FC = () => {
       (currentAsset.category === 'generation' && currentAsset.id
         ? `/api/v1/system/jobs/${currentAsset.id}/download?artifact_format=${exportFormat}`
         : undefined);
+
+    const assetBaseName = currentAsset.name.replace(/\.[^.]+$/, '');
+
+    // Fallback directly to client Three.js exporter when backend download URL is missing
     if (!sourceUrl) {
       if (exportFormat === 'fbx') {
         toast.error('FBX export requires rigging', {
@@ -176,19 +249,49 @@ export const RightPropertyPanel: React.FC = () => {
         });
         return;
       }
+
+      if (activeModelObject) {
+        setIsExporting(true);
+        try {
+          toast.info(`Generating ${exportFormat.toUpperCase()} in browser...`);
+          await triggerClientExport(activeModelObject, exportFormat as ClientSupportedExportFormat, `${assetBaseName}.${exportFormat}`);
+          setExportSuccess(true);
+          toast.success(`${exportFormat.toUpperCase()} exported successfully!`);
+          setTimeout(() => setExportSuccess(false), 3000);
+        } catch (err: any) {
+          console.error('Client export failed:', err);
+          toast.error('Export failed', { description: err?.message || 'Failed to export model' });
+        } finally {
+          setIsExporting(false);
+        }
+        return;
+      }
+
       toast.error('Export unavailable', {
         description: `${exportFormat.toUpperCase()} is not available for this asset yet.`,
       });
       return;
     }
 
-    const assetBaseName = currentAsset.name.replace(/\.[^.]+$/, '');
     setIsExporting(true);
     try {
       await downloadArtifact(sourceUrl, `${assetBaseName}.${exportFormat}`, exportFormat);
       setExportSuccess(true);
       setTimeout(() => setExportSuccess(false), 3000);
     } catch (error) {
+      // If remote download fails, attempt client Three.js export fallback
+      if (activeModelObject && exportFormat !== 'fbx') {
+        try {
+          toast.info(`Backend artifact unavailable. Generating ${exportFormat.toUpperCase()} from viewport...`);
+          await triggerClientExport(activeModelObject, exportFormat as ClientSupportedExportFormat, `${assetBaseName}.${exportFormat}`);
+          setExportSuccess(true);
+          toast.success(`${exportFormat.toUpperCase()} exported from viewport!`);
+          setTimeout(() => setExportSuccess(false), 3000);
+          return;
+        } catch (clientErr: any) {
+          console.error('Fallback client export failed:', clientErr);
+        }
+      }
       console.error(error);
       const msg = error instanceof Error ? error.message : 'Export failed';
       toast.error('Export failed', { description: msg });
@@ -198,103 +301,323 @@ export const RightPropertyPanel: React.FC = () => {
     }
   };
 
+  // Dedicated Dynamic Inspectors for specific tools — ONLY these show on their respective pages!
+  if (activeTool === 'uv') {
+    return (
+      <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
+        <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
+              <Grid3X3 className="w-4 h-4 text-[#F9CF00]" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Smart UV Inspector</h2>
+              <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Atlas Preview &amp; Quality Metrics</span>
+            </div>
+          </div>
+          <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
+            Active
+          </span>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+          <DynamicUVInspector />
+        </div>
+      </div>
+    );
+  }
+
+  if (activeTool === 'segment') {
+    return (
+      <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
+        <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
+              <Scissors className="w-4 h-4 text-[#F9CF00]" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Segmentation Inspector</h2>
+              <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Part Layers &amp; Assembly Tree</span>
+            </div>
+          </div>
+          <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
+            Active
+          </span>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+          <DynamicSegmentationInspector />
+        </div>
+      </div>
+    );
+  }
+
+  if (activeTool === 'animation') {
+    return (
+      <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
+        <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
+              <Film className="w-4 h-4 text-[#F9CF00]" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Motion Inspector</h2>
+              <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Playback Scrubber &amp; Diagnostics</span>
+            </div>
+          </div>
+          <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
+            Active
+          </span>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+          <DynamicAnimationInspector />
+        </div>
+      </div>
+    );
+  }
+
+  if (activeTool === 'rigging') {
+    return (
+      <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
+        <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
+              <Bone className="w-4 h-4 text-[#F9CF00]" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Auto-Rigging & Armature</h2>
+              <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Interactive Armature &amp; Joint Hierarchy</span>
+            </div>
+          </div>
+          <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
+            Active
+          </span>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+          <DynamicRiggingInspector />
+        </div>
+      </div>
+    );
+  }
+
+  if (activeTool === 'remesh') {
+    return (
+      <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
+        <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
+              <HugeiconsIcon icon={HexagonIcon} size={16} className="w-4 h-4 text-[#F9CF00]" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Quad Retopology Inspector</h2>
+              <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Topology Flow &amp; Polygon Budget</span>
+            </div>
+          </div>
+          <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
+            Active
+          </span>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+          <div className="p-3 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-2.5">
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-[hsl(var(--muted-foreground))]">FastMesh Variant</span>
+              <span className="font-mono font-bold text-primary">{remeshSettings.variant}</span>
+            </div>
+            <div className="flex justify-between items-center text-xs border-t border-[hsl(var(--border))]/50 pt-2">
+              <span className="text-[hsl(var(--muted-foreground))]">Output Polygons</span>
+              <span className="font-mono text-[hsl(var(--neon-blue))] uppercase font-bold">{remeshSettings.polyType}</span>
+            </div>
+            <div className="flex justify-between items-center text-xs border-t border-[hsl(var(--border))]/50 pt-2">
+              <span className="text-[hsl(var(--muted-foreground))]">Current Topology</span>
+              <span className="font-mono text-[hsl(var(--neon-green))] font-bold">{currentAsset?.topology || 'Triangle'}</span>
+            </div>
+            <div className="flex justify-between items-center text-xs border-t border-[hsl(var(--border))]/50 pt-2">
+              <span className="text-[hsl(var(--muted-foreground))]">Face Count</span>
+              <span className="font-mono text-[hsl(var(--foreground))]">{currentAsset?.statsAvailable ? currentAsset.faces.toLocaleString() : (currentAsset?.faces ? currentAsset.faces.toLocaleString() : '—')}</span>
+            </div>
+            <div className="flex justify-between items-center text-xs border-t border-[hsl(var(--border))]/50 pt-2">
+              <span className="text-[hsl(var(--muted-foreground))]">Vertex Count</span>
+              <span className="font-mono text-[hsl(var(--foreground))]">{currentAsset?.statsAvailable ? currentAsset.vertices.toLocaleString() : (currentAsset?.vertices ? currentAsset.vertices.toLocaleString() : '—')}</span>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+              Wireframe & Shading Overrides
+            </span>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowWireframe(!showWireframe)}
+                className={`py-2 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  showWireframe
+                    ? 'bg-[hsl(var(--neon-green))]/20 text-[hsl(var(--neon-green))] border border-[hsl(var(--neon-green))]/40'
+                    : 'bg-[hsl(var(--surface-1))] text-[hsl(var(--muted-foreground))] hover:text-white border border-[hsl(var(--border))]'
+                }`}
+              >
+                <span>Wireframe Overlay</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShadingMode(shadingMode === 'wireframe' ? 'clay' : 'wireframe')}
+                className={`py-2 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  shadingMode === 'wireframe'
+                    ? 'bg-primary text-black font-bold'
+                    : 'bg-[hsl(var(--surface-1))] text-[hsl(var(--muted-foreground))] hover:text-white border border-[hsl(var(--border))]'
+                }`}
+              >
+                <span>Wire Solo</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (activeTool === 'texture' || activeTool === 'pbr') {
+    return (
+      <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
+        <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
+              <HugeiconsIcon icon={PaletteIcon} size={16} className="w-4 h-4 text-[#F9CF00]" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">PBR Material Inspector</h2>
+              <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Material Channels &amp; Texture Maps</span>
+            </div>
+          </div>
+          <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
+            Active
+          </span>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
+          {/* Roughness */}
+          <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-1.5">
+            <div className="flex justify-between text-xs text-[hsl(var(--foreground))]">
+              <span className="font-medium">Roughness</span>
+              <span className="font-mono font-bold text-primary">{materialSettings.roughness.toFixed(2)}</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.02"
+              value={materialSettings.roughness}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setMaterialSettings(p => ({ ...p, roughness: val }));
+                updateMaterialConfig?.({ roughness: val });
+              }}
+              className="w-full accent-primary cursor-pointer"
+            />
+          </div>
+
+          {/* Metallic */}
+          <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-1.5">
+            <div className="flex justify-between text-xs text-[hsl(var(--foreground))]">
+              <span className="font-medium">Metallic</span>
+              <span className="font-mono font-bold text-primary">{materialSettings.metallic.toFixed(2)}</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.02"
+              value={materialSettings.metallic}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setMaterialSettings(p => ({ ...p, metallic: val }));
+                updateMaterialConfig?.({ metalness: val });
+              }}
+              className="w-full accent-primary cursor-pointer"
+            />
+          </div>
+
+          {/* Normal Strength */}
+          <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-1.5">
+            <div className="flex justify-between text-xs text-[hsl(var(--foreground))]">
+              <span className="font-medium">Normal Intensity</span>
+              <span className="font-mono font-bold text-primary">{materialSettings.normalStrength.toFixed(1)}x</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="3"
+              step="0.1"
+              value={materialSettings.normalStrength}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setMaterialSettings(p => ({ ...p, normalStrength: val }));
+                updateMaterialConfig?.({ normalScale: val });
+              }}
+              className="w-full accent-primary cursor-pointer"
+            />
+          </div>
+
+          {/* Cavity & AO */}
+          <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-1.5">
+            <div className="flex justify-between text-xs text-[hsl(var(--foreground))]">
+              <span className="font-medium">Cavity &amp; AO Strength</span>
+              <span className="font-mono font-bold text-primary">{materialSettings.ambientOcclusion.toFixed(2)}</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={materialSettings.ambientOcclusion}
+              onChange={(e) => setMaterialSettings(p => ({ ...p, ambientOcclusion: parseFloat(e.target.value) }))}
+              className="w-full accent-primary cursor-pointer"
+            />
+          </div>
+
+          <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))]">
+            <span>Normal Standard</span>
+            <div className="flex gap-1.5">
+              {(['OpenGL', 'DirectX'] as const).map(fmt => (
+                <button
+                  key={fmt}
+                  type="button"
+                  onClick={() => setMaterialSettings(p => ({ ...p, normalFormat: fmt }))}
+                  className={`px-2.5 py-1 rounded-md text-[10px] font-mono font-bold transition-colors cursor-pointer ${
+                    materialSettings.normalFormat === fmt
+                      ? 'bg-primary text-[hsl(var(--primary-foreground))]'
+                      : 'bg-[hsl(var(--surface-1))] text-[hsl(var(--muted-foreground))] hover:text-white'
+                  }`}
+                >
+                  {fmt}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {currentAsset?.artifacts?.pbrMaps && Object.keys(currentAsset.artifacts.pbrMaps).length > 0 && (
+            <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+                Baked PBR Maps
+              </span>
+              <div className="grid grid-cols-2 gap-1.5">
+                {Object.entries(currentAsset.artifacts.pbrMaps).map(([mapType, url]) => (
+                  <a
+                    key={mapType}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2 py-1.5 rounded-lg bg-[hsl(var(--surface-1))] hover:bg-[hsl(var(--surface-3))] text-[11px] font-medium text-[hsl(var(--foreground))] flex items-center justify-between border border-[hsl(var(--border))] transition-colors"
+                  >
+                    <span className="capitalize">{mapType}</span>
+                    <HugeiconsIcon icon={DownloadIcon} size={16} className="w-3 h-3 text-[hsl(var(--muted-foreground))]" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (!currentAsset) {
-    if (activeTool === 'uv') {
-      return (
-        <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
-          <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-                <Grid3X3 className="w-4 h-4 text-[#F9CF00]" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Smart UV Inspector</h2>
-                <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Atlas Preview &amp; Quality Metrics</span>
-              </div>
-            </div>
-            <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
-              Active
-            </span>
-          </div>
-          <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
-            <DynamicUVInspector />
-          </div>
-        </div>
-      );
-    }
-
-    if (activeTool === 'segment') {
-      return (
-        <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
-          <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-                <Scissors className="w-4 h-4 text-[#F9CF00]" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Segmentation Inspector</h2>
-                <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Part Layers &amp; Assembly Tree</span>
-              </div>
-            </div>
-            <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
-              Active
-            </span>
-          </div>
-          <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
-            <DynamicSegmentationInspector />
-          </div>
-        </div>
-      );
-    }
-
-    if (activeTool === 'animation') {
-      return (
-        <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
-          <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-                <Film className="w-4 h-4 text-[#F9CF00]" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Motion Inspector</h2>
-                <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Playback Scrubber &amp; Diagnostics</span>
-              </div>
-            </div>
-            <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
-              Active
-            </span>
-          </div>
-          <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
-            <DynamicAnimationInspector />
-          </div>
-        </div>
-      );
-    }
-
-    if (activeTool === 'rigging') {
-      return (
-        <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
-          <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-                <Bone className="w-4 h-4 text-[#F9CF00]" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Auto-Rigging & Armature</h2>
-                <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Interactive Armature &amp; Joint Hierarchy</span>
-              </div>
-            </div>
-            <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
-              Active
-            </span>
-          </div>
-          <div className="flex-1 overflow-y-auto p-3 space-y-3 no-scrollbar">
-            <DynamicRiggingInspector />
-          </div>
-        </div>
-      );
-    }
-
     return (
       <div id="panel-properties-inspector" className="flex flex-col h-full items-center justify-center bg-[hsl(var(--surface-1))] px-6 text-center select-none">
         <div className="w-12 h-12 rounded-2xl bg-[hsl(var(--surface-0))] border border-white/[0.08] flex items-center justify-center text-zinc-500 mb-3 shadow-inner">
@@ -311,20 +634,7 @@ export const RightPropertyPanel: React.FC = () => {
   // Keywords for filtering
   const transformKeywords = ['transform', 'position', 'rotation', 'scale', 'world space', 'euler', 'ratio', 'x', 'y', 'z'];
   const geometryKeywords = ['geometry', 'topology', 'manifold', 'watertight', 'vertices', 'polygons', 'faces', 'surface area', 'volume', 'uv charts', 'dimensions', 'components', 'semantic', 'details'];
-  const contextKeywords = 
-    activeTool === 'remesh'
-      ? ['retopology', 'quad', 'fastmesh', 'variant', 'polygons', 'flow', 'alignment', 'remesh']
-      : activeTool === 'model'
-      ? ['ai generator', 'pipeline', 'model engine', 'octree', 'diffusion', 'rmbg', 'cutout', 'generator']
-      : activeTool === 'rigging'
-      ? ['rigging', 'skeleton', 'armature', 'bone', 'joint', 'skinning', 'weights', 'pose', 't-pose']
-      : activeTool === 'segment'
-      ? ['segmentation', 'submesh', 'part', 'semantic', 'layer', 'cluster', 'group']
-      : activeTool === 'uv'
-      ? ['uv', 'unwrap', 'atlas', 'island', 'packing', 'texel', 'density', 'margin']
-      : activeTool === 'animation'
-      ? ['animation', 'motion', 'clip', 'fps', 'frame', 'playback', 'loop', 'speed']
-      : ['pbr', 'material', 'roughness', 'metallic', 'normal', 'intensity', 'cavity', 'ambient occlusion', 'ao', 'baked', 'maps'];
+  const contextKeywords = ['ai generator', 'pipeline', 'model engine', 'octree', 'diffusion', 'rmbg', 'cutout', 'generator'];
   const shadingKeywords = ['shading', 'viewport', 'pbr lit', 'clay', 'gold', 'chrome', 'ceramic', 'normals', 'wire solo', 'wireframe', 'overlay'];
   const comparisonKeywords = ['model comparison', 'comparison', 'compare', 'lineage', 'qa', 'score', 'delta'];
   const exportKeywords = ['quick export', 'export', 'download', 'format', 'glb', 'gltf', 'fbx', 'obj', 'stl', 'ply', 'embed', 'draco', 'compression'];
@@ -420,6 +730,56 @@ export const RightPropertyPanel: React.FC = () => {
       </div>
 
       <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5 no-scrollbar">
+        {/* 3. 3D AI Generator Pipeline (Shown exclusively on Model page) */}
+        {activeTool === 'model' && isSectionVisible(contextKeywords) && (
+          <Collapsible
+            open={isSectionExpanded('context', contextKeywords)}
+            onOpenChange={() => handleManualToggle('context')}
+            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden transition-all"
+          >
+            <div className="flex items-center justify-between p-2.5 hover:bg-[hsl(var(--surface-2))]/40 transition-colors">
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 flex-1 text-left select-none cursor-pointer group"
+                >
+                  <HugeiconsIcon icon={SparklesIcon} size={16} className="w-3.5 h-3.5 text-primary shrink-0" />
+                  <span className="font-bold text-xs text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--foreground))] uppercase tracking-wider transition-colors">
+                    3D AI Generator Pipeline
+                  </span>
+                  <HugeiconsIcon
+                    icon={ChevronDown}
+                    size={14}
+                    className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
+                      isSectionExpanded('context', contextKeywords) ? 'rotate-180 text-primary' : ''
+                    }`}
+                  />
+                </button>
+              </CollapsibleTrigger>
+            </div>
+
+            <CollapsibleContent className="px-2.5 pb-3 space-y-2 pt-1 border-t border-[hsl(var(--border))]/40">
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between text-[hsl(var(--foreground))]">
+                  <span>Model Engine</span>
+                  <span className="font-mono text-primary">{generationSettings.aiModel}</span>
+                </div>
+                <div className="flex justify-between text-[hsl(var(--foreground))]">
+                  <span>Octree Depth</span>
+                  <span className="font-mono text-[hsl(var(--foreground))]">Workflow-defined</span>
+                </div>
+                <div className="flex justify-between text-[hsl(var(--foreground))]">
+                  <span>Diffusion Steps</span>
+                  <span className="font-mono text-[hsl(var(--foreground))]">Workflow-defined</span>
+                </div>
+                <div className="flex justify-between text-[hsl(var(--foreground))]">
+                  <span>Cutout RMBG</span>
+                  <span className="font-mono text-[hsl(var(--neon-green))]">{generationSettings.removeBackground ? 'Requested' : 'Off'}</span>
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
         {/* 1. Object Transform Section */}
         {isSectionVisible(transformKeywords) && (
           <Collapsible
@@ -464,8 +824,8 @@ export const RightPropertyPanel: React.FC = () => {
               {/* Position (m) */}
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-[hsl(var(--muted-foreground))]">
-                  <span>Position (m)</span>
-                  <span className="font-mono text-[hsl(var(--muted-foreground))]">World Space</span>
+                  <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">Position (m)</span>
+                  <span className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">World Space</span>
                 </div>
                 <div className="grid grid-cols-3 gap-1.5 font-mono text-xs">
                   <div className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
@@ -504,7 +864,7 @@ export const RightPropertyPanel: React.FC = () => {
               {/* Rotation (°) */}
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-[hsl(var(--muted-foreground))]">
-                  <span>Rotation (Euler °)</span>
+                  <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">Rotation (Euler °)</span>
                 </div>
                 <div className="grid grid-cols-3 gap-1.5 font-mono text-xs">
                   <div className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
@@ -540,7 +900,7 @@ export const RightPropertyPanel: React.FC = () => {
               {/* Scale */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))]">
-                  <span>Scale Ratio</span>
+                  <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">Scale Ratio</span>
                   <button
                     onClick={() => setTransform(p => ({ ...p, lockScale: !p.lockScale }))}
                     className="flex items-center gap-1 text-primary hover:underline text-[11px]"
@@ -583,6 +943,18 @@ export const RightPropertyPanel: React.FC = () => {
                     />
                   </div>
                 </div>
+              </div>
+
+              {/* Reset to Identity Transform */}
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleResetTransform}
+                  className="h-7 px-2.5 rounded-lg bg-[hsl(var(--surface-2))] hover:bg-[hsl(var(--surface-3))] border border-[hsl(var(--border))] text-[hsl(var(--foreground))] text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <HugeiconsIcon icon={RefreshCw} size={12} className="w-3 h-3 text-[hsl(var(--muted-foreground))]" />
+                  <span>Reset Transform</span>
+                </button>
               </div>
             </CollapsibleContent>
           </Collapsible>
@@ -714,241 +1086,7 @@ export const RightPropertyPanel: React.FC = () => {
           );
         })()}
 
-        {/* 3. Dynamic Context-Aware Inspector Sections based on activeTool */}
-        {(activeTool === 'texture' || activeTool === 'pbr' || activeTool === 'remesh' || activeTool === 'model' || activeTool === 'uv' || activeTool === 'segment' || activeTool === 'animation' || activeTool === 'rigging') && isSectionVisible(contextKeywords) && (
-          <Collapsible
-            open={isSectionExpanded('context', contextKeywords)}
-            onOpenChange={() => handleManualToggle('context')}
-            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden transition-all"
-          >
-            <div className="flex items-center justify-between p-2.5 hover:bg-[hsl(var(--surface-2))]/40 transition-colors">
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-1.5 flex-1 text-left select-none cursor-pointer group"
-                >
-                  {activeTool === 'remesh' ? (
-                    <HugeiconsIcon icon={HexagonIcon} size={16} className="w-3.5 h-3.5 text-primary shrink-0" />
-                  ) : activeTool === 'model' ? (
-                    <HugeiconsIcon icon={SparklesIcon} size={16} className="w-3.5 h-3.5 text-primary shrink-0" />
-                  ) : activeTool === 'uv' ? (
-                    <Grid3X3 className="w-3.5 h-3.5 text-[#F9CF00] shrink-0" />
-                  ) : activeTool === 'segment' ? (
-                    <Scissors className="w-3.5 h-3.5 text-[#F9CF00] shrink-0" />
-                  ) : activeTool === 'animation' ? (
-                    <Film className="w-3.5 h-3.5 text-[#F9CF00] shrink-0" />
-                  ) : activeTool === 'rigging' ? (
-                    <Bone className="w-3.5 h-3.5 text-[#F9CF00] shrink-0" />
-                  ) : (
-                    <HugeiconsIcon icon={PaletteIcon} size={16} className="w-3.5 h-3.5 text-primary shrink-0" />
-                  )}
-                  <span className="font-bold text-xs text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--foreground))] uppercase tracking-wider transition-colors">
-                    {activeTool === 'remesh'
-                      ? 'Quad Retopology Inspector'
-                      : activeTool === 'model'
-                      ? '3D AI Generator Pipeline'
-                      : activeTool === 'uv'
-                      ? 'Smart UV Atlas & Health Inspector'
-                      : activeTool === 'segment'
-                      ? 'Mesh Segmentation Inspector'
-                      : activeTool === 'animation'
-                      ? '3D Motion Clip Inspector'
-                      : activeTool === 'rigging'
-                      ? 'Auto-Rigging & Armature Inspector'
-                      : 'PBR Material Channels'}
-                  </span>
-                  <HugeiconsIcon
-                    icon={ChevronDown}
-                    size={14}
-                    className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
-                      isSectionExpanded('context', contextKeywords) ? 'rotate-180 text-primary' : ''
-                    }`}
-                  />
-                </button>
-              </CollapsibleTrigger>
-            </div>
 
-            <CollapsibleContent className="px-2.5 pb-3 space-y-3 pt-1 border-t border-[hsl(var(--border))]/40">
-              {/* CASE A: Tool is Texture or PBR */}
-              {(activeTool === 'texture' || activeTool === 'pbr') && (
-                <>
-                  {/* Roughness */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-[hsl(var(--foreground))]">
-                      <span>Roughness</span>
-                      <span className="font-mono font-bold text-primary">{materialSettings.roughness.toFixed(2)}</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.02"
-                      value={materialSettings.roughness}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        setMaterialSettings(p => ({ ...p, roughness: val }));
-                        updateMaterialConfig?.({ roughness: val });
-                      }}
-                      className="w-full accent-primary cursor-pointer"
-                    />
-                  </div>
-
-                  {/* Metallic */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-[hsl(var(--foreground))]">
-                      <span>Metallic</span>
-                      <span className="font-mono font-bold text-primary">{materialSettings.metallic.toFixed(2)}</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.02"
-                      value={materialSettings.metallic}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        setMaterialSettings(p => ({ ...p, metallic: val }));
-                        updateMaterialConfig?.({ metalness: val });
-                      }}
-                      className="w-full accent-primary cursor-pointer"
-                    />
-                  </div>
-
-                  {/* Normal Strength */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-[hsl(var(--foreground))]">
-                      <span>Normal Intensity</span>
-                      <span className="font-mono font-bold text-primary">{materialSettings.normalStrength.toFixed(1)}x</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="3"
-                      step="0.1"
-                      value={materialSettings.normalStrength}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        setMaterialSettings(p => ({ ...p, normalStrength: val }));
-                        updateMaterialConfig?.({ normalScale: val });
-                      }}
-                      className="w-full accent-primary cursor-pointer"
-                    />
-                  </div>
-
-                  {/* Ambient Occlusion */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-[hsl(var(--foreground))]">
-                      <span>Cavity & AO Strength</span>
-                      <span className="font-mono font-bold text-primary">{materialSettings.ambientOcclusion.toFixed(2)}</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={materialSettings.ambientOcclusion}
-                      onChange={(e) => setMaterialSettings(p => ({ ...p, ambientOcclusion: parseFloat(e.target.value) }))}
-                      className="w-full accent-primary cursor-pointer"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))] pt-1.5 border-t border-[hsl(var(--border))]">
-                    <span>Normal Standard</span>
-                    <div className="flex gap-1.5">
-                      {(['OpenGL', 'DirectX'] as const).map(fmt => (
-                        <button
-                          key={fmt}
-                          onClick={() => setMaterialSettings(p => ({ ...p, normalFormat: fmt }))}
-                          className={`px-2.5 py-1 rounded-md text-[10px] font-mono font-bold transition-colors ${
-                            materialSettings.normalFormat === fmt
-                              ? 'bg-primary text-[hsl(var(--primary-foreground))]'
-                              : 'bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
-                          }`}
-                        >
-                          {fmt}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {currentAsset?.artifacts?.pbrMaps && Object.keys(currentAsset.artifacts.pbrMaps).length > 0 && (
-                    <div className="pt-2 border-t border-[hsl(var(--border))] space-y-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
-                        Baked PBR Maps
-                      </span>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {Object.entries(currentAsset.artifacts.pbrMaps).map(([mapType, url]) => (
-                          <a
-                            key={mapType}
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-2 py-1.5 rounded-lg bg-[hsl(var(--surface-2))] hover:bg-[hsl(var(--surface-3))] text-[11px] font-medium text-[hsl(var(--foreground))] flex items-center justify-between border border-[hsl(var(--border))] transition-colors"
-                          >
-                            <span className="capitalize">{mapType}</span>
-                            <HugeiconsIcon icon={DownloadIcon} size={16} className="w-3 h-3 text-[hsl(var(--muted-foreground))]" />
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* CASE B: Tool is Retopo / Remesh */}
-              {activeTool === 'remesh' && (
-                <div className="space-y-1.5 text-xs">
-                  <div className="flex justify-between text-[hsl(var(--foreground))]">
-                    <span>FastMesh Variant</span>
-                    <span className="font-mono font-bold text-primary">{remeshSettings.variant}</span>
-                  </div>
-                  <div className="flex justify-between text-[hsl(var(--foreground))]">
-                    <span>Output Polygons</span>
-                    <span className="font-mono text-[hsl(var(--neon-blue))] uppercase">{remeshSettings.polyType}</span>
-                  </div>
-                  <div className="flex justify-between text-[hsl(var(--foreground))]">
-                    <span>Quad Flow Alignment</span>
-                    <span className="font-mono text-[hsl(var(--neon-green))]">{currentAsset.topology} • {currentAsset.statsAvailable ? currentAsset.faces.toLocaleString() : '—'} faces</span>
-                  </div>
-                </div>
-              )}
-
-              {/* CASE D: Tool is 3D Generation / Model */}
-              {activeTool === 'model' && (
-                <div className="space-y-1.5 text-xs">
-                  <div className="flex justify-between text-[hsl(var(--foreground))]">
-                    <span>Model Engine</span>
-                    <span className="font-mono text-primary">{generationSettings.aiModel}</span>
-                  </div>
-                  <div className="flex justify-between text-[hsl(var(--foreground))]">
-                    <span>Octree Depth</span>
-                    <span className="font-mono text-[hsl(var(--foreground))]">Not available until workflow execution</span>
-                  </div>
-                  <div className="flex justify-between text-[hsl(var(--foreground))]">
-                    <span>Diffusion Steps</span>
-                    <span className="font-mono text-[hsl(var(--foreground))]">Workflow-defined</span>
-                  </div>
-                  <div className="flex justify-between text-[hsl(var(--foreground))]">
-                    <span>Cutout RMBG</span>
-                    <span className="font-mono text-[hsl(var(--neon-green))]">{generationSettings.removeBackground ? 'Requested' : 'Off'}</span>
-                  </div>
-                </div>
-              )}
-
-              {/* CASE E: Tool is Smart UV */}
-              {activeTool === 'uv' && <DynamicUVInspector />}
-
-              {/* CASE F: Tool is Segmentation */}
-              {activeTool === 'segment' && <DynamicSegmentationInspector />}
-
-              {/* CASE G: Tool is Animation */}
-              {activeTool === 'animation' && <DynamicAnimationInspector />}
-
-              {/* CASE H: Tool is Rigging */}
-              {activeTool === 'rigging' && <DynamicRiggingInspector />}
-            </CollapsibleContent>
-          </Collapsible>
-        )}
 
         {/* 4. Shading & Render Viewport Overrides */}
         {isSectionVisible(shadingKeywords) && (
@@ -1308,7 +1446,7 @@ export const RightPropertyPanel: React.FC = () => {
                 id="btn-export-download"
                 onClick={handleExportDownload}
                 disabled={isExporting}
-                className="w-full py-2.5 rounded-xl bg-[hsl(var(--surface-3))] hover:bg-[hsl(var(--surface-4))] border border-[hsl(var(--border))] text-primary font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-md cursor-pointer"
+                className="w-full h-8 rounded-xl bg-[hsl(var(--surface-3))] hover:bg-[hsl(var(--surface-4))] border border-[hsl(var(--border))] text-primary font-semibold text-xs flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-md cursor-pointer"
               >
                 {isExporting ? (
                   <HugeiconsIcon icon={RefreshCw} size={16} className="w-4 h-4 animate-spin text-primary" />

@@ -4,7 +4,7 @@ import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 
 
 import { HugeiconsIcon } from '@hugeicons/react';
-import { FolderOpenIcon, PanelRightClose, SlidersHorizontalIcon } from '@hugeicons/core-free-icons';
+import { FolderOpenIcon, SlidersHorizontalIcon } from '@hugeicons/core-free-icons';
 // Import panels
 import { RightPropertyPanel } from './RightPropertyPanel';
 import { RightAssetsPanel } from './RightAssetsPanel';
@@ -14,7 +14,6 @@ export const RightWorkspacePanel: React.FC = () => {
   const {
     rightPanelMode,
     setRightPanelMode,
-    setIsRightPanelOpen,
     isExecuting,
     activeTask,
     activeTool,
@@ -29,21 +28,19 @@ export const RightWorkspacePanel: React.FC = () => {
   useEffect(() => {
     if (activeTool === 'uv' && prevActiveTool.current !== 'uv') {
       setRightPanelMode('properties');
-      setIsRightPanelOpen(true);
     }
     prevActiveTool.current = activeTool;
-  }, [activeTool, setRightPanelMode, setIsRightPanelOpen]);
+  }, [activeTool, setRightPanelMode]);
 
   // Context-aware auto-switching:
-  // When generation starts running -> switch to live execution and ensure right panel is open
+  // When generation starts running -> switch to live execution
   const prevIsRunning = React.useRef(isRunning);
   useEffect(() => {
     if (isRunning && !prevIsRunning.current) {
       setRightPanelMode('prompt');
-      setIsRightPanelOpen(true);
     }
     prevIsRunning.current = isRunning;
-  }, [isRunning, setRightPanelMode, setIsRightPanelOpen]);
+  }, [isRunning, setRightPanelMode]);
 
   // When task completes and currentAsset is loaded -> smoothly transition to properties inspector without blank flashing
   const prevCompletedTaskId = React.useRef<string | null>(null);
@@ -109,19 +106,6 @@ export const RightWorkspacePanel: React.FC = () => {
             )}
           </div>
         </div>
-
-        {/* Collapse Panel Button */}
-        <SimpleTooltip label="Collapse panel (maximize 3D viewer)" side="left">
-          <button
-            type="button"
-            id="btn-collapse-right-panel"
-            aria-label="Collapse right panel"
-            onClick={() => setIsRightPanelOpen(false)}
-            className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-[hsl(var(--surface-2))] transition-colors cursor-pointer flex-shrink-0"
-          >
-            <HugeiconsIcon icon={PanelRightClose} size={16} className="w-3.5 h-3.5" />
-          </button>
-        </SimpleTooltip>
       </div>
 
       {/* Main Panel Content */}

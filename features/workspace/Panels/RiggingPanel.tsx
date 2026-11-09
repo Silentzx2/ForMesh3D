@@ -254,6 +254,7 @@ export const RiggingPanel: React.FC = () => {
     currentAsset,
     generationSettings,
     setGenerationSettings,
+    runAutoRigging,
   } = useWorkspace();
 
   const { state: meshUploadState, upload: uploadMesh } = useMeshAssetUpload();
@@ -563,15 +564,14 @@ export const RiggingPanel: React.FC = () => {
         }
       }
 
-      setLocalProgress(25);
-      setLocalStep('Submitting auto-rigging job to GPU...');
+      setLocalProgress(30);
+      setLocalStep('Submitting character auto-rigging job...');
 
-      const body = {
-        ...meshRef,
-        rig_mode: skeletonTemplate,
-        output_format: exportFormat,
-        model_preference: 'skintokens_auto_rigging',
-        model_parameters: {
+      await runAutoRigging({
+        skeletonTemplate,
+        bindPose,
+        exportFormat,
+        modelParameters: {
           skeleton_template: skeletonTemplate,
           bind_pose: bindPose,
           facial_and_finger_bones: facialAndFingerBones,
@@ -579,67 +579,11 @@ export const RiggingPanel: React.FC = () => {
           max_influences_per_vertex: maxInfluences,
           symmetry_snapping: symmetrySnapping,
         },
-      };
-
-      const res = await fetch('/api/v1/auto-rigging/generate-rig', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
       });
 
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || errJson.message || `Server error: ${res.status}`);
-      }
-
-      const data = await res.json();
-      const jobId = data.job_id || data.id;
-      if (!jobId) throw new Error('Backend did not return a job ID');
-
-      currentJobIdRef.current = jobId;
-      setLocalProgress(40);
-      setLocalStep('Synthesizing character rig & skinning weights...');
-
-      // Poll job status until completion
-      let pollCount = 0;
-      const pollInterval = setInterval(async () => {
-        if (!currentJobIdRef.current || currentJobIdRef.current !== jobId) {
-          clearInterval(pollInterval);
-          return;
-        }
-
-        pollCount++;
-        try {
-          const statusRes = await fetch(`/api/v1/system/jobs/${encodeURIComponent(jobId)}`);
-          if (!statusRes.ok) return;
-
-          const jobData = await statusRes.json();
-          const raw = jobData.data || jobData;
-
-          if (raw.status === 'completed') {
-            clearInterval(pollInterval);
-            setIsLocalExecuting(false);
-            setLocalProgress(100);
-            setLocalStep('Completed');
-            toast.success('Character rigged successfully', {
-              description: `Armature created with ${estimatedBoneCount} bones in ${formatLabel} format`,
-            });
-          } else if (raw.status === 'failed' || raw.status === 'cancelled') {
-            clearInterval(pollInterval);
-            setIsLocalExecuting(false);
-            const errMsg = raw.error_message || raw.message || 'Auto-rigging failed on backend';
-            setLocalStep(errMsg);
-            toast.error('Auto-rigging failed', { description: errMsg });
-          } else {
-            const backendProg = raw.progress || Math.min(92, 40 + pollCount * 3);
-            setLocalProgress(backendProg);
-            setLocalStep(raw.message || 'Calculating bone envelope & skinning...');
-          }
-        } catch {
-          // Ignore intermittent network glitch during polling
-        }
-      }, 1500);
-
+      setIsLocalExecuting(false);
+      setLocalProgress(100);
+      setLocalStep('Completed');
     } catch (err: any) {
       setIsLocalExecuting(false);
       setLocalProgress(0);
@@ -871,6 +815,43 @@ export const RiggingPanel: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Live Upload Progress Bar with Real Speed & Remaining Time */}
+        {isMeshUploading && (
+          <div className="p-2 rounded-xl bg-black/40 border border-[#F9CF00]/30 space-y-1.5 animate-in fade-in">
+            <div className="flex items-center justify-between text-[10px]">
+              <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                <div className="w-2.5 h-2.5 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <span className="font-semibold text-white truncate text-[10px]">
+                  {meshUploadState.fileName || 'Uploading 3D Mesh...'}
+                </span>
+              </div>
+              <span className="font-mono font-bold text-[#F9CF00] text-[10px] flex-shrink-0">
+                {meshUploadState.percent ?? 50}%
+              </span>
+            </div>
+
+            <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-200 rounded-full"
+                style={{ width: `${Math.max(4, Math.min(100, meshUploadState.percent ?? 50))}%` }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-[9px] text-zinc-400 font-mono">
+              <span>
+                {meshUploadState.totalBytes
+                  ? `${(meshUploadState.loadedBytes / 1048576).toFixed(1)} MB / ${(meshUploadState.totalBytes / 1048576).toFixed(1)} MB`
+                  : `${(meshUploadState.loadedBytes / 1048576).toFixed(1)} MB`}
+              </span>
+              <span>
+                {meshUploadState.totalBytes && meshUploadState.loadedBytes > 0
+                  ? `~${Math.max(1, Math.ceil((meshUploadState.totalBytes - meshUploadState.loadedBytes) / 2097152))}s left`
+                  : 'Transferring...'}
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* 3. Skeleton Template: Humanoid vs Quadruped vs Generic */}
         <div className="space-y-1">
@@ -1167,7 +1148,7 @@ export const RiggingPanel: React.FC = () => {
               type="button"
               onClick={handleAutoRig}
               disabled={!currentAsset && !generationSettings.image && !imagePreview}
-              className="w-full py-2.5 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Bone className="w-3.5 h-3.5 text-black" />
               <span>Auto-Rig Character</span>

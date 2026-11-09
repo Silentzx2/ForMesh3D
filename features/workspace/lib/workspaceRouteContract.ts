@@ -9,7 +9,7 @@ const WORKSPACE_VIEW_SEGMENTS = new Set([
   'overview', 'dashboard', 'assets', 'outputs', 'system', 'jobs', 'models',
 ]);
 
-const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const JOB_ID_PATTERN = /^[a-zA-Z0-9_\-\.]{3,128}$/;
 
 /**
  * Validate the path handled by app/workspace/[...tool].

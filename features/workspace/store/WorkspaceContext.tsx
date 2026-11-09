@@ -124,11 +124,65 @@ interface WorkspaceContextType {
   setPaintBrushSettings: React.Dispatch<React.SetStateAction<PaintBrushSettings>>;
   generate3DModel: () => Promise<void>;
   runModelGeneration: () => Promise<void>;
-  runRemeshGeneration: () => Promise<void>;
+  runRemeshGeneration: (customSettings?: {
+    variant?: 'V1K' | 'V4K';
+    polyType?: string;
+    targetPolycount?: number;
+    preserveEdges?: boolean;
+    featureAngle?: number;
+    adaptiveDensity?: boolean;
+    watertightHealing?: boolean;
+    outputFormat?: string;
+  }) => Promise<void>;
   runTextureGeneration: () => Promise<void>;
-  runUVUnwrapGeneration: (customSettings?: { distortionThreshold?: number; packMethod?: string; outputFormat?: string; saveIndividualParts?: boolean; modelParameters?: Record<string, any> }) => Promise<void>;
-  runSegmentation: (customSettings?: { numParts?: number; method?: string; hierarchical?: boolean; outputFormat?: string; modelParameters?: Record<string, any>; modelPreference?: string } | number) => Promise<void>;
-  runMeshEditing: (customSettings?: { sourcePrompt?: string; targetPrompt?: string; resolution?: number; bbox?: any; outputFormat?: string; mode?: 'text' | 'image'; targetImageFileId?: string; targetImageBase64?: string; strength?: number }) => Promise<void>;
+  runUVUnwrapGeneration: (customSettings?: {
+    distortionThreshold?: number;
+    packMethod?: string;
+    outputFormat?: string;
+    saveIndividualParts?: boolean;
+    unwrapStrategy?: 'organic' | 'hard_surface' | 'hybrid' | string;
+    atlasResolution?: number | string;
+    islandMargin?: number;
+    boundaryPacker?: boolean;
+    symmetryStacking?: boolean;
+    modelParameters?: Record<string, any>;
+  }) => Promise<void>;
+  runSegmentation: (customSettings?: {
+    numParts?: number;
+    method?: string;
+    hierarchical?: boolean;
+    outputFormat?: string;
+    modelParameters?: Record<string, any>;
+    modelPreference?: string;
+  } | number) => Promise<void>;
+  runMeshEditing: (customSettings?: {
+    sourcePrompt?: string;
+    targetPrompt?: string;
+    resolution?: number;
+    bbox?: any;
+    outputFormat?: string;
+    mode?: 'text' | 'image';
+    targetImageFileId?: string;
+    targetImageBase64?: string;
+    strength?: number;
+  }) => Promise<void>;
+  runAutoRigging: (options?: {
+    skeletonTemplate?: string;
+    bindPose?: string;
+    exportFormat?: string;
+    modelParameters?: Record<string, any>;
+    customSettings?: Record<string, any>;
+  }) => Promise<void>;
+  runMotionGeneration: (options?: {
+    prompt?: string;
+    duration?: number;
+    seed?: number;
+    frameRate?: string;
+    targetSkeleton?: string;
+    footSkatingCleanup?: boolean;
+    modelParameters?: Record<string, any>;
+    customSettings?: Record<string, any>;
+  }) => Promise<void>;
   processBatchQueue: () => Promise<void>;
   cancelBatchProcessing: () => Promise<void>;
   retryFailedBatchItems: () => Promise<void>;
@@ -367,7 +421,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const res = await fetch('/api/v1/file-upload/list');
       if (!res.ok) return [];
       const data = await res.json();
-      const files = data?.files || [];
+      const files = Array.isArray(data) ? data : (data?.files || []);
       return files.map((m: any) => {
         const cleanName = m.filename?.replace(/\.[^.]+$/, '') || '3D Model';
         const formattedName = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
@@ -387,7 +441,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           vertices: 0,
           triangles: 0,
           statsAvailable: false,
-          source: { filename: m.filename, subfolder: '', type: 'upload', viewUrl },
+          source: { filename: m.filename, subfolder: '', type: 'upload', viewUrl, fileId: m.file_id },
           topology: 'Triangle',
           format: ext,
           dateCreated: m.upload_time || '',
@@ -395,8 +449,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         });
       }) as ModelAsset[];
     },
-    refetchInterval: 60000,
-    staleTime: 30000,
+    refetchInterval: 10000,
+    staleTime: 5000,
   });
 
   const [assets, setAssets] = useState<ModelAsset[]>([]);
@@ -465,19 +519,27 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       let currentSelected = selectedAssetIdRef.current;
       
-      // If the selected ID is raw but the asset now has a prefix, update the selected ID to the prefixed one.
-      if (currentSelected && !filtered.some(a => a.id === currentSelected)) {
-        const matchingPrefixed = filtered.find(a => a.id.replace(/^(hist_|local_|upload_)/, '') === currentSelected);
-        if (matchingPrefixed) {
-          currentSelected = matchingPrefixed.id;
+      // Resilient matching across local prefixes, clean names, and server file IDs (only run when assets have loaded)
+      if (currentSelected && filtered.length > 0 && !filtered.some(a => a.id === currentSelected)) {
+        const cleanCur = currentSelected.replace(/^(hist_|local_|upload_)/, '').toLowerCase();
+        const matching = filtered.find(a => {
+          const aCleanId = a.id.replace(/^(hist_|local_|upload_)/, '').toLowerCase();
+          const aFileId = (a.fileId || a.source?.fileId || '').toLowerCase();
+          const aFilename = (a.source?.filename || '').toLowerCase();
+          return (
+            aCleanId === cleanCur ||
+            (aFileId && (aFileId === cleanCur || aFileId.startsWith(cleanCur) || cleanCur.includes(aFileId.slice(0, 8)))) ||
+            (cleanCur.includes(aCleanId)) ||
+            (aFilename && cleanCur.includes(aFilename.replace(/\.[^.]+$/, '')))
+          );
+        });
+        if (matching) {
+          currentSelected = matching.id;
           setSelectedAssetId(currentSelected);
+        } else {
+          // If the selected ID does not exist in loaded assets, clear it
+          setSelectedAssetId(null);
         }
-      }
-
-      if ((!currentSelected || !filtered.some(a => a.id === currentSelected)) && filtered.length > 0) {
-        setSelectedAssetId(filtered[0].id);
-      } else if (filtered.length === 0) {
-        setSelectedAssetId(null);
       }
       return filtered;
     });
@@ -498,6 +560,18 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const selectedAssetIdRef = useRef(selectedAssetId);
   const mainNavRef = useRef(mainNav);
   const activeToolRef = useRef(activeTool);
+
+  // Sync selectedAssetId from deep-link pathname when navigating
+  useEffect(() => {
+    if (!pathname || !pathname.startsWith('/workspace/')) return;
+    const parts = pathname.replace('/workspace/', '').split('/');
+    if (parts.length > 1 && parts[1]) {
+      const urlId = decodeURIComponent(parts[1]);
+      if (urlId !== selectedAssetIdRef.current) {
+        setSelectedAssetId(urlId);
+      }
+    }
+  }, [pathname]);
 
   const [shadingMode, setShadingModeState] = useState<ShadingMode>('textured');
   const [showWireframe, setShowWireframeState] = useState(false);
@@ -901,9 +975,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       };
     }, [useAppStore]);
     const addAsset = useCallback((asset: ModelAsset) => {
-    // Ensure asset ID has the local_ prefix consistently so it never mutates during merge
-    const finalId = asset.id.startsWith('local_') ? asset.id : `local_${asset.id}`;
-    const normalized: ModelAsset = { ...asset, id: finalId, sourceType: 'local' as const };
+    // Construct user-friendly slug and name based on clean filename and short hash
+    const cleanStem = (asset.name || 'mesh').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+    const shortHash = (asset.id || crypto.randomUUID()).replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
+    const finalId = asset.id.startsWith('local_')
+      ? asset.id
+      : (asset.id.startsWith('job-') || asset.id.startsWith('upload_') || asset.id.startsWith('hist_')
+          ? asset.id
+          : `local_${cleanStem}_${shortHash}`);
+    const friendlyName = asset.name ? asset.name.replace(/\.[^/.]+$/, '') : `${cleanStem.charAt(0).toUpperCase() + cleanStem.slice(1)} ${shortHash}`;
+    const normalized: ModelAsset = { ...asset, id: finalId, name: friendlyName, sourceType: 'local' as const };
 
     setLocalAssets(prev => {
       const idx = prev.findIndex(a =>
@@ -1053,48 +1134,62 @@ function dataURLtoFile(dataURL: string, filename: string): File {
                    assetId: jobId,
                  });
 
-                if (result?.model_url || result?.active_model_url || result?.textured_model_url || result?.source_model_url) {
-                  const modelUrl = preferredGenerationPreviewUrl(result) as string;
-                  const previewStats = preferredPreviewStats(result);
-                  const promptTitle = task.title;
-                  const cleanName = promptTitle && promptTitle !== 'generate' ? promptTitle : `Model_${jobId.slice(0, 6)}`;
-                  void prefetchGLB(modelUrl);
-                  const outputAsset = normalizeModelAsset({
-                    id: jobId,
-                    name: cleanName,
-                    category: 'generation',
-                    thumbnail: result.thumbnail_url || task.inputImage || '',
-                    source: { filename: `${cleanName}.glb`, subfolder: 'generated', type: 'output', viewUrl: modelUrl, fileId: `job-${jobId}` },
-                    polygon_count: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
-                    vertex_count: isNativeRawPreview(result) ? previewStats.vertices : (result.vertex_count ?? previewStats.vertices),
-                    faces: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
-                    vertices: isNativeRawPreview(result) ? previewStats.vertices : (result.vertex_count ?? previewStats.vertices),
-                    triangles: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
-                    statsAvailable: Boolean(previewStats.faces || result.polygon_count || previewStats.vertices || result.vertex_count),
-                    topology: (result.topology as any) || (result.quality_trace?.game_ready?.quad_dominant ? 'Quad' : 'Triangle'),
-                    format: 'GLB',
-                    postprocessStatus: productionStatus === 'degraded' ? 'degraded' : (result.production_status || result.postprocess_status || 'completed'),
-                    productionStatus,
-                    degradedReasons,
-                    game_ready_url: (result.game_ready_url as string) || modelUrl,
-                    source_model_url: (result.source_model_url as string) || (result.high_fidelity_url as string) || undefined,
-                    tags: ['AI Generated'],
-                    collision_url: result.collision_url,
-                    pbr_maps: result.pbr_maps,
-                    game_ready_formats: result.game_ready_formats,
-                    zip_url: result.zip_url,
-                    qa_report: result.qa_report,
-                    quality_trace: result.quality_trace,
-                    artifacts: result.artifacts,
-                    candidates: result.candidates,
-                  });
-                  addAsset(outputAsset);
-                  if (!activeTaskRef.current || activeTaskRef.current.id === jobId || !selectedAssetId) {
-                    setSelectedAssetId(outputAsset.id);
-                    setViewportResetTrigger(prev => prev + 1);
-                    loadModelInViewer(modelUrl, cleanName, outputAsset as any);
-                  }
-                }
+                 const resolvedModelUrl = (
+                   result?.model_url ||
+                   result?.active_model_url ||
+                   result?.textured_model_url ||
+                   result?.source_model_url ||
+                   result?.rigged_model_url ||
+                   (result?.output_mesh_path && !String(result.output_mesh_path).endsWith('.npz') ? result.output_mesh_path : undefined) ||
+                   (task.type === 'rigging' || task.type === 'remesh'
+                     ? `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=glb`
+                     : undefined)
+                 );
+
+                 if (resolvedModelUrl) {
+                   const modelUrl = (preferredGenerationPreviewUrl(result) as string) || resolvedModelUrl;
+                   const previewStats = preferredPreviewStats(result);
+                   const promptTitle = task.title;
+                   const cleanName = promptTitle && promptTitle !== 'generate' ? promptTitle : `Model_${jobId.slice(0, 6)}`;
+                   void prefetchGLB(modelUrl);
+                   const outputAsset = normalizeModelAsset({
+                     id: jobId,
+                     name: cleanName,
+                     category: 'generation',
+                     thumbnail: result.thumbnail_url || task.inputImage || '',
+                     source: { filename: `${cleanName}.glb`, subfolder: 'generated', type: 'output', viewUrl: modelUrl, fileId: `job-${jobId}` },
+                     polygon_count: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
+                     vertex_count: isNativeRawPreview(result) ? previewStats.vertices : (result.vertex_count ?? previewStats.vertices),
+                     faces: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
+                     vertices: isNativeRawPreview(result) ? previewStats.vertices : (result.vertex_count ?? previewStats.vertices),
+                     triangles: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
+                     statsAvailable: Boolean(previewStats.faces || result.polygon_count || previewStats.vertices || result.vertex_count),
+                     topology: (result.topology as any) || (result.quality_trace?.game_ready?.quad_dominant ? 'Quad' : 'Triangle'),
+                     format: 'GLB',
+                     postprocessStatus: productionStatus === 'degraded' ? 'degraded' : (result.production_status || result.postprocess_status || 'completed'),
+                     productionStatus,
+                     degradedReasons,
+                     game_ready_url: (result.game_ready_url as string) || modelUrl,
+                     source_model_url: (result.source_model_url as string) || (result.high_fidelity_url as string) || undefined,
+                     tags: ['AI Generated'],
+                     collision_url: result.collision_url,
+                     pbr_maps: result.pbr_maps,
+                     game_ready_formats: result.game_ready_formats,
+                     zip_url: result.zip_url,
+                     qa_report: result.qa_report,
+                     quality_trace: result.quality_trace,
+                     artifacts: result.artifacts,
+                     candidates: result.candidates,
+                   });
+                   addAsset(outputAsset);
+                   if (!activeTaskRef.current || activeTaskRef.current.id === jobId || !selectedAssetId) {
+                     setSelectedAssetId(outputAsset.id);
+                     setViewportResetTrigger(prev => prev + 1);
+                     loadModelInViewer(modelUrl, cleanName, outputAsset as any);
+                   }
+                 } else if (task.type === 'animation') {
+                   toast.success('Motion generation completed', { description: 'Animation clip generated successfully' });
+                 }
               } else if ((data.status === 'failed' || data.status === 'cancelled') && task.status !== 'failed' && task.status !== 'interrupted') {
                 const errMsg = data.error_message || 'The job encountered an error during execution';
                 toast.error('Process failed', { description: errMsg });
@@ -1646,7 +1741,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     setExecutionStep,
   ]);
 
-function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: string; mesh_path?: string } {
+async function resolveMeshReference(asset?: ModelAsset | null): Promise<{ mesh_file_id?: string; mesh_path?: string }> {
   if (!asset) {
     throw new Error('No model selected. Generate or import a model first.');
   }
@@ -1662,24 +1757,52 @@ function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: strin
   if (matchFileId) {
     return { mesh_file_id: matchFileId[1] };
   }
-  if (!rawUrl.startsWith('blob:')) {
-    return { mesh_path: rawUrl };
+  if (rawUrl.startsWith('blob:')) {
+    try {
+      const blobRes = await fetch(rawUrl);
+      const blob = await blobRes.blob();
+      const fileName = asset.name ? (asset.name.endsWith('.glb') || asset.name.endsWith('.obj') ? asset.name : `${asset.name}.glb`) : 'model.glb';
+      const formData = new FormData();
+      formData.append('file', new File([blob], fileName, { type: blob.type || 'model/gltf-binary' }));
+      const uploadRes = await fetch('/api/v1/file-upload/mesh', { method: 'POST', body: formData });
+      if (uploadRes.ok) {
+        const uploadData = await uploadRes.json();
+        const fileId = uploadData.file_id || uploadData.id;
+        if (fileId) {
+          if (asset.source) asset.source.fileId = fileId;
+          return { mesh_file_id: fileId };
+        }
+      }
+    } catch (e) {
+      console.warn('Auto-upload local blob mesh failed:', e);
+    }
   }
-  throw new Error('This model is only loaded locally in browser. Upload or re-import it via Assets to run this tool.');
+  return { mesh_path: rawUrl };
 }
 
-    const runRemeshGeneration = useCallback(async () => {
-      const localTaskId = startTask('remesh', 'Remesh / topology optimization', undefined, undefined, undefined, undefined, comparisonGroupId ?? undefined);
+  const runRemeshGeneration = useCallback(async (customSettings?: {
+    variant?: 'V1K' | 'V4K';
+    polyType?: string;
+    targetPolycount?: number;
+    preserveEdges?: boolean;
+    featureAngle?: number;
+    adaptiveDensity?: boolean;
+    watertightHealing?: boolean;
+    outputFormat?: string;
+  }) => {
+    const localTaskId = startTask('remesh', 'Remesh / topology optimization', undefined, undefined, undefined, undefined, comparisonGroupId ?? undefined);
     try {
-      const meshRef = resolveMeshReference(currentAsset);
-
+      const meshRef = await resolveMeshReference(currentAsset);
+      const variant = customSettings?.variant || remeshSettings.variant;
       const body: Record<string, unknown> = {
-        output_format: 'glb',
-        model_preference: remeshSettings.variant === 'V4K'
-          ? 'fastmesh_v4k_retopology'
-          : 'fastmesh_v1k_retopology',
-        poly_type: remeshSettings.polyType,
-        target_polycount: remeshSettings.targetPolycount,
+        output_format: customSettings?.outputFormat || 'glb',
+        model_preference: variant === 'V4K' ? 'fastmesh_v4k_retopology' : 'fastmesh_v1k_retopology',
+        poly_type: customSettings?.polyType || remeshSettings.polyType,
+        target_polycount: customSettings?.targetPolycount ?? remeshSettings.targetPolycount,
+        preserve_edges: customSettings?.preserveEdges ?? true,
+        feature_angle: customSettings?.featureAngle ?? 45,
+        adaptive_density: customSettings?.adaptiveDensity ?? true,
+        watertight_healing: customSettings?.watertightHealing ?? true,
         ...meshRef,
       };
 
@@ -1701,16 +1824,16 @@ function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: strin
       setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
       toast.error('Remesh failed', { description: message });
     }
-  }, [remeshSettings, currentAsset, startTask]);
+  }, [remeshSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
 
-    const runTextureGeneration = useCallback(async () => {
-      const modelPreference = textureSettings.resolution === '4K' || textureSettings.resolution === '8K'
-        ? 'hunyuan3d_paint_v21_image_mesh_painting'
-        : 'paint3d';
+  const runTextureGeneration = useCallback(async () => {
+    const modelPreference = textureSettings.resolution === '4K' || textureSettings.resolution === '8K'
+      ? 'hunyuan3d_paint_v21_image_mesh_painting'
+      : 'paint3d';
 
-      const localTaskId = startTask('texture', 'Texture generation', undefined, modelPreference, undefined, undefined, comparisonGroupId ?? undefined);
+    const localTaskId = startTask('texture', 'Texture generation', undefined, modelPreference, undefined, undefined, comparisonGroupId ?? undefined);
     try {
-      const meshRef = resolveMeshReference(currentAsset);
+      const meshRef = await resolveMeshReference(currentAsset);
       const originalRefImage = currentAsset?.referenceImage || currentAsset?.inputImage || (currentAsset?.category === 'generation' ? currentAsset?.thumbnail : undefined);
       const { endpoint, body } = buildTextureGenerationParameters(
         textureSettings,
@@ -1743,22 +1866,26 @@ function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: strin
         error_message: message,
         provider: textureSettings.modelId || '',
       } as any);
-       setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message, diagnostic } : null);
-       toast.error('Texture generation failed', { description: message });
-     }
-    }, [textureSettings, currentAsset, startTask]);
+      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message, diagnostic } : null);
+      toast.error('Texture generation failed', { description: message });
+    }
+  }, [textureSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
 
-    const runUVUnwrapGeneration = useCallback(async (customSettings?: {
-     distortionThreshold?: number;
-     packMethod?: string;
-     outputFormat?: string;
-     saveIndividualParts?: boolean;
-     modelParameters?: Record<string, any>;
-   }) => {
-      const localTaskId = startTask('uv', 'UV Unwrapping (PartUV)', undefined, undefined, undefined, undefined, comparisonGroupId ?? undefined);
+  const runUVUnwrapGeneration = useCallback(async (customSettings?: {
+    distortionThreshold?: number;
+    packMethod?: string;
+    outputFormat?: string;
+    saveIndividualParts?: boolean;
+    unwrapStrategy?: 'organic' | 'hard_surface' | 'hybrid' | string;
+    atlasResolution?: number | string;
+    islandMargin?: number;
+    boundaryPacker?: boolean;
+    symmetryStacking?: boolean;
+    modelParameters?: Record<string, any>;
+  }) => {
+    const localTaskId = startTask('uv', 'Smart UV Unwrapping', undefined, 'partuv_uv_unwrapping', undefined, undefined, comparisonGroupId ?? undefined);
     try {
-      const meshRef = resolveMeshReference(currentAsset);
-
+      const meshRef = await resolveMeshReference(currentAsset);
       const body: Record<string, unknown> = {
         distortion_threshold: customSettings?.distortionThreshold ?? 1.25,
         pack_method: customSettings?.packMethod || 'blender',
@@ -1766,6 +1893,11 @@ function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: strin
         save_visuals: false,
         output_format: customSettings?.outputFormat || 'obj',
         model_preference: 'partuv_uv_unwrapping',
+        boundary_packer: customSettings?.boundaryPacker ?? true,
+        symmetry_stacking: customSettings?.symmetryStacking ?? false,
+        unwrap_strategy: customSettings?.unwrapStrategy || 'hybrid',
+        atlas_resolution: customSettings?.atlasResolution || 2048,
+        island_margin: customSettings?.islandMargin ?? 4,
         ...meshRef,
       };
       if (customSettings?.modelParameters) {
@@ -1790,7 +1922,7 @@ function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: strin
       setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
       toast.error('UV unwrapping failed', { description: message });
     }
-  }, [currentAsset, startTask]);
+  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
 
   const runSegmentation = useCallback(async (customSettings?: {
     numParts?: number;
@@ -1801,10 +1933,9 @@ function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: strin
     modelPreference?: string;
   } | number) => {
     const pref = (typeof customSettings === 'object' && customSettings?.modelPreference) || '';
-     const localTaskId = startTask('segment', `Mesh Segmentation`, undefined, undefined, undefined, undefined, comparisonGroupId ?? undefined);
+    const localTaskId = startTask('segment', 'Segment Mesh', undefined, undefined, undefined, undefined, comparisonGroupId ?? undefined);
     try {
-      const meshRef = resolveMeshReference(currentAsset);
-
+      const meshRef = await resolveMeshReference(currentAsset);
       const numParts = typeof customSettings === 'number' ? customSettings : (customSettings?.numParts ?? 8);
       const outputFormat = typeof customSettings === 'object' ? (customSettings.outputFormat ?? 'glb') : 'glb';
 
@@ -1823,7 +1954,34 @@ function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: strin
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw await parseApiError(res);
+
+      if (!res.ok) {
+        if (res.status === 400 || res.status === 404 || res.status === 500) {
+          try {
+            setExecutionStep('Running Trimesh hierarchical segmentation...');
+            const meshUrl = currentAsset?.source?.localUrl || currentAsset?.source?.viewUrl || (meshRef.mesh_file_id ? `/api/v1/file-upload/download/${meshRef.mesh_file_id}` : '');
+            if (meshUrl) {
+              const blobRes = await fetch(meshUrl);
+              const blob = await blobRes.blob();
+              const formData = new FormData();
+              formData.append('meshFile', new File([blob], currentAsset?.name || 'mesh.glb', { type: blob.type || 'model/gltf-binary' }));
+              formData.append('options', JSON.stringify({ numParts, method: typeof customSettings === 'object' ? customSettings.method : 'hierarchical' }));
+
+              const fbRes = await fetch('/api/v1/mesh-tools/segment', { method: 'POST', body: formData });
+              if (fbRes.ok) {
+                setExecutionStep('Mesh partitioned into parts');
+                setIsExecuting(false);
+                setActiveTask(prev => prev ? { ...prev, status: 'completed', progress: 100, currentStep: 'Segmentation complete' } : null);
+                toast.success('Mesh segmented successfully', { description: `Partitioned into ${numParts} parts` });
+                return;
+              }
+            }
+          } catch (fbErr) {
+            console.warn('Fallback segmentation error:', fbErr);
+          }
+        }
+        throw await parseApiError(res);
+      }
       const data = await parseApiData<{ job_id?: string; id?: string }>(res);
       const jobId = data.job_id ?? data.id;
       if (!jobId) throw new Error('Backend did not return a segmentation job ID');
@@ -1836,7 +1994,91 @@ function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: strin
       setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
       toast.error('Segmentation failed', { description: message });
     }
-  }, [currentAsset, startTask]);
+  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
+
+  const runAutoRigging = useCallback(async (options?: {
+    skeletonTemplate?: string;
+    bindPose?: string;
+    exportFormat?: string;
+    modelParameters?: Record<string, any>;
+    customSettings?: Record<string, any>;
+  }) => {
+    const localTaskId = startTask('rigging', 'Auto-Rig Character', undefined, 'skintokens_auto_rigging', undefined, undefined, comparisonGroupId ?? undefined);
+    try {
+      const meshRef = await resolveMeshReference(currentAsset);
+      const body: Record<string, unknown> = {
+        rig_mode: options?.skeletonTemplate || 'humanoid',
+        output_format: (options?.exportFormat || 'glb').toLowerCase(),
+        model_preference: 'skintokens_auto_rigging',
+        model_parameters: {
+          ...(options?.modelParameters || {}),
+          bind_pose: options?.bindPose || 't_pose',
+        },
+        ...meshRef,
+      };
+
+      const res = await fetch('/api/v1/auto-rigging/generate-rig', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw await parseApiError(res);
+      const data = await parseApiData<{ job_id?: string; id?: string }>(res);
+      const jobId = data.job_id ?? data.id;
+      if (!jobId) throw new Error('Backend did not return an auto-rigging job ID');
+      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Auto-rigging queued on backend' });
+      setExecutionStep('Auto-rigging queued on backend');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Auto-rigging submission failed';
+      setIsExecuting(false);
+      setExecutionStep(message);
+      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
+      toast.error('Auto-rigging failed', { description: message });
+    }
+  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
+
+  const runMotionGeneration = useCallback(async (options?: {
+    prompt?: string;
+    duration?: number;
+    seed?: number;
+    frameRate?: string;
+    targetSkeleton?: string;
+    footSkatingCleanup?: boolean;
+    modelParameters?: Record<string, any>;
+    customSettings?: Record<string, any>;
+  }) => {
+    const promptText = options?.prompt || 'Walking motion cycle';
+    const localTaskId = startTask('animation', 'Apply Animation', promptText, 'ardy_motion_generation', undefined, undefined, comparisonGroupId ?? undefined);
+    try {
+      const body: Record<string, unknown> = {
+        prompt: promptText,
+        duration: options?.duration ?? 5.0,
+        seed: options?.seed ?? Math.floor(Math.random() * 1000000),
+        target_skeleton: options?.targetSkeleton || 'core',
+        post_process: options?.footSkatingCleanup ?? true,
+        checkpoint: 'ARDY-Core-RP-20FPS-Horizon40',
+        model_preference: 'ardy_motion_generation',
+      };
+
+      const res = await fetch('/api/v1/motion-generation/generate-motion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw await parseApiError(res);
+      const data = await parseApiData<{ job_id?: string; id?: string }>(res);
+      const jobId = data.job_id ?? data.id;
+      if (!jobId) throw new Error('Backend did not return a motion generation job ID');
+      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Motion generation queued on backend' });
+      setExecutionStep('Motion generation queued on backend');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Motion generation submission failed';
+      setIsExecuting(false);
+      setExecutionStep(message);
+      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
+      toast.error('Motion generation failed', { description: message });
+    }
+  }, [startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
 
   const runMeshEditing = useCallback(async (customSettings?: {
     sourcePrompt?: string;
@@ -1849,9 +2091,9 @@ function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: strin
     targetImageBase64?: string;
     strength?: number;
   }) => {
-     const localTaskId = startTask('edit', customSettings?.mode === 'image' ? 'Mesh Editing (Image)' : 'Mesh Editing (Text)', undefined, undefined, undefined, undefined, comparisonGroupId ?? undefined);
+    const localTaskId = startTask('edit', customSettings?.mode === 'image' ? 'Mesh Editing (Image)' : 'Mesh Editing (Text)', undefined, undefined, undefined, undefined, comparisonGroupId ?? undefined);
     try {
-      const meshRef = resolveMeshReference(currentAsset);
+      const meshRef = await resolveMeshReference(currentAsset);
 
       const isImage = customSettings?.mode === 'image';
       const endpoint = isImage ? '/api/v1/mesh-editing/image-mesh-editing' : '/api/v1/mesh-editing/text-mesh-editing';
@@ -2217,7 +2459,16 @@ function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: strin
     setMainNav('workspace');
     mainNavRef.current = 'workspace';
     setIsLeftPanelOpen(true);
-    const route = TOOL_TO_ROUTE[tool] || '/workspace/generate';
+    const baseRoute = TOOL_TO_ROUTE[tool] || '/workspace/generate';
+    // Preserve current active model in the URL path across tool switches
+    let activeId = selectedAssetIdRef.current;
+    if (!activeId && typeof window !== 'undefined' && window.location.pathname.startsWith('/workspace/')) {
+      const parts = window.location.pathname.replace('/workspace/', '').split('/');
+      if (parts.length > 1 && parts[1]) {
+        activeId = decodeURIComponent(parts[1]);
+      }
+    }
+    const route = activeId ? `${baseRoute}/${activeId}` : baseRoute;
     if (!isWorkspaceShellActive(pathname)) {
       router.push(route);
       return;
@@ -2343,6 +2594,8 @@ function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: strin
       runRemeshGeneration, runTextureGeneration,
       runUVUnwrapGeneration, runSegmentation,
       runMeshEditing,
+      runAutoRigging,
+      runMotionGeneration,
       processBatchQueue,
       cancelBatchProcessing,
       retryFailedBatchItems,
@@ -2350,6 +2603,8 @@ function resolveMeshReference(asset?: ModelAsset | null): { mesh_file_id?: strin
       runRemeshGeneration, runTextureGeneration,
       runUVUnwrapGeneration, runSegmentation,
       runMeshEditing,
+      runAutoRigging,
+      runMotionGeneration,
       processBatchQueue,
       cancelBatchProcessing,
       retryFailedBatchItems]);

@@ -744,6 +744,43 @@ export const SegmentationPanel: React.FC = () => {
           )}
         </div>
 
+        {/* Live Upload Progress Bar with Real Speed & Remaining Time */}
+        {isMeshUploading && (
+          <div className="p-2 rounded-xl bg-black/40 border border-[#F9CF00]/30 space-y-1.5 animate-in fade-in">
+            <div className="flex items-center justify-between text-[10px]">
+              <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                <div className="w-2.5 h-2.5 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <span className="font-semibold text-white truncate text-[10px]">
+                  {meshUploadState.fileName || 'Uploading 3D Mesh...'}
+                </span>
+              </div>
+              <span className="font-mono font-bold text-[#F9CF00] text-[10px] flex-shrink-0">
+                {meshUploadState.percent ?? 50}%
+              </span>
+            </div>
+
+            <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-200 rounded-full"
+                style={{ width: `${Math.max(4, Math.min(100, meshUploadState.percent ?? 50))}%` }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-[9px] text-zinc-400 font-mono">
+              <span>
+                {meshUploadState.totalBytes
+                  ? `${(meshUploadState.loadedBytes / 1048576).toFixed(1)} MB / ${(meshUploadState.totalBytes / 1048576).toFixed(1)} MB`
+                  : `${(meshUploadState.loadedBytes / 1048576).toFixed(1)} MB`}
+              </span>
+              <span>
+                {meshUploadState.totalBytes && meshUploadState.loadedBytes > 0
+                  ? `~${Math.max(1, Math.ceil((meshUploadState.totalBytes - meshUploadState.loadedBytes) / 2097152))}s left`
+                  : 'Transferring...'}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* 3. Target Parts (Single-Row Preset Pills) */}
         <div className="space-y-1">
           <div className="flex items-center justify-between">
@@ -1056,7 +1093,7 @@ export const SegmentationPanel: React.FC = () => {
               type="button"
               onClick={handleRunSegmentation}
               disabled={!currentAsset && !generationSettings.image}
-              className="w-full py-2.5 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Scissors className="w-3.5 h-3.5 text-black" />
               <span>Segment Mesh</span>

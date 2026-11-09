@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import * as THREE from 'three';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { motion, AnimatePresence } from 'motion/react';
-
-
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Archive, BookmarkIcon, Cancel, CheckIcon, DownloadIcon, FileBoxIcon, LoaderCircle, Plus, ShieldCheckIcon, Trash2, TriangleAlertIcon } from '@hugeicons/core-free-icons';
 import { downloadArtifact } from '../lib/artifactDownload';
 import { settingsPersistence, type ExportQuickProfile } from '@/services/settingsPersistence';
+import { SimplifyModifier } from 'three/examples/jsm/modifiers/SimplifyModifier.js';
+import { exportThreeObject, downloadBlob, type ClientSupportedExportFormat } from '../utils/clientExporters';
+import { useViewerStore } from '@/stores/useViewerStore';
 
 export const ExportModal: React.FC = () => {
   const { isExportModalOpen, setIsExportModalOpen, currentAsset } = useWorkspace();
@@ -151,6 +153,78 @@ export const ExportModal: React.FC = () => {
         setError('FBX export requires a rigged skeleton. Rig this model first in the Rigging tab or choose GLB/OBJ.');
         return;
       }
+
+      // On-demand LOD decimation fallback via Three.js SimplifyModifier
+      if (variant === 'lod_package') {
+        const activeObj = useViewerStore.getState().activeModelObject;
+        if (activeObj) {
+          setIsExporting(true);
+          setError(null);
+          try {
+            const modifier = new SimplifyModifier();
+            const exportSingleLod = async (lodLevel: string, ratio: number) => {
+              const clone = activeObj.clone(true);
+              if (ratio < 1.0) {
+                const meshes: THREE.Mesh[] = [];
+                clone.traverse((c) => {
+                  if (c instanceof THREE.Mesh && c.geometry) meshes.push(c);
+                });
+                for (const m of meshes) {
+                  const vertCount = m.geometry.attributes.position?.count || 0;
+                  const countToRemove = Math.floor(vertCount * (1 - ratio));
+                  if (countToRemove > 0 && vertCount > 20) {
+                    try {
+                      m.geometry = await modifier.modify(m.geometry.clone(), countToRemove);
+                    } catch (e) {
+                      console.warn('LOD simplification error on submesh:', e);
+                    }
+                  }
+                }
+              }
+              const blob = await exportThreeObject(clone, 'glb');
+              downloadBlob(blob, `${assetBaseName}_${lodLevel.toUpperCase()}.glb`);
+            };
+
+            if (lodSelection === 'all') {
+              await exportSingleLod('lod0', 1.0);
+              await exportSingleLod('lod1', 0.5);
+              await exportSingleLod('lod2', 0.25);
+              await exportSingleLod('lod3', 0.125);
+            } else {
+              const ratio = lodSelection === 'lod1' ? 0.5 : lodSelection === 'lod2' ? 0.25 : lodSelection === 'lod3' ? 0.125 : 1.0;
+              await exportSingleLod(lodSelection, ratio);
+            }
+
+            setIsExportModalOpen(false);
+            return;
+          } catch (lodErr: any) {
+            console.error('On-demand LOD decimation error:', lodErr);
+            setError(lodErr?.message || 'Failed to generate LOD level on demand');
+            return;
+          } finally {
+            setIsExporting(false);
+          }
+        }
+      }
+
+      // Client-side Three.js exporter fallback for unbaked/local models
+      const activeObj = useViewerStore.getState().activeModelObject;
+      const clientFmt = (['glb', 'gltf', 'obj', 'stl', 'ply'].includes(downloadExtension) ? downloadExtension : 'glb') as ClientSupportedExportFormat;
+      if (activeObj && clientFmt) {
+        setIsExporting(true);
+        setError(null);
+        try {
+          const blob = await exportThreeObject(activeObj, clientFmt);
+          downloadBlob(blob, `${assetBaseName}.${clientFmt}`);
+          setIsExportModalOpen(false);
+          return;
+        } catch (clientErr: any) {
+          console.error('Client export fallback failed:', clientErr);
+        } finally {
+          setIsExporting(false);
+        }
+      }
+
       setError(
         variant === 'source'
           ? 'The source master is not available yet.'
@@ -172,6 +246,19 @@ export const ExportModal: React.FC = () => {
       );
       setIsExportModalOpen(false);
     } catch (err) {
+      // Fallback to client-side Three.js exporter if remote artifact fetch fails
+      const activeObj = useViewerStore.getState().activeModelObject;
+      const clientFmt = (['glb', 'gltf', 'obj', 'stl', 'ply'].includes(downloadExtension) ? downloadExtension : null) as ClientSupportedExportFormat | null;
+      if (activeObj && clientFmt) {
+        try {
+          const blob = await exportThreeObject(activeObj, clientFmt);
+          downloadBlob(blob, `${assetBaseName}.${clientFmt}`);
+          setIsExportModalOpen(false);
+          return;
+        } catch (clientErr) {
+          console.error('Client export fallback also failed:', clientErr);
+        }
+      }
       setError(err instanceof Error ? err.message : 'Export failed.');
     } finally {
       setIsExporting(false);
@@ -446,16 +533,16 @@ export const ExportModal: React.FC = () => {
             {packageZip ? 'ZIP Archive' : `${exportFormat.toUpperCase()} Single Asset`}
           </span>
           <div className="flex items-center justify-end gap-2.5">
-<button
+          <button
             onClick={() => setIsExportModalOpen(false)}
-            className="flex-1 sm:flex-initial rounded-xl px-4 py-2 text-xs font-semibold text-zinc-300 hover:bg-white/[0.08] hover:text-white transition-colors cursor-pointer"
+            className="flex-1 sm:flex-initial rounded-xl px-4 h-8 text-xs font-semibold text-zinc-300 hover:bg-white/[0.08] hover:text-white transition-colors cursor-pointer flex items-center justify-center"
           >
             Cancel
           </button>
           <button
             onClick={() => void handleExport()}
             disabled={isExporting}
-            className={`flex-1 sm:flex-initial px-5 sm:px-6 py-2.5 text-xs font-black rounded-xl bg-primary text-black hover:brightness-105 shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 btn-lighting-shine ${isExporting ? 'is-executing' : ''}`}
+            className={`flex-1 sm:flex-initial px-5 sm:px-6 h-8 text-xs font-semibold rounded-xl bg-primary text-black hover:brightness-105 shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 btn-lighting-shine ${isExporting ? 'is-executing' : ''}`}
           >
             {isExporting ? (
               <>
