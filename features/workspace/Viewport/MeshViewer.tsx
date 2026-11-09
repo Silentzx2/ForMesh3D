@@ -130,6 +130,8 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const {
     currentAsset,
     activeTool,
+    isComparing,
+    setIsComparing,
     shadingMode,
     showWireframe,
     showGrid,
@@ -165,6 +167,16 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
   const [hasModel, setHasModel] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isComparisonLoading, setIsComparisonLoading] = useState(false);
+  const comparisonOpenRef = useRef(false);
+  const comparisonPositionRef = useRef(50);
+  const comparisonBeforeGroupRef = useRef<THREE.Group | null>(null);
+  const comparisonDividerRef = useRef<HTMLDivElement | null>(null);
+  const comparisonHandleRef = useRef<HTMLDivElement | null>(null);
+  const shadingModeRef = useRef(shadingMode);
+  const showWireframeRef = useRef(showWireframe);
+  shadingModeRef.current = shadingMode;
+  showWireframeRef.current = showWireframe;
 
   // Three.js instances stored in refs to avoid React re-render overhead
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -259,6 +271,12 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     modelGroupRef.current = modelGroup;
     scene.add(modelGroup);
 
+    const comparisonBeforeGroup = new THREE.Group();
+    comparisonBeforeGroup.name = 'comparison-before';
+    comparisonBeforeGroup.visible = false;
+    comparisonBeforeGroupRef.current = comparisonBeforeGroup;
+    scene.add(comparisonBeforeGroup);
+
     // Animation frame loop
     let animId: number;
     const animate = () => {
@@ -275,9 +293,33 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
       if (modelGroupRef.current && isTurntable) {
         modelGroupRef.current.rotation.y += 0.008;
+        if (comparisonBeforeGroupRef.current) {
+          comparisonBeforeGroupRef.current.rotation.y = modelGroupRef.current.rotation.y;
+        }
       }
 
-      renderer.render(scene, camera);
+      const beforeGroup = comparisonBeforeGroupRef.current;
+      const afterGroup = modelGroupRef.current;
+      if (comparisonOpenRef.current && beforeGroup?.children.length && afterGroup?.children.length) {
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        const split = Math.max(1, Math.min(width - 1, Math.round(width * comparisonPositionRef.current / 100)));
+        renderer.setScissorTest(true);
+        beforeGroup.visible = true;
+        afterGroup.visible = false;
+        renderer.setScissor(0, 0, split, height);
+        renderer.render(scene, camera);
+        beforeGroup.visible = false;
+        afterGroup.visible = true;
+        renderer.setScissor(split, 0, width - split, height);
+        renderer.render(scene, camera);
+        renderer.setScissorTest(false);
+      } else {
+        if (beforeGroup) beforeGroup.visible = false;
+        if (afterGroup) afterGroup.visible = true;
+        renderer.setScissorTest(false);
+        renderer.render(scene, camera);
+      }
     };
     animate();
 
@@ -308,6 +350,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       rendererRef.current = null;
       controlsRef.current = null;
       modelGroupRef.current = null;
+      comparisonBeforeGroupRef.current = null;
     };
   }, []);
 
@@ -528,11 +571,12 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   }, []);
 
   useEffect(() => {
-    if (!modelGroupRef.current) return;
-    modelGroupRef.current.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        applyShadingToMesh(child, shadingMode, Boolean(showWireframe));
-      }
+    [modelGroupRef.current, comparisonBeforeGroupRef.current].forEach((group) => {
+      group?.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          applyShadingToMesh(child, shadingMode, Boolean(showWireframe));
+        }
+      });
     });
   }, [showWireframe, shadingMode, applyShadingToMesh]);
 
@@ -568,6 +612,91 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     currentAsset?.source?.localUrl ||
     loadedModelUrl ||
     null;
+  const comparisonBeforeUrl = currentAsset?.artifacts?.source || null;
+  const comparisonAfterUrl = currentAsset?.source?.viewUrl || currentAsset?.source?.localUrl || currentAsset?.artifacts?.gameReady || null;
+  const canCompareModels = Boolean(comparisonBeforeUrl && comparisonAfterUrl && comparisonBeforeUrl !== comparisonAfterUrl);
+
+  useEffect(() => {
+    comparisonOpenRef.current = isComparing;
+  }, [isComparing]);
+
+  useEffect(() => {
+    if (!canCompareModels && isComparing) setIsComparing(false);
+  }, [canCompareModels, isComparing, setIsComparing]);
+
+  // ponytail: load source only while Compare is open; caching waits for measured repeat-use cost.
+  useEffect(() => {
+    const beforeGroup = comparisonBeforeGroupRef.current;
+    if (!beforeGroup) return;
+
+    if (!isComparing || !canCompareModels || !comparisonBeforeUrl) {
+      beforeGroup.visible = false;
+      while (beforeGroup.children.length) {
+        const child = beforeGroup.children[0];
+        beforeGroup.remove(child);
+        disposeObject3D(child);
+      }
+      setIsComparisonLoading(false);
+      return;
+    }
+
+    let isCancelled = false;
+    setIsComparisonLoading(true);
+    beforeGroup.visible = false;
+    while (beforeGroup.children.length) {
+      const child = beforeGroup.children[0];
+      beforeGroup.remove(child);
+      disposeObject3D(child);
+    }
+
+    sharedGLTFLoader.load(
+      comparisonBeforeUrl,
+      (gltf) => {
+        const original = gltf.scene;
+        if (isCancelled || !comparisonBeforeGroupRef.current) {
+          disposeObject3D(original);
+          return;
+        }
+        const bounds = new THREE.Box3().setFromObject(original);
+        if (bounds.isEmpty()) {
+          disposeObject3D(original);
+          setIsComparisonLoading(false);
+          setIsComparing(false);
+          return;
+        }
+        const center = bounds.getCenter(new THREE.Vector3());
+        const size = bounds.getSize(new THREE.Vector3());
+        const maxDimension = Math.max(size.x, size.y, size.z);
+        const scale = maxDimension > 0 ? 2 / maxDimension : 1;
+        original.position.sub(center.clone().multiplyScalar(scale));
+        original.position.y += (size.y * scale) / 2;
+        original.scale.setScalar(scale);
+        original.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+            applyShadingToMesh(child, shadingModeRef.current, Boolean(showWireframeRef.current));
+          }
+        });
+        comparisonBeforeGroupRef.current.add(original);
+        comparisonBeforeGroupRef.current.visible = true;
+        setIsComparisonLoading(false);
+      },
+      undefined,
+      (error) => {
+        if (!isCancelled) {
+          setIsComparisonLoading(false);
+          setIsComparing(false);
+          toast.error('Could not load the original mesh for comparison');
+          console.warn('Original mesh comparison load failed:', error);
+        }
+      }
+    );
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isComparing, canCompareModels, comparisonBeforeUrl, setIsComparing, applyShadingToMesh]);
 
   useEffect(() => {
     if (!modelUrl || !modelGroupRef.current) {
@@ -709,6 +838,23 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     };
   }, [modelUrl, fitCameraToModel, shadingMode, showWireframe, applyShadingToMesh]);
 
+  const updateComparisonPosition = (clientX: number) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return;
+    const next = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+    comparisonPositionRef.current = next;
+    if (comparisonDividerRef.current) comparisonDividerRef.current.style.left = `${next}%`;
+    comparisonHandleRef.current?.setAttribute('aria-valuenow', String(Math.round(next)));
+    comparisonHandleRef.current?.setAttribute('aria-valuetext', `${Math.round(next)} percent before`);
+  };
+
+  const moveComparisonBy = (delta: number) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const next = Math.max(0, Math.min(100, comparisonPositionRef.current + delta));
+    updateComparisonPosition(rect.left + (rect.width * next) / 100);
+  };
+
   return (
     <div
       ref={containerRef}
@@ -752,6 +898,67 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {isComparing && canCompareModels && hasModel && (
+        <div className="absolute inset-0 z-10 pointer-events-none">
+          <div className="absolute top-3 left-3 px-2 py-1 rounded-md bg-black/65 border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white">
+            Before
+          </div>
+          <div className="absolute top-3 right-3 px-2 py-1 rounded-md bg-black/65 border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white">
+            After
+          </div>
+          <div ref={comparisonDividerRef} className="absolute top-0 bottom-0" style={{ left: '50%' }}>
+            <div className="absolute inset-y-0 left-0 w-px -translate-x-1/2 bg-[#F9CF00] shadow-[0_0_10px_rgba(249,207,0,0.7)]" />
+            <div
+              ref={comparisonHandleRef}
+              role="slider"
+              tabIndex={0}
+              aria-label="Before and after comparison split"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={50}
+              aria-valuetext="50 percent before"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                updateComparisonPosition(event.clientX);
+              }}
+              onPointerMove={(event) => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) updateComparisonPosition(event.clientX);
+              }}
+              onPointerUp={(event) => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  moveComparisonBy(-1);
+                } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  moveComparisonBy(1);
+                } else if (event.key === 'Home') {
+                  event.preventDefault();
+                  updateComparisonPosition(containerRef.current?.getBoundingClientRect().left ?? 0);
+                } else if (event.key === 'End') {
+                  event.preventDefault();
+                  updateComparisonPosition(containerRef.current?.getBoundingClientRect().right ?? 0);
+                }
+              }}
+              className="pointer-events-auto absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-10 rounded-full bg-[#171821] border border-[#F9CF00] shadow-lg flex items-center justify-center cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-[#F9CF00]"
+            >
+              <span className="flex items-center gap-0.5 text-[#F9CF00]">
+                <span className="w-0.5 h-3 rounded-full bg-current" />
+                <span className="w-0.5 h-3 rounded-full bg-current" />
+              </span>
+            </div>
+          </div>
+          {isComparisonLoading && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg bg-black/70 border border-white/10 text-[10px] text-zinc-200">
+              Loading original mesh…
+            </div>
+          )}
         </div>
       )}
 

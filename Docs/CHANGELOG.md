@@ -1,5 +1,12 @@
 # ForMesh3D Changelog
 
+## 2026-11-09 — Context-Aware Viewport Compare & In-Panel PBR Routing
+
+- Added an on-demand Before / After wipe control to the viewport rail. It is enabled only when the selected asset has distinct source and processed model URLs.
+- Reuses the persistent MeshViewer scene, camera and WebGL renderer. The source mesh is loaded only while comparison is active; scissored render passes and a DOM-driven divider avoid a second WebGL context and per-pointer React renders.
+- Processing tasks retain their original input mesh URL on remesh, texture, segmentation, rigging and edit outputs, so the compare action can resolve genuine lineage rather than inventing a Before model.
+- Added Texture / PBR routing inside the existing Texture panel. The hidden PBR route reuses the same panel and its existing map-baking controls, preserving the persistent workspace transition.
+
 ## 2026-11-09 — Workspace UI/UX Polish
 
 - Removed internal scrolling from the seven tool panels, contextual property inspectors, and paginated asset view.
@@ -23,26 +30,5 @@
 - **Multi-Part Colored GLB Scene Generation & Automatic 3D Viewport Presentation (`segment.py`, `WorkspaceContext.tsx`)**:
   - Enhanced backend Trimesh segmentation (`backend/postprocess/services/segment.py`) to partition input geometry into individual submeshes with distinct palette colors in a composite `trimesh.Scene` exported as base64-encoded GLB.
   - Automatically loads resulting single-mesh and multi-part GLB scenes into `MeshViewer` via `loadModelInViewer` and triggers camera re-framing (`setViewportResetTrigger`) for instant 3D inspection.
-
----
-
-## 2026-11-09 — Dedicated Dynamic Tool Inspector Routing, Viewport Planar UV Fallback & Model Page Property Isolation
-
-- **Dedicated Tool Inspectors in Right Property Panel (`RightPropertyPanel.tsx`)**:
-  - Isolated default general mesh properties (Object Transform, Geometry & Topology, Viewport Shading, Model Comparison Viewer, Quick Export) exclusively to the `model` page (`/workspace/generate` or `/workspace/model`).
-  - Implemented dedicated, full-height inspector panels with custom branded headers and zero default properties leakage for all tool pages:
-    - Smart UV (`uv`): `DynamicUVInspector` with real 2D UV wireframe, coverage %, UV faces, and viewport toggles.
-    - Segmentation (`segment`): `DynamicSegmentationInspector` with real 3D color-coded submesh preview, part hierarchy, visibility toggles, and ZIP export.
-    - Animation (`animation`): `DynamicAnimationInspector` with Three.js mixer scrubber, timeline playback, speed pills, and GLB motion clip export.
-    - Rigging (`rigging`): `DynamicRiggingInspector` with real 3D armature, joint hierarchy, Pitch/Yaw/Roll sliders, pose presets, X-Ray mode, and GLB rigged export.
-    - Retopology (`remesh`): Dedicated Quad Retopology Inspector displaying FastMesh variant, polygon topology type, alignment, telemetry, and wireframe overrides.
-    - PBR Material (`texture`/`pbr`): Dedicated PBR Material Inspector displaying roughness, metallic, normal intensity, cavity/AO strength, and normal format standard toggles.
-- **Client-Side Quick Planar UV Fallback (`DynamicUVInspector.tsx`)**:
-  - Enhanced `DynamicUVInspector` to support multi-attribute UV resolution (`uv`, `uv_0`, `texcoord_0`, `uv2`).
-  - Added instant client-side planar UV projection (`handleQuickPlanarUV`) for meshes without native UV maps (e.g. raw vertex-colored GLBs), generating normalized bounding-box UVs in 1ms directly on the Three.js geometry for immediate wireframe plotting and texture testing.
-  - Provided dual-action empty state: 1-click Quick Viewport UVs (client) or Smart UV Unwrap (XAtlas backend pipeline).
-- **Tool Navigation State & Model ID Deep Linking (`WorkspaceContext.tsx`, `WorkspaceShell.tsx`)**:
-  - Ensured switching tool tabs preserves active model ID in URL path (`/workspace/<tool>/<model_id>`) without dropping the model or causing full page remounts.
-  - Maintained Tripo-style center viewport confinement (`md:left-[284px]` and `md:right-[270px]`) and non-collapsible side panels (`left-2 w-[274px]`, `right-2 w-[260px]`).
 
 ---

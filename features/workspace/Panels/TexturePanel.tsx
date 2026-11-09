@@ -264,6 +264,8 @@ export const TexturePanel: React.FC = () => {
     textureSettings,
     setTextureSettings,
     currentAsset,
+    activeTool,
+    navigateToTool,
   } = useWorkspace();
 
   // Model & Core State
@@ -639,19 +641,38 @@ export const TexturePanel: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full w-full bg-[hsl(var(--surface-1))] text-[hsl(var(--foreground))] overflow-hidden select-none">
-      {/* 1. Header (Clean Studio Proportion) */}
+      {/* 1. Header and in-panel Texture / PBR routing */}
       <div className="flex items-center justify-between py-2.5 px-3 border-b border-white/[0.06] flex-shrink-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <div className="w-5 h-5 rounded-md bg-[#F9CF00]/15 flex items-center justify-center text-[#F9CF00]">
-            <Palette className="w-3 h-3" />
+            {activeTool === 'pbr' ? <Layers className="w-3 h-3" /> : <Palette className="w-3 h-3" />}
           </div>
-          <h2 className="text-xs font-bold text-zinc-100 tracking-normal">
-            Texture
+          <h2 className="text-xs font-bold text-zinc-100 tracking-normal truncate">
+            {activeTool === 'pbr' ? 'PBR Materials' : 'Texture'}
           </h2>
         </div>
-        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/[0.04] text-zinc-400 border border-white/[0.04]">
-          PBR Atlas
-        </span>
+        <div className="flex items-center gap-0.5 rounded-full bg-black/30 border border-white/[0.06] p-0.5 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => navigateToTool('texture')}
+            aria-current={activeTool === 'texture' ? 'page' : undefined}
+            className={`px-2 py-1 rounded-full text-[9px] font-bold transition-colors cursor-pointer ${
+              activeTool === 'texture' ? 'bg-white text-black' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            Texture
+          </button>
+          <button
+            type="button"
+            onClick={() => navigateToTool('pbr')}
+            aria-current={activeTool === 'pbr' ? 'page' : undefined}
+            className={`px-2 py-1 rounded-full text-[9px] font-bold transition-colors cursor-pointer ${
+              activeTool === 'pbr' ? 'bg-[#F9CF00] text-black' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            PBR
+          </button>
+        </div>
       </div>
 
       {/* Hidden file inputs */}
@@ -945,30 +966,32 @@ export const TexturePanel: React.FC = () => {
             </div>
           </div>
 
-          {/* 5. Sleek Advanced Settings Trigger Button */}
-          <div className="pt-0.5">
-            <button
-              ref={textureSettingsTriggerRef}
-              type="button"
-              aria-expanded={isTextureSettingsOpen}
-              onClick={() => setIsTextureSettingsOpen((prev) => !prev)}
-              className={`w-full h-7.5 px-2.5 rounded-xl border flex items-center justify-between text-left transition-all cursor-pointer shadow-sm ${
-                isTextureSettingsOpen
-                  ? 'bg-[#1b1b2f] border-[#F9CF00] text-white ring-1 ring-[#F9CF00]/50'
-                  : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-[hsl(var(--foreground))]'
-              }`}
-            >
-              <div className="flex items-center gap-1.5">
-                <SlidersHorizontal className="w-3 h-3 text-[#F9CF00]" />
-                <span className="text-[10.5px] font-medium text-zinc-300">Advanced Settings</span>
-              </div>
-              <ChevronRight
-                className={`w-3 h-3 text-zinc-400 transition-transform duration-200 ${
-                  isTextureSettingsOpen ? 'rotate-90 text-[#F9CF00]' : ''
+          {/* PBR route already opens the map settings flyout; don't show a dead toggle there. */}
+          {activeTool !== 'pbr' && (
+            <div className="pt-0.5">
+              <button
+                ref={textureSettingsTriggerRef}
+                type="button"
+                aria-expanded={isTextureSettingsOpen}
+                onClick={() => setIsTextureSettingsOpen((prev) => !prev)}
+                className={`w-full h-7.5 px-2.5 rounded-xl border flex items-center justify-between text-left transition-all cursor-pointer shadow-sm ${
+                  isTextureSettingsOpen
+                    ? 'bg-[#1b1b2f] border-[#F9CF00] text-white ring-1 ring-[#F9CF00]/50'
+                    : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-[hsl(var(--foreground))]'
                 }`}
-              />
-            </button>
-          </div>
+              >
+                <div className="flex items-center gap-1.5">
+                  <SlidersHorizontal className="w-3 h-3 text-[#F9CF00]" />
+                  <span className="text-[10.5px] font-medium text-zinc-300">Advanced Settings</span>
+                </div>
+                <ChevronRight
+                  className={`w-3 h-3 text-zinc-400 transition-transform duration-200 ${
+                    isTextureSettingsOpen ? 'rotate-90 text-[#F9CF00]' : ''
+                  }`}
+                />
+              </button>
+            </div>
+          )}
 
           {/* 6. AI Model & Seed Section */}
           <div className="space-y-1.5 pt-1 border-t border-[hsl(var(--border))]" ref={modelDropdownRef}>
@@ -1091,7 +1114,7 @@ export const TexturePanel: React.FC = () => {
         </div>
 
         {/* Dynamic Flying Side Advanced Texture Settings Panel (Portal) */}
-        {mounted && isTextureSettingsOpen && typeof document !== 'undefined' && createPortal(
+        {mounted && (isTextureSettingsOpen || activeTool === 'pbr') && typeof document !== 'undefined' && createPortal(
           <div
             ref={textureSettingsFlyoutRef}
             id="texture-settings-flyout"
@@ -1104,13 +1127,13 @@ export const TexturePanel: React.FC = () => {
               <div>
                 <h3 className="text-[11px] font-bold text-white tracking-wide flex items-center gap-1.5">
                   <SlidersHorizontal className="w-3 h-3 text-[#F9CF00]" />
-                  <span>Advanced Settings</span>
+                  <span>{activeTool === 'pbr' ? 'PBR Settings' : 'Advanced Settings'}</span>
                 </h3>
                 <p className="text-[8.5px] text-zinc-400 mt-0.5">PBR &amp; Lighting controls</p>
               </div>
               <button
                 type="button"
-                onClick={() => setIsTextureSettingsOpen(false)}
+                onClick={() => activeTool === 'pbr' ? navigateToTool('texture') : setIsTextureSettingsOpen(false)}
                 className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                 aria-label="Close Advanced Texture settings"
               >
@@ -1295,7 +1318,7 @@ export const TexturePanel: React.FC = () => {
               className="w-full py-2.5 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Sparkles className="w-3.5 h-3.5 text-black" />
-              <span>Generate Textures</span>
+              <span>{activeTool === 'pbr' ? 'Generate PBR Maps' : 'Generate Textures'}</span>
             </button>
             <div className="flex items-center justify-between text-[8.5px] text-zinc-500 px-1 font-mono">
               <span>VRAM ~12 GB</span>

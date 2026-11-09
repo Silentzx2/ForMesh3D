@@ -52,6 +52,8 @@ interface ComparisonGroup {
 interface WorkspaceContextType {
   activeTool: ToolType;
   setActiveTool: (tool: ToolType) => void;
+  isComparing: boolean;
+  setIsComparing: (open: boolean) => void;
   mainNav: MainNavRoute;
   setMainNav: (nav: MainNavRoute) => void;
   assets: ModelAsset[];
@@ -271,6 +273,12 @@ function preferredGenerationPreviewUrl(result?: Record<string, any>): string | u
   return result?.active_model_url || result?.textured_model_url || result?.model_url || result?.mesh_url || result?.url;
 }
 
+function comparisonSourceUrl(asset?: ModelAsset | null): string | undefined {
+  const fileId = asset?.source?.fileId || asset?.fileId;
+  return asset?.source?.viewUrl || asset?.source?.localUrl ||
+    (fileId ? `/api/v1/file-upload/download/${encodeURIComponent(fileId)}` : undefined);
+}
+
 function preferredPreviewStats(result?: Record<string, any>): Record<string, any> {
   return isNativeRawPreview(result)
     ? (result?.quality_trace?.source || {})
@@ -336,6 +344,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const pathname = usePathname();
 
   const [activeTool, setActiveToolState] = useState<ToolType>('model');
+  const [isComparing, setIsComparing] = useState(false);
   const [mainNav, setMainNavState] = useState<MainNavRoute>('workspace');
   const [activeRightTab, setActiveRightTab] = useState<'assets' | 'property' | 'properties' | 'prompt'>('properties');
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
@@ -1176,7 +1185,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
                      productionStatus,
                      degradedReasons,
                      game_ready_url: (result.game_ready_url as string) || modelUrl,
-                     source_model_url: (result.source_model_url as string) || (result.high_fidelity_url as string) || undefined,
+                     source_model_url: (result.source_model_url as string) || (result.high_fidelity_url as string) || task.sourceModelUrl,
                      tags: ['AI Generated'],
                      collision_url: result.collision_url,
                      pbr_maps: result.pbr_maps,
@@ -1468,7 +1477,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     });
   }, [activeTask, getApiClient]);
 
-  const startTask = useCallback((type: ActiveTask['type'], title: string, promptId?: string, provider?: string, inputImage?: string, inputImageName?: string, comparisonGroupId?: string) => {
+  const startTask = useCallback((type: ActiveTask['type'], title: string, promptId?: string, provider?: string, inputImage?: string, inputImageName?: string, comparisonGroupId?: string, sourceModelUrl?: string) => {
     if (activeAbortControllerRef.current) {
       activeAbortControllerRef.current.abort();
     }
@@ -1489,7 +1498,8 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       provider,
       inputImage,
       inputImageName,
-      comparisonGroupId
+      comparisonGroupId,
+      sourceModelUrl
     };
     setIsExecuting(true);
     setExecutionProgress(0);
@@ -1809,7 +1819,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       engine === 'script' ? 'trimesh_autoretopo' : (customSettings?.variant === 'V4K' ? 'fastmesh_v4k_retopology' : 'fastmesh_v1k_retopology'),
       undefined,
       undefined,
-      comparisonGroupId ?? undefined
+      comparisonGroupId ?? undefined,
+      comparisonSourceUrl(currentAsset)
     );
     const signal = activeAbortControllerRef.current?.signal;
     try {
@@ -1849,6 +1860,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
             name: `${cleanBaseName}_retopo_${polyType}`,
             category: 'edit',
             source: { filename: `${cleanBaseName}_retopo.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'retopo' },
+            artifacts: { source: meshUrl || comparisonSourceUrl(currentAsset) },
             format: 'GLB',
             topology: polyType === 'quad' ? 'Quad' : 'Triangle',
             faces: result.stats?.face_count || targetPoly,
@@ -1915,7 +1927,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       ? 'hunyuan3d_paint_v21_image_mesh_painting'
       : 'paint3d';
 
-    const localTaskId = startTask('texture', 'Texture generation', undefined, modelPreference, undefined, undefined, comparisonGroupId ?? undefined);
+    const localTaskId = startTask('texture', 'Texture generation', undefined, modelPreference, undefined, undefined, comparisonGroupId ?? undefined, comparisonSourceUrl(currentAsset));
     const signal = activeAbortControllerRef.current?.signal;
     try {
       const meshRef = await resolveMeshReference(currentAsset, signal);
@@ -2107,7 +2119,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       engine === 'script' ? 'trimesh_decomposition' : pref || undefined,
       undefined,
       undefined,
-      comparisonGroupId ?? undefined
+      comparisonGroupId ?? undefined,
+      comparisonSourceUrl(currentAsset)
     );
     const signal = activeAbortControllerRef.current?.signal;
     try {
@@ -2141,6 +2154,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
             name: `${cleanBaseName}_segmented_${numParts}parts`,
             category: 'edit',
             source: { filename: `${cleanBaseName}_segmented.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'segment' },
+            artifacts: { source: meshUrl || comparisonSourceUrl(currentAsset) },
             format: 'GLB',
             topology: currentAsset?.topology || 'Triangle',
             faces: currentAsset?.faces || 0,
@@ -2234,7 +2248,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     modelParameters?: Record<string, any>;
     customSettings?: Record<string, any>;
   }) => {
-    const localTaskId = startTask('rigging', 'Auto-Rig Character', undefined, 'skintokens_auto_rigging', undefined, undefined, comparisonGroupId ?? undefined);
+    const localTaskId = startTask('rigging', 'Auto-Rig Character', undefined, 'skintokens_auto_rigging', undefined, undefined, comparisonGroupId ?? undefined, comparisonSourceUrl(currentAsset));
     const signal = activeAbortControllerRef.current?.signal;
     try {
       const meshRef = await resolveMeshReference(currentAsset, signal);
@@ -2334,7 +2348,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     targetImageBase64?: string;
     strength?: number;
   }) => {
-    const localTaskId = startTask('edit', customSettings?.mode === 'image' ? 'Mesh Editing (Image)' : 'Mesh Editing (Text)', undefined, undefined, undefined, undefined, comparisonGroupId ?? undefined);
+    const localTaskId = startTask('edit', customSettings?.mode === 'image' ? 'Mesh Editing (Image)' : 'Mesh Editing (Text)', undefined, undefined, undefined, undefined, comparisonGroupId ?? undefined, comparisonSourceUrl(currentAsset));
     const signal = activeAbortControllerRef.current?.signal;
     try {
       const meshRef = await resolveMeshReference(currentAsset, signal);
@@ -2778,7 +2792,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     viewportResetTrigger, resetCamera, fitToScreen]);
 
   const toolValue = useMemo(() => ({
-    activeTool, setActiveTool, mainNav, setMainNav,
+    activeTool, setActiveTool, isComparing, setIsComparing, mainNav, setMainNav,
     activeRightTab, setActiveRightTab,
     rightPanelMode: activeRightTab, setRightPanelMode: setActiveRightTab,
     isLeftPanelOpen, setIsLeftPanelOpen,
@@ -2788,7 +2802,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     isRightPanelOpen, setIsRightPanelOpen,
     rightPanelOpen: isRightPanelOpen, setRightPanelOpen: setIsRightPanelOpen,
     navigateToTool, navigateToMain, navigateToMainNav: navigateToMain,
-  }), [activeTool, setActiveTool, mainNav, setMainNav,
+  }), [activeTool, setActiveTool, isComparing, setIsComparing, mainNav, setMainNav,
     activeRightTab, setActiveRightTab,
     isLeftPanelOpen, setIsLeftPanelOpen,
     leftPanelWidth, setLeftPanelWidth,

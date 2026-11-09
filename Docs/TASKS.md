@@ -1,5 +1,14 @@
 # ForMesh3D — End-to-End System Wiring & Total Placeholder Eradication Blueprint
 
+## 2026-11-09 — Viewport Compare & Texture/PBR Route Unification
+
+- [x] Added a viewport-rail Before / After comparison action. It becomes active only when both distinct source and processed model URLs are available on the selected asset. Texture, retopo, segmentation, rigging and edit jobs carry their input mesh URL into the result asset's source artifact.
+- [x] Reused the persistent MeshViewer scene, renderer and camera. The source model is loaded only while comparison is open, rendered through scissored halves, and disposed on close. The wipe divider supports pointer, touch and keyboard input without React state updates during drag.
+- [x] Added Texture / PBR navigation inside TexturePanel. The existing hidden /workspace/texture-pbr route renders the same TexturePanel and reuses its existing PBR map controls; no extra rail item or second form was introduced.
+- **Validation:** Static code-path review only in this GitHub editing session. No local type-check, build, browser, or GPU test was run here.
+
+---
+
 **Document Version**: 2.3.0  
 **Status**: COMPLETED & VERIFIED (Dual-Engine Bridge, Script Mode Passthrough & Abort Fix Landed)  
 **Target Branch**: `dev`  

@@ -12,6 +12,7 @@ import {
   GridIcon,
   HelpCircleIcon,
   LayersIcon,
+  FlipHorizontalIcon,
   RotateCw,
   SettingsIcon,
 } from '@hugeicons/core-free-icons';
@@ -28,6 +29,9 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
   const {
     showWireframe,
     setShowWireframe,
+    currentAsset,
+    isComparing,
+    setIsComparing,
     showGrid,
     setShowGrid,
     isTurntable,
@@ -38,6 +42,9 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
   } = useWorkspace();
 
   const isRightPanelOpen = propRightPanelOpen ?? contextRightPanelOpen ?? false;
+  const compareBeforeUrl = currentAsset?.artifacts?.source;
+  const compareAfterUrl = currentAsset?.source?.viewUrl || currentAsset?.source?.localUrl || currentAsset?.artifacts?.gameReady;
+  const canCompare = Boolean(compareBeforeUrl && compareAfterUrl && compareBeforeUrl !== compareAfterUrl);
 
   const [activePreset, setActivePreset] = useState<'Front' | 'Top' | 'Side' | 'Iso'>('Iso');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -158,7 +165,25 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
             </button>
           </SimpleTooltip>
 
-          {/* 3. Wireframe toggle button */}
+          {/* 3. Before / After comparison */}
+          <SimpleTooltip label={canCompare ? (isComparing ? 'Exit Before / After Compare' : 'Compare Before / After') : 'Comparison appears when a processed source and result are available'} side="left">
+            <button
+              type="button"
+              disabled={!canCompare}
+              onClick={() => setIsComparing(!isComparing)}
+              aria-label={isComparing ? 'Exit model comparison' : 'Compare before and after'}
+              aria-pressed={isComparing}
+              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                isComparing
+                  ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+              }`}
+            >
+              <HugeiconsIcon icon={FlipHorizontalIcon} size={16} />
+            </button>
+          </SimpleTooltip>
+
+          {/* 4. Wireframe toggle button */}
           <SimpleTooltip
             label={showWireframe ? 'Wireframe: ON' : 'Wireframe: OFF'}
             side="left"

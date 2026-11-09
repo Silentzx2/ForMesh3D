@@ -1,6 +1,6 @@
 # UI Design System & Component Reference
 
-> **Design Version**: 0.2.0
+> **Design Version**: 0.3.0
 > **Last Updated**: November 9, 2026
 > **Design System**: Studio Gold (`#FFCC00`, `48 100% 50%`) on Matte Black (`#080808`)
 
@@ -718,3 +718,10 @@ Workspace Settings → AI Inference → Generation Output Recipes is a native di
 - Saved recipes restore the panel's generation settings (model, polycount, LOD, texture, QA and physics options) on top of the model-specific defaults.
 - Revision/experiment ID is metadata, not an inference argument. Presets omit image bytes, upload IDs, and preprocessing artifacts, so loading a preset keeps the current image.
 - UI uses existing surface tokens and native browser controls; no new dependency is introduced.
+
+
+## Context-Aware Before / After Compare & PBR Routing
+
+- The viewport rail exposes one Before / After tool, disabled until the selected asset supplies distinct source and processed model artifacts.
+- Comparison is opt-in and overlays the existing MeshViewer canvas with a draggable, keyboard-accessible wipe divider. Both halves share the same scene, camera, lighting, renderer and render loop; only the source model is loaded on demand, and it is disposed when comparison closes.
+- Texture and PBR are two routes of the same TexturePanel. The PBR tab navigates through the existing /workspace/texture-pbr route using the workspace's replace-state tool navigation, so the left panel and WebGL viewport do not remount. PBR map options reuse the existing controls rather than duplicating a second form.

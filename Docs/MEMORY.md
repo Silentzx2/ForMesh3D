@@ -1,5 +1,13 @@
 # ForMesh3D — Audited Project State
 
+
+## 2026-11-09 — Context-Aware Compare & PBR Route
+
+- Viewport Before / After comparison is on demand. The tool rail enables it only when the selected asset has distinct source and processed mesh URLs. Texture, retopo, segmentation, rigging and edit tasks retain their input mesh URL as the result asset's source artifact.
+- The wipe reuses MeshViewer's one scene, camera and renderer; the source object is fetched on activation and disposed when comparison closes. Divider movement is DOM/ref-driven to avoid high-frequency React re-renders.
+- Texture and PBR routes share TexturePanel. The in-panel PBR tab uses the existing hidden route and existing map-bake settings, preserving the mounted workspace and canvas.
+
+
 **Audit date:** 2026-11-07  
 **Inspected branch baseline before this change:** `ForMesh3D/dev` at `7651f224fcb50936ca81ce4af8fbea0d74265fbe`  
 **Third-party source baseline before this change:** `ForMesh3D-ThirdParty/main` at `b359c0c52ba5fb42131443f4e4517691253e8f8`  

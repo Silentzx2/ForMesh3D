@@ -1049,3 +1049,10 @@ In `backend/postprocess/services/segment.py`, Trimesh geometric segmentation par
 - Each submesh receives a distinct palette color applied to its face visuals.
 - The submeshes are combined into a composite `trimesh.Scene` and exported as a binary GLB.
 - Upon completion, `WorkspaceContext` creates a normalized model asset, mounts it into `MeshViewer` via `loadModelInViewer`, and resets camera orientation for immediate visual inspection.
+
+
+## On-Demand Viewport Comparison
+
+ViewportToolOverlay owns the compare action and reads the shared isComparing flag from WorkspaceContext. MeshViewer resolves a real source artifact and processed output URL from the selected asset. When enabled, it loads the source GLB into a second object group inside the existing Three.js scene and uses two scissored render passes in the current renderer. The active model and source model share the same camera, lights and render loop; no second WebGLRenderer or continuously loaded comparison asset is created. Texture, remesh, segmentation, rigging and edit jobs retain their input mesh URL on task metadata so result assets can expose an accurate source artifact even when the backend response omits one. Closing comparison disposes the source group. The divider updates its DOM position directly during pointer movement to avoid React state churn.
+
+The texture and pbr tool routes intentionally resolve to the same TexturePanel instance. Its internal Texture / PBR tabs call the existing navigateToTool path, whose replace-state behavior preserves the mounted workspace canvas. PBR exposes the existing map-baking and channel controls; no duplicate PBR page or separate left-rail tool is introduced.
