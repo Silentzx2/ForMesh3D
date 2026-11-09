@@ -489,11 +489,6 @@ export const WorkspaceShell: React.FC = () => {
         <TopHeader onMobileMenuToggle={() => setIsMobileNavOpen(!isMobileNavOpen)} isMobileNavOpen={isMobileNavOpen} />
       </div>
       <div className="flex flex-1 overflow-hidden relative bg-[#0c0d12]">
-        {/* Left tool rail - desktop: docked | mobile: hidden (drawer used instead) */}
-        <div className="z-30 h-full w-[52px] flex-shrink-0 relative hidden md:block bg-[#0c0d12]">
-          <LeftNavigation />
-        </div>
-
         {/* Mobile navigation drawer overlay */}
         <AnimatePresence>
           {isMobileNavOpen && (
@@ -557,20 +552,72 @@ export const WorkspaceShell: React.FC = () => {
             </main>
           )}
 
-          {/* Context Tool Panel (Left) - Tripo-style seamless docking flush with header and left rail */}
+          {/* Left Unified Studio Panel (Nav Rail 46px + Tool Content 228px Fused = 274px) */}
+          {mainNav === 'workspace' && (
+            <motion.aside
+              id="left-unified-studio-panel"
+              aria-label="Studio tools"
+              initial={false}
+              animate={{
+                width: isLeftPanelOpen ? 274 : 46,
+                opacity: 1,
+              }}
+              transition={MOTION_FAST}
+              className="absolute left-2 top-2 bottom-3 z-20 hidden md:flex flex-row rounded-2xl border border-white/[0.08] shadow-2xl overflow-hidden bg-[#0c0d12]"
+            >
+              {/* Left Rail Column: 46px */}
+              <div className="w-[46px] h-full flex-shrink-0 bg-[hsl(var(--surface-1))] border-r border-[hsl(var(--border))]">
+                <LeftNavigation />
+              </div>
+
+              {/* Right Tool Content Column: 228px */}
+              <AnimatePresence initial={false}>
+                {isLeftPanelOpen && (
+                  <motion.div
+                    key="tool-content-drawer"
+                    initial={{ opacity: 0, width: 0 }}
+                    animate={{ opacity: 1, width: 228 }}
+                    exit={{ opacity: 0, width: 0 }}
+                    transition={MOTION_FAST}
+                    className="w-[228px] h-full flex flex-col overflow-hidden bg-[hsl(var(--surface-1))] relative"
+                  >
+                    {/* Floating Collapse Button */}
+                    <div className="absolute top-2.5 right-2.5 z-20">
+                      <SimpleTooltip label="Collapse panel" side="left">
+                        <button
+                          type="button"
+                          onClick={() => toggleLeftPanel(false)}
+                          className="p-1 rounded-lg bg-[hsl(var(--surface-2))] border border-white/[0.08] text-zinc-400 hover:text-white hover:bg-[hsl(var(--surface-3))] transition-all cursor-pointer"
+                          aria-label="Collapse tool panel"
+                        >
+                          <HugeiconsIcon icon={PanelLeftClose} size={14} className="w-3.5 h-3.5" />
+                        </button>
+                      </SimpleTooltip>
+                    </div>
+
+                    {/* Immediate 0ms tool swap without blink */}
+                    <div className="h-full w-full flex flex-col overflow-hidden">
+                      {renderToolPanel()}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.aside>
+          )}
+
+          {/* Mobile Tool Panel Sheet (md:hidden) */}
           <AnimatePresence initial={false}>
             {mainNav === 'workspace' && isLeftPanelOpen && (
               <motion.aside
-                id="context-tool-panel-container"
+                id="mobile-tool-panel-sheet"
                 aria-label="Context tools"
-                initial={{ opacity: 0, x: -15 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -15 }}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
                 transition={MOTION_FAST}
-                className="absolute inset-x-0 top-0 bottom-0 md:inset-auto md:left-0 md:top-0 md:bottom-0 w-full md:w-[280px] md:border-r md:border-white/[0.08] shadow-2xl overflow-hidden bg-[#0e0f16] flex flex-col z-20"
+                className="fixed inset-x-0 bottom-0 top-12 bg-[#0c0d12] flex flex-col z-30 md:hidden"
               >
-                {/* Mobile panel header with close button */}
-                <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/[0.08] bg-[hsl(var(--surface-0))] md:hidden flex-shrink-0">
+                <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/[0.08] bg-[hsl(var(--surface-0))] flex-shrink-0">
                   <span className="font-bold text-xs text-white">Tool Panel</span>
                   <button
                     type="button"
@@ -581,26 +628,8 @@ export const WorkspaceShell: React.FC = () => {
                     <HugeiconsIcon icon={Cancel} size={16} className="w-4 h-4" />
                   </button>
                 </div>
-
-                <div className="flex-1 overflow-hidden relative">
-                  {/* Floating Collapse Button - desktop only */}
-                  <div className="absolute top-2.5 right-2.5 z-20 hidden md:block">
-                    <SimpleTooltip label="Collapse panel" side="left">
-                      <button
-                        type="button"
-                        onClick={() => toggleLeftPanel(false)}
-                        className="p-1.5 rounded-lg bg-[hsl(var(--surface-2))] border border-white/[0.08] text-zinc-400 hover:text-white hover:bg-[hsl(var(--surface-3))] transition-all cursor-pointer"
-                        aria-label="Collapse tool panel"
-                      >
-                        <HugeiconsIcon icon={PanelLeftClose} size={15} className="w-3.5 h-3.5" />
-                      </button>
-                    </SimpleTooltip>
-                  </div>
-
-                  {/* Immediate 0ms tool swap without blink */}
-                  <div className="h-full w-full flex flex-col overflow-hidden">
-                    {renderToolPanel()}
-                  </div>
+                <div className="flex-1 overflow-hidden">
+                  {renderToolPanel()}
                 </div>
               </motion.aside>
             )}
@@ -608,21 +637,21 @@ export const WorkspaceShell: React.FC = () => {
 
           {/* Left collapsed toggle button - hidden on mobile */}
           {mainNav === 'workspace' && !isLeftPanelOpen && (
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 z-20 hidden md:block">
+            <div className="absolute left-[54px] top-1/2 -translate-y-1/2 z-20 hidden md:block">
               <SimpleTooltip label="Open Tool Panel">
                 <button
                   type="button"
                   aria-label="Open Tool Panel"
                   onClick={() => toggleLeftPanel(true)}
-                  className="w-5 h-11 rounded-r-lg bg-[hsl(var(--surface-1))] border border-l-0 border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-primary hover:border-primary/40 hover:bg-[hsl(var(--surface-2))] transition-all flex items-center justify-center shadow-xl cursor-pointer active:scale-95"
+                  className="w-4 h-10 rounded-r-lg bg-[hsl(var(--surface-1))] border border-l-0 border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-primary hover:border-primary/40 hover:bg-[hsl(var(--surface-2))] transition-all flex items-center justify-center shadow-xl cursor-pointer active:scale-95"
                 >
-                  <HugeiconsIcon icon={PanelLeftOpen} size={16} className="w-3.5 h-3.5" />
+                  <HugeiconsIcon icon={PanelLeftOpen} size={14} className="w-3 h-3" />
                 </button>
               </SimpleTooltip>
             </div>
           )}
 
-          {/* Context-Aware Control & Property Panel (Right) - Tripo-style seamless docking flush with header */}
+          {/* Context-Aware Control & Property Panel (Right) */}
           <AnimatePresence initial={false}>
             {mainNav === 'workspace' && isRightPanelOpen && (
               <motion.aside
@@ -632,7 +661,7 @@ export const WorkspaceShell: React.FC = () => {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 15 }}
                 transition={MOTION_FAST}
-                className="absolute inset-x-0 top-0 bottom-0 md:inset-auto md:right-0 md:top-0 md:bottom-0 w-full md:w-[260px] md:border-l md:border-white/[0.08] shadow-2xl overflow-hidden bg-[#0e0f16] flex flex-col z-20"
+                className="absolute inset-x-0 top-0 bottom-0 md:inset-auto md:right-2 md:top-2 md:bottom-3 w-full md:w-[260px] md:rounded-2xl border border-white/[0.08] shadow-2xl overflow-hidden bg-[#0c0d12] flex flex-col z-20"
               >
                 {/* Mobile close button for right panel */}
                 <div className="flex items-center justify-between px-3.5 py-2 border-b border-[hsl(var(--border))] bg-[hsl(var(--surface-0))] md:hidden flex-shrink-0">

@@ -1,5 +1,23 @@
 # ForMesh3D Changelog
 
+## 2026-11-09 — 8px Header Clearance, 274px Studio Panel, Natural Parameter Flow & Downward Dropdown
+
+- **8px Floating Header Clearance & 274px Panel Width (`WorkspaceShell.tsx`)**:
+  - Increased top clearance gap to 8px (`top-2`) below `TopHeader`, completely eliminating any header overlap or slicing while maintaining smooth floating rounded card styling (`rounded-2xl`).
+  - Increased Left Unified Panel width by 10px (`264px -> 274px`), allocating 46px to Left Rail (`w-[46px]`) and 228px to Tool Content (`w-[228px]`).
+  - Symmetrically elevated Right Panel with matching 8px top clearance (`top-2`).
+  - Solid pure dark `#0c0d12` behind panels guarantees zero 3D canvas/mesh bleed.
+- **Natural Parameter Deck Positioning & Downward AI Model Dropdown (`GeneratePanel.tsx`)**:
+  - Reverted `mt-auto` anchoring: General Settings (Geometry & Texture), AI Model selector, and Seed & Randomizer flow naturally right below the Studio Input Card (dropzone), leaving Generate CTA pinned cleanly at the bottom.
+  - Reconfigured AI Model dropdown to open downwards (`top-full mt-1 left-0 right-0 z-40`).
+- **High-Contrast Non-Transparent Icons & Clean Model Nav (`LeftNavigation.tsx`, `GeneratePanel.tsx`)**:
+  - Removed notification badge (`badge: '+'`) from above the `Model` icon.
+  - Upgraded navigation icons to crisp, bold Lucide strokeWidth 2 icons (`Box`, `Scissors`, `RefreshCw`, `Grid3X3`, `Palette`, `Bone`, `Film`, `Settings2`).
+  - Retained native `Settings` tool with gear icon at the bottom of the navigation rail.
+- **Verification**: `bun x tsc --noEmit` passed (0 errors); `bun test` passed (8 pass, 0 fail); verified visually in browser via `agent-browser` (clean screenshots confirmed at `/tmp/agent-browser-screenshots/workspace_pristine.png` and `/tmp/agent-browser-screenshots/dropdown_open.png`).
+
+---
+
 ## 2026-11-08 — Generate Panel Backend Wiring, Seamless Docking, Shader Spheres & Zero-Load Snapshot
 
 - **Generate Panel Backend Wiring & Execution Progress (`GeneratePanel.tsx`, `buildGenerationParameters.ts`)**:
@@ -29,20 +47,4 @@
   - Styled with matching studio dark checkerboard pattern, indigo dashed border (`border-[#48457D]/50 hover:border-[#6366F1]`), and purple/indigo gradient circular upload button.
 - **Tool Template Callout Alignment (`StudioToolTemplate.tsx`)**:
   - Highlighted action keywords (`Select`, `upload your own`, `{title}`) in `#F9CF00` with direct `Upload 3D Model` action pill button.
-- **Verification**: `bun x tsc --noEmit` passed with 0 errors; `bun test` passed (3/3 unit tests passing).
-
----
-
-## 2026-11-08 — Studio Workspace Header Thinned, Panel Docking & Curvature Harmonization
-
-- **Seamless Panel-to-Navbar Flush Docking**:
-  - Attached Left Context Tool Panel directly flush with the Top Header (`top-0`) and Left Tool Rail (`left-0`), eradicating margin gaps.
-  - Symmetrically docked Right Inspector/Assets Panel flush against the Top Header (`top-0`) and right window boundary (`right-0`).
-  - Added subtle floating studio bottom lift (`bottom-2.5`) with outer viewport-facing corners gracefully rounded (`rounded-r-[22px]` on left panel, `rounded-l-[22px]` on right panel) with soft studio `shadow-2xl`.
-- **Top Header Modernization & Contrast Separation**:
-  - Streamlined Top Header height from `h-12` (48px) to `h-10` (40px) with `bg-[hsl(var(--surface-0))]` and `border-b border-[hsl(var(--border))]`, establishing distinct visual hierarchy and preventing panel color blend.
-  - Scaled down header icons to `12px`-`13px` (Search, AI Models, Snapshots, Settings, Profile, Resource Telemetry) and pills to `h-6 text-[10px]` for an ultra-compact, high-density professional layout.
-- **Left Navigation Rail Unification**:
-  - Eliminated the dividing border (`border-t`) and separate block wrapper from the bottom App/Settings button in `LeftNavigation.tsx`, blending it directly into the tool stack.
-  - Adjusted rail width to `54px` with icon size `17px` and text `9.5px` for compact precision.
 - **Verification**: `bun x tsc --noEmit` passed with 0 errors; `bun test` passed (3/3 unit tests passing).

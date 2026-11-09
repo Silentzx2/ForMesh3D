@@ -56,6 +56,16 @@ Two specialized subagents (`Generate Panel Backend Wiring Specialist` and `UI Gl
 | `MeshViewer.tsx` | Changing shading mode permanently altered model textures | In-place mutation of `child.material` | Preserved original materials in `userData.__originalMaterial` | **VERIFIED** |
 | `ViewportToolOverlay.tsx` | Settings popover stayed open on outside click | Missing click-outside listener | Added `settingsPopoverRef` + `mousedown` & `Escape` listeners | **VERIFIED** |
 | `ViewportToolOverlay.tsx` | Missing Tripo material preview balls dock | Shading controls were hidden inside popover | Added bottom floating dock with 5 material spheres (PBR, Clay, Normal, Wire, Gold) | **VERIFIED** |
+| `WorkspaceShell.tsx` | Left rail and generate panel separated with canvas leaking | Disconnected containers with opacity bleed | Fused rail (46px) + tool drawer (228px) into 1 unified 274px card with 0 gap and solid dark backing | **VERIFIED** |
+| `WorkspaceShell.tsx` | Top header slicing panels and rail | 0px/4px snugness caused visual overlap on displays | Implemented 8px floating clearance (`top-2`) with existing bottom margin | **VERIFIED** |
+| `LeftNavigation.tsx` | Notification badge (`+`) above Model icon | Unwanted badge overlay on Model navigation item | Completely removed badge from state, config, and DOM | **VERIFIED** |
+| `LeftNavigation.tsx` | Transparent/faint icons & setting label confusion | Faint 1px strokes and altered text label | Upgraded to bold Lucide strokeWidth 2 icons; restored "Settings" label & theme colors | **VERIFIED** |
+| `GeneratePanel.tsx` | Low contrast/transparent elements | `/70` opacity on lightbulb and zinc-500 text | Replaced with solid `text-zinc-200`/`text-zinc-300` for crisp non-transparent readability | **VERIFIED** |
+| `GeneratePanel.tsx` | Parameter deck forced to bottom by `mt-auto` | Parameters separated far from dropzone card | Reverted `mt-auto`: parameters naturally flow directly below dropzone card | **VERIFIED** |
+| `GeneratePanel.tsx` | AI Model dropdown opening direction | Opened upwards over parameter controls | Set `top-full mt-1` to open cleanly downwards | **VERIFIED** |
+| `GeneratePanel.tsx` | Header uncentered and HD Model badge present | Header had flex justify-between with HD badge | Centered header title with sparkles icon; removed HD badge | **VERIFIED** |
+| `GeneratePanel.tsx` | Seed control missing from panel | No seed parameter control in UI | Added Seed row with randomizer (`🎲 Random`, `⟳ New`, custom input) wired to backend | **VERIFIED** |
+| `GeneratePanel.tsx` | Generate button clipped below viewport fold | `overflow-y-auto` wrapped entire container | Separated scrollable body (`flex-1`) and pinned CTA (`flex-shrink-0`), guaranteeing 100% visibility | **VERIFIED** |
 
 ---
 

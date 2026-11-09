@@ -455,7 +455,7 @@ export interface GenerationSettings {
   textureQuality: 'low' | 'medium' | 'high' | '8k';
   quadTopology: boolean;
   topologyMode?: 'triangle' | 'quad';
-  seed: number;
+  seed?: number;
   removeBackground: boolean;
   autoOptimizeSettings: AutoOptimizeSettings;
   highResolutionNormalBaking?: boolean;

@@ -6,6 +6,22 @@
 **Project phase:** Beta (Streamlined Studio Workspace)  
 **Model readiness:** NOT VERIFIED — registry entries and source directories do not prove successful inference.
 
+## 2026-11-09 — 8px Header Clearance, 274px Studio Panel, Natural Parameter Flow & Downward Dropdown
+
+- **8px Floating Header Clearance & 274px Studio Panel (`WorkspaceShell.tsx`)**:
+  - Increased top clearance gap to 8px (`top-2`) below `TopHeader`, completely eliminating any header overlap or slicing while maintaining smooth floating rounded card styling (`rounded-2xl`).
+  - Increased Left Unified Panel width by 10px (`264px -> 274px`), allocating 46px to Left Rail (`w-[46px]`) and 228px to Tool Content (`w-[228px]`).
+  - Symmetrically elevated Right Panel with matching 8px top clearance (`top-2`).
+  - Solid pure dark `#0c0d12` behind panels guarantees zero 3D canvas/mesh bleed.
+- **Natural Parameter Deck Positioning & Downward AI Model Dropdown (`GeneratePanel.tsx`)**:
+  - General Settings (Geometry & Texture), AI Model selector, and Seed & Randomizer flow naturally right below the Studio Input Card (dropzone), leaving Generate CTA pinned cleanly at the bottom.
+  - Reconfigured AI Model dropdown to open downwards (`top-full mt-1 left-0 right-0 z-40`).
+- **High-Contrast Non-Transparent Icons & Clean Model Nav (`LeftNavigation.tsx`, `GeneratePanel.tsx`)**:
+  - Removed notification badge (`badge: '+'`) from above the `Model` icon.
+  - Upgraded navigation icons to crisp, bold Lucide strokeWidth 2 icons (`Box`, `Scissors`, `RefreshCw`, `Grid3X3`, `Palette`, `Bone`, `Film`, `Settings2`).
+  - Retained native `Settings` tool with gear icon at the bottom of the navigation rail.
+- **Verification**: `bun x tsc --noEmit` passed (0 errors); `bun test` passed (8 pass, 0 fail); verified visually in browser via `agent-browser`.
+
 ## 2026-11-08 — Generate Panel Backend Integration, Tripo Shader Dock & Zero-Load Snapshot
 
 - **Generate Panel Backend Integration**:

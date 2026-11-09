@@ -5,26 +5,30 @@ import { createPortal } from 'react-dom';
 import { useWorkspace } from '../store/WorkspaceContext';
 import type { ModelAsset } from '../types';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
+import {
+  Sparkles,
+  Image as ImageIcon,
+  Box,
+  RotateCw,
+  Lightbulb,
+  SlidersHorizontal,
+  ChevronRight,
+  ChevronDown,
+  X as CancelIcon,
+  Trash2,
+  Edit2,
+  ThumbsUp,
+} from 'lucide-react';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   CheckIcon,
-  ChevronDown,
-  ChevronRight,
-  SparklesIcon,
   TriangleAlertIcon,
   UploadIcon,
-  ThumbsUpIcon,
   Cancel,
-  Box,
-  Delete02Icon,
-  Edit02Icon,
-  Idea01Icon,
-  Image01Icon,
-  Image02Icon,
   FolderOpenIcon,
   ViewIcon,
   HelpCircleIcon,
-  SlidersHorizontalIcon,
+  SparklesIcon,
 } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
@@ -285,6 +289,7 @@ export const GeneratePanel: React.FC = () => {
   const [enablePbr, setEnablePbr] = useState(true);
   const [topologyMode, setTopologyMode] = useState<'Quad' | 'Triangle'>('Triangle');
   const [polycount, setPolycount] = useState(600000);
+  const [seed, setSeed] = useState<number | ''>(typeof generationSettings.seed === 'number' ? generationSettings.seed : '');
   const dragCounterRef = useRef(0);
 
   // Keep imagePreview in sync with workspace generationSettings
@@ -601,19 +606,18 @@ export const GeneratePanel: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-[hsl(var(--surface-1))] text-[hsl(var(--foreground))] overflow-y-auto overflow-x-hidden p-2 space-y-2.5">
-      {/* 1. Header: Generate Model - pr-8 prevents collapse button overlap */}
-      <div className="flex items-center justify-between pb-1 border-b border-[hsl(var(--border))] pr-8">
-        <div className="flex items-center gap-2">
-          <HugeiconsIcon icon={SparklesIcon} size={15} className="text-[#F9CF00]" />
+    <div className="flex flex-col h-full w-full bg-[hsl(var(--surface-1))] text-[hsl(var(--foreground))] overflow-hidden">
+      {/* 1. Header: Centered Generate Model */}
+      <div className="flex items-center justify-center py-2 border-b border-[hsl(var(--border))] px-4 flex-shrink-0">
+        <div className="flex items-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5 text-[#F9CF00]" />
           <h2 className="text-xs font-bold text-[hsl(var(--foreground))] tracking-wide uppercase">Generate Model</h2>
         </div>
-        <span className="text-[10px] font-semibold text-[hsl(var(--muted-foreground))] bg-[hsl(var(--surface-2))] px-2 py-0.5 rounded-md border border-[hsl(var(--border))] font-mono">
-          HD Model
-        </span>
       </div>
 
-      {/* 2. Studio Input Card (Matching Tripo Reference Design, Layout & Colors) */}
+      {/* Scrollable Body (Flex column so Parameter Deck can anchor with mt-auto) */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 flex flex-col min-h-0">
+        {/* 2. Studio Input Card (Matching Tripo Reference Design, Layout & Colors) */}
       <input
         ref={fileInputRef}
         type="file"
@@ -629,7 +633,7 @@ export const GeneratePanel: React.FC = () => {
         className="hidden"
       />
       <div
-        className={`p-2.5 rounded-2xl border transition-colors space-y-2 ${
+        className={`p-2 rounded-2xl border transition-colors space-y-2 flex-shrink-0 ${
           isDragOver
             ? 'border-[#F9CF00] ring-1 ring-[#F9CF00]/40 bg-[#161726]'
             : 'border-white/[0.08] bg-[#12131d]'
@@ -640,7 +644,7 @@ export const GeneratePanel: React.FC = () => {
         onDrop={handleUnifiedDrop}
       >
         {/* Top 2-Pill Mode Selector Bar: Image & 3D Mesh */}
-        <div className="h-8 p-1 rounded-xl bg-[#0f0f1c] border border-white/[0.04] flex items-center gap-1">
+        <div className="h-7 p-0.5 rounded-xl bg-[#0f0f1c] border border-white/[0.04] flex items-center gap-1">
           <button
             type="button"
             onClick={() => setInputTab('image')}
@@ -651,11 +655,11 @@ export const GeneratePanel: React.FC = () => {
             className={`flex-1 h-6 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               inputTab === 'image'
                 ? 'bg-white text-black shadow-sm'
-                : 'text-zinc-400 hover:text-white'
+                : 'text-zinc-300 hover:text-white'
             }`}
             title="Image to 3D"
           >
-            <HugeiconsIcon icon={Image01Icon} size={14} />
+            <ImageIcon className="w-3.5 h-3.5" />
             <span>Image</span>
           </button>
           <button
@@ -668,11 +672,11 @@ export const GeneratePanel: React.FC = () => {
             className={`flex-1 h-6 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               inputTab === 'mesh'
                 ? 'bg-white text-black shadow-sm'
-                : 'text-zinc-400 hover:text-white'
+                : 'text-zinc-300 hover:text-white'
             }`}
             title="Upload 3D Mesh"
           >
-            <HugeiconsIcon icon={Box} size={14} />
+            <Box className="w-3.5 h-3.5" />
             <span>3D Mesh</span>
           </button>
         </div>
@@ -695,7 +699,7 @@ export const GeneratePanel: React.FC = () => {
                 title="Remove image"
                 className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/75 hover:bg-black/95 text-white flex items-center justify-center border border-white/10 shadow-lg cursor-pointer transition-all group-hover/preview:scale-105"
               >
-                <HugeiconsIcon icon={Delete02Icon} size={14} />
+                <Trash2 className="w-3.5 h-3.5 text-white" />
               </button>
 
               {/* Bottom Floating Replace Action */}
@@ -706,7 +710,7 @@ export const GeneratePanel: React.FC = () => {
                   title="Replace Image"
                   className="pointer-events-auto h-7 px-3 rounded-full bg-[#1b1c2b]/90 hover:bg-[#25273b] border border-white/10 text-white text-[10px] font-semibold flex items-center gap-1.5 shadow-lg cursor-pointer transition-all active:scale-95"
                 >
-                  <HugeiconsIcon icon={Edit02Icon} size={13} />
+                  <Edit2 className="w-3 h-3 text-white" />
                   <span>Replace</span>
                 </button>
               </div>
@@ -727,7 +731,7 @@ export const GeneratePanel: React.FC = () => {
                   fileInputRef.current?.click();
                 }
               }}
-              className={`relative group w-full h-[195px] rounded-xl border border-dashed transition-all p-2.5 flex flex-col items-center justify-between cursor-pointer shadow-inner ${
+              className={`relative group w-full h-[200px] rounded-xl border border-dashed transition-all p-2 flex flex-col items-center justify-between cursor-pointer shadow-inner ${
                 isDragOver
                   ? 'border-[#F9CF00] bg-[#1c1d2c] ring-1 ring-[#F9CF00]/40'
                   : 'border-white/[0.12] hover:border-white/25 bg-[#0f1019]'
@@ -735,28 +739,26 @@ export const GeneratePanel: React.FC = () => {
             >
               {/* Top Right Tip Lightbulb */}
               <div className="w-full flex justify-end">
-                <span className="p-0.5 text-zinc-400/70 hover:text-[#F9CF00] transition-colors" title="Image prompt tips">
-                  <HugeiconsIcon icon={Idea01Icon} size={14} />
+                <span className="p-0.5 text-zinc-300 hover:text-[#F9CF00] transition-colors" title="Image prompt tips">
+                  <Lightbulb className="w-3.5 h-3.5" />
                 </span>
               </div>
 
               {/* Center Upload Prompt */}
               <div className="flex flex-col items-center text-center -mt-1">
-                <HugeiconsIcon
-                  icon={Image01Icon}
-                  size={28}
-                  className={`transition-all mb-1 ${
-                    isDragOver ? 'text-[#F9CF00] scale-110' : 'text-zinc-300 group-hover:text-white group-hover:scale-105'
+                <ImageIcon
+                  className={`w-7 h-7 mb-1 transition-all ${
+                    isDragOver ? 'text-[#F9CF00] scale-110' : 'text-zinc-200 group-hover:text-white group-hover:scale-105'
                   }`}
                 />
                 <span className="text-xs font-bold text-white tracking-wide">
                   {isDragOver ? 'Drop Image Here' : 'Upload Image'}
                 </span>
-                <span className="text-[10px] text-zinc-400 font-mono mt-0.5">JPG, PNG, WEBP · Size ≤ 20MB</span>
+                <span className="text-[10px] text-zinc-300 font-mono mt-0.5">JPG, PNG, WEBP · Size ≤ 20MB</span>
               </div>
 
               {/* Bottom Helper Note */}
-              <div className="text-[10px] font-medium text-zinc-400 group-hover:text-zinc-300 flex items-center gap-1 transition-colors pb-0.5">
+              <div className="text-[10px] font-medium text-zinc-300 group-hover:text-white flex items-center gap-1 transition-colors pb-0.5">
                 <span>Front view or clean background recommended</span>
               </div>
             </div>
@@ -791,7 +793,7 @@ export const GeneratePanel: React.FC = () => {
                   : 'bg-gradient-to-br from-[#6366F1] to-[#8B5CF6] text-white shadow-indigo-500/25 group-hover:scale-105'
               }`}
             >
-              <HugeiconsIcon icon={Box} size={20} />
+              <Box className="w-5 h-5 text-white" strokeWidth={2} />
             </div>
             <span className="text-xs font-bold text-white tracking-wide">
               {isDragOver ? 'Drop 3D Mesh Here' : isMeshUploading ? 'Uploading Mesh...' : 'Upload 3D Mesh'}
@@ -806,48 +808,48 @@ export const GeneratePanel: React.FC = () => {
         )}
       </div>
 
-      {/* 3. General Settings: Geometry & Texture (Matching Tripo Reference & Dynamic Loading) */}
-      <div className="border-t border-[hsl(var(--border))] pt-2 relative">
-        <div className="flex items-center justify-between pb-1">
-          <span className="text-[10px] font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">
-            General Settings
-          </span>
-        </div>
-
-        {/* Geometry & Texture Trigger Button */}
-        <button
-          ref={geomTextureTriggerRef}
-          type="button"
-          aria-expanded={isGeomTextureOpen}
-          onClick={() => setIsGeomTextureOpen((prev) => !prev)}
-          className={`w-full flex items-center justify-between p-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-sm ${
-            isGeomTextureOpen
-              ? 'bg-[#1b1b2f] border-[#6366F1] text-white ring-1 ring-[#6366F1]/50'
-              : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-[hsl(var(--foreground))]'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <HugeiconsIcon icon={SlidersHorizontalIcon} size={14} className="text-[#6366F1]" />
-            <span>Geometry &amp; Texture</span>
+      {/* Parameter Deck (Geometry, AI Model & Seed in natural flow below dropzone) */}
+      <div className="pt-2.5 space-y-2.5">
+        {/* 3. General Settings: Geometry & Texture (Matching Tripo Reference & Dynamic Loading) */}
+        <div className="border-t border-[hsl(var(--border))] pt-2 relative">
+          <div className="flex items-center justify-between pb-1">
+            <span className="text-[10px] font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">
+              General Settings
+            </span>
           </div>
-          <HugeiconsIcon
-            icon={ChevronRight}
-            size={14}
-            className={`text-[hsl(var(--muted-foreground))] transition-transform duration-200 ${
-              isGeomTextureOpen ? 'rotate-90 text-[#6366F1]' : ''
-            }`}
-          />
-        </button>
 
-        {/* Dynamic Flying Side Geometry & Texture Settings Panel - Rendered via Portal into document.body to prevent overflow-hidden clipping */}
-        {mounted && isGeomTextureOpen && typeof document !== 'undefined' && createPortal(
-          <div
-            ref={geomTextureFlyoutRef}
-            id="geometry-texture-flyout"
-            role="dialog"
-            aria-label="Geometry and Texture Settings"
-            className="fixed left-4 right-4 md:left-[336px] md:right-auto bottom-12 md:bottom-16 w-auto md:w-[280px] p-3.5 rounded-2xl bg-[#141421] border border-[#6366F1]/50 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-2.5 animate-in fade-in zoom-in-95 duration-150 z-50 pointer-events-auto select-none"
+          {/* Geometry & Texture Trigger Button */}
+          <button
+            ref={geomTextureTriggerRef}
+            type="button"
+            aria-expanded={isGeomTextureOpen}
+            onClick={() => setIsGeomTextureOpen((prev) => !prev)}
+            className={`w-full flex items-center justify-between p-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-sm ${
+              isGeomTextureOpen
+                ? 'bg-[#1b1b2f] border-[#6366F1] text-white ring-1 ring-[#6366F1]/50'
+                : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-[hsl(var(--foreground))]'
+            }`}
           >
+            <div className="flex items-center gap-2">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-[#6366F1]" />
+              <span>Geometry &amp; Texture</span>
+            </div>
+            <ChevronRight
+              className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] transition-transform duration-200 ${
+                isGeomTextureOpen ? 'rotate-90 text-[#6366F1]' : ''
+              }`}
+            />
+          </button>
+
+          {/* Dynamic Flying Side Geometry & Texture Settings Panel */}
+          {mounted && isGeomTextureOpen && typeof document !== 'undefined' && createPortal(
+            <div
+              ref={geomTextureFlyoutRef}
+              id="geometry-texture-flyout"
+              role="dialog"
+              aria-label="Geometry and Texture Settings"
+              className="fixed left-4 right-4 md:left-[290px] md:right-auto bottom-12 md:bottom-16 w-auto md:w-[280px] p-3.5 rounded-2xl bg-[#141421] border border-[#6366F1]/50 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-2.5 animate-in fade-in zoom-in-95 duration-150 z-50 pointer-events-auto select-none"
+            >
             {/* Header with Title and Close Button */}
             <div className="flex items-start justify-between pb-1 border-b border-white/[0.08]">
               <div>
@@ -1135,7 +1137,7 @@ export const GeneratePanel: React.FC = () => {
           >
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-5 h-5 rounded-md bg-[#F9CF00]/10 border border-[#F9CF00]/25 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-                <HugeiconsIcon icon={ThumbsUpIcon} size={12} />
+                <ThumbsUp className="w-3 h-3 text-[#F9CF00]" />
               </div>
               <div className="min-w-0 flex items-baseline gap-1.5">
                 <p className="text-[11px] font-bold text-[hsl(var(--foreground))] truncate">
@@ -1146,20 +1148,19 @@ export const GeneratePanel: React.FC = () => {
                 </span>
               </div>
             </div>
-            <HugeiconsIcon
-              icon={ChevronDown}
-              size={12}
-              className={`text-[hsl(var(--muted-foreground))] flex-shrink-0 ml-1 transition-transform duration-200 ${
+            <ChevronDown
+              className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] flex-shrink-0 ml-1 transition-transform duration-200 ${
                 isModelDropdownOpen ? 'rotate-180 text-primary' : ''
               }`}
             />
           </button>
 
+          {/* AI Model Dropdown opens DOWNWARDS */}
           {isModelDropdownOpen && (
             <div
               role="listbox"
               aria-label="Available AI models"
-              className="absolute bottom-full mb-1 left-0 right-0 rounded-xl bg-[#1a1b26] border border-white/10 shadow-2xl p-1 z-30 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
+              className="absolute top-full mt-1 left-0 right-0 rounded-xl bg-[#1a1b26] border border-white/10 shadow-2xl p-1 z-40 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
             >
               {availableModels.map((m) => (
                 <button
@@ -1186,8 +1187,61 @@ export const GeneratePanel: React.FC = () => {
         </div>
       </div>
 
-      {/* 5. Bottom Action CTA Button & Execution Progress */}
-      <div className="pt-2 mt-auto space-y-2">
+      {/* 4b. Seed & Randomizer */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">Seed</span>
+          {seed !== '' && (
+            <button
+              type="button"
+              onClick={() => {
+                setSeed('');
+                setGenerationSettings((prev) => ({ ...prev, seed: undefined }));
+              }}
+              className="text-[9px] text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+            >
+              Reset to Random
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
+          <div className="relative flex-1 flex items-center min-w-0">
+            <span className="text-xs pl-2 pr-1 text-zinc-200 select-none">🎲</span>
+            <input
+              type="number"
+              placeholder="Random (or 123456)"
+              value={seed}
+              onChange={(e) => {
+                const val = e.target.value === '' ? '' : parseInt(e.target.value, 10);
+                if (val === '' || (!isNaN(val) && val >= 0)) {
+                  setSeed(val);
+                  setGenerationSettings((prev) => ({ ...prev, seed: val === '' ? undefined : val }));
+                }
+              }}
+              className="w-full bg-transparent text-xs text-white placeholder:text-zinc-400 focus:outline-none font-mono py-1 pr-2 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const newSeed = Math.floor(Math.random() * 900000) + 100000;
+              setSeed(newSeed);
+              setGenerationSettings((prev) => ({ ...prev, seed: newSeed }));
+              toast.info(`New random seed: ${newSeed}`);
+            }}
+            className="flex-shrink-0 px-2.5 py-1 rounded-lg bg-white/[0.08] hover:bg-white/15 text-zinc-100 hover:text-white text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 border border-white/[0.08] active:scale-95"
+            title="Generate new random seed"
+          >
+            <RotateCw className="w-2.5 h-2.5" />
+            <span>New</span>
+          </button>
+        </div>
+      </div>
+      </div>
+      </div>
+
+      {/* 5. Bottom Action CTA Button & Execution Progress (Pinned, Never Clipped) */}
+      <div className="p-2.5 pt-2 border-t border-white/[0.06] bg-[hsl(var(--surface-1))] flex-shrink-0 space-y-2">
         {isExecuting ? (
           <div className="p-3 rounded-2xl bg-[#141524] border border-[#F9CF00]/30 shadow-xl space-y-2.5 animate-in fade-in">
             {/* Live Progress Header */}
@@ -1228,7 +1282,7 @@ export const GeneratePanel: React.FC = () => {
             disabled={!generationSettings.image && !imagePreview}
             className="w-full py-2.5 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <HugeiconsIcon icon={SparklesIcon} size={16} className="text-black" />
+            <Sparkles className="w-4 h-4 text-black" />
             <span>Generate Model</span>
           </button>
         )}
