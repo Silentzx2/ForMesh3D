@@ -270,16 +270,19 @@ export const GeneratePanel: React.FC = () => {
   // ===== Dynamic model list from backend (weights-aware) =====
   const { modelDetails, weightsStatus, getModelsForFeature, loading: modelsLoading } = useFeatureAvailability();
 
-  // Models not in working state — hidden from UI per product decision
-  const DISABLED_MESH_MODELS = new Set([
-    'taoflowforge_image_to_raw_mesh',
-    'pixal3d_image_to_raw_mesh',
-    'trellis2_image_to_raw_mesh',
-    'trellis2_image_to_3d',
-  ]);
+  // Models completely disabled from UI per user direction (trellis2, pixal3d, taoflowforge, unique3d)
+  const isMeshModelDisabled = (mid: string) => {
+    const lower = mid.toLowerCase();
+    return (
+      lower.startsWith('trellis2') ||
+      lower.startsWith('pixal3d') ||
+      lower.startsWith('taoflowforge') ||
+      lower.startsWith('unique3d')
+    );
+  };
 
   const MESH_MODEL_LABELS: Record<string, { label: string; tag: string; note: string }> = {
-    'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh': { label: 'Hunyuan3D-2 Mini Turbo', tag: 'Best Speed & Geometry', note: 'Fast Geometry · Official locked profile' },
+    'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh': { label: 'Hunyuan3D-2 Mini Turbo', tag: 'Fast Geometry', note: 'Fast Geometry · Official locked profile' },
     'triposg_image_to_raw_mesh': { label: 'TripoSG', tag: 'Hierarchical Geometry', note: 'Stable · 1024 resolution' },
     'hunyuan3d_shape_v21_image_to_raw_mesh': { label: 'Hunyuan3D-2.1 Shape', tag: 'High Detail', note: '10GB VRAM · 50 steps · 512 octree' },
     'unique3d_image_to_raw_mesh': { label: 'Unique3D', tag: 'Legacy / Deprecated', note: 'Working but not actively used' },
@@ -287,35 +290,52 @@ export const GeneratePanel: React.FC = () => {
     'trellis_image_to_raw_mesh': { label: 'TRELLIS', tag: 'Raw Mesh', note: 'Stable production model' },
   };
 
+  const KNOWN_MESH_MODEL_IDS = [
+    'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh',
+    'triposg_image_to_raw_mesh',
+    'hunyuan3d_shape_v21_image_to_raw_mesh',
+    'trellis_image_to_raw_mesh',
+    'trellis_image_to_3d',
+  ];
+
   const meshModels = useMemo(() => {
-    if (modelsLoading) return [];
-    const modelIds = getModelsForFeature('image_to_raw_mesh');
-    return modelIds
-      .filter(mid => !DISABLED_MESH_MODELS.has(mid))
-      .filter(mid => {
-        const detail = modelDetails[mid];
-        if (detail) return detail.weights_available === true;
-        const ws = weightsStatus[mid];
-        if (ws !== undefined) return ws === true;
-        return true;
+    const rawIds = [
+      ...getModelsForFeature('image_to_raw_mesh'),
+      ...getModelsForFeature('image-to-raw-mesh'),
+      ...getModelsForFeature('image_to_mesh'),
+    ];
+    const candidatePool = rawIds.length > 0 ? rawIds : KNOWN_MESH_MODEL_IDS;
+    const uniqueCandidates = Array.from(new Set(candidatePool));
+
+    return uniqueCandidates
+      .filter((mid) => !isMeshModelDisabled(mid))
+      .filter((mid) => {
+        // Strict weight check: only display models whose weights are verified available
+        return weightsStatus[mid] === true || modelDetails[mid]?.weights_available === true;
       })
-      .map(mid => {
+      .map((mid) => {
         const info = MESH_MODEL_LABELS[mid];
         return {
           id: mid,
           label: info?.label || mid,
-          tag: info?.tag || '',
+          tag: info?.tag || 'Ready',
           note: info?.note || '',
         };
       });
-  }, [modelsLoading, getModelsForFeature, modelDetails, weightsStatus]);
+  }, [getModelsForFeature, modelDetails, weightsStatus]);
 
   const defaultMeshModel = useMemo(() => {
-    const first = meshModels[0]?.id;
-    return first || 'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh';
+    return meshModels[0]?.id || 'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh';
   }, [meshModels]);
 
   const [selectedModel, setSelectedModel] = useState(defaultMeshModel);
+
+  // Keep selectedModel synced with whatever model actually has downloaded weights
+  useEffect(() => {
+    if (meshModels.length > 0 && !meshModels.some((m) => m.id === selectedModel)) {
+      setSelectedModel(meshModels[0].id);
+    }
+  }, [meshModels, selectedModel]);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const { state: meshUploadState, upload: uploadMesh } = useMeshAssetUpload();
   const isMeshUploading = meshUploadState.status === 'uploading' || meshUploadState.status === 'verifying';
@@ -448,7 +468,7 @@ export const GeneratePanel: React.FC = () => {
     };
   }, [isModelDropdownOpen]);
 
-  const meshModelsList = modelsLoading ? [] : meshModels;
+
 
 
   const isMeshFile = (file: File) => {
@@ -1212,11 +1232,15 @@ export const GeneratePanel: React.FC = () => {
               </div>
               <div className="min-w-0 flex items-baseline gap-1.5">
                 <p className="text-[11px] font-bold text-[hsl(var(--foreground))] truncate">
-                  {meshModelsList.find((m) => m.id === selectedModel)?.label || 'Select Model'}
+                  {meshModels.length === 0
+                    ? (modelsLoading ? 'Checking weights...' : 'No weights installed')
+                    : (meshModels.find((m) => m.id === selectedModel)?.label || meshModels[0]?.label || 'Select Model')}
                 </p>
-                <span className="text-[9px] text-[hsl(var(--muted-foreground))] truncate hidden sm:inline opacity-75">
-                  {meshModelsList.find((m) => m.id === selectedModel)?.tag}
-                </span>
+                {meshModels.length > 0 && (
+                  <span className="text-[9px] text-[hsl(var(--muted-foreground))] truncate hidden sm:inline opacity-75">
+                    {meshModels.find((m) => m.id === selectedModel)?.tag}
+                  </span>
+                )}
               </div>
             </div>
             <ChevronDown
@@ -1233,26 +1257,32 @@ export const GeneratePanel: React.FC = () => {
               aria-label="Available AI models"
               className="absolute top-full mt-1 left-0 right-0 rounded-xl bg-[#1a1b26] border border-white/10 shadow-2xl p-1 z-40 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
             >
-              {meshModelsList.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  role="option"
-                  aria-selected={selectedModel === m.id}
-                  onClick={() => handleModelSelect(m.id)}
-                  className={`w-full text-left px-2 py-1.5 rounded-lg text-[11px] transition-all cursor-pointer flex items-center justify-between ${
-                    selectedModel === m.id
-                      ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
-                      : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
-                  }`}
-                >
-                  <div className="min-w-0 pr-1">
-                    <span className="block font-semibold truncate leading-tight">{m.label}</span>
-                    <span className="text-[9px] opacity-70 block truncate leading-tight">{m.note}</span>
-                  </div>
-                  <span className="text-[9px] font-mono opacity-65 flex-shrink-0">{m.tag}</span>
-                </button>
-              ))}
+              {meshModels.length === 0 ? (
+                <div className="px-3 py-2 text-center text-zinc-400 text-[11px]">
+                  {modelsLoading ? 'Checking model weights...' : 'No models with downloaded weights found. Use Manager to download weights.'}
+                </div>
+              ) : (
+                meshModels.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    role="option"
+                    aria-selected={selectedModel === m.id}
+                    onClick={() => handleModelSelect(m.id)}
+                    className={`w-full text-left px-2 py-1.5 rounded-lg text-[11px] transition-all cursor-pointer flex items-center justify-between ${
+                      selectedModel === m.id
+                        ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
+                        : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
+                    }`}
+                  >
+                    <div className="min-w-0 pr-1">
+                      <span className="block font-semibold truncate leading-tight">{m.label}</span>
+                      <span className="text-[9px] opacity-70 block truncate leading-tight">{m.note}</span>
+                    </div>
+                    <span className="text-[9px] font-mono opacity-65 flex-shrink-0">{m.tag}</span>
+                  </button>
+                ))
+              )}
             </div>
           )}
         </div>

@@ -273,47 +273,62 @@ export const TexturePanel: React.FC = () => {
   // ===== Dynamic model list from backend (weights-aware) =====
   const { modelDetails, weightsStatus, getModelsForFeature, loading: modelsLoading } = useFeatureAvailability();
 
-  // Models not in working state — hidden from UI per product decision
-  const DISABLED_TEXTURE_MODELS = new Set([
-    'trellis2_image_mesh_painting',
-  ]);
+  // Models completely disabled from UI (trellis2)
+  const isTextureModelDisabled = (mid: string) => {
+    return mid.toLowerCase().startsWith('trellis2');
+  };
 
   const TEXTURE_MODEL_LABELS: Record<string, { label: string; tag: string; note: string; badge: string }> = {
     'hunyuan3d_paint_v21_image_mesh_painting': { label: 'Hunyuan3D-Paint v2.1', tag: 'PBR Multi-view', note: 'Multi-view projection & full PBR maps', badge: '12GB VRAM' },
     'paint3d': { label: 'Paint3D Multi-Stage', tag: 'Fast UV Inpaint', note: 'Coarse texture & depth-guided UV inpainting', badge: '12GB VRAM' },
-    'trellis_image_mesh_painting': { label: 'TRELLIS Paint', tag: 'Stable', note: '2048 texture atlas', badge: '12GB VRAM' },
+    'trellis_image_mesh_painting': { label: 'TRELLIS Paint', tag: 'Sharp Texture', note: 'Structured 2048 texture atlas', badge: '11GB VRAM' },
   };
 
+  const KNOWN_TEXTURE_MODEL_IDS = [
+    'hunyuan3d_paint_v21_image_mesh_painting',
+    'paint3d',
+    'trellis_image_mesh_painting',
+  ];
+
   const textureModels = useMemo(() => {
-    if (modelsLoading) return [];
-    const modelIds = getModelsForFeature('image_mesh_painting');
-    return modelIds
-      .filter(mid => !DISABLED_TEXTURE_MODELS.has(mid))
-      .filter(mid => {
-        const detail = modelDetails[mid];
-        if (detail) return detail.weights_available === true;
-        const ws = weightsStatus[mid];
-        if (ws !== undefined) return ws === true;
-        return true;
+    const rawIds = [
+      ...getModelsForFeature('image_mesh_painting'),
+      ...getModelsForFeature('image-mesh-painting'),
+      ...getModelsForFeature('mesh_painting'),
+    ];
+    const candidatePool = rawIds.length > 0 ? rawIds : KNOWN_TEXTURE_MODEL_IDS;
+    const uniqueCandidates = Array.from(new Set(candidatePool));
+
+    return uniqueCandidates
+      .filter((mid) => !isTextureModelDisabled(mid))
+      .filter((mid) => {
+        // Strict weight check: only display models whose weights are verified available
+        return weightsStatus[mid] === true || modelDetails[mid]?.weights_available === true;
       })
-      .map(mid => {
+      .map((mid) => {
         const info = TEXTURE_MODEL_LABELS[mid];
         return {
           id: mid,
           label: info?.label || mid,
-          tag: info?.tag || '',
+          tag: info?.tag || 'Ready',
           note: info?.note || '',
           badge: info?.badge || '',
         };
       });
-  }, [modelsLoading, getModelsForFeature, modelDetails, weightsStatus]);
+  }, [getModelsForFeature, modelDetails, weightsStatus]);
 
   const defaultTextureModel = useMemo(() => {
-    const first = textureModels[0]?.id;
-    return first || 'hunyuan3d_paint_v21_image_mesh_painting';
+    return textureModels[0]?.id || 'hunyuan3d_paint_v21_image_mesh_painting';
   }, [textureModels]);
 
   const [selectedModel, setSelectedModel] = useState(defaultTextureModel);
+
+  // Keep selectedModel synced with whatever model actually has downloaded weights
+  useEffect(() => {
+    if (textureModels.length > 0 && !textureModels.some((m) => m.id === selectedModel)) {
+      setSelectedModel(textureModels[0].id);
+    }
+  }, [textureModels, selectedModel]);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const { state: meshUploadState, upload: uploadMesh } = useMeshAssetUpload();
   const isMeshUploading = meshUploadState.status === 'uploading' || meshUploadState.status === 'verifying';
@@ -470,7 +485,7 @@ export const TexturePanel: React.FC = () => {
     };
   }, []);
 
-  const textureModelsList = modelsLoading ? [] : textureModels;
+
 
   const isMeshFile = (file: File) => {
     const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
@@ -1036,11 +1051,15 @@ export const TexturePanel: React.FC = () => {
                   </div>
                   <div className="min-w-0 flex items-baseline gap-1">
                     <p className="text-[10.5px] font-bold text-[hsl(var(--foreground))] truncate">
-                      {textureModelsList.find((m) => m.id === selectedModel)?.label || 'Select Model'}
+                      {textureModels.length === 0
+                        ? (modelsLoading ? 'Checking weights...' : 'No weights installed')
+                        : (textureModels.find((m) => m.id === selectedModel)?.label || textureModels[0]?.label || 'Select Model')}
                     </p>
-                    <span className="text-[8.5px] text-[hsl(var(--muted-foreground))] truncate opacity-75">
-                      {textureModelsList.find((m) => m.id === selectedModel)?.tag}
-                    </span>
+                    {textureModels.length > 0 && (
+                      <span className="text-[8.5px] text-[hsl(var(--muted-foreground))] truncate opacity-75">
+                        {textureModels.find((m) => m.id === selectedModel)?.tag}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <ChevronDown
@@ -1057,26 +1076,32 @@ export const TexturePanel: React.FC = () => {
                   aria-label="Available AI models"
                   className="absolute top-full mt-1 left-0 right-0 rounded-xl bg-[#1a1b26] border border-white/10 shadow-2xl p-1 z-40 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
                 >
-                  {textureModelsList.map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      role="option"
-                      aria-selected={selectedModel === m.id}
-                      onClick={() => handleModelSelect(m.id)}
-                      className={`w-full text-left px-2 py-1.5 rounded-lg text-[10.5px] transition-all cursor-pointer flex items-center justify-between ${
-                        selectedModel === m.id
-                          ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
-                          : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
-                      }`}
-                    >
-                      <div className="min-w-0 pr-1">
-                        <span className="block font-semibold truncate leading-tight">{m.label}</span>
-                        <span className="text-[8.5px] opacity-70 block truncate leading-tight">{m.note}</span>
-                      </div>
-                      <span className="text-[8.5px] font-mono opacity-75 flex-shrink-0">{m.badge}</span>
-                    </button>
-                  ))}
+                  {textureModels.length === 0 ? (
+                    <div className="px-3 py-2 text-center text-zinc-400 text-[10.5px]">
+                      {modelsLoading ? 'Checking model weights...' : 'No models with downloaded weights found. Use Manager to download weights.'}
+                    </div>
+                  ) : (
+                    textureModels.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        role="option"
+                        aria-selected={selectedModel === m.id}
+                        onClick={() => handleModelSelect(m.id)}
+                        className={`w-full text-left px-2 py-1.5 rounded-lg text-[10.5px] transition-all cursor-pointer flex items-center justify-between ${
+                          selectedModel === m.id
+                            ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
+                            : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        <div className="min-w-0 pr-1">
+                          <span className="block font-semibold truncate leading-tight">{m.label}</span>
+                          <span className="text-[8.5px] opacity-70 block truncate leading-tight">{m.note}</span>
+                        </div>
+                        <span className="text-[8.5px] font-mono opacity-75 flex-shrink-0">{m.badge}</span>
+                      </button>
+                    ))
+                  )}
                 </div>
               )}
             </div>

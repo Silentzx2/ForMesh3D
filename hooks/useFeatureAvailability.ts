@@ -97,12 +97,13 @@ export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
             key => FEATURE_NAME_MAPPING[key] === apiFeatureName
           );
 
-          if (uiFeatureNames.length > 0 && Array.isArray(models)) {
-            // Keep aliases synchronized so feature checks behave the same for hyphenated and API names.
-            uiFeatureNames.forEach(uiFeatureName => {
-              const existing = featureAvailability[uiFeatureName] || { available: false, models: [] };
+          // Populate under both raw API name (image_to_raw_mesh) and UI hyphenated names (image-to-raw-mesh)
+          const allFeatureKeys = Array.from(new Set([apiFeatureName, ...uiFeatureNames]));
+          if (Array.isArray(models)) {
+            allFeatureKeys.forEach(key => {
+              const existing = featureAvailability[key] || { available: false, models: [] };
               const mergedModels = Array.from(new Set([...existing.models, ...models]));
-              featureAvailability[uiFeatureName] = {
+              featureAvailability[key] = {
                 available: mergedModels.length > 0,
                 models: mergedModels,
                 error: mergedModels.length === 0 ? 'No models available for this feature' : undefined

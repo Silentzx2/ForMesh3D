@@ -150,7 +150,7 @@ image_to_raw_mesh:
     supported_inputs: ["image"]
     supported_outputs: ["glb", "obj"]
     model_path: "backend/pretrained/Unique3D"
-    enabled: true
+    enabled: false
     max_workers: 1
     init_params:
       seed: 1145
@@ -197,7 +197,7 @@ image_to_raw_mesh:
     supported_inputs: ["image"]
     supported_outputs: ["glb", "obj"]
     model_path: "backend/pretrained/Pixal3D"
-    enabled: true
+    enabled: false
     max_workers: 1
 
   # EXPERIMENTAL_MAX_DETAIL: legacy alias of pixal3d_image_to_raw_mesh; it must inherit the same 1536 O-Voxel source profile, not an independent lower-resolution profile.
@@ -238,7 +238,7 @@ image_to_raw_mesh:
     supported_inputs: ["image"]
     supported_outputs: ["glb", "obj"]
     model_path: "backend/pretrained/Pixal3D"
-    enabled: true
+    enabled: false
     max_workers: 1
 
   # [STABLE MODEL - PROTECTED & LOCKED]
@@ -342,7 +342,7 @@ image_to_raw_mesh:
     supported_inputs: ["image"]
     supported_outputs: ["glb", "obj"]
     model_path: "backend/pretrained/TRELLIS.2"
-    enabled: true
+    enabled: false
     max_workers: 1
 
   # Production profile: pipeline_type="1536_cascade", max_num_tokens=49152,
@@ -393,7 +393,7 @@ image_to_raw_mesh:
     supported_inputs: ["image"]
     supported_outputs: ["glb", "obj"]
     model_path: "backend/pretrained/TRELLIS.2"
-    enabled: true
+    enabled: false
     max_workers: 1
 
   taoflowforge_image_to_raw_mesh:
@@ -428,7 +428,7 @@ image_to_raw_mesh:
     supported_inputs: ["image"]
     supported_outputs: ["glb", "obj"]
     model_path: "backend/pretrained/Taobao3D/TaoFlowForge"
-    enabled: true
+    enabled: false
     max_workers: 1
 
 # image-conditioned geometry+texture generation (legacy aliases routing to raw geometry)
@@ -500,7 +500,7 @@ image_to_textured_mesh:
     supported_inputs: ["image"]
     supported_outputs: ["glb", "obj"]
     model_path: "backend/pretrained/TRELLIS.2"
-    enabled: true
+    enabled: false
     max_workers: 1
 
 # image-conditioned mesh painting
@@ -546,7 +546,7 @@ image_mesh_painting:
     supported_inputs: ["mesh", "image"]
     supported_outputs: ["glb", "obj"]
     model_path: "backend/pretrained/TRELLIS.2"
-    enabled: true
+    enabled: false
     max_workers: 1
 
   # EXPERIMENTAL_MAX_DETAIL: use upstream demo ceiling of 9 views and 768 per-view inference resolution; preserve 4K/8K atlas output.
