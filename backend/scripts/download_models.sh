@@ -103,8 +103,8 @@ hf_download() {
         fi
     fi
 
-    # 3. Tertiary: Fallback to legacy huggingface-cli
-    if command -v huggingface-cli >/dev/null 2>&1; then
+    # 3. Tertiary: Fallback to legacy huggingface-cli only if hf CLI is absent
+    if ! command -v hf >/dev/null 2>&1 && command -v huggingface-cli >/dev/null 2>&1; then
         if huggingface-cli download "${HF_EXTRA_ARGS[@]}" "$@"; then
             return 0
         fi
@@ -540,7 +540,17 @@ download_skintokens() {
     print_info "Downloading SkinTokens checkpoints from VAST-AI/SkinTokens..."
     if hf_download VAST-AI/SkinTokens --local-dir "$model_dir"; then
         print_info "Downloading Qwen3-0.6B LLM config for TokenRig..."
-        hf_download Qwen/Qwen3-0.6B --local-dir "$model_dir/models/Qwen3-0.6B" --exclude "*.bin" "*.safetensors" || true
+        local qwen_dir="$model_dir/models/Qwen3-0.6B"
+        mkdir -p "$qwen_dir" 2>/dev/null || true
+        for f in config.json generation_config.json tokenizer.json tokenizer_config.json vocab.json merges.txt; do
+            hf_download Qwen/Qwen3-0.6B "$f" --local-dir "$qwen_dir" || true
+        done
+        if [ -d "$THIRDPARTY_DIR/SkinTokens" ]; then
+            mkdir -p "$THIRDPARTY_DIR/SkinTokens/models" 2>/dev/null || true
+            if [ ! -e "$THIRDPARTY_DIR/SkinTokens/models/Qwen3-0.6B" ]; then
+                ln -sf "$qwen_dir" "$THIRDPARTY_DIR/SkinTokens/models/Qwen3-0.6B" 2>/dev/null || true
+            fi
+        fi
         print_success "SkinTokens model downloaded successfully"
     else
         print_error "Failed to download SkinTokens model"

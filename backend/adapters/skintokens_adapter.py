@@ -90,6 +90,16 @@ class SkinTokensAdapter(BaseModel):
         ckpt_path = self._resolve_checkpoint(weights_dir, skintokens_root)
         self._ckpt_path = ckpt_path
 
+        # Ensure TokenRig locates local Qwen3-0.6B LLM config
+        for qcand in [weights_dir / "models" / "Qwen3-0.6B", skintokens_root / "models" / "Qwen3-0.6B", Path("models/Qwen3-0.6B")]:
+            if qcand.is_dir():
+                try:
+                    import src.model.tokenrig as tokenrig_mod
+                    tokenrig_mod.LLM_LOCAL_DIR = qcand
+                except Exception:
+                    pass
+                break
+
         logger.info("Loading SkinTokens model from %s", ckpt_path or "default")
         demo.load_model(model_ckpt=ckpt_path or "", hf_path=None)
         self.model = demo.model
