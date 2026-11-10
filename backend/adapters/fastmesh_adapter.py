@@ -23,9 +23,13 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict
+
+import numpy as np
+import trimesh
 
 try:
     import torch
@@ -38,6 +42,53 @@ from backend.loader import get_model_weights_dir
 logger = logging.getLogger(__name__)
 
 DEFAULT_SEED = 42891  # matches quality.yaml seeds.base_seed / scheduler auto-seed base
+
+
+def _prepare_fastmesh_point_cloud(
+    mesh: "trimesh.Trimesh",
+    seed: int,
+    input_points: int = 8192,
+    sample_points: int = 50000,
+) -> "np.ndarray":
+    """Prepare FastMesh's normalized point-cloud input using matching face normals.
+
+    The upstream inference path normalizes the input mesh to a 1.9-unit longest
+    extent, samples points with face indices, and feeds 8192 point/normal pairs.
+    Keep this adapter contract aligned with that path without mutating the source.
+    """
+    if not isinstance(mesh, trimesh.Trimesh):
+        raise TypeError(f"Expected trimesh.Trimesh, got {type(mesh).__name__}")
+    if len(mesh.vertices) == 0 or len(mesh.faces) == 0:
+        raise ValueError("Cannot retopologize an empty mesh.")
+    if input_points < 1 or sample_points < 1:
+        raise ValueError("FastMesh point counts must be positive.")
+
+    normalized = mesh.copy()
+    bounds = np.asarray(normalized.bounds, dtype=np.float64)
+    if bounds.shape != (2, 3) or not np.isfinite(bounds).all():
+        raise ValueError("FastMesh input mesh has non-finite bounds.")
+    center = (bounds[0] + bounds[1]) * 0.5
+    scale = float(np.max(bounds[1] - bounds[0]))
+    if not np.isfinite(scale) or scale <= np.finfo(np.float64).eps:
+        raise ValueError("FastMesh input mesh has zero or invalid extent.")
+
+    normalized.apply_translation(-center)
+    normalized.apply_scale((2.0 * 0.95) / scale)
+
+    points, face_indices = normalized.sample(int(sample_points), return_index=True)
+    points = np.asarray(points, dtype=np.float64)
+    face_indices = np.asarray(face_indices, dtype=np.int64)
+    if len(points) == 0 or len(face_indices) != len(points):
+        raise ValueError("FastMesh surface sampling returned an invalid point/face mapping.")
+
+    # Critical: each sampled point gets the normal of the exact face it came from.
+    normals = np.asarray(normalized.face_normals[face_indices], dtype=np.float64)
+    count = min(int(input_points), len(points))
+    selected = np.random.default_rng(int(seed)).choice(len(points), size=count, replace=False)
+    point_cloud = np.concatenate((points[selected], normals[selected]), axis=1).astype(np.float16)
+    if not np.isfinite(point_cloud).all():
+        raise ValueError("FastMesh point-cloud preparation produced non-finite values.")
+    return np.ascontiguousarray(point_cloud)
 
 
 class FastMeshRetopologyAdapter(BaseModel):
@@ -64,6 +115,9 @@ class FastMeshRetopologyAdapter(BaseModel):
         self._model: Any = None
 
     def _load_model(self) -> Any:
+        if torch is None:
+            raise RuntimeError("FastMesh inference requires PyTorch, but torch is not installed.")
+
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading FastMesh model from %s", weights_dir)
         # Make the vendored FastMesh source importable in the worker process,
@@ -79,6 +133,7 @@ class FastMeshRetopologyAdapter(BaseModel):
         model.eval()
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
         model.to(device)
+        self.device = device
         self._model = model
         self.model = model
         return model
@@ -91,6 +146,8 @@ class FastMeshRetopologyAdapter(BaseModel):
         model = self._model
         if model is None:
             return {"success": False, "error": "FastMesh model not loaded"}
+        if torch is None:
+            return {"success": False, "error": "FastMesh inference requires PyTorch"}
 
         mesh_path = inputs.get("mesh_path")
         if not mesh_path or not Path(mesh_path).is_file():
@@ -99,27 +156,17 @@ class FastMeshRetopologyAdapter(BaseModel):
         seed = int(inputs.get("seed", DEFAULT_SEED))
         target_vertex_count = int(inputs.get("target_vertex_count", 1000))
 
-        import numpy as np
-        import trimesh
-        import tempfile
-
-        # FastMesh retopology takes a point-cloud input (vertices + normals).
-        mesh = trimesh.load(mesh_path, process=False)
-        points, _ = mesh.sample(50000, return_index=True)
-        np.random.seed(seed)
-        normals = mesh.face_normals[
-            np.random.choice(len(mesh.face_normals), len(points), replace=True)
-        ]
-        pc_normal = np.concatenate([points, normals], axis=-1).astype(np.float16)
-        input_shape = torch.from_numpy(pc_normal).unsqueeze(0)
+        # FastMesh expects a normalized surface point cloud with the normal of
+        # each sampled point's source face (not independently sampled face normals).
+        mesh = trimesh.load(mesh_path, force="mesh", process=False)
+        pc_normal = _prepare_fastmesh_point_cloud(mesh, seed=seed)
+        input_shape = torch.from_numpy(pc_normal).unsqueeze(0).to(self.device)
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
             recon_meshes = model({"pc_normal": input_shape}, is_eval=True)
 
         out_mesh = recon_meshes[0]
-
-        import tempfile
 
         out = Path(tempfile.mkdtemp()) / f"fastmesh_{seed}.obj"
         out_mesh.export(str(out))

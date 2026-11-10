@@ -795,6 +795,7 @@ def main() -> None:
     if max_ray <= 0.0:
         max_ray = max(0.001, cage * 2.5)
     bake.max_ray_distance = max_ray
+    bake.cage_extrusion = cage
     # Margin dilates the baked islands outward so mip-mapping and bilinear
     # filtering cannot sample the empty gutter and bleed seams into the surface.
     bake.margin = int(options.get("margin", 8))

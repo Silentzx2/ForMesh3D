@@ -360,3 +360,11 @@ The Pixal3D, Paint3D, SkinTokens, FastMesh V4K, and TRELLIS text-painting gaps h
   - Header padding (`px-8`) with `truncate` ensures 0px collision with the floating collapse button (`PanelLeftClose`).
   - `bun x tsc --noEmit` passed with 0 errors; `bun test` passed with 8 pass, 0 fail.
   - Working tree on branch `dev` retained locally; zero git push executed per user mandate.
+
+## 2026-11-10 — Batch 1: Critical Backend Mesh Fixes
+
+- Fixed _enforce_mesh_limits() to unpack the (mesh, telemetry) result returned by memory_safe_decimate() and read shared.feature_edge_angle_deg from the root quality configuration.
+- Aligned FastMesh adapter preprocessing with the upstream inference contract: normalize a copy of the input mesh, derive each sampled point's normal from its returned source-face index, use a deterministic 8,192-point subset, and move the input tensor to the model's scheduler-selected device. The adapter now imports sys for its model-specific third-party path setup and reports a clear failure when PyTorch is unavailable.
+- Applied the resolved scale-aware cage_extrusion value to Blender's bake settings instead of only calculating and reporting it.
+- Added checked-in CPU regression coverage for FastMesh point-cloud preparation, mesh-limit decimator tuple handling / config ownership, and Blender cage-setting wiring. Updated backend CI to run the new test file instead of a test path absent from the current branch.
+- Scope boundary: no FastMesh weights/GPU inference or Blender runtime bake was executed in this source-editing session; those runtime checks remain environment-dependent.

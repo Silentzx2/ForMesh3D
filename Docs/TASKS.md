@@ -1,5 +1,15 @@
 # ForMesh3D — End-to-End System Wiring & Total Placeholder Eradication Blueprint
 
+## 2026-11-10 — Batch 1: Critical Backend Mesh Fixes (Implementation Completed)
+
+- Fixed _enforce_mesh_limits() to unpack the (mesh, telemetry) result returned by memory_safe_decimate() and read shared.feature_edge_angle_deg from the root quality configuration.
+- Aligned FastMesh adapter preprocessing with the upstream inference contract: normalize a copy of the input mesh, derive each sampled point's normal from its returned source-face index, use a deterministic 8,192-point subset, and move the input tensor to the model's scheduler-selected device. The adapter now imports sys for its model-specific third-party path setup and reports a clear failure when PyTorch is unavailable.
+- Applied the resolved scale-aware cage_extrusion value to Blender's bake settings instead of only calculating and reporting it.
+- Added checked-in CPU regression coverage for FastMesh point-cloud preparation, mesh-limit decimator tuple handling / config ownership, and Blender cage-setting wiring. Updated backend CI to run the new test file instead of a test path absent from the current branch.
+- Scope boundary: no FastMesh weights/GPU inference or Blender runtime bake was executed in this source-editing session; those runtime checks remain environment-dependent.
+
+---
+
 ## 2026-11-09 — Viewport Compare & Texture/PBR Route Unification
 
 - [x] Added a viewport-rail Before / After comparison action. It becomes active only when both distinct source and processed model URLs are available on the selected asset. Texture, retopo, segmentation, rigging and edit jobs carry their input mesh URL into the result asset's source artifact.

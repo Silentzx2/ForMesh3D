@@ -1764,7 +1764,7 @@ def _enforce_mesh_limits(mesh: trimesh.Trimesh, model_id: str) -> trimesh.Trimes
     max_vertices = int(mesh_cfg.get("max_vertices_per_mesh", 500000))
     max_faces = int(mesh_cfg.get("max_faces_per_mesh", 1000000))
     crease_angle = float(
-        mesh_cfg.get("shared", {}).get("feature_edge_angle_deg", 35.0)
+        cfg.get("shared", {}).get("feature_edge_angle_deg", 35.0)
     )
 
     original_vertices = len(mesh.vertices)
@@ -1789,7 +1789,7 @@ def _enforce_mesh_limits(mesh: trimesh.Trimesh, model_id: str) -> trimesh.Trimes
     # Decimate to stay under caps, protecting crease edges
     target_faces = min(original_faces, max_faces)
 
-    mesh = memory_safe_decimate(
+    mesh, _telemetry = memory_safe_decimate(
         mesh,
         target_faces=target_faces,
         max_deviation_deg=45.0,

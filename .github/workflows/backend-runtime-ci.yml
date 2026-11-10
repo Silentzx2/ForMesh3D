@@ -36,8 +36,8 @@ jobs:
       - name: Compile backend Python sources
         run: python -m compileall -q backend
 
-      - name: Run TRELLIS.2 raw-mesh validation tests
-        run: python -m pytest -q backend/tests/test_trellis2_mesh_validation.py
+      - name: Run Batch 1 backend regression tests
+        run: python -m pytest -q backend/tests/test_batch1_regressions.py
 
       - name: Check model downloader shell syntax
         run: bash -n backend/scripts/download_models.sh
