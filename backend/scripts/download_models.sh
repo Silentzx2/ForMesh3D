@@ -119,7 +119,7 @@ VERIFY_ONLY=false
 FORCE_DOWNLOAD=false
 
 # Available models
-AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "partuv" "fastmesh" "triposg" "ardy" "unique3d" "paint3d" "pixal3d" "taoflowforge" "misc" "all")
+AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "fastmesh" "triposg" "ardy" "unique3d" "paint3d" "pixal3d" "taoflowforge" "misc" "all")
 
 show_help() {
     cat << EOF
@@ -143,7 +143,7 @@ Available models:
     trellis            - TRELLIS image-large model
     trellis-text       - TRELLIS text-xlarge model (optional)
     trellis2           - TRELLIS.2-4B model (image-based only)
-    skintokens         - SkinTokens model for unified auto-rigging
+    skintokens         - SkinTokens model for unified auto-rigging (alias: unirig)
     partuv             - PartUV model
     fastmesh           - FastMesh model
     triposg            - TripoSG and RMBG models
@@ -1216,7 +1216,7 @@ for model in "${MODELS_ARRAY[@]}"; do
         "trellis2")
             download_trellis2
             ;;
-        "skintokens")
+        "skintokens"|"unirig")
             download_skintokens
             ;;
         "partuv")

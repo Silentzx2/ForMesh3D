@@ -343,7 +343,7 @@ export const DEFAULT_WORKSPACE_SHORTCUTS: ShortcutDefinition[] = [
   { id: 'tool-uv', name: 'UV Unwrapping', description: 'Switch to PartUV Atlas Unwrapping', defaultKey: 'U', category: 'tools' },
   { id: 'tool-edit', name: 'Mesh Transform / Edit', description: 'Switch to 3D Transform Gizmo', defaultKey: 'E', category: 'tools' },
   { id: 'tool-animation', name: 'Animation / Motion', description: 'Switch to Skeletal Animation', defaultKey: 'A', category: 'tools' },
-  { id: 'tool-rigging', name: 'Auto-Rigging', description: 'Switch to UniRig Armature', defaultKey: 'K', category: 'tools' },
+  { id: 'tool-rigging', name: 'Auto-Rigging', description: 'Switch to SkinTokens Armature', defaultKey: 'K', category: 'tools' },
   { id: 'tool-segment', name: 'Mesh Segmentation', description: 'Switch to Mesh Segmentation', defaultKey: 'S', category: 'tools' },
   { id: 'nav-dashboard', name: 'Dashboard', description: 'Navigate to Command Center', defaultKey: 'Ctrl/Cmd + 1', category: 'navigation' },
   { id: 'nav-assets', name: 'Assets Library', description: 'Navigate to Asset Outputs', defaultKey: 'Ctrl/Cmd + 2', category: 'navigation' },

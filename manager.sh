@@ -223,7 +223,7 @@ cmd_models() {
         printf "  ${CYAN}[5]${NC}  TRELLIS            - Image-large generation model\n"
         printf "  ${CYAN}[6]${NC}  TRELLIS Text-XL    - Text-xlarge generation model (optional)\n"
         printf "  ${CYAN}[7]${NC}  TRELLIS.2-4B       - Image-based generation model\n"
-        printf "  ${CYAN}[8]${NC}  UniRig             - Auto-rigging model\n"
+        printf "  ${CYAN}[8]${NC}  SkinTokens         - Auto-rigging model\n"
         printf "  ${CYAN}[9]${NC}  PartUV             - UV unwrapping model\n"
         printf "  ${CYAN}[10]${NC} FastMesh           - Mesh upscaling V1K/V4K\n"
         printf "  ${CYAN}[11]${NC} Misc               - RealESRGAN, DINOv2\n"
@@ -275,7 +275,7 @@ cmd_models() {
                         5) models_csv="${models_csv}trellis," ;;
                         6) models_csv="${models_csv}trellis-text," ;;
                         7) models_csv="${models_csv}trellis2," ;;
-                        8) models_csv="${models_csv}unirig," ;;
+                        8) models_csv="${models_csv}skintokens," ;;
                         9) models_csv="${models_csv}partuv," ;;
                         10) models_csv="${models_csv}fastmesh," ;;
                         11) models_csv="${models_csv}misc," ;;

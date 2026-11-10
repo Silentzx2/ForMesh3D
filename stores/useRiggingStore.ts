@@ -51,12 +51,12 @@ interface RiggingState {
   characterMeshUrl: string | null;
   setCharacterInfo: (info: { name?: string; vertices?: number; sizeMb?: number; meshUrl?: string }) => void;
 
-  // Rigging options & method (UniRig AI or Manual with Symmetry)
+  // Rigging options & method (SkinTokens AI or Manual with Symmetry)
   riggingMethod: RiggingMethod;
   setRiggingMethod: (m: RiggingMethod) => void;
   autoRigProvider: 'unirig_auto_rig';
   setAutoRigProvider: (p: 'unirig_auto_rig') => void;
-  // Bilateral mirroring is used by the manual armature editor, not sent to UniRig.
+  // Bilateral mirroring is used by the manual armature editor, not sent to SkinTokens.
   symmetry: boolean;
   setSymmetry: (val: boolean) => void;
 
