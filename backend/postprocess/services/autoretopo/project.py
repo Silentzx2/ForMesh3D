@@ -27,7 +27,6 @@ All graph ops are vectorized with reduceat over a CSR-style adjacency.
 from __future__ import annotations
 import numpy as np
 import trimesh
-from scipy.spatial import cKDTree
 
 from . import gpu
 
@@ -159,41 +158,3 @@ def _project(pq, V, F, target_mesh, iters, relax_strength,
         Dn = _lap_smooth(dn[:, None] * normals, idx, ptr, deg, 1)
         Vc = Vc + Dn
     return np.ascontiguousarray(Vc)
-
-
-def snap_to_features(V, src, angle_deg=35.0, tol_frac=0.03, spacing_frac=0.004):
-    """Snap vertices near sharp source edges onto the exact crease edge line."""
-    if src is None or len(getattr(src, "faces", [])) == 0:
-        return np.asarray(V, dtype=float).copy()
-    bounds = getattr(src, "bounds", None)
-    if bounds is None or len(bounds) < 2:
-        return np.asarray(V, dtype=float).copy()
-    diag = float(np.linalg.norm(bounds[1] - bounds[0]))
-    if diag <= 1e-12:
-        return np.asarray(V, dtype=float).copy()
-    if not hasattr(src, "face_adjacency_angles") or not hasattr(src, "face_adjacency_edges"):
-        return np.asarray(V, dtype=float).copy()
-    sharp = src.face_adjacency_angles > np.radians(angle_deg)
-    E = src.face_adjacency_edges[sharp]
-    if len(E) == 0:
-        return np.asarray(V, dtype=float).copy()
-    A = np.asarray(src.vertices[E[:, 0]], dtype=float)
-    B = np.asarray(src.vertices[E[:, 1]], dtype=float)
-    ln = np.linalg.norm(B - A, axis=1)
-    step = max(spacing_frac * diag, 1e-6)
-    pts, seg = [], []
-    for i in range(len(E)):
-        m = max(2, int(ln[i] / step) + 1)
-        pts.append(A[i] + (B[i] - A[i]) * np.linspace(0, 1, m)[:, None])
-        seg.append(np.full(m, i, dtype=np.int64))
-    pts, seg = np.vstack(pts), np.concatenate(seg)
-    d, idx = cKDTree(pts).query(V)
-    sel = d < tol_frac * diag
-    if not np.any(sel):
-        return np.asarray(V, dtype=float).copy()
-    a, b = A[seg[idx[sel]]], B[seg[idx[sel]]]
-    ab = b - a
-    t = np.clip(np.einsum('ij,ij->i', V[sel] - a, ab) / np.maximum(np.einsum('ij,ij->i', ab, ab), 1e-18), 0.0, 1.0)
-    out = np.asarray(V, dtype=float).copy()
-    out[sel] = a + ab * t[:, None]
-    return np.ascontiguousarray(out)

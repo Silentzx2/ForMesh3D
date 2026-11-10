@@ -16,7 +16,6 @@ import trimesh
 
 from .config import RetopoConfig
 from . import ingest, shell, remesh, project, metrics, meshutil, gpu
-from .project import snap_to_features
 
 
 class RetopoResult:
@@ -137,8 +136,6 @@ class AutoRetopo:
                 V, F, original, iters=cfg.project_iters,
                 clamp=cfg.project_clamp, relax_strength=cfg.relax_strength,
                 device=cfg.device)
-        if cfg.preserve_features:
-            V = snap_to_features(V, original, angle_deg=cfg.feature_angle)
         V, F = remesh.finalize_watertight(V, F, verbose=cfg.verbose) if cfg.watertight else remesh.clean_slivers(V, F)
         t["project"] = time.time() - t0
 

@@ -56,17 +56,10 @@ def run_auto_retopo(
     progress=None,
     cancel_checker: CancelChecker = None,
 ) -> tuple[trimesh.Trimesh, dict, None]:
-    watertight = options.watertight
-    fields_set = getattr(options, "model_fields_set", None)
-    if fields_set is None:
-        fields_set = getattr(options, "__fields_set__", set())
-    if "watertight" not in fields_set and getattr(mesh, "is_watertight", False):
-        watertight = False
-
     cfg = RetopoConfig(
         target_faces=options.target_faces,
         quads=options.quads,
-        watertight=watertight,
+        watertight=options.watertight,
         shell_resolution=options.shell_resolution,
         shell_close_iter=options.shell_close_iter,
         shell_smooth=options.shell_smooth,
