@@ -22,7 +22,12 @@ import numpy as np
 import trimesh
 
 from ..schemas import RepairOptions
-from .hole_repair import _extract_boundary_cycles, repair_holes_targeted, triangulate_boundary_loop
+from .hole_repair import (
+    _extract_boundary_cycles,
+    fill_hole_ear_clip,
+    repair_holes_targeted,
+    triangulate_boundary_loop,
+)
 
 try:
     from backend.core.config import get_quality_config
@@ -162,9 +167,9 @@ def _face_areas(vertices, faces) -> np.ndarray:
 
 
 def _fill_small_holes(
-    vertices, faces, canon, alive, max_hole_size: int, max_hole_perimeter: float
+    vertices, faces, canon, alive, max_hole_size: int, max_hole_perimeter_frac: float
 ) -> int:
-    """Fill only simple, planar boundary loops with safe triangulations."""
+    """Fill only small planar or non-planar boundary loops with safe triangulations."""
     if max_hole_size <= 0:
         return 0
 
@@ -186,6 +191,13 @@ def _fill_small_holes(
             if edge in boundary_keys:
                 next_map.setdefault(b, []).append(a)
 
+    all_vertices = np.asarray(vertices, dtype=np.float64)
+    bbox_diagonal = (
+        float(np.linalg.norm(np.ptp(all_vertices, axis=0)))
+        if all_vertices.ndim == 2 and len(all_vertices) and np.isfinite(all_vertices).all()
+        else 0.0
+    )
+    perimeter_limit = float(max_hole_perimeter_frac) * bbox_diagonal
     edge_count = {edge: len(owners) for edge, owners in edges.items()}
     added = []
     for loop in _extract_boundary_cycles(next_map):
@@ -197,9 +209,12 @@ def _fill_small_holes(
             float(np.linalg.norm(loop_points[i] - loop_points[(i + 1) % len(loop)]))
             for i in range(len(loop))
         )
-        if perimeter > max_hole_perimeter:
+        if perimeter > perimeter_limit:
             continue
-        local_faces = triangulate_boundary_loop(list(range(len(loop))), loop_points)
+        local_loop = list(range(len(loop)))
+        local_faces = triangulate_boundary_loop(local_loop, loop_points)
+        if local_faces is None:
+            local_faces = fill_hole_ear_clip(loop_points, local_loop)
         if local_faces is None:
             continue
 
@@ -234,7 +249,7 @@ def _repair_preserving_uv(
     options: RepairOptions,
     emit,
     max_hole_vertices: int,
-    max_hole_perimeter: float,
+    max_hole_perimeter_frac: float,
 ) -> tuple[trimesh.Trimesh, dict]:
     vertices = np.asarray(mesh.vertices, dtype=float)
     faces = [list(map(int, face)) for face in np.asarray(mesh.faces, dtype=np.int64)]
@@ -331,7 +346,7 @@ def _repair_preserving_uv(
             canon,
             alive,
             max_hole_vertices,
-            max_hole_perimeter,
+            max_hole_perimeter_frac,
         )
 
     # Compact: keep only live faces, then drop vertices nothing references —
@@ -374,7 +389,7 @@ def run_repair(mesh: trimesh.Trimesh, options: RepairOptions,
 
     mesh = mesh.copy()
     hole_limits = get_quality_config()["holes"]
-    max_hole_perimeter = float(hole_limits["max_hole_perimeter"])
+    max_hole_perimeter_frac = float(hole_limits["max_hole_perimeter_frac"])
     max_hole_vertices = (
         int(options.max_hole_size)
         if "max_hole_size" in getattr(options, "model_fields_set", set())
@@ -393,7 +408,7 @@ def run_repair(mesh: trimesh.Trimesh, options: RepairOptions,
     # aggressive and discards UVs entirely.
     if options.preserve_uv:
         out, tool_stats = _repair_preserving_uv(
-            mesh, options, emit, max_hole_vertices, max_hole_perimeter
+            mesh, options, emit, max_hole_vertices, max_hole_perimeter_frac
         )
         emit("done", 1.0, "Repair complete.")
         after = topology_counts(out.vertices, out.faces)
@@ -476,7 +491,7 @@ def run_repair(mesh: trimesh.Trimesh, options: RepairOptions,
         out, hole_stats = repair_holes_targeted(
             out,
             max_hole_vertices=max_hole_vertices,
-            max_hole_perimeter=max_hole_perimeter,
+            max_hole_perimeter_frac=max_hole_perimeter_frac,
         )
 
     emit("done", 1.0, "Repair complete.")

@@ -51,7 +51,7 @@ Static source inspection of the `dev` baseline on 2026-11-01 identified material
 - Pixal3D has an undefined `width` reference and does not initialize the four projection-condition models that its vendored `from_pretrained` path leaves unset.
 - Paint3D resolves stage scripts from the weights directory and returns the input mesh rather than applying the generated albedo to the output mesh.
 - SkinTokens replaced legacy UniRig with unified autoregressive TokenRig framework and direct in-process inference adapter.
-- FastMesh's manifest exposes V1K only; the registry's V4K ID resolves to an adapter class hard-coded to V1K.
+- FastMesh's backend manifest and frontend registry expose V1K only. The UI reports the checkpoint-fixed approximately 1K-vertex output; no V4K model is advertised.
 - The TRELLIS text-painting registry entry reaches an image-conditioned adapter, not a verified text-conditioned pipeline.
 - The generic installer does not install or establish all model source package roots; individual adapter import paths need model-by-model validation.
 
@@ -168,7 +168,7 @@ flowchart TD
 The following points supersede older detailed notes in this section when they conflict with the current adapter and ThirdParty source trees:
 
 - **SkinTokens:** direct in-process adapter calls official TokenRig pipeline (`get_model`, `predict_step`) with companion `bpy_server` binding daemon. Legacy UniRig has been completely decommissioned.
-- **FastMesh:** only V1K is declared in the current model manifest. The registered V4K ID maps to the same adapter class, whose `MODEL_KEY` is fixed to V1K. Do not advertise V4K or multi-GPU placement as an available current capability.
+- **FastMesh:** only V1K is registered in the backend manifest and frontend registry. The workspace routes AI retopology to fastmesh_v1k_retopology; the V1K checkpoint fixes its output resolution at approximately 1K vertices. Do not advertise V4K or multi-GPU placement as an available current capability.
 - **Pixal3D:** the adapter currently references an undefined `width` in its camera fallback and does not construct the projection-conditioning models that the vendored pipeline leaves for the official inference entry point.
 - **Paint3D:** source-stage scripts are in the ThirdParty source tree, not the model checkpoint directory. The current adapter's export path does not apply the generated albedo to the returned mesh.
 - **Hunyuan3D-Shape v2.1:** corrected the import root to the parent directory of the vendored `hy3dshape` package. The adapter now consumes the pipeline's flat list of meshes (skipping extraction failures represented by `None`) and forwards the seed through its supported generator argument.
@@ -203,7 +203,7 @@ This static audit does not replace supported-host inference tests. Preserve mode
 
 ### Intent Presets, Targeted Hole Repair & Best-of-N Seed Scorer (Tasks 1C & 1D)
 - `backend/config/smart_presets.yaml`: Configures the production intent presets (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`; `native` is a backend-only sentinel) with their target polycounts, atlas sizes and LOD/collision/rig/printability/repair flags. Model inference schedules (octree resolution, steps, guidance, VRAM budgets) are no longer configured here; they belong to each adapter's `_LOCKED_INFERENCE_PROFILE`.
-- `backend/config/quality.yaml`: Owns the targeted hole repair limits (`holes.max_hole_vertices: 50`, `holes.max_hole_perimeter: 0.5`).
+- `backend/config/quality.yaml`: Owns the targeted hole repair limits (`holes.max_hole_vertices: 50`, `holes.max_hole_perimeter_frac: 0.25` of the mesh bounding-box diagonal).
 - `backend/postprocess/services/hole_repair.py`: `repair_holes_targeted` inspects boundary loops using directed edge traversal and fills loops `<= max_hole_vertices` with boundary fans, preserving non-hole geometry completely untouched.
 - `backend/core/scheduler/seed_scorer.py`: `score_seed_candidate` and `select_best_candidate` compute weighted composite quality scores using the fixed reference ranges from `quality.yaml` (`seeds.*`), supporting early termination (`score >= 0.85`) and tie-breaking by feature edge retention.
 
@@ -211,9 +211,10 @@ This static audit does not replace supported-host inference tests. Preserve mode
 - `backend/config/quality.yaml`: Declares the topology gate thresholds for non-manifold edges (0), non-manifold vertices (0), holes (0), floater ratio (0.005), degenerate faces (0), and aspect ratios (p1 >= 0.05, p5 >= 0.10).
 - `backend/postprocess/services/gate.py`: `evaluate_topology_gate(mesh, plan=None, strict=False)` inspects geometry without mutating inputs; returns repair decision (`skip_repair`, `minimal_repair`, `full_repair`) and `skip_retopo` flag adhering to `plan.skip_retopo_allowed`.
 
-### Memory-Safe Staged Decimation & Feature Retention (Task 2B)
-- `backend/config/quality.yaml`: Sets `decimation.memory_safe_threshold_triangles: 2000000`, `decimation.max_deviation_deg: 45.0`, `decimation.max_ram_fraction: 0.80`, with the 35.0° crease angle inherited from `shared.feature_edge_angle_deg`.
-- `backend/postprocess/services/memory_safe_decimate.py`: `memory_safe_decimate(mesh, target_faces, ...)` operates strictly on copies. Under 2M triangles, uses QEM feature-preserving decimation protecting crease planes and boundaries. Over 2M triangles, engages staged 50% reduction chunks with psutil RAM monitoring and aggressive garbage collection.
+### Native QEM Decimation & RAM Guard (Task 2B)
+- backend/config/quality.yaml owns the 2,000,000-triangle memory threshold and 0.80 host-RAM fraction; the shared 35.0° crease angle remains owned by shared.feature_edge_angle_deg.
+- backend/postprocess/services/memory_safe_decimate.py operates on a copy and delegates to simplify._simplify once. PyMeshLab performs the QEM collapse in C++; untextured meshes enable planar quadric, normal, boundary, and topology preservation, while textured meshes retain per-wedge UVs and restore material data.
+- Large or RAM-constrained inputs trigger garbage collection before the native pass. There is no staged Python QEM loop and no max-deviation angle setting; the former custom feature_preserving_decimate implementation has been removed.
 
 ### Tangent Normal Detail Bake & PBR Asset Validation (Task 2C)
 - `backend/config/quality.yaml`: Configures tangent-space OpenGL (Y+) normal baking (`bake.*`), cage/ray distances, atlas resolution, and minimum UV utilization (60%).
@@ -276,7 +277,7 @@ flowchart TB
         direction TB
         SHAPE["Shape Generation<br/>TRELLIS · Hunyuan3D-2.1<br/>TripoSG"]:::purple
         PAINT["Optional Texture Stage<br/>Paint3D 1K/2K · Hunyuan Paint 4K/8K"]:::purple
-        STRUCT["Structure & Motion<br/>FastMesh (V1K only; V4K unverified)<br/>SkinTokens · ARDY"]:::purple
+        STRUCT["Structure & Motion<br/>FastMesh (V1K only)<br/>SkinTokens · ARDY"]:::purple
         RETARGET["Motion Retargeting<br/>Joint mapping · rotation and root-motion playback"]:::purple
     end
 
@@ -623,7 +624,7 @@ The active catalog is sourced from `backend/config/models.yaml`. Text-conditione
 | TRELLIS.2 | `trellis2_image_to_3d`; `trellis2_image_to_raw_mesh`; legacy `trellis2_image_to_textured_mesh` alias; standalone paint ID remains API-compatible | Raw Geometry; legacy textured ID resolves to raw output | ~23.5 GB |
 | TripoSG | `triposg_image_to_raw_mesh` | Image → Raw Mesh | ~8 GB |
 | SkinTokens | `skintokens_auto_rigging` | Auto-Rigging | ~14 GB |
-| FastMesh | `fastmesh_v1k_retopology`; `fastmesh_v4k_retopology` | Mesh Retopology | ~16–24.5 GB |
+| FastMesh | `fastmesh_v1k_retopology` | Mesh Retopology | ~16 GB |
 | PartUV | `partuv_uv_unwrapping` | UV Unwrapping | ~7 GB |
 | ARDY | `ardy_motion_generation` | Text → Motion | CPU-only; no GPU VRAM reservation |
 | Unique3D | `unique3d_image_to_raw_mesh` | Image → Raw Mesh | ~10 GB |
@@ -690,9 +691,9 @@ Every tunable parameter has exactly one canonical definition:
 | Value Family | Owning File | Canonical Key | Description |
 | :--- | :--- | :--- | :--- |
 | **Shared Crease Angles** | `backend/config/quality.yaml` | `quality.shared.feature_edge_angle_deg` | Crease angle cutoff (35.0°) for sharp edge retention across decimation, baking, and metrics. |
-| **Hole Repair Limits** | `backend/config/quality.yaml` | `quality.holes.*` | `max_hole_vertices` (50) and `max_hole_perimeter` (0.5) for targeted boundary loop filling. |
+| **Hole Repair Limits** | `backend/config/quality.yaml` | `quality.holes.*` | `max_hole_vertices` (50) and `max_hole_perimeter_frac` (0.25 × mesh bounding-box diagonal). |
 | **Topology Gate** | `backend/config/quality.yaml` | `quality.gate.*` | Clean-mesh criteria: non-manifold edges/vertices (0), holes (0), floater ratio (0.005), degenerate faces (0), aspect ratio p1/p5 (0.05 / 0.10). |
-| **Memory-Safe Decimation**| `backend/config/quality.yaml` | `quality.decimation.*` | `memory_safe_threshold_triangles` (2M), `max_deviation_deg` (45.0), `max_ram_fraction` (0.80). |
+| **Memory-Aware Decimation**| `backend/config/quality.yaml` | `quality.decimation.*` | `memory_safe_threshold_triangles` (2M) and `max_ram_fraction` (0.80); the shared crease angle is owned by quality.shared. |
 | **UV Auto-Routing** | `backend/config/quality.yaml` | `quality.uv.*` | `partuv_triangle_threshold` (500k), `partuv_vram_requirement_gb` (7.0 GB), default backend (`auto`), fallback (`xatlas`), `max_chart_size` (4096). |
 | **Normal Detail Bake** | `backend/config/quality.yaml` | `quality.bake.*` | `normal_space` ("TANGENT"), `convention` ("OPENGL"), `cage_extrusion` (0.02), `max_ray_distance` (0.05), `gutter_dilation_pixels` (4), `min_uv_utilization` (0.60). |
 | **Candidate Seed Scoring**| `backend/config/quality.yaml` | `quality.seeds.*` | `base_seed` (42891), `seed_step` (1337), `max_candidates` (4), `early_stop_score` (0.85), weights, ranges. |
@@ -794,7 +795,7 @@ Pipeline: MODEL INFERENCE -> immutable `master/source.glb` (SHA-256 pre-verifica
 #### Post-Processing Pipeline Components:
 - **Topology Gate (`backend/postprocess/services/gate.py`)**: Evaluates mesh manifoldness, boundary loops, floater components, degenerate faces, and aspect ratios against the canonical `quality.yaml` gate thresholds. When topology is clean, repairs are bypassed (`skip_repair`, `skip_retopo=True`). If only small boundary loops exist (<= 50 vertices), routes to `minimal_repair`. Non-manifold or heavily defective geometry routes to `full_repair`.
 - **Targeted Hole Repair (`backend/postprocess/services/hole_repair.py`)**: Triangulates small boundary loops using directed edge traversal and fan triangulation. Fixes open generation seams without smoothing uncorrupted surface geometry or changing edge sharpness.
-- **Memory-Safe Decimation (`backend/postprocess/services/memory_safe_decimate.py`)**: Preserves crease angles (>35°) and boundary edges. For meshes over 2M triangles, engages staged 50% chunked decimation with dynamic psutil RAM tracking (80% headroom cap) and aggressive garbage collection to prevent out-of-memory crashes.
+- **Memory-Aware Decimation (`backend/postprocess/services/memory_safe_decimate.py`)**: Delegates to the shared PyMeshLab QEM implementation in one native pass, preserving normals, topology, and boundaries. The 2M-triangle threshold and 80% host-RAM fraction trigger garbage collection before the native pass; there is no staged Python QEM loop.
 - **UV Backend Resolver (`backend/postprocess/services/uv_backend_resolver.py`)**: Centralized single source of truth for UV unwrapping. High-poly models (>=500k triangles) automatically route to GPU PartUV if CUDA and >=7.0 GB VRAM are available (after generative model memory is released); otherwise seamlessly routes to high-throughput CPU/GPU xatlas with 0% overlap and strict [0, 1] bounds.
 - **Normal Detail Bake & PBR Validation (`backend/postprocess/services/pbr_validator.py`)**: Bakes tangent-space normal maps from high-poly master source to game-ready mesh using the OpenGL convention (Y+). Angle-weighted normals are recomputed with a 35° crease angle. Validates that all 5 PBR channels exist and are non-degenerate, roughness/metallic are correctly packed into G/B channels, normals decoded to (0, 0, 1) on flat faces, and UV atlas space utilization meets minimum thresholds (>=60%).
 - **Polygonal Quad Export**: `_export_quad_obj` serializes genuine 4-vertex polygonal faces (`f v/vt/vn ...`). When quad-dominant topology is requested and generated, the optimization stage automatically passes geometry through without destructive triangle decimation.
@@ -1006,7 +1007,7 @@ flowchart TD
     subgraph AI Path ["Path A: Neural AI Mode (GPU Scheduler)"]
         Bridge -->|JSON Job Request| FastAPIAI["FastAPI AI Routers<br/>(/api/v1/mesh-retopology/*)<br/>(/api/v1/mesh-uv-unwrapping/*)<br/>(/api/v1/mesh-segmentation/*)"]
         FastAPIAI --> Scheduler["Multiprocess Scheduler<br/>(GPU Worker Lock & VRAM Plan)"]
-        Scheduler --> AIModels["Deep Learning Inference<br/>(FastMesh V1K/V4K, PartUV, Semantic Seg)"]
+        Scheduler --> AIModels["Deep Learning Inference<br/>(FastMesh V1K, PartUV, Semantic Seg)"]
         AIModels --> Poll["WorkspaceContext Job Poller"]
     end
 
@@ -1059,8 +1060,8 @@ The texture and pbr tool routes intentionally resolve to the same TexturePanel i
 
 ## Batch 1 Mesh Pipeline Corrections (2026-11-10)
 
-- The FastMesh adapter mirrors the upstream inference input contract: normalize a copy of the input mesh to a 1.9-unit longest bounding-box extent, sample surface positions with their source-face indices, gather normals from those exact faces, select at most 8,192 pairs deterministically from the 50,000-point oversample, and place the tensor on the device chosen by the scheduler.
-- FastMesh output remains in the upstream model's canonical normalized coordinate convention; this adapter change does not add an inverse transform that the upstream inference entry point itself does not perform.
+- The FastMesh adapter mirrors the vendored upstream inference input contract: normalize a copy of the input mesh to a 1.9-unit longest bounding-box extent, sample surface positions with their source-face indices, gather normals from those exact faces, select at most 8,192 pairs deterministically from the 50,000-point oversample, and place the tensor on the device chosen by the scheduler.
+- The vendored upstream FastMesh/inference.py (ThirdParty submodule commit 48ca8dc20ad97bb7f011e4cadb4de9e3ecd32ee9) exports the model result directly after normalization and performs no inverse transform. FastMesh output therefore remains in the model's normalized coordinate convention; the adapter intentionally does not rescale or translate it back.
 - _enforce_mesh_limits() consumes both values returned by memory_safe_decimate() and reads the feature-edge angle from the root shared quality-policy section.
 - The bake policy and pipeline fallback use 0.0 for cage_extrusion and max_ray_distance to request automatic scale-aware distances. The isolated Blender worker derives cage extrusion as 2% of the low-poly bounding-box diagonal, derives max ray distance as 2.5x the cage, and assigns both to Blender's BakeSettings. GPU/weight inference and Blender runtime behavior still require their respective environments.
 

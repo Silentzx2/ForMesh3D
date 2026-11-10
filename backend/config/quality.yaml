@@ -6,7 +6,7 @@ shared:
 
 holes:
   max_hole_vertices: 50
-  max_hole_perimeter: 0.5
+  max_hole_perimeter_frac: 0.25  # Fraction of the mesh bounding-box diagonal
 
 gate:
   strict: false
@@ -88,7 +88,6 @@ physics:
 
 decimation:
   memory_safe_threshold_triangles: 2000000
-  max_deviation_deg: 45.0
   max_ram_fraction: 0.80
 
 uv:

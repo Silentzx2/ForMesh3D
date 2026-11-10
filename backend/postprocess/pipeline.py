@@ -1780,7 +1780,6 @@ def _enforce_mesh_limits(mesh: trimesh.Trimesh, model_id: str) -> trimesh.Trimes
     mesh, _telemetry = memory_safe_decimate(
         mesh,
         target_faces=target_faces,
-        max_deviation_deg=45.0,
         crease_angle_deg=crease_angle,
         max_ram_fraction=0.80,
     )
@@ -2171,7 +2170,7 @@ def run_postprocess_job(
         repaired, hole_stats = repair_holes_targeted(
             mesh.copy(),
             max_hole_vertices=int(get_quality_config()["holes"]["max_hole_vertices"]),
-            max_hole_perimeter=float(get_quality_config()["holes"]["max_hole_perimeter"]),
+            max_hole_perimeter_frac=float(get_quality_config()["holes"]["max_hole_perimeter_frac"]),
         )
         repair_stats = {
             "before": source_topology,

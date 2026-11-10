@@ -124,7 +124,7 @@ export const LiveExecutionPanel: React.FC = () => {
         {
           id: 'synthesis',
           name: 'Source Mesh Ingestion & Preflight',
-          detail: `FastMesh ${remeshSettings.variant} ${remeshSettings.polyType.toUpperCase()} retopology`,
+          detail: `FastMesh ${remeshSettings.variant} retopology`,
         },
       ]
     : [

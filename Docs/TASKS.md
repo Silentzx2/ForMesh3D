@@ -17,13 +17,15 @@ No GPU model or Blender runtime was executed. Treat all such checks as **NOT RUN
 
 ## Current branch reconciliation — 2026-11-10
 
-The original audit below was performed against commit `2d5fd0c`. The current `dev` branch was checked at `fd0e57c` on 2026-11-10 and is **two commits ahead** of that audit baseline (`16898a2`, `fd0e57c`).
+The original audit below was performed against commit `2d5fd0c`. The current dev branch was checked at 0282a55 on 2026-11-10 before the Batch 1 completion work; the original audit baseline remains 2d5fd0c.
 
 The following audit findings have already been addressed in those two commits and must not be reimplemented:
 
-- **FastMesh adapter (partial):** `sys` is imported; the adapter normalizes a copy of the source mesh, uses the sampled face indices to select matching face normals, selects a deterministic 8,192-point subset, and moves the tensor to the adapter's selected device. CPU regression coverage exists in `backend/tests/test_batch1_regressions.py`. The UI/model-registry mismatch, displayed target-count contract, and output-coordinate/export behavior still require verification.
+- **FastMesh (source-level resolved):** the UI, TypeScript model registry, bridge defaults, workspace request, and backend model preference now expose V1K only. AI mode shows the checkpoint-fixed approximately 1K-vertex output; script-only topology and target-face controls are hidden in AI mode. The vendored upstream FastMesh inference.py at submodule commit 48ca8dc normalizes the input and exports model output without an inverse transform, so the adapter deliberately preserves the normalized output coordinates. No GPU inference or weights validation was run.
 - **`_enforce_mesh_limits` (partial):** the `(mesh, telemetry)` return value from `memory_safe_decimate()` is unpacked, and `shared.feature_edge_angle_deg` is read from the root quality configuration. CPU regression coverage exists in `backend/tests/test_batch1_regressions.py`. The separately reported work performed on an in-memory copy and then discarded still needs review.
 - **Blender cage assignment (resolved):** the worker now assigns the computed cage to `bake.cage_extrusion`. The YAML and pipeline defaults use `0.0` for automatic, scale-aware cage/ray distances. CPU regression coverage exists in `backend/tests/test_batch1_regressions.py`.
+- **Hole repair (source-level resolved):** a Newell-normal 3D ear-clipping fallback now handles non-planar loops after the existing planar triangulator, with the edge-count safety guard retained. Perimeter limits use holes.max_hole_perimeter_frac against the full mesh bounding-box diagonal. The UV-preserving repair path uses the same fallback and scale rule.
+- **Decimation (source-level resolved):** memory_safe_decimate now delegates to the existing PyMeshLab _simplify path once, uses planarquadric=True for untextured meshes, and no longer calls the slow pure-Python QEM. The old feature_preserving_decimate function and re-export were removed.
 
 This reconciliation is based on the Git diff and current source changes, not on a fresh runtime execution. The tests listed above were found in the repository but were **not run during this documentation update**. GPU inference, FastMesh weights, and a Blender runtime bake remain **NOT RUN** here. Revalidate all remaining findings against the current source before implementing them.
 
@@ -33,10 +35,10 @@ This reconciliation is based on the Git diff and current source changes, not on 
 
 | # | File | Problem | Priority | Evidence |
 |---|---|---|---|---|
-| 1 | `adapters/fastmesh_adapter.py` | Import and point-cloud preparation fixed on current dev; UI/model-registry and target-count contract still need review | P0 | PARTIAL |
-| 2 | `postprocess/services/hole_repair.py` | Fills only exactly planar holes | P0 | RUN |
+| 1 | FastMesh adapter / workspace UI | V1K-only registry and request; fixed-output UI contract; upstream normalized export verified from vendored source | P0 | PASS — static contract; GPU NOT RUN |
+| 2 | `postprocess/services/hole_repair.py` | Non-planar 3D ear-clipping fallback and scale-aware perimeter limit implemented | P0 | PASS — CI regression test |
 | 3 | `postprocess/pipeline.py::_enforce_mesh_limits` | Tuple-unpacking, shared-config lookup, and discarded raw-stage repair/smoothing are resolved on current dev | P1 | STATIC (regression added; not run in this session) |
-| 4 | `core/mesh_processor.py::feature_preserving_decimate` | Misses the target and is very slow | P0 | RUN |
+| 4 | Shared PyMeshLab decimation | One-shot _simplify dispatch; PyMeshLab target/UV/boundary integration tests added | P0 | PASS dispatch; 2 PyMeshLab tests SKIPPED |
 | 5 | `services/uv_backend_resolver.py::_unwrap_massive_mesh_safe` | Invalid UV for >50K tris | P0 | STATIC |
 | 6 | `postprocess/tools/bake_worker.py` | Cage extrusion is now applied and scale-aware on current dev | P0 (resolved) | CURRENT DEV DIFF |
 | 7 | `postprocess/services/bake.py` | Nearest-vertex normals, fake AO, no anti-aliasing | P0 | RUN (sampling) |
@@ -51,106 +53,27 @@ Correction: `_enforce_mesh_limits` previously ran hole filling, winding/normal r
 
 ---
 
-## 1. FastMesh adapter — `backend/adapters/fastmesh_adapter.py`
+## 1. FastMesh adapter — V1K-only contract
 
-**Current-dev status: PARTIAL.** The missing `sys` import and incorrect point-cloud construction were fixed after the audit baseline. A regression test is checked in. Do not reapply the old preprocessing replacement blindly. The UI/model registry and target-count mismatch remain to be checked; also verify the model output coordinate space and export transform with the actual adapter/upstream implementation.
+**Current-dev status: IMPLEMENTED; static contract regression PASS; GPU inference NOT RUN.**
 
-**Issues identified at the audit baseline (`2d5fd0c`)**
-- `sys.path` is used (lines 73–74) without importing `sys`, causing a `NameError` in `_load_model`.
-- Point-cloud preparation: the face indices returned by `mesh.sample(..., return_index=True)` are discarded, while normals are selected for *random faces* using `np.random.choice`; therefore, the normals do not correspond to the sampled points. The mesh is also not normalized to `[-1, 1]`, and 50,000 points are passed through. The project's own reference implementation, `utils/fastmesh_utils.py`, normalizes using `*2*0.95` and uses `input_pc_num=8192`.
-- The UI default is `variant: 'V4K'` (`RemeshPanel.tsx:276`, `WorkspaceContext.tsx:668,1819,1890`), while `models.yaml` contains only `fastmesh_v1k_retopology`; the default AI retopology request will therefore fail validation.
-- FastMesh produces approximately 1K vertices, while the UI displays "Target 50,000 quads". The scheduler log reports `adapter_received_target_polycount: not_sent`.
+- The backend manifest and adapter factory already registered only fastmesh_v1k_retopology; the frontend's stale V4K entry, selector option, default, bridge parameters, and request branch have now been removed.
+- Workspace AI mode identifies FastMesh V1K and displays its checkpoint-fixed output (approximately 1K vertices). The adjustable target-face budget and topology selector are shown only in Script mode, where the bridge consumes them.
+- The API keeps target_vertex_count only as a deprecated compatibility field. The adapter no longer reports the requested value as if it were an inference target; it reports the actual output vertex count.
+- Coordinate contract was checked against the vendored FastMesh source at ThirdParty submodule commit 48ca8dc20ad97bb7f011e4cadb4de9e3ecd32ee9: FastMesh/inference.py normalizes the input mesh to a 1.9-unit longest extent, calls the model, then exports the generated mesh directly. There is no inverse transform in that upstream inference path. The adapter therefore intentionally does not apply one.
+- The V1K-only UI/registry/API contract regression passed in CI. No checkpoint load, GPU inference, output-mesh inspection, or visual quality test was run.
 
-**Historical fix proposal from the audit baseline (do not reapply the parts already resolved on current dev).**
+## 2. Hole repair — postprocess/services/hole_repair.py
 
-```python
-# adapters/fastmesh_adapter.py — add this to the imports
-import sys
-```
+**Current-dev status: IMPLEMENTED; CPU regression PASS in CI.**
 
-```python
-# In `_process_request`, replace the code from `mesh = trimesh.load(...)` through `input_shape = ...` with this:
-import numpy as np
-mesh = trimesh.load(mesh_path, force="mesh", process=False).copy()
-bounds = mesh.bounds
-center = (bounds[0] + bounds[1]) / 2.0
-scale = float((bounds[1] - bounds[0]).max())
-mesh.apply_translation(-center)
-mesh.apply_scale(2.0 * 0.95 / scale)            # same as fastmesh_utils._apply_normalize
-
-points, face_idx = mesh.sample(50000, return_index=True)
-normals = mesh.face_normals[face_idx]            # Normals of the SAME faces that produced the points
-rng = np.random.default_rng(seed)
-keep = rng.choice(len(points), min(8192, len(points)), replace=False)
-pc_normal = np.concatenate([points[keep], normals[keep]], axis=-1).astype(np.float16)
-input_shape = torch.from_numpy(pc_normal).unsqueeze(0).to(self.model.device if hasattr(self.model, "device") else "cpu")
-```
-
-> Verify this: the output mesh is in normalized space, so before export you must apply `V = V * scale / (2.0*0.95) + center` (`fastmesh_utils.py` contains the remaining reference logic).
-
-**UI/backend contract (AGENTS.md: "No Control Without a Verified Consumer")**
-- Either register `fastmesh_v4k_retopology` again (weights + `models.yaml`) or remove V4K from the UI.
-- In AI mode, remove the polycount slider or label it clearly as "FastMesh output is fixed at approximately 1K/4K vertices".
-
----
-
-## 2. Hole repair — `postprocess/services/hole_repair.py`
-
-**Issue (RUN):** `triangulate_boundary_loop` requires the loop to be planar within machine epsilon. Of three holes in a noisy sphere (2% radial noise; 12, 18, and 40 boundary edges), **zero were filled**. Holes in generative meshes are rarely perfectly planar. `max_hole_perimeter: 0.5` is also an absolute value, not scale-aware.
-
-**Fix:** If the planar check fails in `triangulate_boundary_loop`, call this fallback (RUN-verified: all three holes filled, `watertight=True`, consistent winding, 0.16 seconds maximum):
-
-```python
-import numpy as np
-
-def fill_hole_ear_clip(V, loop):
-    """Triangulate ONE 3D boundary loop (planarity is not required).
-    Greedy strategy: at each step, clip the ear with the best worst-case angle. Returns `list[[a,b,c]]` or `None`."""
-    P = np.asarray(V, float); L = list(loop); tris = []
-    n = np.zeros(3)
-    for i in range(len(L)):                      # Newell normal of loop
-        n += np.cross(P[L[i]], P[L[(i + 1) % len(L)]])
-    if np.linalg.norm(n) < 1e-18:
-        return None
-    n /= np.linalg.norm(n)
-
-    def ang(p, q, r):
-        u, v = q - p, r - p
-        return np.arccos(np.clip(np.dot(u, v) / (np.linalg.norm(u) * np.linalg.norm(v) + 1e-18), -1, 1))
-
-    def ear_score(a, b, c):
-        if np.dot(np.cross(b - a, c - a), n) <= 1e-18:
-            return -1.0                          # reflex / flipped
-        return min(ang(a, b, c), ang(b, c, a), ang(c, a, b))
-
-    def inside(a, b, c, p):
-        return all(np.dot(np.cross(y - x, p - x), n) >= 0 for x, y in ((a, b), (b, c), (c, a)))
-
-    while len(L) > 3:
-        best, bi = -1.0, -1
-        for i in range(len(L)):
-            ia, ib, ic = L[i - 1], L[i], L[(i + 1) % len(L)]
-            s = ear_score(P[ia], P[ib], P[ic])
-            if s <= best:
-                continue
-            if any(inside(P[ia], P[ib], P[ic], P[k]) for k in L if k not in (ia, ib, ic)):
-                continue
-            best, bi = s, i
-        if bi < 0:
-            return None
-        tris.append([L[bi - 1], L[bi], L[(bi + 1) % len(L)]])
-        del L[bi]
-    tris.append(L[:])
-    return tris
-```
-
-Wire this into `repair_holes_targeted` immediately after `loop_faces = triangulate_boundary_loop(...)`:
-`if loop_faces is None: loop_faces = fill_hole_ear_clip(mesh.vertices, loop)`.
-Keep the existing edge-count safety check (`edge_counts + additions > 2`). Replace the absolute `0.5` perimeter limit with a fraction of the bounding-box diagonal (`quality.yaml: holes.max_hole_perimeter_frac`).
-
-Optional for large holes: use `pymeshlab.meshing_close_holes` followed by fairing (`pymeshlab` is already a dependency).
-
----
+- The planar ear-clipping path remains first choice.
+- If a loop is not planar, fill_hole_ear_clip uses a Newell normal and a 3D-aware ear score/containment test to triangulate the original boundary vertices while preserving loop winding.
+- The existing candidate-edge count guard remains in place; a candidate that would create an edge with more than two incident faces is rejected.
+- The absolute max_hole_perimeter was replaced by holes.max_hole_perimeter_frac (0.25), multiplied by the full mesh bounding-box diagonal. Both the targeted repair and UV-preserving repair paths use the same scale-aware limit and non-planar fallback.
+- Boundary cycles and edge-incidence checks are derived directly from oriented triangle faces, avoiding assumptions about Trimesh edges/edges_sorted ordering across versions.
+- Appending faces now uses the supported Trimesh.faces setter rather than extend_faces, which is not present in the tested Trimesh API surface.
+- CI passed the noisy open-sphere regression for 12, 18, and 40 boundary edges at two scales; the test asserts one detected loop, zero remaining boundary edges, watertightness, and winding consistency.
 
 ## 3. `_enforce_mesh_limits` — `postprocess/pipeline.py` line ~1754-1810
 
@@ -174,7 +97,6 @@ crease_angle = float(cfg.get("shared", {}).get("feature_edge_angle_deg", 35.0))
 mesh, _telemetry = memory_safe_decimate(
     mesh,
     target_faces=target_faces,
-    max_deviation_deg=45.0,
     crease_angle_deg=crease_angle,
     max_ram_fraction=0.80,
 )
@@ -182,37 +104,16 @@ mesh, _telemetry = memory_safe_decimate(
 
 ---
 
-## 4. Decimation — `core/mesh_processor.py::feature_preserving_decimate`
+## 4. Decimation — shared PyMeshLab QEM
 
-**RUN result** (box subdivided, pure-Python QEM vs `fast_simplification`):
+**Current-dev status: IMPLEMENTED; dispatch regression PASS; PyMeshLab integration tests SKIPPED.**
 
-| Input faces | Target | Pure-Python result | Time | `fast_simplification` result | Time |
-|---|---|---|---|---|---|
-| 3,072 | 1,500 | 2,424 | 0.9s | 1,500 | ~0.00s |
-| 12,288 | 6,000 | 10,674 | 4.2s | 6,000 | 0.01s |
-
-In addition: midpoint placement (rather than optimal placement) rounds corners; UVs are averaged across seams during collapse; and there is no link-condition check. This function is called where the mesh is largest (`memory_safe_decimate` above 2M triangles and `_enforce_mesh_limits`). Extrapolation to 1M faces suggests it would be very slow, but this was not measured.
-
-**Fix (`AGENTS.md`: reuse existing code):** `simplify._simplify` already provides textured- and boundary-aware QEM through `pymeshlab`. In `memory_safe_decimate.py`:
-
-```python
-# memory_safe_decimate.py
-from .simplify import _simplify
-
-def _qem(mesh, target_faces, **_ignored):
-    out, _stats = _simplify(mesh, int(target_faces))
-    return out
-
-# Replace both call sites of `feature_preserving_decimate(`:
-current_mesh = _qem(prev_mesh, step_target)
-decimated_mesh = _qem(working_mesh, target_faces)
-```
-
-The staged 50% loop is no longer necessary (`pymeshlab` runs in C++); retain only `gc.collect()` if a RAM guard is needed. Then delete `feature_preserving_decimate` (deletion over addition).
-
-For sharp edges, add `planarquadric=True` to the untextured branch of `simplify._simplify` (it is already used in retopo's `decimate_to_target`).
-
----
+- memory_safe_decimate now calls the existing simplify._simplify implementation once, instead of the custom pure-Python QEM and its staged 50% loop.
+- The size threshold and host-RAM fraction remain as a memory guard; when either is exceeded, garbage collection runs before the native C++ decimator.
+- The untextured PyMeshLab QEM path now enables planarquadric=True, preservenormal=True, preserveboundary=True, and preservetopology=True.
+- The textured path continues to use per-wedge UV coordinates and reconstructs the UV/material data after decimation. The old Python QEM implementation, class wrapper, and utility re-export were deleted.
+- The non-PyMeshLab fallback now uses Trimesh's quadric simplifier rather than re-entering the removed Python QEM.
+- CI passed the one-shot _simplify dispatch regression. The optional PyMeshLab tests for 3,072 → 1,500 face reduction, UV retention, watertightness, and open-boundary preservation were collected but SKIPPED because PyMeshLab is not installed in the CI test environment.
 
 ## 5. UV — `services/uv_backend_resolver.py`
 
@@ -450,7 +351,7 @@ Pages: `/workspace` (Generate, Texture, Remesh, UV, Segmentation, Rigging, Anima
 | Issue | Where | Fix |
 |---|---|---|
 | Segmentation defaults to AI, but no model is installed | `SegmentationPanel.tsx:275` | Default to `'script'`; disable AI and use an honest label |
-| Remesh defaults to V4K / quad / 50K | `RemeshPanel.tsx:273-276`, `WorkspaceContext.tsx:668` | Align with the registry (section 1) |
+| Remesh defaults to V4K / quad / 50K | RemeshPanel.tsx and WorkspaceContext.tsx | Resolved: V1K only; AI output is checkpoint-fixed, and target/topology controls are Script-only |
 | UI says "Target: N Quads", but output is triangles | `RemeshPanel.tsx:1256` | Wire quad OBJ export or correct the label |
 | Hard-coded `proxy_faces`, `sdf_rays`, `feature_angle || 45` | `meshProcessingBridge.ts` | Use backend defaults; remove UI-owned duplicates |
 | Script mode defaults to `watertight: true` | Bridge + RemeshPanel | Default to false for already-closed meshes |

@@ -129,7 +129,7 @@ interface WorkspaceContextType {
   runModelGeneration: () => Promise<void>;
   runRemeshGeneration: (customSettings?: {
     engineMode?: EngineMode;
-    variant?: 'V1K' | 'V4K';
+    variant?: 'V1K';
     polyType?: string;
     targetPolycount?: number;
     preserveEdges?: boolean;
@@ -665,7 +665,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
    const [comparisonGroupId, setComparisonGroupId] = useState<string | null>(null);
  
    const [remeshSettings, setRemeshSettings] = useState<RemeshSettings>({
-    tab: 'auto', variant: 'V4K', polyType: 'quad', targetPolycount: 50000,
+    tab: 'auto', variant: 'V1K', polyType: 'quad', targetPolycount: 50000,
   });
 
   const [textureSettings, setTextureSettings] = useState<TextureSettings>({
@@ -1802,7 +1802,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
   const runRemeshGeneration = useCallback(async (customSettings?: {
     engineMode?: EngineMode;
-    variant?: 'V1K' | 'V4K';
+    variant?: 'V1K';
     polyType?: string;
     targetPolycount?: number;
     preserveEdges?: boolean;
@@ -1816,7 +1816,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       'remesh',
       engine === 'script' ? 'Algorithmic Remesh (Python)' : 'Neural Remesh (FastMesh)',
       undefined,
-      engine === 'script' ? 'trimesh_autoretopo' : (customSettings?.variant === 'V4K' ? 'fastmesh_v4k_retopology' : 'fastmesh_v1k_retopology'),
+      engine === 'script' ? 'trimesh_autoretopo' : 'fastmesh_v1k_retopology',
       undefined,
       undefined,
       comparisonGroupId ?? undefined,
@@ -1884,16 +1884,10 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       }
 
       // AI Mode Execution
-      const variant = customSettings?.variant || remeshSettings.variant;
       const body: Record<string, unknown> = {
         output_format: customSettings?.outputFormat || 'glb',
-        model_preference: variant === 'V4K' ? 'fastmesh_v4k_retopology' : 'fastmesh_v1k_retopology',
-        poly_type: polyType,
+        model_preference: 'fastmesh_v1k_retopology',
         target_polycount: targetPoly,
-        preserve_edges: customSettings?.preserveEdges ?? true,
-        feature_angle: customSettings?.featureAngle ?? 45,
-        adaptive_density: customSettings?.adaptiveDensity ?? true,
-        watertight_healing: customSettings?.watertightHealing ?? true,
         ...meshRef,
       };
 

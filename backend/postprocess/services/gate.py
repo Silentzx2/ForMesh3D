@@ -164,7 +164,7 @@ def evaluate_topology_gate(
         _, hole_repair_stats = repair_holes_targeted(
             working_copy,
             max_hole_vertices=max_hole_limit,
-            max_hole_perimeter=float(hole_limits["max_hole_perimeter"]),
+            max_hole_perimeter_frac=float(hole_limits["max_hole_perimeter_frac"]),
             config_path=config_path,
         )
         has_only_small_holes = (

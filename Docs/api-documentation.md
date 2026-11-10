@@ -665,7 +665,7 @@ GET /api/v1/system/models
     "mesh_segmentation": [],
     "auto_rig": ["skintokens_auto_rigging"],
     "motion_generation": ["ardy_motion_generation"],
-    "mesh_retopology": ["fastmesh_v1k_retopology", "fastmesh_v4k_retopology"],
+    "mesh_retopology": ["fastmesh_v1k_retopology"],
     "uv_unwrapping": ["partuv_uv_unwrapping"]
   },
   "weights_status": { "...": true },
@@ -868,7 +868,7 @@ Mesh-producing terminal results include `result.artifacts`. Each artifact declar
 
 ### Retopologize Mesh
 
-Retopologize a mesh using the fixed FastMesh V1K/V4K variant contract.
+Retopologize a mesh using the fixed FastMesh V1K checkpoint.
 
 ```http
 POST /api/v1/mesh-retopology/retopologize-mesh
@@ -876,15 +876,13 @@ Content-Type: application/json
 
 {
   "mesh_file_id": "mesh_abc123",
-  "model_preference": "fastmesh_v4k_retopology",
-  "poly_type": "quad",
-  "target_vertex_count": 4000,
+  "model_preference": "fastmesh_v1k_retopology",
   "target_polycount": 35000,
   "output_format": "glb"
 }
 ```
 
-FastMesh does not support arbitrary model vertex targets. V1K is the ~1K-vertex variant and V4K is the ~4K-vertex variant; when target_vertex_count is supplied, it must match the selected variant. `target_polycount` is the final production triangle budget applied by the canonical post-processing stage after FastMesh; it accepts 5,000–200,000 triangles. `poly_type` controls triangle vs quad output.
+FastMesh V1K is a checkpoint-fixed model that produces approximately 1K vertices; it does not accept an arbitrary vertex target. target_vertex_count remains accepted only as a deprecated compatibility field and is ignored. target_polycount is a final production triangle budget applied by the canonical post-processing stage after FastMesh; it does not change FastMesh inference and accepts 5,000–200,000 triangles. FastMesh emits its checkpoint-native topology; poly_type does not change the model output.
 
 For generation jobs, `target_polycount` is **never an inference-quality control**. The scheduler removes this production-only field (along with `auto_optimize` and LOD/physics controls) before neural model adapters run. The raw model output is requested at the registered model's maximum supported geometry fidelity, persisted unchanged as `master/source.glb`, and only then reduced to the requested production budget.
 

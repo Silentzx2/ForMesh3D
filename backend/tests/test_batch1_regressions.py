@@ -6,10 +6,17 @@ import logging
 from pathlib import Path
 
 import numpy as np
+import pytest
 import trimesh
 import yaml
 
 from backend.adapters.fastmesh_adapter import _prepare_fastmesh_point_cloud
+from backend.postprocess.services.hole_repair import (
+    _boundary_cycles,
+    fill_hole_ear_clip,
+    repair_holes_targeted,
+    triangulate_boundary_loop,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -101,7 +108,6 @@ def test_mesh_limit_enforcement_unpacks_decimator_result_and_reads_shared_policy
     assert result is output_mesh
     assert captured["target_faces"] == 2
     assert captured["crease_angle_deg"] == 42.0
-    assert captured["max_deviation_deg"] == 45.0
     assert captured["max_ram_fraction"] == 0.80
 
 
@@ -175,3 +181,198 @@ def test_mesh_limit_enforcement_does_not_run_discarded_repair_or_smoothing(monke
     assert result is source
     np.testing.assert_array_equal(result.vertices, original_vertices)
     np.testing.assert_array_equal(result.faces, original_faces)
+
+
+def _make_noisy_open_sphere(edge_count: int, scale: float = 1.0) -> trimesh.Trimesh:
+    """Create a UV-sphere shell with one noisy, non-planar boundary loop."""
+    rng = np.random.default_rng(7)
+    angles = np.linspace(0.0, 2.0 * np.pi, edge_count, endpoint=False)
+    latitudes = np.linspace(0.1, np.pi - 0.1, 20)
+    vertices = []
+    for latitude in latitudes:
+        for angle in angles:
+            radius = scale * (1.0 + 0.01 * rng.normal())
+            vertices.append(
+                [
+                    radius * np.sin(latitude) * np.cos(angle),
+                    radius * np.sin(latitude) * np.sin(angle),
+                    radius * np.cos(latitude),
+                ]
+            )
+
+    south_pole = len(vertices)
+    vertices.append([0.0, 0.0, -scale])
+    faces = []
+    for ring in range(len(latitudes) - 1):
+        for index in range(edge_count):
+            first = ring * edge_count + index
+            following = ring * edge_count + (index + 1) % edge_count
+            lower = (ring + 1) * edge_count + index
+            lower_following = (ring + 1) * edge_count + (index + 1) % edge_count
+            faces.extend([[first, lower, following], [following, lower, lower_following]])
+
+    last_ring = (len(latitudes) - 1) * edge_count
+    for index in range(edge_count):
+        faces.append(
+            [
+                last_ring + index,
+                south_pole,
+                last_ring + (index + 1) % edge_count,
+            ]
+        )
+    return trimesh.Trimesh(
+        vertices=np.asarray(vertices, dtype=np.float64),
+        faces=np.asarray(faces, dtype=np.int64),
+        process=False,
+    )
+
+
+def test_non_planar_hole_repair_fills_12_18_and_40_edge_loops_scale_independently():
+    for scale in (0.1, 10.0):
+        for edge_count in (12, 18, 40):
+            source = _make_noisy_open_sphere(edge_count, scale=scale)
+            assert not source.is_watertight
+
+            loops, boundary_edges = _boundary_cycles(source)
+            assert boundary_edges == edge_count
+            assert len(loops) == 1 and len(loops[0]) == edge_count
+            loop = loops[0]
+            candidate_faces = triangulate_boundary_loop(loop, source.vertices)
+            if candidate_faces is None:
+                candidate_faces = fill_hole_ear_clip(source.vertices, loop)
+            assert candidate_faces is not None, f"non-planar ear clipping failed: scale={scale}, edge_count={edge_count}"
+            perimeter = sum(
+                float(np.linalg.norm(source.vertices[loop[index]] - source.vertices[loop[(index + 1) % len(loop)]]))
+                for index in range(len(loop))
+            )
+            bbox_diagonal = float(np.linalg.norm(np.ptp(source.vertices, axis=0)))
+            assert perimeter <= bbox_diagonal * 0.25
+
+            repaired, stats = repair_holes_targeted(
+                source,
+                max_hole_vertices=50,
+                max_hole_perimeter_frac=0.25,
+            )
+
+            assert stats["holes_filled"] == 1, f"scale={scale}, edge_count={edge_count}, stats={stats}"
+            assert stats["holes_remaining"] == 0
+            assert stats["boundary_edges_after"] == 0
+            assert repaired.is_watertight
+            assert repaired.is_winding_consistent
+
+
+def test_memory_safe_decimation_uses_shared_simplifier_once(monkeypatch):
+    import importlib
+
+    decimator = importlib.import_module(
+        "backend.postprocess.services.memory_safe_decimate"
+    )
+    source = trimesh.creation.icosphere(subdivisions=2)
+    target_faces = 100
+    output = trimesh.Trimesh(
+        vertices=source.vertices.copy(),
+        faces=source.faces[:target_faces].copy(),
+        process=False,
+    )
+    captured = []
+
+    def fake_simplify(mesh, requested_faces, *, crease_angle_deg=None):
+        captured.append((mesh, requested_faces, crease_angle_deg))
+        return output, {"triangles": len(output.faces), "fallback_used": False}
+
+    monkeypatch.setattr(decimator, "_simplify", fake_simplify)
+    result, telemetry = decimator.memory_safe_decimate(
+        source,
+        target_faces,
+        config_path={
+            "decimation": {
+                "memory_safe_threshold_triangles": 1,
+                "max_ram_fraction": 0.99,
+            },
+            "shared": {"feature_edge_angle_deg": 42.0},
+        },
+    )
+
+    assert result is output
+    assert len(captured) == 1
+    assert captured[0][1:] == (target_faces, 42.0)
+    assert telemetry["triangles_after"] == target_faces
+    assert telemetry["memory_safe_mode_engaged"] is True
+
+
+def test_pymeshlab_untextured_qem_hits_target_and_keeps_box_watertight():
+    pytest.importorskip("pymeshlab")
+    from backend.postprocess.services.simplify import _simplify
+
+    mesh = trimesh.creation.box()
+    for _ in range(4):
+        mesh = mesh.subdivide()
+
+    reduced, stats = _simplify(mesh, 1500)
+
+    assert len(reduced.faces) == 1500
+    assert reduced.is_watertight
+    assert stats["texture_preserved"] is False
+
+
+def test_pymeshlab_textured_qem_preserves_uvs_and_open_mesh_boundary():
+    pytest.importorskip("pymeshlab")
+    from backend.postprocess.services.simplify import _simplify
+
+    side = 40
+    axis = np.linspace(-1.0, 1.0, side)
+    vertices = np.asarray(
+        [[x, y, 0.0] for y in axis for x in axis],
+        dtype=np.float64,
+    )
+    faces = []
+    for y in range(side - 1):
+        for x in range(side - 1):
+            first = y * side + x
+            right = first + 1
+            lower = first + side
+            lower_right = lower + 1
+            faces.extend([[first, right, lower], [right, lower_right, lower]])
+
+    mesh = trimesh.Trimesh(
+        vertices=vertices,
+        faces=np.asarray(faces, dtype=np.int64),
+        process=False,
+    )
+    mesh.visual = trimesh.visual.TextureVisuals(uv=(vertices[:, :2] + 1.0) / 2.0)
+    _, before_counts = np.unique(mesh.edges_sorted, axis=0, return_counts=True)
+    boundary_before = int(np.count_nonzero(before_counts == 1))
+
+    reduced, stats = _simplify(mesh, 1500)
+
+    _, after_counts = np.unique(reduced.edges_sorted, axis=0, return_counts=True)
+    boundary_after = int(np.count_nonzero(after_counts == 1))
+    assert len(reduced.faces) == 1500
+    assert boundary_after == boundary_before
+    assert len(reduced.visual.uv) == len(reduced.vertices)
+    assert stats["texture_preserved"] is True
+
+def test_fastmesh_ui_and_registry_expose_only_fixed_v1k_contract():
+    panel = (ROOT / "features" / "workspace" / "Panels" / "RemeshPanel.tsx").read_text(encoding="utf-8")
+    workspace = (ROOT / "features" / "workspace" / "store" / "WorkspaceContext.tsx").read_text(encoding="utf-8")
+    registry = (ROOT / "constants" / "models.ts").read_text(encoding="utf-8")
+    bridge = (ROOT / "features" / "workspace" / "services" / "meshProcessingBridge.ts").read_text(encoding="utf-8")
+    api = (ROOT / "backend" / "api" / "routers" / "mesh_retopology.py").read_text(encoding="utf-8")
+    adapter = (ROOT / "backend" / "adapters" / "fastmesh_adapter.py").read_text(encoding="utf-8")
+
+    assert "FastMesh V1K" in panel
+    assert "Checkpoint-fixed output" in panel
+    assert "FastMesh Output" in panel
+    assert "engineMode === 'script'" in panel
+    assert "V4K" not in panel
+    assert "fastmesh_v4k_retopology" not in registry
+    assert "fastmesh_v4k_retopology" not in workspace
+    assert "V4K" not in api
+    assert "target_vertex_count" not in adapter
+    assert "output_vertex_count" in adapter
+    assert "fastmesh_v1k_retopology" in workspace
+    assert "model_preference: 'fastmesh_v1k_retopology'" in workspace
+    assert "target_vertex_count" not in workspace
+    assert "preserve_edges:" not in workspace
+    assert "feature_angle:" not in workspace
+    assert "variant: 'V1K'" in bridge

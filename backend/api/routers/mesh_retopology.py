@@ -62,7 +62,7 @@ class MeshRetopologyRequest(BaseModel):
         None, description="File ID from upload endpoint"
     )
     target_vertex_count: Optional[int] = Field(
-        None, description="FastMesh model target vertices; fixed for V1K/V4K", ge=100, le=20000
+        None, description="Deprecated compatibility field; the V1K checkpoint fixes output resolution and ignores this value", ge=100, le=20000
     )
     target_polycount: Optional[int] = Field(
         50000, description="Final production triangle budget applied after FastMesh retopology", ge=5000, le=200000
@@ -74,7 +74,7 @@ class MeshRetopologyRequest(BaseModel):
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")
     model_preference: str = Field(
         "fastmesh_v1k_retopology",
-        description="Name of the retopology model to use (fastmesh_v1k_retopology or fastmesh_v4k_retopology)",
+        description="Retopology model preference; currently only fastmesh_v1k_retopology is registered",
     )
     model_parameters: Optional[dict] = Field(
         None, 
@@ -184,24 +184,12 @@ async def retopologize_mesh(
                 status_code=404, detail=f"Mesh file not found: {mesh_file_path}"
             )
 
-        if request.target_vertex_count is not None and "fastmesh" in request.model_preference.lower():
-            expected_target = 4000 if "v4k" in request.model_preference.lower() else 1000
-            if request.target_vertex_count != expected_target:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"{request.model_preference} has a fixed {expected_target}-vertex target; "
-                        "arbitrary target_vertex_count values are not supported."
-                    ),
-                )
-
         # Create job request
         user_id = None
         job_request = JobRequest(
             feature="mesh_retopology",
             inputs={
                 "mesh_path": mesh_file_path,
-                "target_vertex_count": request.target_vertex_count,
                 "target_polycount": request.target_polycount,
                 "poly_type": request.poly_type,
                 "output_format": request.output_format,
@@ -269,11 +257,6 @@ async def get_available_models(
                 models_details[model_id] = {
                     "description": "FastMesh V1K - Generates meshes with ~1000 vertices",
                     "target_vertices": 1000,
-                }
-            elif "v4k" in model_id.lower():
-                models_details[model_id] = {
-                    "description": "FastMesh V4K - Generates meshes with ~4000 vertices",
-                    "target_vertices": 4000,
                 }
             else:
                 models_details[model_id] = {

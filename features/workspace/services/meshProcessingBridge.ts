@@ -33,13 +33,13 @@ export const DEFAULT_SCRIPTS: ScriptDefinition[] = [
   // --- RETOPOLOGY ---
   {
     id: 'fastmesh_neural',
-    name: 'FastMesh Neural Quad Remesher',
+    name: 'FastMesh Neural Retopology (V1K)',
     tool: 'remesh',
     engine: 'ai',
-    description: 'Deep neural network generating quad-dominant production topology (V1K/V4K).',
+    description: 'FastMesh V1K checkpoint with fixed output of approximately 1K vertices.',
     requiresGpu: true,
     endpoint: '/api/v1/mesh-retopology/retopologize-mesh',
-    defaultParams: { variant: 'V4K', poly_type: 'quad', target_polycount: 50000 },
+    defaultParams: { variant: 'V1K' },
   },
   {
     id: 'trimesh_autoretopo',

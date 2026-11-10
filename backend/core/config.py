@@ -428,7 +428,7 @@ def get_settings() -> Settings:
 
 _QUALITY_REQUIRED_KEYS = (
     "shared.feature_edge_angle_deg",
-    "holes.max_hole_vertices", "holes.max_hole_perimeter",
+    "holes.max_hole_vertices", "holes.max_hole_perimeter_frac",
     "gate.strict", "gate.max_non_manifold_edges", "gate.max_non_manifold_vertices",
     "gate.max_native_mesh_normalized_drift",
     "gate.max_holes", "gate.max_floater_ratio", "gate.max_degenerate_faces",
@@ -495,7 +495,7 @@ _QUALITY_REQUIRED_KEYS = (
     "physics.collision_quality_profiles.precise.mcts_max_depth",
     "physics.collision_quality_profiles.precise.preprocess_resolution",
     "physics.collision_quality_profiles.precise.seed",
-    "decimation.memory_safe_threshold_triangles", "decimation.max_deviation_deg",
+    "decimation.memory_safe_threshold_triangles",
     "decimation.max_ram_fraction",
     "uv.partuv_triangle_threshold", "uv.partuv_vram_requirement_gb",
     "uv.default_backend", "uv.fallback_backend", "uv.max_chart_size",

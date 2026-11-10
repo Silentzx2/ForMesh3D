@@ -273,8 +273,6 @@ export const RemeshPanel: React.FC = () => {
   const [polyType, setPolyType] = useState<'quad' | 'tri'>(remeshSettings.polyType || 'quad');
   const [targetPolycount, setTargetPolycount] = useState<number>(remeshSettings.targetPolycount || 50000);
   const [localPolycount, setLocalPolycount] = useState<number>(remeshSettings.targetPolycount || 50000);
-  const [variant, setVariant] = useState<'V4K' | 'V1K'>(remeshSettings.variant || 'V4K');
-  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
 
   // Dynamic Side Flyout State
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
@@ -300,7 +298,6 @@ export const RemeshPanel: React.FC = () => {
 
   const advancedTriggerRef = useRef<HTMLButtonElement>(null);
   const advancedFlyoutRef = useRef<HTMLDivElement>(null);
-  const modelDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -333,7 +330,7 @@ export const RemeshPanel: React.FC = () => {
       ...prev,
       polyType,
       targetPolycount,
-      variant,
+      variant: 'V1K',
     }));
 
     setGenerationSettings((prev) => ({
@@ -344,7 +341,7 @@ export const RemeshPanel: React.FC = () => {
       topologyMode: polyType === 'quad' ? 'quad' : 'triangle',
       quadTopology: polyType === 'quad',
     }));
-  }, [polyType, targetPolycount, variant, setRemeshSettings, setGenerationSettings]);
+  }, [polyType, targetPolycount, setRemeshSettings, setGenerationSettings]);
 
   // Close flyout on outside click or Escape
   useEffect(() => {
@@ -372,43 +369,6 @@ export const RemeshPanel: React.FC = () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [isAdvancedOpen]);
-
-  // Close model dropdown on outside click or Escape
-  useEffect(() => {
-    if (!isModelDropdownOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
-        setIsModelDropdownOpen(false);
-      }
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsModelDropdownOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isModelDropdownOpen]);
-
-  // Retopology Models supported by backend FastMesh pipeline
-  const availableModels = [
-    {
-      id: 'V4K',
-      label: 'FastMesh V4K',
-      tag: 'High Fidelity',
-      note: 'Preserves fine edge details and feature curves',
-      badge: '4K Base',
-    },
-    {
-      id: 'V1K',
-      label: 'FastMesh V1K',
-      tag: 'Fast Base',
-      note: 'Rapid lightweight quad retopology',
-      badge: '1K Base',
-    },
-  ];
 
   const isMeshFile = (file: File) => {
     const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
@@ -570,7 +530,7 @@ export const RemeshPanel: React.FC = () => {
       if (runRemeshGeneration) {
         await runRemeshGeneration({
           engineMode,
-          variant,
+
           polyType,
           targetPolycount,
           preserveEdges,
@@ -861,6 +821,8 @@ export const RemeshPanel: React.FC = () => {
             tool="remesh"
           />
 
+          {engineMode === 'script' && (
+            <>
           {/* 3. Topology Type: Pure Quads vs Triangles */}
           <div className="space-y-1.5">
             <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider block">
@@ -892,11 +854,16 @@ export const RemeshPanel: React.FC = () => {
             </div>
           </div>
 
+            </>
+          )}
+
+          {engineMode === 'script' ? (
+            <>
           {/* 4. Target Polycount: Tripo-Style Smooth Gradient Slider + Quick Presets */}
           <div className="space-y-2.5 p-3 rounded-2xl bg-[#12131d] border border-white/[0.08]">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
-                Target Budget
+                Target Face Budget
               </span>
               <div className="flex items-center gap-2 font-mono">
                 <span className="text-sm font-bold text-white tracking-tight">
@@ -955,105 +922,62 @@ export const RemeshPanel: React.FC = () => {
             </div>
           </div>
 
-          {/* 5. Advanced Retopo Settings Trigger Button (Opens Dynamic Side Flyout) */}
-          {/* 5. Advanced Retopo Settings Trigger Button (Opens Dynamic Side Flyout) */}
-          <div className="pt-0.5">
-            <button
-              ref={advancedTriggerRef}
-              type="button"
-              aria-expanded={isAdvancedOpen}
-              onClick={() => setIsAdvancedOpen((prev) => !prev)}
-              className={`w-full h-8.5 px-3 rounded-xl border flex items-center justify-between text-left transition-all cursor-pointer shadow-sm ${
-                isAdvancedOpen
-                  ? 'bg-[#1b1b2f] border-[#F9CF00] text-white ring-1 ring-[#F9CF00]/50'
-                  : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-[hsl(var(--foreground))]'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <SlidersHorizontal className="w-3.5 h-3.5 text-[#F9CF00]" />
-                <span className="text-xs font-medium text-zinc-200">Advanced Settings</span>
-              </div>
-              <ChevronRight
-                className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${
-                  isAdvancedOpen ? 'rotate-90 text-[#F9CF00]' : ''
-                }`}
-              />
-            </button>
-          </div>
+            </>
+          ) : (
+            <div className="space-y-2 p-3 rounded-2xl bg-[#12131d] border border-white/[0.08]">
+              <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
+                FastMesh Output
+              </span>
+              <p className="text-sm font-bold text-white">Approximately 1K vertices</p>
+              <p className="text-[10px] text-zinc-400">
+                V1K is a fixed-output checkpoint. Target face budget and topology selection are available only in Script mode.
+              </p>
+            </div>
+          )}
 
-          {/* 6. Retopo Engine Dropdown (Only visible in AI Mode) */}
-          {engineMode === 'ai' && (
-            <div className="space-y-1.5 pt-1.5 border-t border-[hsl(var(--border))]" ref={modelDropdownRef}>
-              <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider block">
-                Retopo Engine
-              </label>
-
+          {engineMode === 'script' && (
+            <div className="pt-0.5">
               <button
+                ref={advancedTriggerRef}
                 type="button"
-                aria-haspopup="listbox"
-                aria-expanded={isModelDropdownOpen}
-                aria-label="Select Retopo Engine"
-                onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                className="w-full h-8.5 px-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] flex items-center justify-between text-left transition-all cursor-pointer shadow-sm"
+                aria-expanded={isAdvancedOpen}
+                onClick={() => setIsAdvancedOpen((prev) => !prev)}
+                className={`w-full h-8.5 px-3 rounded-xl border flex items-center justify-between text-left transition-all cursor-pointer shadow-sm ${
+                  isAdvancedOpen
+                    ? 'bg-[#1b1b2f] border-[#F9CF00] text-white ring-1 ring-[#F9CF00]/50'
+                    : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-[hsl(var(--foreground))]'
+                }`}
               >
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-5 h-5 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/25 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-                    <Cpu className="w-3 h-3 text-[#F9CF00]" />
-                  </div>
-                  <div className="min-w-0 flex items-baseline gap-1.5">
-                    <p className="text-xs font-bold text-[hsl(var(--foreground))] truncate">
-                      {availableModels.find((m) => m.id === variant)?.label || 'Select Engine'}
-                    </p>
-                    <span className="text-[10px] text-[hsl(var(--muted-foreground))] truncate opacity-80">
-                      {availableModels.find((m) => m.id === variant)?.tag}
-                    </span>
-                  </div>
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-[#F9CF00]" />
+                  <span className="text-xs font-medium text-zinc-200">Advanced Settings</span>
                 </div>
-                <ChevronDown
-                  className={`w-3 h-3 text-[hsl(var(--muted-foreground))] flex-shrink-0 ml-1 transition-transform duration-200 ${
-                    isModelDropdownOpen ? 'rotate-180 text-primary' : ''
+                <ChevronRight
+                  className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${
+                    isAdvancedOpen ? 'rotate-90 text-[#F9CF00]' : ''
                   }`}
                 />
               </button>
+            </div>
+          )}
 
-              {/* Model Dropdown Menu */}
-              {isModelDropdownOpen && (
-                <div
-                  role="listbox"
-                  aria-label="Available Retopo Models"
-                  className="absolute top-full mt-1 left-0 right-0 rounded-xl bg-[#1a1b26] border border-white/10 shadow-2xl p-1 z-40 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
-                >
-                  {availableModels.map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      role="option"
-                      aria-selected={variant === m.id}
-                      onClick={() => {
-                        setVariant(m.id as 'V4K' | 'V1K');
-                        setIsModelDropdownOpen(false);
-                      }}
-                      className={`w-full text-left px-2.5 py-2 rounded-lg text-xs transition-all cursor-pointer flex items-center justify-between ${
-                        variant === m.id
-                          ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
-                          : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
-                      }`}
-                    >
-                      <div className="min-w-0 pr-1">
-                        <span className="block font-semibold truncate leading-tight">{m.label}</span>
-                        <span className="text-[10px] opacity-70 block truncate leading-tight">{m.note}</span>
-                      </div>
-                      <span className="text-[10px] font-mono opacity-75 flex-shrink-0">{m.badge}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+          {engineMode === 'ai' && (
+            <div className="space-y-1.5 pt-1.5 border-t border-[hsl(var(--border))]">
+              <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider block">
+                Retopo Engine
+              </label>
+              <div className="rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] px-3 py-2">
+                <p className="text-xs font-bold text-[hsl(var(--foreground))]">FastMesh V1K</p>
+                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-1">
+                  Checkpoint-fixed output · approximately 1K vertices
+                </p>
+              </div>
             </div>
           )}
         </div>
 
         {/* Dynamic Flying Side Advanced Retopo Settings Panel (Portal) */}
-        {mounted && isAdvancedOpen && typeof document !== 'undefined' && createPortal(
+        {engineMode === 'script' && mounted && isAdvancedOpen && typeof document !== 'undefined' && createPortal(
           <div
             ref={advancedFlyoutRef}
             id="retopo-advanced-flyout"

@@ -202,12 +202,170 @@ def triangulate_boundary_loop(
     return triangles
 
 
-def _boundary_cycles(mesh: trimesh.Trimesh) -> tuple[list[list[int]], int]:
-    edges = mesh.edges
-    _, inverse, counts = np.unique(
-        mesh.edges_sorted, axis=0, return_inverse=True, return_counts=True
+def fill_hole_ear_clip(vertices: np.ndarray, loop: list[int]) -> Optional[list[list[int]]]:
+    """Triangulate a simple, potentially non-planar 3D boundary loop.
+
+    Ear tests are evaluated in the loop's Newell-normal projection while the
+    emitted triangles retain the original 3D boundary vertices and winding.
+    """
+    if len(loop) < 3 or len(set(loop)) != len(loop):
+        return None
+    source_vertices = np.asarray(vertices, dtype=np.float64)
+    indices = np.asarray(loop, dtype=np.int64)
+    if (
+        source_vertices.ndim != 2
+        or source_vertices.shape[1] != 3
+        or np.any(indices < 0)
+        or np.any(indices >= len(source_vertices))
+    ):
+        return None
+
+    points = source_vertices[indices]
+    if not np.isfinite(points).all():
+        return None
+    centered = points - points.mean(axis=0)
+    scale = float(np.linalg.norm(np.ptp(points, axis=0)))
+    eps = np.finfo(float).eps
+    if not np.isfinite(scale) or scale <= eps:
+        return None
+
+    normal = np.zeros(3, dtype=np.float64)
+    for index in range(len(loop)):
+        normal += np.cross(centered[index], centered[(index + 1) % len(loop)])
+    normal_length = float(np.linalg.norm(normal))
+    area_tolerance = eps * scale * scale * len(loop) * 64.0
+    if not np.isfinite(normal_length) or normal_length <= area_tolerance:
+        return None
+    normal /= normal_length
+
+    axis_u = centered[1] - centered[0]
+    axis_u -= normal * float(np.dot(axis_u, normal))
+    axis_u_length = float(np.linalg.norm(axis_u))
+    if axis_u_length <= eps * scale:
+        return None
+    axis_u /= axis_u_length
+    axis_v = np.cross(normal, axis_u)
+    projected = np.column_stack((centered @ axis_u, centered @ axis_v))
+    for first in range(len(loop)):
+        following = (first + 1) % len(loop)
+        for second in range(first + 1, len(loop)):
+            next_second = (second + 1) % len(loop)
+            if following == second or next_second == first:
+                continue
+            if _segments_intersect(
+                projected[first],
+                projected[following],
+                projected[second],
+                projected[next_second],
+                area_tolerance,
+            ):
+                return None
+
+    def angle(first: np.ndarray, middle: np.ndarray, last: np.ndarray) -> float:
+        first_edge = middle - first
+        second_edge = last - first
+        denominator = float(np.linalg.norm(first_edge) * np.linalg.norm(second_edge))
+        if denominator <= eps * scale * scale:
+            return 0.0
+        cosine = float(np.dot(first_edge, second_edge) / denominator)
+        return float(np.arccos(np.clip(cosine, -1.0, 1.0)))
+
+    def contains_point(
+        first: np.ndarray, middle: np.ndarray, last: np.ndarray, point: np.ndarray
+    ) -> bool:
+        return all(
+            float(np.dot(np.cross(edge_end - edge_start, point - edge_start), normal))
+            >= -area_tolerance
+            for edge_start, edge_end in (
+                (first, middle),
+                (middle, last),
+                (last, first),
+            )
+        )
+
+    def ear_score(first: np.ndarray, middle: np.ndarray, last: np.ndarray) -> float:
+        signed_area = float(np.dot(np.cross(middle - first, last - first), normal))
+        if signed_area <= area_tolerance:
+            return -1.0
+        return min(
+            angle(first, middle, last),
+            angle(middle, last, first),
+            angle(last, first, middle),
+        )
+
+    remaining = list(range(len(loop)))
+    triangles: list[list[int]] = []
+    while len(remaining) > 3:
+        best_score = -1.0
+        best_position = -1
+        for position, current in enumerate(remaining):
+            previous = remaining[position - 1]
+            following = remaining[(position + 1) % len(remaining)]
+            first, middle, last = points[[previous, current, following]]
+            score = ear_score(first, middle, last)
+            if score <= best_score:
+                continue
+            if any(
+                contains_point(first, middle, last, points[candidate])
+                for candidate in remaining
+                if candidate not in (previous, current, following)
+            ):
+                continue
+            best_score = score
+            best_position = position
+
+        if best_position < 0:
+            return None
+        previous = remaining[best_position - 1]
+        current = remaining[best_position]
+        following = remaining[(best_position + 1) % len(remaining)]
+        triangles.append([loop[previous], loop[current], loop[following]])
+        del remaining[best_position]
+
+    final_triangle = [loop[index] for index in remaining]
+    final_points = points[remaining]
+    if float(
+        np.dot(
+            np.cross(final_points[1] - final_points[0], final_points[2] - final_points[0]),
+            normal,
+        )
+    ) <= area_tolerance:
+        return None
+    triangles.append(final_triangle)
+    return triangles
+
+
+def _face_edge_data(
+    faces: np.ndarray,
+) -> tuple[np.ndarray, dict[tuple[int, int], int], np.ndarray]:
+    """Return directed face edges, undirected incidence counts, and boundary indices."""
+    triangles = np.asarray(faces, dtype=np.int64)
+    if triangles.ndim != 2 or triangles.shape[1] != 3 or len(triangles) == 0:
+        return np.empty((0, 2), dtype=np.int64), {}, np.empty(0, dtype=np.int64)
+    directed_edges = np.concatenate(
+        (
+            triangles[:, [0, 1]],
+            triangles[:, [1, 2]],
+            triangles[:, [2, 0]],
+        ),
+        axis=0,
     )
+    unique_edges, inverse, counts = np.unique(
+        np.sort(directed_edges, axis=1),
+        axis=0,
+        return_inverse=True,
+        return_counts=True,
+    )
+    edge_counts = {
+        tuple(map(int, edge)): int(count)
+        for edge, count in zip(unique_edges, counts)
+    }
     boundary_indices = np.flatnonzero(counts[inverse] == 1)
+    return directed_edges, edge_counts, boundary_indices
+
+
+def _boundary_cycles(mesh: trimesh.Trimesh) -> tuple[list[list[int]], int]:
+    edges, _, boundary_indices = _face_edge_data(mesh.faces)
     next_map: dict[int, list[int]] = {}
     for index in boundary_indices:
         u, v = map(int, edges[index])
@@ -218,30 +376,31 @@ def _boundary_cycles(mesh: trimesh.Trimesh) -> tuple[list[list[int]], int]:
 def repair_holes_targeted(
     mesh: trimesh.Trimesh,
     max_hole_vertices: Optional[int] = None,
-    max_hole_perimeter: Optional[float] = None,
+    max_hole_perimeter_frac: Optional[float] = None,
     config_path: Optional[str] = None,
 ) -> tuple[trimesh.Trimesh, dict]:
-    """Fill only small, simple, planar boundary loops with safe triangulations."""
-    if max_hole_vertices is None or max_hole_perimeter is None:
+    """Fill small boundary loops with planar or non-planar guarded triangulation."""
+    if max_hole_vertices is None or max_hole_perimeter_frac is None:
         holes_config = get_quality_config(config_path)["holes"]
         if max_hole_vertices is None:
             max_hole_vertices = int(holes_config["max_hole_vertices"])
-        if max_hole_perimeter is None:
-            max_hole_perimeter = float(holes_config["max_hole_perimeter"])
+        if max_hole_perimeter_frac is None:
+            max_hole_perimeter_frac = float(holes_config["max_hole_perimeter_frac"])
     try:
         vertex_limit = int(max_hole_vertices)
-        perimeter_limit = float(max_hole_perimeter)
+        perimeter_fraction = float(max_hole_perimeter_frac)
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError("Hole repair limits must be finite and non-negative") from exc
     if (
         vertex_limit != max_hole_vertices
         or vertex_limit < 0
-        or not np.isfinite(perimeter_limit)
-        or perimeter_limit < 0
+        or not np.isfinite(perimeter_fraction)
+        or perimeter_fraction < 0
+        or perimeter_fraction > 1
     ):
-        raise ValueError("Hole repair limits must be finite and non-negative")
+        raise ValueError("Hole repair limits must be finite and non-negative; perimeter fraction must be <= 1")
     max_hole_vertices = vertex_limit
-    max_hole_perimeter = perimeter_limit
+    max_hole_perimeter_frac = perimeter_fraction
 
     empty_stats = {
         "holes_filled": 0,
@@ -252,6 +411,12 @@ def repair_holes_targeted(
     if mesh is None or not hasattr(mesh, "faces") or len(mesh.faces) < 3 or len(mesh.vertices) < 3:
         return mesh.copy() if mesh is not None else mesh, empty_stats.copy()
 
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    if not np.isfinite(vertices).all():
+        return mesh.copy(), empty_stats.copy()
+    bbox_diagonal = float(np.linalg.norm(np.ptp(vertices, axis=0)))
+    perimeter_limit = bbox_diagonal * max_hole_perimeter_frac
+
     loops, boundary_edges_before = _boundary_cycles(mesh)
     if boundary_edges_before == 0:
         return mesh.copy(), empty_stats.copy()
@@ -259,13 +424,7 @@ def repair_holes_targeted(
     new_faces: list[list[int]] = []
     holes_filled = 0
     holes_remaining = 0
-    unique_edges, unique_counts = np.unique(
-        mesh.edges_sorted, axis=0, return_counts=True
-    )
-    edge_counts = {
-        tuple(map(int, edge)): int(count)
-        for edge, count in zip(unique_edges, unique_counts)
-    }
+    _, edge_counts, _ = _face_edge_data(mesh.faces)
     for loop in loops:
         if len(loop) > max_hole_vertices:
             holes_remaining += 1
@@ -274,10 +433,12 @@ def repair_holes_targeted(
             float(np.linalg.norm(mesh.vertices[loop[index]] - mesh.vertices[loop[(index + 1) % len(loop)]]))
             for index in range(len(loop))
         )
-        if perimeter > max_hole_perimeter:
+        if perimeter > perimeter_limit:
             holes_remaining += 1
             continue
         loop_faces = triangulate_boundary_loop(loop, mesh.vertices)
+        if loop_faces is None:
+            loop_faces = fill_hole_ear_clip(mesh.vertices, loop)
         if loop_faces is None:
             holes_remaining += 1
             continue
@@ -306,10 +467,12 @@ def repair_holes_targeted(
 
     repaired = mesh.copy()
     if new_faces:
-        repaired.extend_faces(new_faces)
+        repaired.faces = np.vstack(
+            [np.asarray(repaired.faces, dtype=np.int64), np.asarray(new_faces, dtype=np.int64)]
+        )
 
-    _, counts_after = np.unique(repaired.edges_sorted, axis=0, return_counts=True)
-    boundary_edges_after = int(np.sum(counts_after == 1))
+    _, _, boundary_after_indices = _face_edge_data(repaired.faces)
+    boundary_edges_after = int(len(boundary_after_indices))
     if boundary_edges_after and holes_remaining == 0:
         holes_remaining = 1
 

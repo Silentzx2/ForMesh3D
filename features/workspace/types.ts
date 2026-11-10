@@ -418,7 +418,7 @@ export interface SegmentationSettings {
 
 export interface RemeshSettings {
   tab: 'auto' | 'manual';
-  variant: 'V1K' | 'V4K';
+  variant: 'V1K';
   polyType: 'tri' | 'quad';
   targetPolycount: number;
 }

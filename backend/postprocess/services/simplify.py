@@ -19,7 +19,10 @@ except Exception:
     pymeshlab = None
 import trimesh
 
-from core.scheduler.resource_planner import configure_cpu_runtime
+try:
+    from backend.core.scheduler.resource_planner import configure_cpu_runtime
+except ImportError:
+    from core.scheduler.resource_planner import configure_cpu_runtime
 from ..schemas import LODOptions, OptimizeOptions
 
 CancelChecker = Optional[Callable[[], bool]]
@@ -127,7 +130,13 @@ def _simplify_textured_fallback(mesh: trimesh.Trimesh, target_faces: int) -> tri
         return fallback
 
 
-def _simplify(mesh: trimesh.Trimesh, target_faces: int, cancel_checker: CancelChecker = None) -> tuple[trimesh.Trimesh, dict]:
+def _simplify(
+    mesh: trimesh.Trimesh,
+    target_faces: int,
+    cancel_checker: CancelChecker = None,
+    *,
+    crease_angle_deg: Optional[float] = None,
+) -> tuple[trimesh.Trimesh, dict]:
     configure_cpu_runtime()
     input_faces = int(len(mesh.faces))
     if target_faces >= input_faces or input_faces == 0:
@@ -165,7 +174,7 @@ def _simplify(mesh: trimesh.Trimesh, target_faces: int, cancel_checker: CancelCh
                 targetfacenum=int(target_faces), qualitythr=0.3, preservenormal=True,
                 optimalplacement=True, autoclean=True,
                 preserveboundary=True, boundaryweight=3.0,
-                preservetopology=True,
+                preservetopology=True, planarquadric=True,
             )
         _check_cancelled(cancel_checker)
         out = ms.current_mesh()
@@ -182,9 +191,17 @@ def _simplify(mesh: trimesh.Trimesh, target_faces: int, cancel_checker: CancelCh
         else:
             result = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
     except Exception as exc:
-        from core.mesh_processor import compute_angle_weighted_normals, feature_preserving_decimate
-        from core.config import get_quality_config
-        shared_crease = float(get_quality_config()["shared"]["feature_edge_angle_deg"])
+        try:
+            from backend.core.mesh_processor import compute_angle_weighted_normals
+            from backend.core.config import get_quality_config
+        except ImportError:
+            from core.mesh_processor import compute_angle_weighted_normals
+            from core.config import get_quality_config
+        shared_crease = float(
+            crease_angle_deg
+            if crease_angle_deg is not None
+            else get_quality_config()["shared"]["feature_edge_angle_deg"]
+        )
         if textured:
             try:
                 fallback_mesh = _simplify_textured_fallback(mesh, target_faces)
@@ -224,7 +241,7 @@ def _simplify(mesh: trimesh.Trimesh, target_faces: int, cancel_checker: CancelCh
                 )
                 reduced = trimesh.Trimesh(vertices=v_red, faces=f_red, process=False)
             except Exception:
-                reduced = feature_preserving_decimate(mesh, target_faces=int(target_faces))
+                reduced = mesh.simplify_quadric_decimation(face_count=int(target_faces))
             reduced = compute_angle_weighted_normals(reduced, crease_angle_deg=shared_crease)
             if hasattr(reduced, "vertex_normals"):
                 _ = reduced.vertex_normals
@@ -245,9 +262,17 @@ def _simplify(mesh: trimesh.Trimesh, target_faces: int, cancel_checker: CancelCh
                 "seam_limited": False, "seams_broken": False, "passthrough": True,
                 "texture_preserved": False, "decimator_error": str(exc),
             }
-    from core.mesh_processor import compute_angle_weighted_normals
-    from core.config import get_quality_config
-    shared_crease = float(get_quality_config()["shared"]["feature_edge_angle_deg"])
+    try:
+        from backend.core.mesh_processor import compute_angle_weighted_normals
+        from backend.core.config import get_quality_config
+    except ImportError:
+        from core.mesh_processor import compute_angle_weighted_normals
+        from core.config import get_quality_config
+    shared_crease = float(
+        crease_angle_deg
+        if crease_angle_deg is not None
+        else get_quality_config()["shared"]["feature_edge_angle_deg"]
+    )
     result = compute_angle_weighted_normals(result, crease_angle_deg=shared_crease)
     if hasattr(result, "vertex_normals"):
         _ = result.vertex_normals

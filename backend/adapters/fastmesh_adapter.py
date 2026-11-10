@@ -92,7 +92,7 @@ def _prepare_fastmesh_point_cloud(
 
 
 class FastMeshRetopologyAdapter(BaseModel):
-    """FastMesh — Retopology (V1K/V4K fixed-budget variants)."""
+    """FastMesh — Retopology using the fixed V1K checkpoint."""
 
     MODEL_KEY = "FastMesh-V1K"
     FEATURE_TYPE = "mesh_retopology"
@@ -128,7 +128,6 @@ class FastMeshRetopologyAdapter(BaseModel):
             sys.path.insert(0, _fastmesh_root)
         from models import MODELS
 
-        variant = self.MODEL_KEY.split("-")[-1]  # "V1K" / "V4K"
         model = MODELS["MeshGen"].from_pretrained(str(weights_dir))
         model.eval()
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
@@ -154,7 +153,6 @@ class FastMeshRetopologyAdapter(BaseModel):
             return {"success": False, "error": f"mesh not found: {mesh_path}"}
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
-        target_vertex_count = int(inputs.get("target_vertex_count", 1000))
 
         # FastMesh expects a normalized surface point cloud with the normal of
         # each sampled point's source face (not independently sampled face normals).
@@ -169,6 +167,8 @@ class FastMeshRetopologyAdapter(BaseModel):
         out_mesh = recon_meshes[0]
 
         out = Path(tempfile.mkdtemp()) / f"fastmesh_{seed}.obj"
+        # Vendored upstream inference.py exports the normalized model output directly;
+        # keep that coordinate convention and do not apply an inverse input transform.
         out_mesh.export(str(out))
 
         return {
@@ -177,7 +177,7 @@ class FastMeshRetopologyAdapter(BaseModel):
             "mesh_path": str(out),
             "generation_info": {
                 "seed": seed,
-                "target_vertex_count": target_vertex_count,
+                "output_vertex_count": int(len(out_mesh.vertices)),
                 "variant": self.MODEL_KEY,
             },
         }
@@ -193,12 +193,6 @@ class FastMeshRetopologyAdapter(BaseModel):
                     "description": "Random seed for reproducibility",
                     "default": DEFAULT_SEED,
                     "minimum": 0,
-                    "required": False,
-                },
-                "target_vertex_count": {
-                    "type": "integer",
-                    "description": "Target vertex count (must match V1K/V4K variant)",
-                    "default": 1000,
                     "required": False,
                 },
             }

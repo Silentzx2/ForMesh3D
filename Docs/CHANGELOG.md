@@ -1,5 +1,13 @@
 # ForMesh3D Changelog
 
+## 2026-11-10 — Batch 1 mesh-quality completion
+
+- **FastMesh:** removed the stale V4K frontend registry/selector path, fixed workspace AI routing to V1K, and replaced the misleading AI target-budget UI with the checkpoint-fixed approximately 1K-vertex output. Verified the normalized-coordinate export contract against the vendored upstream inference entry point; adapter telemetry now records actual output vertices.
+- **Hole repair:** added a non-planar 3D ear-clipping fallback, retained edge-count safety checks, derived boundary incidence directly from triangle faces, and changed the perimeter cap to a bounding-box-diagonal fraction shared by targeted and UV-preserving repair.
+- **Decimation:** routed memory-safe decimation through the existing PyMeshLab QEM implementation in one pass, enabled planarquadric for untextured meshes, and removed the slow custom Python QEM implementation.
+- **Tests:** CI passed backend compileall and the Batch 1 regression suite (9 passed, 2 skipped), compute-mode resolver tests, frontend TypeScript type-check, and production build. Two optional PyMeshLab QEM integration tests were skipped because PyMeshLab is absent; FastMesh weights/GPU inference, Blender runtime, and visual mesh-quality validation were not run.
+
+
 ## 2026-11-10 — Batch 2: Raw-Source Mesh Fidelity
 
 - Narrowed `_enforce_mesh_limits()` to hard-cap enforcement only. Removed discarded hole filling, winding/normal repair, and Taubin smoothing from the pre-persistence raw-source stage.

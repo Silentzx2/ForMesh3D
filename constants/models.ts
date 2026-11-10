@@ -303,22 +303,7 @@ export const CANONICAL_MODELS: ModelDefinition[] = [
     status: 'available',
     description: 'High-speed quad-dominant retopology producing clean animation loops under 10K polys.',
   },
-  {
-    id: 'fastmesh_v4k_retopology',
-    name: 'FastMesh 4K (Hero-Asset Quad Retopo)',
-    category: 'mesh_retopology',
-    feature: 'mesh_retopology',
-    featureLabel: 'Mesh Retopology',
-    vramMb: 24500,
-    lowVramSupported: false,
-    supportsTexture: false,
-    supportedInputs: ['obj', 'glb', 'ply', 'stl'],
-    supportedOutputs: ['obj', 'glb', 'ply'],
-    modelPath: 'backend/pretrained/FastMesh-V4K',
-    enabled: true,
-    status: 'available',
-    description: 'Hero-asset retopology generating production-ready quad topology with preserved feature boundaries.',
-  },
+
 
   // ── UV UNWRAPPING ────────────────────────────────────────────────────────
   {
