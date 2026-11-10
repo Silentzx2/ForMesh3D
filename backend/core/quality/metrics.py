@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from scipy.spatial import cKDTree
 import trimesh
 
 from ..utils.artifact_utils import sha256_file
@@ -290,26 +291,20 @@ def _compute_feature_edge_retention(
     cand_dir = cand_v1 - cand_v0
     cand_len = np.linalg.norm(cand_dir, axis=1, keepdims=True)
     cand_u = cand_dir / np.maximum(cand_len, 1e-12)
+    cand_mid = (cand_v0 + cand_v1) * 0.5
 
-    align = np.abs(np.dot(ref_u, cand_u.T)) >= cos_angle_tol
+    k_val = min(8, len(cand_mid))
+    d, nbr = cKDTree(cand_mid).query(ref_mid, k=k_val, distance_upper_bound=dist_tol)
+    d = np.asarray(d)
+    nbr = np.asarray(nbr)
+    if d.ndim == 1:
+        d = d[:, None]
+        nbr = nbr[:, None]
 
-    retained_count = 0
-    for i in range(len(ref_mid)):
-        p = ref_mid[i]
-        cand_indices = np.where(align[i])[0]
-        if len(cand_indices) == 0:
-            continue
-        c_a = cand_v0[cand_indices]
-        c_b = cand_v1[cand_indices]
-        ab = c_b - c_a
-        ap = p - c_a
-        ab_lensq = np.sum(ab ** 2, axis=1)
-        t = np.sum(ap * ab, axis=1) / np.maximum(ab_lensq, 1e-12)
-        t = np.clip(t, 0.0, 1.0)
-        proj = c_a + t[:, None] * ab
-        dists = np.linalg.norm(p - proj, axis=1)
-        if np.any(dists <= dist_tol):
-            retained_count += 1
+    valid = np.isfinite(d)
+    nbr_safe = np.where(valid, nbr, 0)
+    dots = np.abs(np.einsum('ij,ikj->ik', ref_u, cand_u[nbr_safe]))
+    retained_count = int((valid & (dots >= cos_angle_tol)).any(axis=1).sum())
 
     return float(retained_count / len(ref_mid))
 

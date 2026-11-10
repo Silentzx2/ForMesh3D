@@ -1,5 +1,13 @@
 # ForMesh3D — Audited Project State
 
+## 2026-11-10 — Batch 3: UV Safe Limits, Ray-Cast Baking, Retopo Feature Snapping, and UV Checker
+
+- **UV & Safe Unwrapping (`services/uv_backend_resolver.py`):** Removed proxy-transfer KDTree branch which previously created invalid stretched charts across triangles for meshes >50K. Added strict limit check (`quality.yaml: uv: max_safe_triangles: 100000`). Tuned `xatlas.ChartOptions` (normal_seam_weight=2.0, max_iterations=4) and enabled bruteForce packing for meshes <20K.
+- **Pure-Python Ray-Cast Baking (`services/bake.py`):** Replaced nearest-neighbor vertex normal lookup with inward ray-casting (`sample_high_normals`) and barycentric normal interpolation. Scale-aware cage (2% bounding-box diagonal) and ray distance (2.5× cage). Eradicated fake white AO map; reported in `unsupported_maps`. Fixed raster/sample half-pixel alignment `(x+0.5)/res`.
+- **Retopology & Feature Snapping (`autoretopo/pipeline.py`, `autoretopo/project.py`):** Implemented `snap_to_features` using cKDTree over sampled sharp edge segments, preserving crisp crease lines after projection. Defaulted `watertight=False` when input mesh is already watertight/closed.
+- **Quality Gate & Metrics (`core/quality/metrics.py`, `services/gate.py`):** Vectorized `_compute_feature_edge_retention` using KD-tree over edge midpoints, eliminating dense $O(N \times M)$ memory allocations. Added `crispness` metric in `gate.py`.
+- **Segmentation & UI Integrity (`SegmentationPanel.tsx`, `MeshViewer.tsx`, `segment.py`):** Defaulted SegmentationPanel to Script mode with honest disabled state for AI mode. Added edge-length-weighted majority-vote label smoothing over face adjacency in `segment.py`. Added high-contrast procedural UV checkerboard inspection mode in `MeshViewer.tsx`, `ViewportToolOverlay.tsx`, and `UVPanel.tsx`.
+- **Verification:** 26 passed, 3 skipped in backend pytest; 8 passed, 0 failed in `bun test`; 0 TypeScript errors.
 
 ## 2026-11-09 — Context-Aware Compare & PBR Route
 

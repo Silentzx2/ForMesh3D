@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 import yaml
 
+import numpy as np
 import trimesh
 
 try:
@@ -27,6 +28,19 @@ def load_gate_thresholds(config_path: Optional[str] = None) -> Dict[str, Any]:
     """Load topology gate thresholds from canonical quality config."""
     cfg = get_quality_config(config_path)
     return dict(cfg["gate"])
+
+
+def crispness(mesh: trimesh.Trimesh, angle_deg: float = 35.0) -> Dict[str, float]:
+    """Measure dihedral angle sharpness distribution across mesh edges."""
+    if mesh is None or len(getattr(mesh, "faces", [])) == 0:
+        return {"sharp_edge_frac": 0.0, "p99_dihedral_deg": 0.0}
+    ang = np.degrees(mesh.face_adjacency_angles)
+    if len(ang) == 0:
+        return {"sharp_edge_frac": 0.0, "p99_dihedral_deg": 0.0}
+    return {
+        "sharp_edge_frac": float((ang > angle_deg).mean()),
+        "p99_dihedral_deg": float(np.percentile(ang, 99)),
+    }
 
 
 def evaluate_topology_gate(
@@ -73,6 +87,7 @@ def evaluate_topology_gate(
     boundary_loop_sizes = metrics.get("boundary_loop_sizes") or []
     max_hole_size = max(boundary_loop_sizes) if boundary_loop_sizes else 0
     metrics["max_hole_size"] = max_hole_size
+    metrics["crispness"] = crispness(working_copy)
 
     quality_config = get_quality_config(config_path)
     thresholds = dict(quality_config["gate"])

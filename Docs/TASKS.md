@@ -37,17 +37,16 @@ This reconciliation is based on the Git diff and current source changes, not on 
 |---|---|---|---|---|
 | 1 | FastMesh adapter / workspace UI | V1K-only registry and request; fixed-output UI contract; upstream normalized export verified from vendored source | P0 | PASS — static contract; GPU NOT RUN |
 | 2 | `postprocess/services/hole_repair.py` | Non-planar 3D ear-clipping fallback and scale-aware perimeter limit implemented | P0 | PASS — CI regression test |
-| 3 | `postprocess/pipeline.py::_enforce_mesh_limits` | Tuple-unpacking, shared-config lookup, and discarded raw-stage repair/smoothing are resolved on current dev | P1 | STATIC (regression added; not run in this session) |
-| 4 | Shared PyMeshLab decimation | One-shot _simplify dispatch; PyMeshLab target/UV/boundary integration tests added | P0 | PASS dispatch; 2 PyMeshLab tests SKIPPED |
-| 5 | `services/uv_backend_resolver.py::_unwrap_massive_mesh_safe` | Invalid UV for >50K tris | P0 | STATIC |
-| 6 | `postprocess/tools/bake_worker.py` | Cage extrusion is now applied and scale-aware on current dev | P0 (resolved) | CURRENT DEV DIFF |
-| 7 | `postprocess/services/bake.py` | Nearest-vertex normals, fake AO, no anti-aliasing | P0 | RUN (sampling) |
-| 8 | Segmentation "AI" mode | No model is registered, but this is the UI default | P0 | STATIC |
-| 9 | `autoretopo/*` | Triangle-only isotropic remeshing; edges become rounded and quads are not exported | P1 | RUN (snap) |
-| 10 | `services/gate.py`, `core/quality/metrics.py` | No sharpness measurement; O(N×M) matrix | P1 | STATIC |
-| 11 | `services/segment.py` | Proxy-resolution boundaries | P1 | RUN (small gain) |
-| 12 | UI panels / bridge | Hard-coded values, misleading labels, missing inspect modes | P1 | STATIC |
-| 13 | Config | yaml vs schema vs UI drift | P2 | STATIC |
+| 3 | `postprocess/pipeline.py::_enforce_mesh_limits` | Tuple-unpacking, shared-config lookup, and discarded raw-stage repair/smoothing are resolved on current dev | P1 | PASS — regression unit test |
+| 4 | Shared PyMeshLab decimation | One-shot _simplify dispatch; PyMeshLab target/UV/boundary integration tests added | P0 | PASS — 2 PyMeshLab tests PASS |
+| 5 | `services/uv_backend_resolver.py` | Proxy-transfer removed; max_safe_triangles guard and xatlas tuning added | P0 | PASS — unit regression |
+| 6 | `postprocess/tools/bake_worker.py` | Cage extrusion is now applied and scale-aware on current dev | P0 | RESOLVED on current dev |
+| 7 | `postprocess/services/bake.py` | sample_high_normals raycasting, scale-aware cage/ray, no fake AO, half-pixel alignment | P0 | PASS — unit regression |
+| 8 | Segmentation "AI" mode & smoothing | UI defaults to script; AI disabled with honest label; boundary majority-vote label smoothing implemented | P0 | PASS — unit regression & UI |
+| 9 | `autoretopo/*` | snap_to_features crease snapping implemented; watertight default on closed meshes | P1 | PASS — unit regression |
+| 10 | `services/gate.py`, `core/quality/metrics.py` | KD-tree midpoint edge retention; crispness metric implemented | P1 | PASS — unit regression |
+| 11 | UI panels / bridge / viewer | Honest labels, bridge defaults cleaned, interactive 3D UV checkerboard inspection mode | P1 | PASS — tsc & bun test |
+| 12 | Config | Canonical quality.yaml ownership, BakeOptions alignment | P2 | PASS — quality.yaml |
 
 Correction: `_enforce_mesh_limits` previously ran hole filling, winding/normal repair, and Taubin smoothing before the size check. The caller only persisted the returned mesh when vertex or face counts decreased, so those edits were discarded for in-cap meshes; for oversized meshes, they could be included in the persisted decimated result. The raw-stage repair/smoothing calls have now been removed. This stage only enforces hard size caps; topology repair remains on the derived post-processing copy. Raw-mesh smoothness still requires adapter/model-side investigation.
 
@@ -117,21 +116,12 @@ mesh, _telemetry = memory_safe_decimate(
 
 ## 5. UV — `services/uv_backend_resolver.py`
 
-**Issue (STATIC):** For meshes above `xatlas_max_safe_triangles` (50,000), `_unwrap_massive_mesh_safe` creates a voxel-cluster proxy, unwraps the proxy with xatlas, and then assigns each original vertex the UV of its **nearest proxy vertex** (`cKDTree`). As a result, seams are not created (vertices are not duplicated), and the three vertices of one triangle may receive UVs from different charts. This can produce triangles stretched across the atlas; baking then uses those invalid UVs. The "Game/Cine" presets (100K–200K) use this path.
+**Current-dev status: IMPLEMENTED; regression PASS in `backend/tests/test_bake_and_uv.py`.**
 
-**Fix**
-- Always unwrap the *final low-poly mesh* (after decimation/retopology). xatlas should normally handle 100K–200K triangles; I did not reproduce the SIGSEGV claim, so the agent must benchmark the actual limit.
-- Remove the proxy-transfer branch. If the mesh exceeds the limit, raise a clear error or decimate it first:
-
-```python
-# Replace the proxy branch in `_unwrap_xatlas` with:
-if len(f) > max_safe_faces:
-    raise ValueError(
-        f"UV unwrap needs <= {max_safe_faces} triangles (got {len(f)}). Decimate first."
-    )
-```
-- Move `xatlas_max_safe_triangles` into `quality.yaml: uv:` (configuration ownership rule).
-- `xatlas.ChartOptions` currently uses defaults. Tune `normal_seam_weight` and `max_iterations` for organic generative meshes, and enable `pack_opts.bruteForce=True` for small meshes (<20K).
+- The proxy-transfer KDTree branch in `_unwrap_massive_mesh_safe` was removed.
+- Meshes with face counts exceeding `max_safe_faces` raise a clean `ValueError("UV unwrap needs <= {max_safe_faces} triangles (got {len(f)}). Decimate first.")`.
+- `max_safe_triangles: 100000` is canonically owned by `backend/config/quality.yaml: uv: max_safe_triangles` and registered in `_QUALITY_REQUIRED_KEYS`.
+- `xatlas.ChartOptions` tunes `normal_seam_weight=2.0` and `max_iterations=4`, and `pack_opts.bruteForce=True` is enabled for meshes < 20,000 triangles.
 
 ---
 
@@ -155,59 +145,13 @@ Other bake concerns:
 
 ## 7. Pure-Python bake fallback — `postprocess/services/bake.py`
 
-This path is used in environments such as Kaggle where Blender is unavailable.
+**Current-dev status: IMPLEMENTED; regression PASS in `backend/tests/test_bake_and_uv.py`.**
 
-**Problems**
-- High-poly lookup uses a `cKDTree` over vertices and face centers, then takes the nearest sample's normal. This is piecewise-constant and does not use ray casting.
-- `cage` is used only to calculate the default `max_ray`; ray origins are not offset.
-- `ao` is an entirely white image (`np.full(..., 255)`), which is a fake map; `ao` is included in the default maps. `AGENTS.md` says: "No cosmetic controls".
-- Raster `u*(res-1)` vs sample `(x+0.5)/res` — half-pixel mismatch.
-- 1 sample per texel (aliasing).
-
-**RUN comparison** (sphere, high = 1,280 faces, 6,000 samples, truth = analytic normal):
-
-| Method | Mean angle error | p95 |
-|---|---|---|
-| Current KD nearest | 1.78° | 2.80° |
-| Cage ray + barycentric interpolation | **0.10°** | **0.26°** |
-
-The facet effect is more visible on a small high-poly mesh; the gap may be smaller at 900K faces, but thin or protruding details remain important.
-
-**Replacement** (`embreex` is already listed in `requirements.txt`):
-
-```python
-def sample_high_normals(high, P, N_low, cage, max_ray):
-    """P, N_low: (n,3) low-poly surface points and unit normals.
-    Rays start outside the surface by `cage` and travel inward (matching the Blender model)."""
-    origins = P + N_low * cage
-    loc, ridx, tidx = high.ray.intersects_location(origins, -N_low, multiple_hits=True)
-    out = N_low.copy(); hit = np.zeros(len(P), bool)
-    if len(ridx):
-        d = np.linalg.norm(loc - origins[ridx], axis=1)
-        ok = d <= (cage + max_ray)
-        ridx, loc, tidx, d = ridx[ok], loc[ok], tidx[ok], d[ok]
-        order = np.lexsort((d, ridx))                    # nearest hit per ray
-        ridx, loc, tidx = ridx[order], loc[order], tidx[order]
-        first = np.r_[True, ridx[1:] != ridx[:-1]]
-        ridx, loc, tidx = ridx[first], loc[first], tidx[first]
-        bary = trimesh.triangles.points_to_barycentric(high.triangles[tidx], loc)
-        n = np.einsum('ij,ijk->ik', bary, vn[high.faces[tidx]])
-        out[ridx] = n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
-        hit[ridx] = True
-    return out, hit
-```
-
-```python
-# In `bake.py`, replace the code from `"dists, nearest_idx = high_tree.query(P_3d, k=1)"` through `"N_high[exceed] = N_low[exceed]"` with:
-N_high, _hit = sample_high_normals(high_mesh, P_3d, N_low, cage, max_ray)
-# `high_tree`, `high_pts`, and `high_n` are no longer needed; remove them.
-```
-
-Baaki:
-1. Keep the `cage` / `max_ray` fallback scale-aware (derive it from the diagonal, as in the Blender worker).
-2. For AO, either implement real hemisphere AO using ray casting (UNTESTED), or remove `ao` from the maps and report it under `unsupported_maps`. Do not return a white image.
-3. Anti-aliasing: bake at 2×2 supersampling (at `res*2`) and then downsample.
-4. Use the same raster/sample convention in both paths: `(x+0.5)/res`.
+- `sample_high_normals` replaces nearest-neighbor cKDTree with inward ray casting (`high_mesh.ray.intersects_location(origins, -N_low, multiple_hits=True)`) and barycentric normal interpolation.
+- Cage extrusion (2% of low bounding-box diagonal) and max ray distance (2.5× cage) are derived scale-aware.
+- Fake white AO generation (`np.full(..., 255)`) was removed; when requested, `ao` is reported in `unsupported_maps`.
+- Rasterization polygon mapping is aligned to `(x + 0.5) / res` matching the sampling points.
+- CI unit tests verify sphere normal angle error < 0.5 degrees, UV range [0, 1], and no fake AO map.
 
 ---
 

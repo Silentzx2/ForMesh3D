@@ -534,6 +534,39 @@ def _map_to_proxy(mesh: trimesh.Trimesh, proxy: trimesh.Trimesh, progress=None):
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _smooth_labels(mesh: trimesh.Trimesh, labels: np.ndarray, iters: int = 2, self_w: float = 0.5) -> np.ndarray:
+    """Edge-length-weighted majority vote over face adjacency to clean up noisy proxy boundaries."""
+    if not hasattr(mesh, "face_adjacency") or len(mesh.face_adjacency) == 0 or len(labels) == 0:
+        return labels
+    a, b = mesh.face_adjacency.T
+    try:
+        e = mesh.face_adjacency_edges
+        w = np.linalg.norm(mesh.vertices[e[:, 0]] - mesh.vertices[e[:, 1]], axis=1)
+    except Exception:
+        w = np.ones(len(a), dtype=np.float64)
+    k = int(labels.max()) + 1
+    if k <= 1:
+        return labels
+    lab = labels.copy().astype(np.int32)
+    original_unique = set(np.unique(lab))
+    incident_w = (np.bincount(a, w, len(lab)) + np.bincount(b, w, len(lab))).clip(1e-9)
+    for _ in range(iters):
+        votes = np.zeros((len(lab), k), dtype=np.float64)
+        votes[np.arange(len(lab)), lab] += self_w * incident_w
+        np.add.at(votes, (a, lab[b]), w)
+        np.add.at(votes, (b, lab[a]), w)
+        new = votes.argmax(1).astype(np.int32)
+        new_unique = set(np.unique(new))
+        if len(new_unique) < len(original_unique):
+            extinct_parts = original_unique - new_unique
+            for ep in extinct_parts:
+                new[lab == ep] = ep
+        if (new == lab).all():
+            break
+        lab = new
+    return lab
+
+
 def _b64(array, dtype) -> str:
     return base64.b64encode(np.ascontiguousarray(array, dtype=dtype).tobytes()).decode("ascii")
 
@@ -604,6 +637,9 @@ def run_segment(mesh: trimesh.Trimesh, options: SegmentOptions, progress=None) -
         root_to_part = {r: idx for idx, r in enumerate(unique_roots)}
         labels = np.array([root_to_part[r] for r in face_roots], dtype=np.int32)
 
+        # Boundary majority-vote label smoothing over face adjacency to clean up noisy proxy boundaries
+        labels = _smooth_labels(mesh, labels, iters=2, self_w=0.5)
+
         palette = [
             [59, 130, 246, 255],
             [16, 185, 129, 255],
@@ -623,16 +659,17 @@ def run_segment(mesh: trimesh.Trimesh, options: SegmentOptions, progress=None) -
             [168, 162, 158, 255],
         ]
 
+        active_parts = np.unique(labels)
         scene = trimesh.Scene()
-        for part_idx in range(len(unique_roots)):
+        for idx, part_idx in enumerate(active_parts):
             face_mask = (labels == part_idx)
             if not np.any(face_mask):
                 continue
             try:
                 submesh = mesh.submesh([face_mask], append=True)
-                col = np.array(palette[part_idx % len(palette)], dtype=np.uint8)
+                col = np.array(palette[idx % len(palette)], dtype=np.uint8)
                 submesh.visual.face_colors = np.tile(col, (len(submesh.faces), 1))
-                part_name = f"Part {part_idx + 1}"
+                part_name = f"Part {idx + 1}"
                 scene.add_geometry(submesh, node_name=part_name, geom_name=part_name)
             except Exception:
                 pass

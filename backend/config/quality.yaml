@@ -96,6 +96,7 @@ uv:
   default_backend: auto
   fallback_backend: xatlas
   max_chart_size: 4096
+  max_safe_triangles: 100000
 
 bake:
   normal_space: TANGENT

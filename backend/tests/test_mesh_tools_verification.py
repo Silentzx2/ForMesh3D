@@ -7,6 +7,7 @@ import io
 import json
 import sys
 import time
+import pytest
 import requests
 import trimesh
 
@@ -61,6 +62,25 @@ def test_service_segment():
     return True
 
 
+def test_smooth_labels_removes_boundary_noise():
+    print("\n--- Testing _smooth_labels: boundary majority-vote noise removal ---")
+    import numpy as np
+    from postprocess.services.segment import _smooth_labels
+    mesh = trimesh.creation.icosphere(subdivisions=2)
+    labels = np.zeros(len(mesh.faces), dtype=np.int32)
+    half = len(mesh.faces) // 2
+    labels[:half] = 1
+    # Introduce noisy isolated outlier faces
+    labels[5] = 0
+    labels[half + 5] = 1
+
+    smoothed = _smooth_labels(mesh, labels, iters=2, self_w=0.5)
+    assert smoothed[5] == 1, "Outlier face 5 should be smoothed to dominant label 1"
+    assert smoothed[half + 5] == 0, "Outlier face half+5 should be smoothed to dominant label 0"
+    print("[PASS] test_smooth_labels_removes_boundary_noise")
+    return True
+
+
 def test_service_auto_retopo():
     print("\n--- Testing Service: run_auto_retopo (target_faces=200) ---")
     mesh = trimesh.creation.icosphere(subdivisions=2, radius=1.0)
@@ -97,7 +117,17 @@ def test_service_auto_uv():
     return True
 
 
+def _server_online(base_url="http://localhost:7842") -> bool:
+    try:
+        r = requests.get(f"{base_url}/api/v1/system/health", timeout=1)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
 def test_endpoint_auto_uv(base_url="http://localhost:7842"):
+    if not _server_online(base_url):
+        pytest.skip("FastAPI server not reachable on localhost:7842")
     print("\n--- Testing HTTP Endpoint: /api/v1/mesh-tools/auto-uv ---")
     mesh = trimesh.creation.icosphere(subdivisions=2, radius=1.0)
     glb_bytes = mesh.export(file_type="glb")
@@ -126,6 +156,8 @@ def test_endpoint_auto_uv(base_url="http://localhost:7842"):
 
 
 def test_endpoint_segment(base_url="http://localhost:7842"):
+    if not _server_online(base_url):
+        pytest.skip("FastAPI server not reachable on localhost:7842")
     print("\n--- Testing HTTP Endpoint: /api/v1/mesh-tools/segment (num_parts=4) ---")
     mesh = trimesh.creation.icosphere(subdivisions=3, radius=1.0)
     glb_bytes = mesh.export(file_type="glb")
@@ -159,6 +191,8 @@ def test_endpoint_segment(base_url="http://localhost:7842"):
 
 
 def test_endpoint_auto_retopo(base_url="http://localhost:7842"):
+    if not _server_online(base_url):
+        pytest.skip("FastAPI server not reachable on localhost:7842")
     print("\n--- Testing HTTP Endpoint: /api/v1/mesh-tools/auto-retopo (target_faces=200) ---")
     mesh = trimesh.creation.icosphere(subdivisions=2, radius=1.0)
     glb_bytes = mesh.export(file_type="glb")

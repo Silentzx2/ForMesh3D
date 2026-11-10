@@ -259,6 +259,8 @@ export const UVPanel: React.FC = () => {
     currentAsset,
     generationSettings,
     setGenerationSettings,
+    shadingMode,
+    setShadingMode,
   } = useWorkspace();
 
   const { state: meshUploadState, upload: uploadMesh } = useMeshAssetUpload();
@@ -889,6 +891,34 @@ export const UVPanel: React.FC = () => {
           <p className="text-[9.5px] text-zinc-400 pt-0.5 leading-tight">
             Prevents texture bleeding across island borders during MIP-mapping.
           </p>
+        </div>
+
+        {/* Viewport UV Checker Toggle */}
+        <div className="flex items-center justify-between p-2 rounded-xl bg-[#12131d] border border-white/[0.08]">
+          <div className="flex items-center gap-2">
+            <div
+              className="w-4 h-4 rounded border border-white/20"
+              style={{
+                backgroundImage: `conic-gradient(
+                  #22252a 0.25turn, #e2e6ed 0.25turn 0.5turn,
+                  #22252a 0.5turn 0.75turn, #e2e6ed 0.75turn
+                )`,
+                backgroundSize: '4px 4px',
+              }}
+            />
+            <span className="text-[10.5px] font-medium text-zinc-300">Viewport UV Checker</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShadingMode(shadingMode === 'uv-checker' ? 'textured' : 'uv-checker')}
+            className={`px-2 py-0.5 rounded-lg text-[10px] font-bold font-mono transition-all cursor-pointer ${
+              shadingMode === 'uv-checker'
+                ? 'bg-[#F9CF00] text-black shadow-sm font-black'
+                : 'bg-white/[0.06] text-zinc-400 hover:text-white hover:bg-white/[0.1]'
+            }`}
+          >
+            {shadingMode === 'uv-checker' ? 'ON' : 'OFF'}
+          </button>
         </div>
 
         {/* 6. Advanced UV Settings Trigger Button (Opens Dynamic Side Flyout) */}

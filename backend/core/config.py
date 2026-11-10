@@ -499,6 +499,7 @@ _QUALITY_REQUIRED_KEYS = (
     "decimation.max_ram_fraction",
     "uv.partuv_triangle_threshold", "uv.partuv_vram_requirement_gb",
     "uv.default_backend", "uv.fallback_backend", "uv.max_chart_size",
+    "uv.max_safe_triangles",
     "bake.normal_space", "bake.convention", "bake.max_ray_distance",
     "bake.cage_extrusion", "bake.texture_size", "bake.gutter_dilation_pixels",
     "bake.min_uv_utilization",

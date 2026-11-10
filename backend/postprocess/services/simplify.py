@@ -159,15 +159,14 @@ def _simplify(
             "v_normals_matrix": np.asarray(mesh.vertex_normals, dtype=np.float64),
         }
         if textured:
-            uv = np.asarray(mesh.visual.uv, dtype=np.float64)
-            mesh_kwargs["w_tex_coords_matrix"] = uv[np.asarray(mesh.faces, dtype=np.int64)].reshape(-1, 2)
+            mesh_kwargs["v_tex_coords_matrix"] = np.asarray(mesh.visual.uv, dtype=np.float64)
         ms.add_mesh(pymeshlab.Mesh(**mesh_kwargs))
         _check_cancelled(cancel_checker)
         if textured:
+            ms.compute_texcoord_transfer_vertex_to_wedge()
             ms.meshing_decimation_quadric_edge_collapse_with_texture(
                 targetfacenum=int(target_faces), qualitythr=0.3, extratcoordw=1.0,
                 preserveboundary=True, boundaryweight=3.0, optimalplacement=True,
-                preservetopology=True,
             )
         else:
             ms.meshing_decimation_quadric_edge_collapse(
@@ -180,16 +179,21 @@ def _simplify(
         out = ms.current_mesh()
         vertices = np.asarray(out.vertex_matrix(), dtype=np.float64)
         faces = np.asarray(out.face_matrix(), dtype=np.int64)
+        out_normals = None
+        try:
+            out_normals = np.asarray(out.vertex_normal_matrix(), dtype=np.float64)
+        except Exception:
+            pass
         if textured:
             wedge_uv = np.asarray(out.wedge_tex_coord_matrix(), dtype=np.float64)
-            out_normals = None
-            try:
-                out_normals = np.asarray(out.vertex_normal_matrix(), dtype=np.float64)
-            except Exception:
-                pass
             result = _restore_texture(mesh, vertices, faces, wedge_uv, out_normals)
         else:
-            result = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+            result = trimesh.Trimesh(
+                vertices=vertices,
+                faces=faces,
+                vertex_normals=out_normals if (out_normals is not None and len(out_normals) == len(vertices)) else None,
+                process=False,
+            )
     except Exception as exc:
         try:
             from backend.core.mesh_processor import compute_angle_weighted_normals
@@ -273,7 +277,8 @@ def _simplify(
         if crease_angle_deg is not None
         else get_quality_config()["shared"]["feature_edge_angle_deg"]
     )
-    result = compute_angle_weighted_normals(result, crease_angle_deg=shared_crease)
+    if not hasattr(result, "vertex_normals") or result.vertex_normals is None or len(result.vertex_normals) != len(result.vertices):
+        result = compute_angle_weighted_normals(result, crease_angle_deg=shared_crease)
     if hasattr(result, "vertex_normals"):
         _ = result.vertex_normals
     triangles = int(len(result.faces))

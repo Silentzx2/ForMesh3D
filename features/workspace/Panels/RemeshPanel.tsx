@@ -1174,10 +1174,16 @@ export const RemeshPanel: React.FC = () => {
               className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RefreshCw className="w-3.5 h-3.5 text-black" />
-              <span>{engineMode === 'ai' ? 'Run Quad Retopology (FastMesh)' : 'Run Script Retopology (Trimesh / Python)'}</span>
+              <span>
+                {engineMode === 'ai'
+                  ? 'Run Retopology (FastMesh V1K)'
+                  : polyType === 'quad'
+                  ? 'Run Quad Retopology (Script)'
+                  : 'Run Isotropic Remesh (Trimesh)'}
+              </span>
             </button>
             <div className="flex items-center justify-between text-[10px] text-zinc-400 px-1 font-mono">
-              <span>Target: {localPolycount.toLocaleString()} {polyType === 'quad' ? 'Quads' : 'Tris'}</span>
+              <span>Target: {localPolycount.toLocaleString()} {polyType === 'quad' ? 'Quads' : 'Target Triangles (Isotropic)'}</span>
               <span>Clean Flow</span>
             </div>
           </div>

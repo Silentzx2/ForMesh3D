@@ -307,7 +307,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
                   Shading Mode
                 </label>
-                <div className="grid grid-cols-5 gap-1">
+                <div className="grid grid-cols-6 gap-1">
                   {(
                     [
                       { id: 'textured', label: 'PBR' },
@@ -315,6 +315,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
                       { id: 'normals', label: 'Normal' },
                       { id: 'wireframe', label: 'Wire' },
                       { id: 'matcap-gold', label: 'Gold' },
+                      { id: 'uv-checker', label: 'UV' },
                     ] as const
                   ).map((m) => (
                     <button
@@ -511,6 +512,31 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
             }`}
           >
             <div className="w-full h-full rounded-full bg-gradient-to-tr from-[#b45309] via-[#f59e0b] to-[#fef08a] shadow-[inset_-2px_-2px_4px_rgba(0,0,0,0.6),inset_2px_2px_4px_rgba(255,255,255,0.5)]" />
+          </button>
+        </SimpleTooltip>
+
+        {/* Sphere 6: UV Checker */}
+        <SimpleTooltip label="UV Checker Texture (Inspect Seams & Stretch)" side="top">
+          <button
+            type="button"
+            onClick={() => handleShadingChange('uv-checker')}
+            aria-label="UV Checker Shader"
+            className={`w-7 h-7 rounded-full transition-all duration-150 cursor-pointer relative overflow-hidden ${
+              shadingMode === 'uv-checker'
+                ? 'ring-2 ring-[#F9CF00] ring-offset-2 ring-offset-[#141522] scale-110 shadow-[0_0_12px_rgba(249,207,0,0.4)]'
+                : 'hover:scale-105 opacity-80 hover:opacity-100'
+            }`}
+          >
+            <div
+              className="w-full h-full rounded-full shadow-[inset_0_0_4px_rgba(0,0,0,0.7)] border border-white/20"
+              style={{
+                backgroundImage: `conic-gradient(
+                  #22252a 0.25turn, #e2e6ed 0.25turn 0.5turn,
+                  #22252a 0.5turn 0.75turn, #e2e6ed 0.75turn
+                )`,
+                backgroundSize: '8px 8px',
+              }}
+            />
           </button>
         </SimpleTooltip>
 

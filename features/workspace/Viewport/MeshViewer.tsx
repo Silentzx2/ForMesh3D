@@ -96,6 +96,47 @@ interface MeshViewerProps {
   className?: string;
 }
 
+let sharedUVCheckerTexture: THREE.CanvasTexture | null = null;
+function getUVCheckerTexture(): THREE.CanvasTexture {
+  if (!sharedUVCheckerTexture && typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const squares = 16;
+      const step = 512 / squares;
+      for (let i = 0; i < squares; i++) {
+        for (let j = 0; j < squares; j++) {
+          const isDark = (i + j) % 2 === 1;
+          ctx.fillStyle = isDark ? '#1a1c22' : '#e2e6ed';
+          ctx.fillRect(i * step, j * step, step, step);
+
+          // Grid coordinates indicator: accent corner dot for orientation
+          if (i === 0 && j === 0) {
+            ctx.fillStyle = '#ef4444'; // Red origin marker (0,0)
+            ctx.fillRect(i * step, j * step, step * 0.35, step * 0.35);
+          } else if ((i + j) % 4 === 0) {
+            ctx.fillStyle = isDark ? '#3b82f6' : '#60a5fa'; // Blue coordinate accent
+            ctx.fillRect(i * step + step * 0.35, j * step + step * 0.35, step * 0.3, step * 0.3);
+          }
+
+          // Subtle inner tile borders
+          ctx.strokeStyle = isDark ? '#2b2f38' : '#cbd2de';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(i * step, j * step, step, step);
+        }
+      }
+    }
+    sharedUVCheckerTexture = new THREE.CanvasTexture(canvas);
+    sharedUVCheckerTexture.wrapS = THREE.RepeatWrapping;
+    sharedUVCheckerTexture.wrapT = THREE.RepeatWrapping;
+    sharedUVCheckerTexture.repeat.set(4, 4);
+    sharedUVCheckerTexture.needsUpdate = true;
+  }
+  return sharedUVCheckerTexture!;
+}
+
 const disposeObject3D = (obj: THREE.Object3D) => {
   obj.traverse((child) => {
     if (child instanceof THREE.Mesh) {
@@ -111,6 +152,7 @@ const disposeObject3D = (obj: THREE.Object3D) => {
         child.userData?.__goldMaterial,
         child.userData?.__chromeMaterial,
         child.userData?.__wireMaterial,
+        child.userData?.__uvCheckerMaterial,
       ];
       helperMats.forEach((m) => m?.dispose?.());
       if (child.material && child.material !== orig && !helperMats.includes(child.material)) {
@@ -549,6 +591,17 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       }
       mesh.userData.__chromeMaterial.wireframe = Boolean(wireframe);
       mesh.material = mesh.userData.__chromeMaterial;
+    } else if (mode === 'uv-checker') {
+      if (!mesh.userData.__uvCheckerMaterial) {
+        mesh.userData.__uvCheckerMaterial = new THREE.MeshStandardMaterial({
+          map: getUVCheckerTexture(),
+          roughness: 0.4,
+          metalness: 0.05,
+          wireframe: Boolean(wireframe),
+        });
+      }
+      mesh.userData.__uvCheckerMaterial.wireframe = Boolean(wireframe);
+      mesh.material = mesh.userData.__uvCheckerMaterial;
     } else if (mode === 'wireframe') {
       if (!mesh.userData.__wireMaterial) {
         mesh.userData.__wireMaterial = new THREE.MeshBasicMaterial({
@@ -570,15 +623,20 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     }
   }, []);
 
+  const effectiveShadingMode: ShadingMode =
+    shadingMode === 'uv-checker' || (activeTool === 'uv' && (shadingMode === 'textured' || !shadingMode))
+      ? 'uv-checker'
+      : shadingMode;
+
   useEffect(() => {
     [modelGroupRef.current, comparisonBeforeGroupRef.current].forEach((group) => {
       group?.traverse((child) => {
         if (child instanceof THREE.Mesh) {
-          applyShadingToMesh(child, shadingMode, Boolean(showWireframe));
+          applyShadingToMesh(child, effectiveShadingMode, Boolean(showWireframe));
         }
       });
     });
-  }, [showWireframe, shadingMode, applyShadingToMesh]);
+  }, [showWireframe, effectiveShadingMode, applyShadingToMesh]);
 
   // 3. Reset Camera / Fit to screen helper
   const fitCameraToModel = useCallback((object: THREE.Object3D) => {

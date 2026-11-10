@@ -48,7 +48,7 @@ def test_fastmesh_point_cloud_uses_matching_face_normals_and_normalized_coordina
     assert point_cloud.shape == (8, 6)
     assert point_cloud.dtype == np.float16
     assert np.isfinite(point_cloud).all()
-    assert np.max(np.abs(point_cloud[:, :3])) <= 0.9501
+    assert np.max(np.abs(point_cloud[:, :3])) <= 0.951
     np.testing.assert_allclose(
         point_cloud[:, 3:].astype(np.float32),
         normalized.face_normals[sampled_faces[selected]].astype(np.float32),

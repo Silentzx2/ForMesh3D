@@ -49,7 +49,7 @@ export const DEFAULT_SCRIPTS: ScriptDefinition[] = [
     description: 'Fast CPU-based isotropic remesher with curvature-adaptive surface drift gates.',
     requiresGpu: false,
     endpoint: '/api/v1/mesh-tools/auto-retopo',
-    defaultParams: { target_faces: 50000, quads: true, watertight: true, feature_angle: 45, adaptive: true },
+    defaultParams: { target_faces: 50000, quads: true, watertight: false, adaptive: true },
   },
 
   // --- SMART UV ---
@@ -103,7 +103,7 @@ export const DEFAULT_SCRIPTS: ScriptDefinition[] = [
     description: 'Curvature, thickness SDF and connected component part clustering on CPU.',
     requiresGpu: false,
     endpoint: '/api/v1/mesh-tools/segment',
-    defaultParams: { num_parts: 8, proxy_faces: 3000 },
+    defaultParams: { num_parts: 8 },
   },
 ];
 
@@ -188,11 +188,13 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
       let scriptOptions: Record<string, any> = {};
       if (tool === 'remesh') {
         scriptOptions = {
-          target_faces: Number(params.targetPolycount || params.target_faces || 50000),
+          target_faces: Number(params.targetPolycount ?? params.target_faces ?? 50000),
           quads: params.polyType === 'quad' || params.quads === true,
-          watertight: params.watertight !== false,
+          watertight: params.watertight === true,
           adaptive: params.adaptive !== false,
-          feature_angle: Number(params.featureAngle || 45),
+          ...(params.featureAngle !== undefined || params.feature_angle !== undefined
+            ? { feature_angle: Number(params.featureAngle ?? params.feature_angle) }
+            : {}),
           preserve_features: params.preserveEdges !== false,
         };
       } else if (tool === 'uv') {
@@ -204,9 +206,13 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
         };
       } else if (tool === 'segment') {
         scriptOptions = {
-          num_parts: Number(params.numParts || params.num_parts || 8),
-          proxy_faces: 3000,
-          sdf_rays: 20,
+          num_parts: Number(params.numParts ?? params.num_parts ?? 8),
+          ...(params.proxyFaces !== undefined || params.proxy_faces !== undefined
+            ? { proxy_faces: Number(params.proxyFaces ?? params.proxy_faces) }
+            : {}),
+          ...(params.sdfRays !== undefined || params.sdf_rays !== undefined
+            ? { sdf_rays: Number(params.sdfRays ?? params.sdf_rays) }
+            : {}),
         };
       }
 

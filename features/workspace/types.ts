@@ -57,7 +57,8 @@ export type ShadingMode =
   | 'xray'
   | 'pbr'
   | 'normals'
-  | 'matcap';
+  | 'matcap'
+  | 'uv-checker';
 
 export type CameraViewPreset = 'perspective' | 'front' | 'back' | 'top' | 'bottom' | 'left' | 'right' | 'ortho';
 

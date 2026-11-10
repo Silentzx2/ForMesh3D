@@ -28,7 +28,6 @@ import numpy as np
 import trimesh
 from PIL import Image, ImageDraw
 from scipy.ndimage import distance_transform_edt
-from scipy.spatial import cKDTree
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +64,57 @@ def _erode(mask: np.ndarray, iterations: int = 1) -> np.ndarray:
     return out
 
 
+def sample_high_normals(
+    high_mesh: trimesh.Trimesh,
+    P: np.ndarray,
+    N_low: np.ndarray,
+    cage: float,
+    max_ray: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sample high-poly normals by inward ray casting with cage offset and barycentric interpolation.
+
+    Rays start outside the surface at P + N_low * cage and travel inward along -N_low.
+    """
+    if len(P) == 0:
+        return np.zeros((0, 3), dtype=np.float64), np.zeros(0, dtype=bool)
+
+    origins = P + N_low * cage
+    loc, ridx, tidx = high_mesh.ray.intersects_location(origins, -N_low, multiple_hits=True)
+    out = N_low.copy()
+    hit = np.zeros(len(P), dtype=bool)
+
+    if len(ridx) > 0:
+        d = np.linalg.norm(loc - origins[ridx], axis=1)
+        ok = d <= (cage + max_ray)
+        ridx = ridx[ok]
+        loc = loc[ok]
+        tidx = tidx[ok]
+        d = d[ok]
+
+        if len(ridx) > 0:
+            order = np.lexsort((d, ridx))
+            ridx = ridx[order]
+            loc = loc[order]
+            tidx = tidx[order]
+
+            first = np.r_[True, ridx[1:] != ridx[:-1]]
+            ridx = ridx[first]
+            loc = loc[first]
+            tidx = tidx[first]
+
+            bary = trimesh.triangles.points_to_barycentric(high_mesh.triangles[tidx], loc)
+            bary = np.clip(bary, 0.0, 1.0)
+            bary_sum = np.maximum(np.sum(bary, axis=1, keepdims=True), 1e-12)
+            bary /= bary_sum
+
+            vn = np.asarray(high_mesh.vertex_normals, dtype=np.float64)
+            n = np.einsum("ij,ijk->ik", bary, vn[high_mesh.faces[tidx]])
+            out[ridx] = n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+            hit[ridx] = True
+
+    return out, hit
+
+
 def bake_high_to_low_pure_python(
     low_glb: bytes,
     high_glb: bytes,
@@ -72,9 +122,8 @@ def bake_high_to_low_pure_python(
     progress: Optional[Callable[[str, float, str], None]] = None,
     cancel_checker: CancelChecker = None,
 ) -> tuple[dict[str, bytes], dict]:
-    """Pure-Python high-to-low normal map and texture baker using UV rasterization,
-
-    MikkTSpace-compatible tangent basis computation, cKDTree surface projection,
+    """Pure-Python high-to-low normal map baker using UV rasterization,
+    MikkTSpace-compatible tangent basis computation, inward ray casting with cage offset,
     and gutter dilation with neutral normal fallback (128, 128, 255).
     """
     _check_cancelled(cancel_checker)
@@ -153,20 +202,13 @@ def bake_high_to_low_pure_python(
     bitangents = cross_nt * sign[:, None]
 
     _check_cancelled(cancel_checker)
-    _progress("spatial", 0.30, "Indexing high-poly surface…")
-
-    high_v = np.asarray(high_mesh.vertices, dtype=np.float64)
-    high_vn = np.asarray(high_mesh.vertex_normals, dtype=np.float64)
-    high_fc = np.asarray(high_mesh.triangles_center, dtype=np.float64)
-    high_fn = np.asarray(high_mesh.face_normals, dtype=np.float64)
-
-    high_pts = np.vstack([high_v, high_fc])
-    high_n = np.vstack([high_vn, high_fn])
-    high_tree = cKDTree(high_pts)
+    _progress("spatial", 0.30, "Tracing high-poly surface normals…")
 
     diagonal = float(np.linalg.norm(low_mesh.bounds[1] - low_mesh.bounds[0]))
-    cage = float(opts.cage_extrusion) if float(opts.cage_extrusion) > 0.0 else 0.02 * diagonal
-    max_ray = float(opts.max_ray_distance) if float(opts.max_ray_distance) > 0.0 else max(0.001, cage * 2.5)
+    cage_opt = float(getattr(opts, "cage_extrusion", 0.0) or 0.0)
+    cage = cage_opt if cage_opt > 0.0 else 0.02 * diagonal
+    max_ray_opt = float(getattr(opts, "max_ray_distance", 0.0) or 0.0)
+    max_ray = max_ray_opt if max_ray_opt > 0.0 else max(0.001, cage * 2.5)
 
     res = int(opts.resolution)
     _progress("rasterize", 0.45, f"Rasterizing UV layout ({res}x{res})…")
@@ -176,7 +218,7 @@ def bake_high_to_low_pure_python(
     for f_idx, face in enumerate(low_faces):
         f_uv = low_uv[face]
         poly = [
-            (float(f_uv[i, 0] * (res - 1)), float((1.0 - f_uv[i, 1]) * (res - 1)))
+            (float(f_uv[i, 0] * res), float((1.0 - f_uv[i, 1]) * res))
             for i in range(3)
         ]
         draw.polygon(poly, fill=f_idx + 1)
@@ -244,10 +286,7 @@ def bake_high_to_low_pure_python(
     )
     B_low /= np.maximum(np.linalg.norm(B_low, axis=1, keepdims=True), 1e-9)
 
-    dists, nearest_idx = high_tree.query(P_3d, k=1)
-    N_high = high_n[nearest_idx].copy()
-    exceed = dists > max_ray
-    N_high[exceed] = N_low[exceed]
+    N_high, _hit = sample_high_normals(high_mesh, P_3d, N_low, cage, max_ray)
 
     ts_x = np.sum(N_high * T_low, axis=1)
     ts_y = np.sum(N_high * B_low, axis=1)
@@ -291,13 +330,9 @@ def bake_high_to_low_pure_python(
 
     requested_maps = opts.maps if opts.maps else ["normal", "ao"]
 
-    if "ao" in requested_maps:
-        ao_arr = np.full((res, res), 255, dtype=np.uint8)
-        images["ao"] = _save_png(ao_arr, "L")
-        maps_info["ao"] = "ao.png"
-
-    # This fallback computes normals/AO only. Do not synthesize flat albedo, roughness,
-    # or metallic maps: they are not baked from the source and would destroy native PBR.
+    # AO raycasting is not supported in CPU fallback; 'ao' is reported in
+    # unsupported_maps rather than returning a fake white image (per AGENTS.md).
+    # Flat albedo, roughness, or metallic maps are not synthesized.
 
     if getattr(opts, "pack_orm", True):
         orm_present = [name for name in ("ao", "roughness", "metallic") if name in images]

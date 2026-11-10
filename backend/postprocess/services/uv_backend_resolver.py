@@ -93,72 +93,21 @@ def resolve_uv_backend(
 def _unwrap_massive_mesh_safe(
     mesh: trimesh.Trimesh,
     runtime: Optional[Dict[str, Any]] = None,
-    max_safe_faces: int = 50000,
+    max_safe_faces: int = 100000,
     max_chart_size: int = 4096,
 ) -> trimesh.Trimesh:
-    """Safely unwrap a massive mesh by unwrapping a simplified proxy and transferring UVs via cKDTree.
+    """Validate mesh face count and unwrap with xatlas.
 
-    Prevents C++ SIGSEGV in xatlas while preserving the native dense mesh geometry,
-    vertex count, normals, and vertex colors.
+    The previous proxy-transfer KDTree branch assigned vertex UVs across different
+    triangles without creating seams, producing invalid stretched UVs.
+    If mesh faces exceed max_safe_faces, raises ValueError.
     """
-    from scipy.spatial import cKDTree
-
-    V = np.asarray(mesh.vertices, dtype=np.float64)
-    F = np.asarray(mesh.faces, dtype=np.int64)
-
-    if len(V) == 0 or len(F) == 0:
-        return mesh.copy()
-
-    # Fast voxel grid clustering proxy in pure numpy
-    bbox_extent = V.max(axis=0) - V.min(axis=0)
-    vol = float(np.prod(np.maximum(bbox_extent, 1e-6)))
-    target_proxy_faces = min(max_safe_faces // 2, 25000)
-    n_target_verts = max(100, target_proxy_faces // 2)
-    cell_size = (vol / n_target_verts) ** (1.0 / 3.0)
-
-    grid_coords = np.floor((V - V.min(axis=0)) / max(cell_size, 1e-6)).astype(np.int64)
-    _, unique_indices, inverse = np.unique(grid_coords, axis=0, return_index=True, return_inverse=True)
-
-    proxy_V = V[unique_indices]
-    proxy_F = inverse[F]
-
-    # Filter degenerate triangles
-    valid_faces = (proxy_F[:, 0] != proxy_F[:, 1]) & (proxy_F[:, 1] != proxy_F[:, 2]) & (proxy_F[:, 2] != proxy_F[:, 0])
-    proxy_F = proxy_F[valid_faces]
-
-    if len(proxy_F) == 0 or len(proxy_V) < 4:
-        # Fallback to simple strided face sampling
-        stride = max(1, len(F) // target_proxy_faces)
-        sampled_F = F[::stride]
-        unique_v, inv_v = np.unique(sampled_F, return_inverse=True)
-        proxy_V = V[unique_v]
-        proxy_F = inv_v.reshape(-1, 3)
-
-    proxy_mesh = trimesh.Trimesh(vertices=proxy_V, faces=proxy_F, process=False)
-    unwrapped_proxy = _unwrap_xatlas(proxy_mesh, runtime=runtime, max_chart_size=max_chart_size)
-
-    proxy_unwrapped_verts = np.asarray(unwrapped_proxy.vertices, dtype=np.float64)
-    proxy_uvs = np.asarray(unwrapped_proxy.visual.uv, dtype=np.float32)
-
-    # Transfer UVs to original vertices via cKDTree
-    tree = cKDTree(proxy_unwrapped_verts)
-    _, nearest = tree.query(V)
-    dense_uvs = proxy_uvs[nearest]
-
-    out_mesh = mesh.copy()
-    source_visual = getattr(mesh, "visual", None)
-    source_material = getattr(source_visual, "material", None)
-    source_image = getattr(source_visual, "image", None)
-
-    out_mesh.visual = trimesh.visual.TextureVisuals(
-        uv=dense_uvs,
-        material=source_material if source_material is not None else trimesh.visual.material.PBRMaterial(name="xatlas_safe"),
-        image=source_image if source_image is not None else None,
-    )
-    if hasattr(source_visual, "vertex_colors") and source_visual.vertex_colors is not None:
-        out_mesh.visual.vertex_colors = source_visual.vertex_colors
-
-    return out_mesh
+    f = np.asarray(mesh.faces, dtype=np.int32)
+    if len(f) > max_safe_faces:
+        raise ValueError(
+            f"UV unwrap needs <= {max_safe_faces} triangles (got {len(f)}). Decimate first."
+        )
+    return _unwrap_xatlas(mesh, runtime=runtime, max_chart_size=max_chart_size)
 
 
 def _unwrap_ministudio(
@@ -231,7 +180,7 @@ def _unwrap_xatlas(
     runtime: Optional[Dict[str, Any]] = None,
     max_chart_size: int = 4096,
 ) -> trimesh.Trimesh:
-    """Unwrap mesh using xatlas numpy vertex/face API with massive mesh protection."""
+    """Unwrap mesh using xatlas numpy vertex/face API with safety limits."""
     import xatlas
 
     v = np.asarray(mesh.vertices, dtype=np.float64)
@@ -241,29 +190,44 @@ def _unwrap_xatlas(
         return mesh.copy()
 
     runtime_dict = runtime or {}
-    max_safe_faces = int(runtime_dict.get("xatlas_max_safe_triangles", 50000))
+    config_path = runtime_dict.get("config_path", None)
+    default_max_safe = 100000
+    try:
+        cfg = load_uv_config(config_path)
+        default_max_safe = int(cfg.get("max_safe_triangles", 100000))
+    except Exception:
+        pass
+    max_safe_faces = int(
+        runtime_dict.get("xatlas_max_safe_triangles", runtime_dict.get("max_safe_triangles", default_max_safe))
+    )
     if len(f) > max_safe_faces:
-        logger.info(
-            "Mesh has %d triangles (> %d); using memory-safe proxy UV unwrapping to prevent segfaults.",
-            len(f),
-            max_safe_faces,
+        raise ValueError(
+            f"UV unwrap needs <= {max_safe_faces} triangles (got {len(f)}). Decimate first."
         )
-        return _unwrap_massive_mesh_safe(mesh, runtime=runtime_dict, max_safe_faces=max_safe_faces, max_chart_size=max_chart_size)
 
     atlas = xatlas.Atlas()
+    chart_opts = xatlas.ChartOptions()
+    chart_opts.normal_seam_weight = float(runtime_dict.get("normal_seam_weight", 2.0))
+    chart_opts.max_iterations = int(runtime_dict.get("max_iterations", 4))
+
     pack_opts = xatlas.PackOptions()
     pack_opts.max_chart_size = int(max_chart_size)
+    if len(f) < 20000:
+        pack_opts.bruteForce = True
+    if "bruteForce" in runtime_dict:
+        pack_opts.bruteForce = bool(runtime_dict["bruteForce"])
+    elif "brute_force" in runtime_dict:
+        pack_opts.bruteForce = bool(runtime_dict["brute_force"])
 
-    if runtime:
-        if "resolution" in runtime:
-            pack_opts.resolution = int(runtime["resolution"])
-        if "padding" in runtime:
-            pack_opts.padding = int(runtime["padding"])
-        elif "padding_texels" in runtime:
-            pack_opts.padding = int(runtime["padding_texels"])
+    if "resolution" in runtime_dict:
+        pack_opts.resolution = int(runtime_dict["resolution"])
+    if "padding" in runtime_dict:
+        pack_opts.padding = int(runtime_dict["padding"])
+    elif "padding_texels" in runtime_dict:
+        pack_opts.padding = int(runtime_dict["padding_texels"])
 
     atlas.add_mesh(v, f)
-    atlas.generate(pack_options=pack_opts)
+    atlas.generate(chart_options=chart_opts, pack_options=pack_opts)
     vmapping, indices, uvs = atlas.get_mesh(0)
 
     out_v = v[vmapping]
@@ -417,6 +381,8 @@ def execute_uv_unwrap(
                 unwrapped_mesh = _unwrap_xatlas(mesh_copy, runtime_dict, max_chart_size=max_chart_size)
                 backend_used = "xatlas"
                 success = True
+            except ValueError:
+                raise
             except Exception as inner_exc:
                 logger.error("Fallback xatlas unwrap also failed: %s", inner_exc)
                 unwrapped_mesh = mesh_copy
@@ -433,6 +399,8 @@ def execute_uv_unwrap(
                 unwrapped_mesh = _unwrap_xatlas(mesh_copy, runtime_dict, max_chart_size=max_chart_size)
                 backend_used = "xatlas"
                 success = True
+            except ValueError:
+                raise
             except Exception as inner_exc:
                 logger.error("Fallback xatlas unwrap also failed: %s", inner_exc)
                 unwrapped_mesh = mesh_copy
@@ -449,6 +417,8 @@ def execute_uv_unwrap(
                 unwrapped_mesh = _unwrap_xatlas(mesh_copy, runtime_dict, max_chart_size=max_chart_size)
                 backend_used = "xatlas"
                 success = True
+            except ValueError:
+                raise
             except Exception as inner_exc:
                 logger.error("Fallback xatlas unwrap also failed: %s", inner_exc)
                 unwrapped_mesh = mesh_copy
@@ -459,6 +429,8 @@ def execute_uv_unwrap(
             unwrapped_mesh = _unwrap_xatlas(mesh_copy, runtime_dict, max_chart_size=max_chart_size)
             backend_used = "xatlas"
             success = True
+        except ValueError:
+            raise
         except Exception as exc:
             logger.error("xatlas unwrap failed: %s", exc)
             unwrapped_mesh = mesh_copy

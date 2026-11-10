@@ -272,7 +272,7 @@ export const SegmentationPanel: React.FC = () => {
   const dragCounterRef = useRef(0);
 
   // Core Segmentation parameter state
-  const [engineMode, setEngineMode] = useState<EngineMode>('ai');
+  const [engineMode, setEngineMode] = useState<EngineMode>('script');
   const [numParts, setNumParts] = useState<number>(8);
   const [decompositionMode, setDecompositionMode] = useState<'semantic' | 'geometric'>('semantic');
   const [hierarchical, setHierarchical] = useState<boolean>(false);
@@ -790,6 +790,8 @@ export const SegmentationPanel: React.FC = () => {
           mode={engineMode}
           onChange={setEngineMode}
           tool="segment"
+          aiDisabled={true}
+          aiDisabledReason="No AI model registered on server"
         />
 
         {/* 3. Target Parts (Single-Row Preset Pills) */}
