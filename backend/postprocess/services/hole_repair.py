@@ -1,10 +1,14 @@
 """Conservative boundary-loop hole repair."""
 from __future__ import annotations
 
+import logging
+
 from typing import Optional
 
 import numpy as np
 import trimesh
+
+logger = logging.getLogger(__name__)
 
 try:
     from backend.core.config import get_quality_config
@@ -380,6 +384,7 @@ def repair_holes_targeted(
     config_path: Optional[str] = None,
 ) -> tuple[trimesh.Trimesh, dict]:
     """Fill small boundary loops with planar or non-planar guarded triangulation."""
+    logger.info("Starting hole repair: faces=%s, max_hole_vertices=%s", len(mesh.faces), max_hole_vertices)
     if max_hole_vertices is None or max_hole_perimeter_frac is None:
         holes_config = get_quality_config(config_path)["holes"]
         if max_hole_vertices is None:

@@ -436,7 +436,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (!res.ok) return [];
       const data = await res.json();
       const files = Array.isArray(data) ? data : (data?.files || []);
-      return files.map((m: any) => {
+      return files
+        .filter((m: any) => m.file_id && !String(m.file_id).startsWith('job-'))
+        .map((m: any) => {
         const cleanName = m.filename?.replace(/\.[^.]+$/, '') || '3D Model';
         const formattedName = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
         const ext = m.filename?.split('.').pop()?.toUpperCase() || (m.file_type === 'mesh' ? 'GLB' : 'GLB');
@@ -512,18 +514,27 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const seenIds = new Set<string>();
       const seenFilenames = new Set<string>();
       const seenUrls = new Set<string>();
+      const seenJobUuids = new Set<string>();
+
+      const extractUuid = (str?: string) => str?.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0]?.toLowerCase();
 
       const filtered = all.filter(a => {
         if (!a || !a.id) return false;
         if (deletedAssetIds.has(a.id)) return false;
         if (seenIds.has(a.id)) return false;
 
-        const fn = a.source?.filename?.trim();
-        if (fn && fn !== 'model.glb' && seenFilenames.has(fn)) return false;
-
         const rawUrl = a.source?.viewUrl || a.source?.localUrl;
         const normUrl = rawUrl?.replace(/^\/+/, '')?.toLowerCase();
         if (normUrl && seenUrls.has(normUrl)) return false;
+
+        const assetUuid = extractUuid(a.id) || extractUuid(a.fileId) || extractUuid(a.source?.fileId) || extractUuid(rawUrl);
+        if (assetUuid) {
+          if (seenJobUuids.has(assetUuid)) return false;
+          seenJobUuids.add(assetUuid);
+        }
+
+        const fn = a.source?.filename?.trim();
+        if (fn && fn !== 'model.glb' && seenFilenames.has(fn)) return false;
 
         seenIds.add(a.id);
         if (fn && fn !== 'model.glb') seenFilenames.add(fn);
@@ -564,6 +575,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const path = window.location.pathname;
       if (path.startsWith('/workspace/')) {
         const parts = path.replace('/workspace/', '').split('/');
+        const uuidPart = parts.find(p => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p));
+        if (uuidPart) return `local_${uuidPart}`;
         if (parts.length > 1 && parts[1]) {
            return parts[1];
         }
@@ -579,11 +592,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => {
     if (!pathname || !pathname.startsWith('/workspace/')) return;
     const parts = pathname.replace('/workspace/', '').split('/');
-    if (parts.length > 1 && parts[1]) {
-      const urlId = decodeURIComponent(parts[1]);
-      if (urlId !== selectedAssetIdRef.current) {
-        setSelectedAssetId(urlId);
-      }
+    const uuidPart = parts.find(p => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p));
+    const urlId = uuidPart ? `local_${uuidPart}` : (parts.length > 1 && parts[1] ? decodeURIComponent(parts[1]) : null);
+    if (urlId && urlId !== selectedAssetIdRef.current) {
+      setSelectedAssetId(urlId);
     }
   }, [pathname]);
 
@@ -630,6 +642,31 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const activeAbortControllerRef = useRef<AbortController | null>(null);
 
   const dismissActiveTask = useCallback(() => setActiveTask(null), []);
+
+  const onExecutionProgress = useCallback((step: string, pct: number, stage?: string) => {
+    setExecutionStep(step);
+    setExecutionProgress(pct);
+    setActiveTask(prev => prev ? {
+      ...prev,
+      status: 'running',
+      progress: pct,
+      stage: stage || prev.stage,
+      currentStep: step,
+    } : prev);
+  }, []);
+
+  const onExecutionLog = useCallback((message: string) => {
+    setActiveTask(prev => prev ? {
+      ...prev,
+      logs: [...(prev.logs || []), {
+        stage: prev.stage || '',
+        progress: prev.progress,
+        message,
+        level: 'info',
+        timestamp: new Date().toISOString(),
+      }],
+    } : prev);
+  }, []);
 
     const [generationSettings, setGenerationSettings] = useState<GenerationSettings>(() => ({
       mode: 'image-to-3d',
@@ -726,10 +763,17 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     });
   }, []);
 
-  const currentAsset = useMemo(
-    () => selectedAssetId ? (assets.find(a => a.id === selectedAssetId) ?? null) : null,
-    [assets, selectedAssetId]
-  );
+  const currentAsset = useMemo(() => {
+    if (!selectedAssetId) return null;
+    const direct = assets.find(a => a.id === selectedAssetId);
+    if (direct) return direct;
+    const cleanSelected = selectedAssetId.replace(/^(local_|upload_|hist_|job-)/, '').toLowerCase();
+    return assets.find(a => {
+      const cleanA = a.id.replace(/^(local_|upload_|hist_|job-)/, '').toLowerCase();
+      const aFileId = (a.fileId || a.source?.fileId || '').replace(/^(job-)/, '').toLowerCase();
+      return cleanA === cleanSelected || aFileId === cleanSelected || (cleanSelected.length >= 8 && (cleanA.includes(cleanSelected) || cleanSelected.includes(cleanA)));
+    }) ?? null;
+  }, [assets, selectedAssetId]);
   const currentAssetRef = useRef(currentAsset);
 
   useEffect(() => {
@@ -740,18 +784,122 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     systemStatsStatusRef.current = systemStats.status;
   }, [selectedAssetId, currentAsset, mainNav, activeTool, systemStats.status]);
 
-  // Hydrate job from URL /workspace/[tool]/[job_id] if present so failed or running status is never lost
+  const addAsset = useCallback((asset: ModelAsset) => {
+    // Construct user-friendly slug and name based on clean filename and short hash
+    const cleanStem = (asset.name || 'mesh').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+    const shortHash = (asset.id || crypto.randomUUID()).replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(asset.id);
+    const finalId = asset.id.startsWith('local_')
+      ? asset.id
+      : (asset.id.startsWith('job-') || asset.id.startsWith('upload_') || asset.id.startsWith('hist_')
+          ? asset.id
+          : (isUuid ? `local_${asset.id}` : `local_${cleanStem}_${shortHash}`));
+    const friendlyName = asset.name ? asset.name.replace(/\.[^/.]+$/, '') : `${cleanStem.charAt(0).toUpperCase() + cleanStem.slice(1)} ${shortHash}`;
+    const normalized: ModelAsset = { ...asset, id: finalId, name: friendlyName, sourceType: 'local' as const };
+
+    setLocalAssets(prev => {
+      const idx = prev.findIndex(a =>
+        a.id === normalized.id ||
+        (normalized.source?.filename && a.source?.filename && normalized.source.filename !== 'model.glb' && a.source.filename === normalized.source.filename) ||
+        (normalized.source?.viewUrl && a.source?.viewUrl && a.source.viewUrl === normalized.source.viewUrl)
+      );
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], ...normalized };
+        return copy;
+      }
+      return [normalized, ...prev];
+    });
+    setAssets(prev => {
+      const idx = prev.findIndex(a =>
+        a.id === normalized.id ||
+        (normalized.source?.filename && a.source?.filename && normalized.source.filename !== 'model.glb' && a.source.filename === normalized.source.filename) ||
+        (normalized.source?.viewUrl && a.source?.viewUrl && a.source.viewUrl === normalized.source.viewUrl)
+      );
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], ...normalized };
+        return copy;
+      }
+      return [normalized, ...prev];
+    });
+    setSelectedAssetId(finalId);
+    setViewportResetTrigger(prev => prev + 1);
+  }, []);
+
+  const loadCompletedJobResult = useCallback((jobId: string, rawData: any, promptTitle?: string) => {
+    const data = normalizeBackendJob(rawData);
+    const result = data.result || (rawData as any)?.result || {};
+    const productionStatus = result.production_status || (result.postprocess_status === 'degraded' ? 'degraded' : 'ready');
+    const degradedReasons = result.degraded_reasons || (result.texture_stage?.status === 'failed' ? ['texture_generation_failed'] : []);
+
+    const resolvedModelUrl = (
+      result?.model_url ||
+      result?.active_model_url ||
+      result?.textured_model_url ||
+      result?.mesh_url ||
+      result?.source_model_url ||
+      result?.rigged_model_url ||
+      result?.download_url ||
+      (result?.output_mesh_path && !String(result.output_mesh_path).endsWith('.npz') ? result.output_mesh_path : undefined) ||
+      `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=glb`
+    );
+
+    if (resolvedModelUrl) {
+      const modelUrl = (preferredGenerationPreviewUrl(result) as string) || resolvedModelUrl;
+      const previewStats = preferredPreviewStats(result);
+      const cleanName = promptTitle && promptTitle !== 'generate' && promptTitle !== 'asset' ? promptTitle : `Model_${jobId.slice(0, 6)}`;
+      void prefetchGLB(modelUrl);
+      const finalAssetId = `local_${jobId}`;
+      const outputAsset = normalizeModelAsset({
+        id: finalAssetId,
+        name: cleanName,
+        category: 'generation',
+        thumbnail: result.thumbnail_url || `/api/v1/system/jobs/${encodeURIComponent(jobId)}/thumbnail`,
+        source: { filename: `${cleanName}.glb`, subfolder: 'generated', type: 'output', viewUrl: modelUrl, fileId: `job-${jobId}` },
+        polygon_count: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
+        vertex_count: isNativeRawPreview(result) ? previewStats.vertices : (result.vertex_count ?? previewStats.vertices),
+        faces: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
+        vertices: isNativeRawPreview(result) ? previewStats.vertices : (result.vertex_count ?? previewStats.vertices),
+        triangles: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
+        statsAvailable: Boolean(previewStats.faces || result.polygon_count || previewStats.vertices || result.vertex_count),
+        topology: (result.topology as any) || (result.quality_trace?.game_ready?.quad_dominant ? 'Quad' : 'Triangle'),
+        format: 'GLB',
+        postprocessStatus: productionStatus === 'degraded' ? 'degraded' : (result.production_status || result.postprocess_status || 'completed'),
+        productionStatus,
+        degradedReasons,
+        game_ready_url: (result.game_ready_url as string) || modelUrl,
+        source_model_url: (result.source_model_url as string) || (result.high_fidelity_url as string),
+        tags: ['AI Generated'],
+        collision_url: result.collision_url,
+        pbr_maps: result.pbr_maps,
+        game_ready_formats: result.game_ready_formats,
+        zip_url: result.zip_url,
+        qa_report: result.qa_report,
+        quality_trace: result.quality_trace,
+        artifacts: result.artifacts,
+        candidates: result.candidates,
+      });
+      addAsset(outputAsset);
+      setSelectedAssetId(finalAssetId);
+      setViewportResetTrigger(prev => prev + 1);
+      loadModelInViewer(modelUrl, cleanName, outputAsset as any);
+      return outputAsset;
+    }
+    return null;
+  }, [addAsset]);
+
+  // Hydrate job from URL /workspace/[tool]/[job_id] if present so failed, running, or completed status is never lost
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const path = window.location.pathname;
     if (!path.startsWith('/workspace/')) return;
     const parts = path.replace('/workspace/', '').split('/');
-    if (parts.length < 2 || !parts[1]) return;
-    const routeJobId = parts[1];
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(routeJobId);
-    if (!isUuid) return;
+    const routeJobId = parts.find(p => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p));
+    if (!routeJobId) return;
 
-    if (!jobsByIdRef.current[routeJobId] && !activeTaskRef.current) {
+    const currentTask = jobsByIdRef.current[routeJobId] || activeTaskRef.current;
+    if (!currentTask || (!currentAssetRef.current && currentTask.status === 'completed')) {
       let cancelled = false;
       fetch(`/api/v1/system/jobs/${encodeURIComponent(routeJobId)}`)
         .then(res => (res.ok ? res.json() : null))
@@ -801,12 +949,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             setExecutionStep(currentMessage);
           } else {
             setIsExecuting(false);
+            if (nextStatus === 'completed') {
+              loadCompletedJobResult(routeJobId, raw, hydratedTask.title);
+            }
           }
         })
         .catch(() => {});
       return () => { cancelled = true; };
     }
-  }, []);
+  }, [pathname, loadCompletedJobResult]);
 
   useEffect(() => {
     if (activeTool === 'remesh') setShowWireframeState(true);
@@ -989,47 +1140,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         batchJobIdMap.current = {};
       };
     }, [useAppStore]);
-    const addAsset = useCallback((asset: ModelAsset) => {
-    // Construct user-friendly slug and name based on clean filename and short hash
-    const cleanStem = (asset.name || 'mesh').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
-    const shortHash = (asset.id || crypto.randomUUID()).replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
-    const finalId = asset.id.startsWith('local_')
-      ? asset.id
-      : (asset.id.startsWith('job-') || asset.id.startsWith('upload_') || asset.id.startsWith('hist_')
-          ? asset.id
-          : `local_${cleanStem}_${shortHash}`);
-    const friendlyName = asset.name ? asset.name.replace(/\.[^/.]+$/, '') : `${cleanStem.charAt(0).toUpperCase() + cleanStem.slice(1)} ${shortHash}`;
-    const normalized: ModelAsset = { ...asset, id: finalId, name: friendlyName, sourceType: 'local' as const };
 
-    setLocalAssets(prev => {
-      const idx = prev.findIndex(a =>
-        a.id === normalized.id ||
-        (normalized.source?.filename && a.source?.filename && normalized.source.filename !== 'model.glb' && a.source.filename === normalized.source.filename) ||
-        (normalized.source?.viewUrl && a.source?.viewUrl && a.source.viewUrl === normalized.source.viewUrl)
-      );
-      if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx] = { ...copy[idx], ...normalized };
-        return copy;
-      }
-      return [normalized, ...prev];
-    });
-    setAssets(prev => {
-      const idx = prev.findIndex(a =>
-        a.id === normalized.id ||
-        (normalized.source?.filename && a.source?.filename && normalized.source.filename !== 'model.glb' && a.source.filename === normalized.source.filename) ||
-        (normalized.source?.viewUrl && a.source?.viewUrl && a.source.viewUrl === normalized.source.viewUrl)
-      );
-      if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx] = { ...copy[idx], ...normalized };
-        return copy;
-      }
-      return [normalized, ...prev];
-    });
-    setSelectedAssetId(finalId);
-    setViewportResetTrigger(prev => prev + 1);
-  }, []);
 
 function dataURLtoFile(dataURL: string, filename: string): File {
   const arr = dataURL.split(',');
@@ -1149,102 +1260,50 @@ function dataURLtoFile(dataURL: string, filename: string): File {
                    assetId: jobId,
                  });
 
-                 const resolvedModelUrl = (
-                   result?.model_url ||
-                   result?.active_model_url ||
-                   result?.textured_model_url ||
-                   result?.source_model_url ||
-                   result?.rigged_model_url ||
-                   (result?.output_mesh_path && !String(result.output_mesh_path).endsWith('.npz') ? result.output_mesh_path : undefined) ||
-                   (task.type === 'rigging' || task.type === 'remesh'
-                     ? `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=glb`
-                     : undefined)
-                 );
-
-                 if (resolvedModelUrl) {
-                   const modelUrl = (preferredGenerationPreviewUrl(result) as string) || resolvedModelUrl;
-                   const previewStats = preferredPreviewStats(result);
-                   const promptTitle = task.title;
-                   const cleanName = promptTitle && promptTitle !== 'generate' ? promptTitle : `Model_${jobId.slice(0, 6)}`;
-                   void prefetchGLB(modelUrl);
-                   const outputAsset = normalizeModelAsset({
-                     id: jobId,
-                     name: cleanName,
-                     category: 'generation',
-                     thumbnail: result.thumbnail_url || task.inputImage || '',
-                     source: { filename: `${cleanName}.glb`, subfolder: 'generated', type: 'output', viewUrl: modelUrl, fileId: `job-${jobId}` },
-                     polygon_count: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
-                     vertex_count: isNativeRawPreview(result) ? previewStats.vertices : (result.vertex_count ?? previewStats.vertices),
-                     faces: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
-                     vertices: isNativeRawPreview(result) ? previewStats.vertices : (result.vertex_count ?? previewStats.vertices),
-                     triangles: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
-                     statsAvailable: Boolean(previewStats.faces || result.polygon_count || previewStats.vertices || result.vertex_count),
-                     topology: (result.topology as any) || (result.quality_trace?.game_ready?.quad_dominant ? 'Quad' : 'Triangle'),
-                     format: 'GLB',
-                     postprocessStatus: productionStatus === 'degraded' ? 'degraded' : (result.production_status || result.postprocess_status || 'completed'),
-                     productionStatus,
-                     degradedReasons,
-                     game_ready_url: (result.game_ready_url as string) || modelUrl,
-                     source_model_url: (result.source_model_url as string) || (result.high_fidelity_url as string) || task.sourceModelUrl,
-                     tags: ['AI Generated'],
-                     collision_url: result.collision_url,
-                     pbr_maps: result.pbr_maps,
-                     game_ready_formats: result.game_ready_formats,
-                     zip_url: result.zip_url,
-                     qa_report: result.qa_report,
-                     quality_trace: result.quality_trace,
-                     artifacts: result.artifacts,
-                     candidates: result.candidates,
-                   });
-                   addAsset(outputAsset);
-                   if (!activeTaskRef.current || activeTaskRef.current.id === jobId || !selectedAssetId) {
-                     setSelectedAssetId(outputAsset.id);
-                     setViewportResetTrigger(prev => prev + 1);
-                     loadModelInViewer(modelUrl, cleanName, outputAsset as any);
-                   }
-                 } else if (task.type === 'animation') {
+                 loadCompletedJobResult(jobId, raw, task.title);
+                 if (task.type === 'animation') {
                    toast.success('Motion generation completed', { description: 'Animation clip generated successfully' });
                  }
-              } else if ((data.status === 'failed' || data.status === 'cancelled') && task.status !== 'failed' && task.status !== 'interrupted') {
-                const errMsg = data.error_message || 'The job encountered an error during execution';
-                toast.error('Process failed', { description: errMsg });
-                taskPersistence.addNotification({
-                  title: task.title ? `${task.title} Failed` : 'Job Failed',
-                  description: errMsg,
-                  status: 'failed',
-                  jobId,
-                });
-              }
-            } catch (jobErr) {
-              // ignore single job polling error
-            }
-          })
-        );
+               } else if ((data.status === 'failed' || data.status === 'cancelled') && task.status !== 'failed' && task.status !== 'interrupted') {
+                 const errMsg = data.error_message || 'The job encountered an error during execution';
+                 toast.error('Process failed', { description: errMsg });
+                 taskPersistence.addNotification({
+                   title: task.title ? `${task.title} Failed` : 'Job Failed',
+                   description: errMsg,
+                   status: 'failed',
+                   jobId,
+                 });
+               }
+             } catch (jobErr) {
+               // ignore single job polling error
+             }
+           })
+         );
 
-        // Update overall isExecuting
-        const hasRemainingActive = Object.values(jobsByIdRef.current).some(
-          j => j.status === 'queued' || j.status === 'running'
-        );
-        if (!hasRemainingActive) {
-          setIsExecuting(false);
-        }
+         // Update overall isExecuting
+         const hasRemainingActive = Object.values(jobsByIdRef.current).some(
+           j => j.status === 'queued' || j.status === 'running'
+         );
+         if (!hasRemainingActive) {
+           setIsExecuting(false);
+         }
 
-        if (!stopped) {
-          timerId = setTimeout(poll, document.visibilityState === 'hidden' ? 3000 : 1200);
-        }
-      } catch (err) {
-        if (!stopped) {
-          timerId = setTimeout(poll, 3000);
-        }
-      }
-    };
+         if (!stopped) {
+           timerId = setTimeout(poll, document.visibilityState === 'hidden' ? 3000 : 1200);
+         }
+       } catch (err) {
+         if (!stopped) {
+           timerId = setTimeout(poll, 3000);
+         }
+       }
+     };
 
-    void poll();
-    return () => {
-      stopped = true;
-      if (timerId) clearTimeout(timerId);
-    };
-  }, [jobsById, addAsset]);
+     void poll();
+     return () => {
+       stopped = true;
+       if (timerId) clearTimeout(timerId);
+     };
+   }, [jobsById, loadCompletedJobResult]);
 
   const dismissJob = useCallback((jobId: string) => {
     setJobsById(prev => {
@@ -1515,6 +1574,10 @@ function dataURLtoFile(dataURL: string, filename: string): File {
   }, []);
 
   const bindBackendJob = useCallback((localTaskId: string, jobId: string, updates: Partial<ActiveTask> = {}) => {
+    if (typeof window !== 'undefined') {
+      const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
+      window.history.replaceState(null, '', `${toolRoute}/${jobId}`);
+    }
     setJobsById(prev => {
       const task = prev[localTaskId] || activeTaskRef.current;
       if (!task) return prev;
@@ -1845,9 +1908,28 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
             adaptiveDensity: customSettings?.adaptiveDensity ?? true,
             watertightHealing: customSettings?.watertightHealing ?? true,
           },
-          onProgress: (step, pct) => {
+          onProgress: (step, pct, stage) => {
             setExecutionStep(step);
             setExecutionProgress(pct);
+            setActiveTask(prev => prev ? {
+              ...prev,
+              status: 'running',
+              progress: pct,
+              stage: stage || prev.stage,
+              currentStep: step,
+            } : prev);
+          },
+          onLog: (message) => {
+            setActiveTask(prev => prev ? {
+              ...prev,
+              logs: [...(prev.logs || []), {
+                stage: prev.stage || '',
+                progress: prev.progress,
+                message,
+                level: 'info',
+                timestamp: new Date().toISOString(),
+              }],
+            } : prev);
           },
           signal,
         });
@@ -2011,9 +2093,28 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
             packMethod: customSettings?.packMethod || 'xatlas',
             unwrapStrategy: customSettings?.unwrapStrategy || 'hybrid',
           },
-          onProgress: (step, pct) => {
+          onProgress: (step, pct, stage) => {
             setExecutionStep(step);
             setExecutionProgress(pct);
+            setActiveTask(prev => prev ? {
+              ...prev,
+              status: 'running',
+              progress: pct,
+              stage: stage || prev.stage,
+              currentStep: step,
+            } : prev);
+          },
+          onLog: (message) => {
+            setActiveTask(prev => prev ? {
+              ...prev,
+              logs: [...(prev.logs || []), {
+                stage: prev.stage || '',
+                progress: prev.progress,
+                message,
+                level: 'info',
+                timestamp: new Date().toISOString(),
+              }],
+            } : prev);
           },
           signal,
         });
@@ -2133,9 +2234,28 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
             numParts,
             method: settingsObj.method || 'geometric',
           },
-          onProgress: (step, pct) => {
+          onProgress: (step, pct, stage) => {
             setExecutionStep(step);
             setExecutionProgress(pct);
+            setActiveTask(prev => prev ? {
+              ...prev,
+              status: 'running',
+              progress: pct,
+              stage: stage || prev.stage,
+              currentStep: step,
+            } : prev);
+          },
+          onLog: (message) => {
+            setActiveTask(prev => prev ? {
+              ...prev,
+              logs: [...(prev.logs || []), {
+                stage: prev.stage || '',
+                progress: prev.progress,
+                message,
+                level: 'info',
+                timestamp: new Date().toISOString(),
+              }],
+            } : prev);
           },
           signal,
         });
@@ -2198,9 +2318,28 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
               meshUrl,
               meshRef,
               params: { numParts },
-              onProgress: (step, pct) => {
+              onProgress: (step, pct, stage) => {
                 setExecutionStep(step);
                 setExecutionProgress(pct);
+                setActiveTask(prev => prev ? {
+                  ...prev,
+                  status: 'running',
+                  progress: pct,
+                  stage: stage || prev.stage,
+                  currentStep: step,
+                } : prev);
+              },
+              onLog: (message) => {
+                setActiveTask(prev => prev ? {
+                  ...prev,
+                  logs: [...(prev.logs || []), {
+                    stage: prev.stage || '',
+                    progress: prev.progress,
+                    message,
+                    level: 'info',
+                    timestamp: new Date().toISOString(),
+                  }],
+                } : prev);
               },
               signal,
             });

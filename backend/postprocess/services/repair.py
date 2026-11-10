@@ -16,10 +16,14 @@ a perfectly closed result and the honest numbers make that visible.
 """
 from __future__ import annotations
 
+import logging
+
 from collections import Counter
 
 import numpy as np
 import trimesh
+
+logger = logging.getLogger(__name__)
 
 from ..schemas import RepairOptions
 from .hole_repair import (
@@ -383,6 +387,7 @@ def _repair_preserving_uv(
 
 def run_repair(mesh: trimesh.Trimesh, options: RepairOptions,
                progress=None) -> tuple[trimesh.Trimesh, dict, None]:
+    logger.info("Starting topology repair: faces=%s, method=%s, preserve_uv=%s", len(mesh.faces), options.method, options.preserve_uv)
     def emit(stage, frac, msg=""):
         if progress:
             progress(stage, frac, msg)
@@ -410,6 +415,7 @@ def run_repair(mesh: trimesh.Trimesh, options: RepairOptions,
         out, tool_stats = _repair_preserving_uv(
             mesh, options, emit, max_hole_vertices, max_hole_perimeter_frac
         )
+        emit("refine", 0.85, "Finalizing repaired mesh…")
         emit("done", 1.0, "Repair complete.")
         after = topology_counts(out.vertices, out.faces)
         return out, {

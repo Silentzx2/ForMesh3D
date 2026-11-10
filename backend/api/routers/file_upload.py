@@ -157,11 +157,19 @@ def _is_uploaded_source(file_id: str, file_type: str, file_path: Path) -> bool:
                 and file_path.suffix.lower() in SUPPORTED_MESH_FORMATS
             )
         workspace = storage_base / "models" / "meshes" / f"upload_{file_id}"
-        return (
+        if (
             file_path.parent == workspace / "master"
             and file_path.stem == "source"
             and file_path.suffix.lower() in SUPPORTED_MESH_FORMATS
-        )
+        ):
+            return True
+        # Allow registered meshes inside models/meshes storage
+        try:
+            file_path.resolve(strict=True).relative_to(storage_base / "models" / "meshes")
+            return file_path.suffix.lower() in SUPPORTED_MESH_FORMATS
+        except (ValueError, OSError):
+            pass
+        return False
     return False
 
 
@@ -383,7 +391,9 @@ async def list_file_metadata_impl(
         else []
     )
     metadata_by_id = {
-        item["file_id"]: item for item in cached if item.get("file_id")
+        item["file_id"]: item
+        for item in cached
+        if item.get("file_id") and not str(item["file_id"]).startswith("job-")
     }
     for item in _list_upload_manifests(file_type):
         metadata_by_id.setdefault(item["file_id"], item)

@@ -10,12 +10,17 @@ serialized with a semaphore for the same reason (each subprocess peaks ~1-2GB).
 """
 from __future__ import annotations
 
+import logging
+
 import json
 import os
 import shutil
 import subprocess
 import threading
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
 from uuid import uuid4
 
 from postprocess.config import THUMBNAIL_TIMEOUT_S, WORK_DIR, blender_worker_argv
@@ -30,6 +35,7 @@ _render_lock = threading.Semaphore(1)
 def render_mesh_thumbnail(glb_bytes: bytes) -> bytes:
     """Render a GLB to a 512x512 PNG thumbnail. Returns the PNG bytes; raises on
     failure."""
+    logger.info("Starting thumbnail render: glb_size=%s", len(glb_bytes))
     job_dir = WORK_DIR / f"thumb-{uuid4().hex}"
     job_dir.mkdir(parents=True)
     try:

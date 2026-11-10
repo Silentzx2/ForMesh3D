@@ -60,6 +60,8 @@ from .schemas import (
     RepairOptions,
 )
 
+from .streaming import stream_payload  # noqa: F401 — SSE entry point; pipeline run accepts `emit` directly
+
 from core.config import get_quality_config
 
 logger = logging.getLogger(__name__)
@@ -1806,8 +1808,20 @@ def run_postprocess_job(
     job_metadata: Optional[Dict[str, Any]] = None,
     progress: GenerationProgress = None,
     cancel_checker: CancelChecker = None,
+    emit: Optional[Callable[[str, float, str], None]] = None,
 ) -> Dict[str, Any]:
-    """Create the canonical asset workspace and run production post-processing."""
+    """Create the canonical asset workspace and run production post-processing.
+
+    `emit` follows the streaming contract `emit(stage, frac, message)`; when
+    provided it is converted to the pipeline's `GenerationProgress(frac, stage,
+    message)` callback so every `_emit` call and service progress callback
+    streams live stage-by-stage progress to the SSE frontend via `stream_payload`.
+    """
+    if emit is not None:
+        def _pipeline_progress(frac: float, stage: str, message: str) -> None:
+            # GenerationProgress(frac, stage, message) -> emit(stage, frac, message)
+            emit(stage, frac, message)
+        progress = _pipeline_progress
     _check_cancelled(cancel_checker)
     job_inputs = job_inputs or {}
     job_metadata = job_metadata or {}
@@ -2196,7 +2210,13 @@ def run_postprocess_job(
             "gate_report": gate_eval,
         }
     elif _should_run_structural_repair(source_topology, printability_auto_repair):
-        repaired, repair_stats, _ = run_repair(mesh, repair_opts)
+        repaired, repair_stats, _ = run_repair(
+            mesh,
+            repair_opts,
+            progress=lambda stage, frac, msg: _emit(
+                progress, 0.18 + min(1.0, max(0.0, frac)) * 0.05, "repair", msg
+            ),
+        )
         repair_stats["gate_report"] = gate_eval
     else:
         repaired = mesh.copy()
@@ -2432,6 +2452,9 @@ def run_postprocess_job(
                 repaired,
                 OptimizeOptions(target_faces=target_faces, simplify_error=0.05, allow_seam_breaking=False,
                                 permissive=False, aggressive=False, lock_border=False),
+                progress=lambda stage, frac, msg: _emit(
+                    progress, 0.30 + min(1.0, max(0.0, frac)) * 0.25, "optimize", msg
+                ),
                 cancel_checker=cancel_checker,
             )
     optimize_guard = _quality_guard(repaired, optimized)
@@ -2545,6 +2568,9 @@ def run_postprocess_job(
                 AutoUvOptions(resolution=texture_resolution, padding_texels=4, refine=True, weld=True,
                               preserve_normals=True, normal_smooth_deg=60),
                 source_normals=optimized_normals,
+                progress=lambda stage, frac, msg: _emit(
+                    progress, 0.55 + min(1.0, max(0.0, frac)) * 0.03, "uv", msg
+                ),
                 cancel_checker=cancel_checker,
             )
         uv_duration = time.time() - uv_t0
@@ -2911,7 +2937,14 @@ def run_postprocess_job(
             lod_count = max(1, min(4, int(job_inputs.get("lodCount") or len(lod_ratios))))
         except (TypeError, ValueError):
             lod_count = min(4, len(lod_ratios))
-        lod_levels = run_lods(game_ready_mesh, LODOptions(ratios=list(lod_ratios[:lod_count])), cancel_checker=cancel_checker)
+        lod_levels = run_lods(
+            game_ready_mesh,
+            LODOptions(ratios=list(lod_ratios[:lod_count])),
+            progress=lambda stage, frac, msg: _emit(
+                progress, 0.72 + min(1.0, max(0.0, frac)) * 0.10, "lod", msg
+            ),
+            cancel_checker=cancel_checker,
+        )
     else:
         lod_levels = []
     for level in lod_levels:
@@ -2970,6 +3003,9 @@ def run_postprocess_job(
             collision_scene, collision_stats = run_collision(
                 game_ready_mesh,
                 CollisionOptions(**collision_options),
+                progress=lambda stage, frac, msg: _emit(
+                    progress, 0.82 + min(1.0, max(0.0, frac)) * 0.08, "collision", msg
+                ),
                 cancel_checker=cancel_checker,
             )
             collision_payload = collision_scene.export(file_type="glb")

@@ -19,8 +19,12 @@ Nothing in this module mutates its input.
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import trimesh
+
+logger = logging.getLogger(__name__)
 
 from ..schemas import InspectOptions
 from .repair import topology_counts
@@ -188,6 +192,7 @@ def _material_info(scene: trimesh.Scene) -> dict:
 def run_inspect(scene: trimesh.Scene, mesh: trimesh.Trimesh,
                 options: InspectOptions, progress=None) -> dict:
     """Analyse `mesh` (world-space, flattened) plus `scene` (for material counts)."""
+    logger.info("Starting mesh inspection: faces=%s, vertices=%s", len(mesh.faces), len(mesh.vertices))
 
     def emit(stage, frac, msg=""):
         if progress:

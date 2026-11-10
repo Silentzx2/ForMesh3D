@@ -173,6 +173,7 @@ class _TrellisBaseAdapter(BaseModel):
             if mesh is None:
                 return {"success": False, "error": "TRELLIS produced no mesh"}
 
+        import numpy as np
         import trimesh
         import tempfile
 
@@ -183,6 +184,26 @@ class _TrellisBaseAdapter(BaseModel):
             faces=mesh.faces.cpu().numpy(),
             process=False,
         )
+
+        # Reorient TRELLIS output to a canonical upright pose.
+        # TRELLIS sparse-structure decoder emits vertices in its own frame;
+        # align the principal (tallest) axis with world Y-up and centre at origin.
+        verts = np.asarray(tmesh.vertices, dtype=float)
+        centroid = verts.mean(axis=0)
+        centred = verts - centroid
+        cov = centred.T @ centred / max(len(centred), 1)
+        evals, evecs = np.linalg.eigh(cov)
+        principal = evecs[:, int(np.argmax(evals))]
+        up = np.array([0.0, 1.0, 0.0])
+        if float(principal @ up) < 0:
+            principal = -principal
+        v = np.cross(principal, up)
+        c = float(principal @ up)
+        if float(v @ v) > 1e-12:
+            vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+            rot = np.eye(3) + vx + vx @ vx * ((1.0 - c) / float(v @ v))
+            tmesh.vertices = centred @ rot.T
+
         tmesh.export(str(out))
 
         return {

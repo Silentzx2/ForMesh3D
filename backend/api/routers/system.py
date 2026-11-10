@@ -54,37 +54,6 @@ async def health_check():
     }
 
 
-@router.get("/auth-status", summary="Get authentication status")
-async def get_auth_status(settings=Depends(get_current_settings)):
-    """
-    Get authentication and authorization status for the service.
-    
-    This endpoint is public (no authentication required) so clients can 
-    determine whether they need to authenticate before making requests.
-    
-    Returns:
-        - user_auth_enabled: Whether user authentication is enabled
-        - api_key_required: Whether API key authentication is required
-        - mode: Description of the authentication mode
-    """
-    return {
-        "user_auth_enabled": settings.user_auth_enabled,
-        "api_key_required": settings.security.api_key_required,
-        "mode": "authenticated" if settings.user_auth_enabled else "simple",
-        "description": (
-            "User authentication enabled - Users can only see their own jobs"
-            if settings.user_auth_enabled
-            else "Simple mode - All clients can see all jobs"
-        ),
-        "features": {
-            "job_isolation": settings.user_auth_enabled,
-            "user_management": settings.user_auth_enabled,
-            "role_based_access": settings.user_auth_enabled,
-        },
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-
-
 @router.get("/info", summary="System information")
 async def system_info(
     settings=Depends(get_current_settings), _: bool = Depends(verify_api_key)
@@ -1335,8 +1304,9 @@ async def get_job_status(job_id: str, request: Request):
 
             if mesh_path and os.path.exists(mesh_path):
                 # Create URL for mesh file
-                mesh_url = f"{request.base_url}api/v1/system/jobs/{job_id}/download"
+                mesh_url = f"{request.base_url}api/v1/system/jobs/{job_id}/download?artifact_format=glb"
                 result["mesh_url"] = mesh_url
+                result["model_url"] = mesh_url
 
                 # Add file info
                 file_stats = os.stat(mesh_path)
@@ -1359,7 +1329,6 @@ async def get_job_status(job_id: str, request: Request):
                         "file_size_mb": round(file_stats.st_size / (1024 * 1024), 2),
                     }
                     await store_file_metadata_impl(file_store, f"job-{job_id}", file_info)
-                    await store_file_metadata_impl(file_store, job_id, file_info)
                     result["file_id"] = f"job-{job_id}"
                 except Exception as ex:
                     logger.debug(f"Failed to register job result file metadata: {ex}")
@@ -1382,8 +1351,8 @@ async def get_job_status(job_id: str, request: Request):
                         thumbnail_path = str(candidate)
                         result["thumbnail_path"] = thumbnail_path
                         break
-            if not thumbnail_path and (result.get("mesh_path") or result.get("output_path")):
-                m_path = Path(result.get("mesh_path") or result.get("output_path"))
+            if not thumbnail_path and (result.get("mesh_path") or result.get("output_path") or result.get("output_mesh_path")):
+                m_path = Path(result.get("mesh_path") or result.get("output_path") or result.get("output_mesh_path"))
                 for candidate in [
                     m_path.parent / f"{m_path.stem}_thumb.png",
                     m_path.parent / f"{m_path.stem}_preview.png",
@@ -1402,6 +1371,20 @@ async def get_job_status(job_id: str, request: Request):
                 if cand_input and os.path.exists(cand_input):
                     thumbnail_path = str(cand_input)
                     result["thumbnail_path"] = thumbnail_path
+
+            # If thumbnail is still absent, auto-generate thumbnail from the mesh
+            if (not thumbnail_path or not os.path.exists(thumbnail_path)) and mesh_path and os.path.exists(mesh_path):
+                try:
+                    from core.utils.thumbnail_utils import generate_mesh_thumbnail
+                    m_p = Path(mesh_path)
+                    auto_thumb = m_p.parent / f"{m_p.stem}_thumb.png"
+                    if not auto_thumb.exists():
+                        generate_mesh_thumbnail(str(mesh_path), str(auto_thumb))
+                    if auto_thumb.exists() and auto_thumb.stat().st_size > 0:
+                        thumbnail_path = str(auto_thumb)
+                        result["thumbnail_path"] = thumbnail_path
+                except Exception as auto_thumb_err:
+                    logger.debug("Failed to auto-render thumbnail for mesh: %s", auto_thumb_err)
 
             # Always populate thumbnail_url for completed jobs
             thumbnail_url = (
@@ -1983,6 +1966,21 @@ async def download_job_thumbnail(
             cand_input = inputs_dict.get("image_path") or inputs_dict.get("image") or inputs_dict.get("texture_image_path")
             if cand_input and os.path.exists(cand_input):
                 thumbnail_path = str(cand_input)
+
+        # If thumbnail is still absent, auto-generate thumbnail from the mesh
+        if not thumbnail_path or not os.path.exists(thumbnail_path):
+            cand_mesh = result.get("mesh_path") or result.get("output_path") or result.get("output_mesh_path")
+            if cand_mesh and os.path.exists(cand_mesh):
+                try:
+                    from core.utils.thumbnail_utils import generate_mesh_thumbnail
+                    m_p = Path(cand_mesh)
+                    auto_thumb = m_p.parent / f"{m_p.stem}_thumb.png"
+                    if not auto_thumb.exists():
+                        generate_mesh_thumbnail(str(cand_mesh), str(auto_thumb))
+                    if auto_thumb.exists() and auto_thumb.stat().st_size > 0:
+                        thumbnail_path = str(auto_thumb)
+                except Exception as auto_err:
+                    logger.debug("Failed to auto-render thumbnail: %s", auto_err)
 
         # Determine the response format
         response_format = format or "file"
@@ -2947,67 +2945,6 @@ async def get_logging_config(_: bool = Depends(verify_api_key)):
         logger.error(f"Error retrieving logging config: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Error retrieving logging config: {str(e)}"
-        )
-
-
-@router.post("/logs/test", summary="Generate test log entries")
-async def generate_test_logs(
-    level: str = Query("INFO", description="Log level for test entries"),
-    count: int = Query(5, description="Number of test entries to generate"),
-    _: bool = Depends(verify_api_key),
-):
-    """Generate test log entries for testing the logging system"""
-
-    valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-    if level.upper() not in valid_levels:
-        raise HTTPException(
-            status_code=400, detail=f"Invalid log level. Must be one of: {valid_levels}"
-        )
-
-    if count < 1 or count > 50:
-        raise HTTPException(status_code=400, detail="Count must be between 1 and 50")
-
-    try:
-        test_logger = logging.getLogger("api.test")
-        log_level = getattr(logging, level.upper())
-
-        test_messages = [
-            "Test log entry for system verification",
-            "Simulating application workflow",
-            "Testing log aggregation and viewing",
-            "Verifying log formatting and parsing",
-            "Checking log file rotation and storage",
-            "Testing different logger configurations",
-            "Simulating error conditions for testing",
-            "Validating log filtering and search",
-            "Testing concurrent logging operations",
-            "Verifying logging performance and reliability",
-        ]
-
-        generated_entries = []
-        for i in range(count):
-            message = f"{test_messages[i % len(test_messages)]} (#{i + 1})"
-            test_logger.log(log_level, message)
-            generated_entries.append(
-                {
-                    "level": level.upper(),
-                    "message": message,
-                    "logger": "api.test",
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
-
-        return {
-            "message": f"Generated {count} test log entries at {level.upper()} level",
-            "entries": generated_entries,
-            "level": level.upper(),
-            "count": count,
-        }
-
-    except Exception as e:
-        logger.error(f"Error generating test logs: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Error generating test logs: {str(e)}"
         )
 
 

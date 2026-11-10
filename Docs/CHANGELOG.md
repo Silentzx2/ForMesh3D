@@ -1,5 +1,16 @@
 # ForMesh3D Changelog
 
+## 2026-11-10 — Auto-load Mesh on Route Change, Single-Thumbnail Deduplication, Explicit Model VRAM Eviction, and TripoSG Thumbnail Generation
+
+- **Viewport Auto-Load & Route Hydration (`WorkspaceContext.tsx`):** Added `loadCompletedJobResult` to auto-load completed meshes into `MeshViewer` directly upon job completion and route navigation (`/workspace/[tool]/[job_id]`). Connected `loadModelInViewer` and viewport reframing. Updated `bindBackendJob` to sync the browser URL with the backend job UUID via `replaceState`.
+- **Thumbnail & Asset Deduplication (`WorkspaceContext.tsx`, `system.py`, `file_upload.py`):** Resolved duplicate thumbnails for generated meshes by excluding internal `job-*` and job UUID entries from `/api/v1/file-upload/list` and deduplicating assets by job UUID across local, upload, and history sources.
+- **On-Demand Mesh Thumbnail Generation & Storage Download (`system.py`, `file_upload.py`):** Enhanced `get_job_status` and `download_job_thumbnail` to auto-render missing thumbnails from raw meshes (e.g. TripoSG output) using `generate_mesh_thumbnail`. Allowed storage-based mesh access in `file_upload.py` without 404 errors.
+- **Explicit Candidate VRAM Eviction (`planner.py`, `multiprocess_scheduler.py`):** When a user explicitly chooses a model whose VRAM budget is tight due to another model resident on the GPU, marked candidate for eviction and proactively freed LRU workers rather than aborting.
+- **Model Selector Parity (`models.yaml`, `GeneratePanel.tsx`, `TexturePanel.tsx`):** Disabled non-functional pipelines (`trellis2*`, `pixal3d*`, `taoflowforge*`, `unique3d*`) and strictly enforced local weight availability before permitting model selection.
+- **Tests:** `bun x tsc --noEmit` passed with 0 errors; `bun test` passed (8 pass, 0 fail); `backend/tests/test_mesh_tools_verification.py` passed (4 pass, 3 skipped).
+
+---
+
 ## 2026-11-10 — Batch 3: UV Limits, Ray-Cast Baking, Feature Snapping, and UV Checker
 
 - **UV & Baking:** Removed proxy-transfer cKDTree in `uv_backend_resolver.py`, moved `max_safe_triangles` (100K) to `quality.yaml`, and tuned xatlas options. In `bake.py`, replaced nearest KD with inward ray casting (`sample_high_normals`) and barycentric normal interpolation; removed fake white AO image and corrected raster/sample half-pixel alignment.
@@ -15,11 +26,3 @@
 - **Hole repair:** added a non-planar 3D ear-clipping fallback, retained edge-count safety checks, derived boundary incidence directly from triangle faces, and changed the perimeter cap to a bounding-box-diagonal fraction shared by targeted and UV-preserving repair.
 - **Decimation:** routed memory-safe decimation through the existing PyMeshLab QEM implementation in one pass, enabled planarquadric for untextured meshes, and removed the slow custom Python QEM implementation.
 - **Tests:** CI passed backend compileall and the Batch 1 regression suite (9 passed, 2 skipped), compute-mode resolver tests, frontend TypeScript type-check, and production build. Two optional PyMeshLab QEM integration tests were skipped because PyMeshLab is absent; FastMesh weights/GPU inference, Blender runtime, and visual mesh-quality validation were not run.
-
----
-
-## 2026-11-10 — Batch 2: Raw-Source Mesh Fidelity
-
-- Narrowed `_enforce_mesh_limits()` to hard-cap enforcement only. Removed discarded hole filling, winding/normal repair, and Taubin smoothing from the pre-persistence raw-source stage.
-- In-cap adapter geometry now passes through unchanged; oversized meshes are still reduced through the existing memory-safe decimator before the canonical source is persisted.
-- Added a CPU regression test that rejects unexpected repair/smoothing/decimation calls for an in-cap mesh. The test was added but **NOT RUN** in this editing session; GPU and Blender checks also remain **NOT RUN**.

@@ -147,6 +147,9 @@ def run_auto_uv(
     source_normals=None,
     cancel_checker: CancelChecker = None,
 ) -> tuple[trimesh.Trimesh, dict, bytes | None]:
+    if progress:
+        progress("start", 0.15, "Preparing UV parameterization…")
+
     if getattr(options, "method", "auto") == "xatlas":
         _emit = progress or (lambda s, f, m: None)
         _emit("parameterize", 0.5, "Running xatlas UV parameterization")
@@ -197,8 +200,14 @@ def run_auto_uv(
         except Exception:
             raise exc
 
+    if progress:
+        progress("pack", 0.75, "Packing UV charts…")
+
     if progress is not None:
         progress("render", 0.97, "Rendering UV preview")
+
+    if progress:
+        progress("done", 1.0, "UV unwrap complete")
 
     # Build a GLB-ready mesh with the new vertex UV channel (seam-split geometry).
     #

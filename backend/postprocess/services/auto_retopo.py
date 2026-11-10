@@ -6,9 +6,12 @@ trimesh.Trimesh plus the metrics/timings for the UI.
 """
 from __future__ import annotations
 
+import logging
 from typing import Callable, Optional
 
 import trimesh
+
+logger = logging.getLogger(__name__)
 
 from core.quality.evaluation import compare_meshes, quality_gate
 
@@ -56,6 +59,7 @@ def run_auto_retopo(
     progress=None,
     cancel_checker: CancelChecker = None,
 ) -> tuple[trimesh.Trimesh, dict, None]:
+    logger.info("Starting auto-retopology: target_faces=%s, device=%s", options.target_faces, options.device)
     cfg = RetopoConfig(
         target_faces=options.target_faces,
         quads=options.quads,
@@ -88,6 +92,9 @@ def run_auto_retopo(
             if progress:
                 progress(stage, frac, msg)
 
+    if progress:
+        progress("start", 0.10, "Initializing auto-retopology…")
+
     try:
         result = AutoRetopo(cfg).run(mesh, progress=retopo_progress)
     finally:
@@ -107,4 +114,6 @@ def run_auto_retopo(
     # result.mesh is a triangle trimesh.Trimesh (GLB is triangles-only; the
     # quad-dominant face list, when requested, is summarized in stats above).
     # No preview image for retopo (third tuple element kept for a uniform contract).
+    if progress:
+        progress("done", 1.0, "Auto-retopology complete")
     return result.mesh, stats, None

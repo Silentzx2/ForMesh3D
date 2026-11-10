@@ -27,12 +27,16 @@ Two conventions this module must not break:
 """
 from __future__ import annotations
 
+import logging
+
 import base64
 import heapq
 import math
 
 import numpy as np
 import trimesh
+
+logger = logging.getLogger(__name__)
 
 from ..schemas import SegmentOptions
 
@@ -572,6 +576,7 @@ def _b64(array, dtype) -> str:
 
 
 def run_segment(mesh: trimesh.Trimesh, options: SegmentOptions, progress=None) -> dict:
+    logger.info("Starting segmentation: faces=%s, proxy_faces=%s, num_parts=%s", len(mesh.faces), options.proxy_faces, options.num_parts)
     def emit(stage, frac, message=""):
         if progress:
             progress(stage, frac, message)
@@ -604,6 +609,8 @@ def run_segment(mesh: trimesh.Trimesh, options: SegmentOptions, progress=None) -
     if not pairs:
         raise ValueError("No face adjacency found — the mesh is all loose triangles.")
     sdf = _smooth_sdf(sdf, pairs, int(options.sdf_smooth), float(options.sdf_sigma))
+
+    emit("segment", 0.55, "Classifying regions…")
 
     emit("cluster", 0.6, f"Merging {len(faces):,} regions…")
     history, costs, remaining, shells = _cluster(

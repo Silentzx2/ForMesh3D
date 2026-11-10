@@ -1,5 +1,21 @@
 # ForMesh3D — Audited Project State
 
+## 2026-11-10 — Auto-load Mesh on Route Hydration, Deduplicated Single-Thumbnail Assets & TripoSG Thumbnail Generation
+
+- **Viewport Auto-Load & Route Hydration (`WorkspaceContext.tsx`):**
+  - Added `loadCompletedJobResult` which constructs the normalized model asset, persists it to local assets, sets `selectedAssetId`, triggers viewport reframing (`viewportResetTrigger`), and calls `loadModelInViewer` for instant 3D viewport display.
+  - Route hydration listens on `pathname` and extracts job UUIDs across `/workspace/[tool]/[job_id]`. If the job is already completed, it auto-loads into the viewer immediately; if queued or running, it binds the job to `jobsById` and resumes background polling.
+  - `bindBackendJob` updates browser URL via `history.replaceState` to track backend job UUIDs cleanly.
+- **Deduplication & Single Thumbnail Rendering (`WorkspaceContext.tsx`, `system.py`, `file_upload.py`):**
+  - Stopped registering raw job UUIDs into `file_store` which previously led `/api/v1/file-upload/list` to treat generated meshes as user uploads. Filtered out `job-*` and job UUID entries in `file_upload.py`.
+  - Added UUID-based deduplication in `WorkspaceContext.tsx` asset merge pipeline, ensuring local session assets are prioritized and duplicate thumbnail cards for the same mesh generation job are eliminated.
+- **On-Demand Mesh Preview Thumbnails & Storage Source Validation (`system.py`, `file_upload.py`):**
+  - Added on-demand fallback in `system.py` (`get_job_status` and `download_job_thumbnail`) using `generate_mesh_thumbnail` for pipelines like TripoSG that do not generate multi-view PNGs natively.
+  - Allowed storage-resident meshes in `_is_uploaded_source` in `file_upload.py` so download and thumbnail endpoints resolve reliably without 404 errors.
+- **Explicit Candidate VRAM Eviction (`planner.py`, `multiprocess_scheduler.py`):**
+  - Flagged candidates with `needs_eviction` when an explicit model is requested in tight VRAM conditions. The multiprocess scheduler triggers `_evict_lru_workers_to_free_vram` to free resident models on the GPU before dispatching.
+- **Verification:** `bun x tsc --noEmit` passed with 0 errors; `bun test` passed (8 pass, 0 fail); backend `pytest` passed (4 pass, 3 skipped).
+
 ## 2026-11-10 — Batch 3: UV Safe Limits, Ray-Cast Baking, Retopo Feature Snapping, and UV Checker
 
 - **UV & Safe Unwrapping (`services/uv_backend_resolver.py`):** Removed proxy-transfer KDTree branch which previously created invalid stretched charts across triangles for meshes >50K. Added strict limit check (`quality.yaml: uv: max_safe_triangles: 100000`). Tuned `xatlas.ChartOptions` (normal_seam_weight=2.0, max_iterations=4) and enabled bruteForce packing for meshes <20K.

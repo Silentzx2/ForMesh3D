@@ -2044,54 +2044,6 @@ async def image_mesh_painting(
 
 
 
-# Alias single and batch endpoints for image-to-mesh generation
-@router.post("/generate-mesh-from-image", response_model=MeshGenerationResponse)
-async def generate_mesh_from_image(
-    mesh_request: ImageToRawMeshRequest,
-    scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
-    file_store: Optional[FileStore] = Depends(get_file_store),
-):
-    """
-    Generate a 3D mesh from image (endpoint alias for image-to-raw-mesh).
-    Supports intent presets (game_ready: 50k, cinematic: 200k, animation: 30k, 3d_print: 0, mobile: 20k)
-    for target_polycount, generateLOD, lodPreset, lodCount, auto_uv, and quality.
-    """
-    return await image_to_raw_mesh(
-        mesh_request=mesh_request,
-        scheduler=scheduler,
-        file_store=file_store,
-    )
-
-
-@router.post("/generate-mesh-from-image/batch", response_model=BatchMeshGenerationResponse)
-@router.post("/batch/generate-mesh-from-image", response_model=BatchMeshGenerationResponse)
-@router.post("/batch-generate-mesh-from-image", response_model=BatchMeshGenerationResponse)
-async def generate_mesh_from_image_batch(
-    batch_request: BatchImageToMeshRequest,
-    scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
-    file_store: Optional[FileStore] = Depends(get_file_store),
-):
-    """
-    Batch generate 3D meshes from multiple images.
-    Aligns intent presets for each item without default 0s clobbering preset values.
-    """
-    job_ids: List[str] = []
-    for item in batch_request.items:
-        res = await image_to_raw_mesh(
-            mesh_request=item,
-            scheduler=scheduler,
-                file_store=file_store,
-        )
-        job_ids.append(res.job_id)
-    return BatchMeshGenerationResponse(
-        job_ids=job_ids,
-        status="queued",
-        message=f"{len(job_ids)} mesh generation jobs queued successfully",
-    )
-
-
-batch_generate_mesh_from_image = generate_mesh_from_image_batch
-
 
 # Utility endpoints
 @router.get("/supported-formats")

@@ -10,6 +10,8 @@ serialized with a semaphore for the same reason (each subprocess peaks 1-2GB).
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Callable, Optional
 
 import json
@@ -18,6 +20,9 @@ import shutil
 import subprocess
 import threading
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
 from uuid import uuid4
 
 from postprocess.config import CONVERT_TIMEOUT_S, WORK_DIR, blender_worker_argv
@@ -42,6 +47,7 @@ def run_convert_fbx(glb_bytes: bytes, opts: ConvertOptions, progress, cancel_che
 
     `progress(stage, frac, message)` is called for each worker progress event.
     """
+    logger.info("Starting FBX conversion: glb_size=%s", len(glb_bytes))
     job_dir = WORK_DIR / f"convert-{uuid4().hex}"
     job_dir.mkdir(parents=True)
     try:

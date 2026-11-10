@@ -7,6 +7,8 @@ ORIGINAL mesh rather than chaining simplification error from one level to the ne
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Callable, Optional
 
 import copy
@@ -18,6 +20,8 @@ try:
 except Exception:
     pymeshlab = None
 import trimesh
+
+logger = logging.getLogger(__name__)
 
 try:
     from backend.core.scheduler.resource_planner import configure_cpu_runtime
@@ -292,19 +296,23 @@ def _simplify(
 
 
 def run_optimize(mesh: trimesh.Trimesh, options: OptimizeOptions, progress=None, cancel_checker: CancelChecker = None):
+    logger.info("Starting mesh optimization: faces=%s, target_faces=%s", input_faces if False else int(len(mesh.faces)), options.target_faces)
     input_faces = int(len(mesh.faces))
     target = int(options.target_faces) if options.target_faces else max(1, round(input_faces * options.simplify_ratio))
     if progress:
-        progress("simplify", 0.15, f"Reducing {input_faces:,} triangles to ~{target:,}")
+        progress("simplify", 0.20, f"Reducing {input_faces:,} triangles to ~{target:,}")
     out, stats = _simplify(mesh, target, cancel_checker)
     if options.allow_seam_breaking:
         stats["seams_broken"] = bool(not stats["passthrough"])
+    if progress:
+        progress("refine", 0.85, "Finalizing simplified mesh…")
     if progress:
         progress("done", 1.0, "Optimization complete")
     return out, stats
 
 
 def run_lods(mesh: trimesh.Trimesh, options: LODOptions, progress=None, cancel_checker: CancelChecker = None):
+    logger.info("Starting LOD generation: faces=%s, ratios=%s", int(len(mesh.faces)), options.ratios)
     configure_cpu_runtime()
     input_faces = int(len(mesh.faces))
     from concurrent.futures import ThreadPoolExecutor
@@ -327,12 +335,17 @@ def run_lods(mesh: trimesh.Trimesh, options: LODOptions, progress=None, cancel_c
     ratios_list = list(enumerate(options.ratios))
     levels = [None] * len(ratios_list)
 
+    if progress:
+        progress("lod", 0.20, "Generating LOD chain…")
+
     for idx, r in ratios_list:
         _check_cancelled(cancel_checker)
         if progress:
             progress("lod", (idx + 0.2) / max(1, len(options.ratios)), f"Generating LOD{idx}")
         levels[idx] = _build_single_lod(idx, r)
 
+    if progress:
+        progress("lod", 0.85, "LOD chain nearly complete…")
     if progress:
         progress("done", 1.0, "LOD chain complete")
     return [lvl for lvl in levels if lvl is not None]

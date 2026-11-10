@@ -487,13 +487,30 @@ def plan_generation(
                 )
             # 4. Insufficient VRAM across available hardware
             elif free_vram_gb is not None:
+                is_explicit_candidate = bool(
+                    not auto_mode
+                    and explicit_model
+                    and explicit_model_str
+                    and cand_id == explicit_model_str
+                )
                 if multi_gpu and gpu_count > 1:
                     msg = f"Candidate '{cand_id}' requires {vram_budget_gb} GB VRAM across GPUs, but only {aggregate_free_gb} GB is free across {gpu_count} GPUs."
                 else:
                     msg = f"Candidate '{cand_id}' requires {vram_budget_gb} GB VRAM, but only {max_free_gb if max_free_gb is not None else free_vram_gb} GB is free."
-                reasons.append(f"Candidate {cand_id} skipped: {msg}")
-                warnings.append(f"Fallback from candidate '{cand_id}': {msg}")
-                continue
+                if is_explicit_candidate:
+                    # User explicitly requested this model. Do not reject: mark for
+                    # eviction so the scheduler can unload the currently loaded model
+                    # on the GPU to make room before loading the requested one.
+                    cand["needs_eviction"] = True
+                    cand["eviction_reason"] = msg
+                    reasons.append(
+                        f"Candidate '{cand_id}' selected for eviction (VRAM tight): {msg}"
+                    )
+                    # Fall through to selection below instead of skipping
+                else:
+                    reasons.append(f"Candidate {cand_id} skipped: {msg}")
+                    warnings.append(f"Fallback from candidate '{cand_id}': {msg}")
+                    continue
 
         # Check E: Input type support
         if input_type not in supported_inputs:
@@ -654,6 +671,8 @@ def plan_generation(
         "reasons": reasons,
         "warnings": warnings,
         "would_have_chosen": selected_candidate["adapter"],
+        "needs_eviction": bool(selected_candidate.get("needs_eviction", False)),
+        "eviction_reason": selected_candidate.get("eviction_reason"),
     }
 
 

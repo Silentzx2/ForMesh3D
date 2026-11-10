@@ -2957,6 +2957,23 @@ class MultiprocessModelScheduler:
             )
             return "WORKERS_BUSY"
 
+        # If the plan flagged this model for eviction (explicit model requested
+        # but VRAM is tight because another model is resident on the GPU),
+        # proactively evict idle workers to make room before attempting placement.
+        job_plan = (
+            (job_request.metadata or {}).get("plan", {})
+            or (job_request.inputs or {}).get("plan", {})
+            or {}
+        )
+        if job_plan.get("needs_eviction") and not cpu_only:
+            required_vram = int(model_config.get("vram_requirement", 1024))
+            evicted = await self._evict_lru_workers_to_free_vram(required_vram, model_config)
+            if evicted:
+                logger.info(
+                    f"[EVICTION] Freed VRAM for explicit model '{target_model_id}' "
+                    f"per needs_eviction plan flag"
+                )
+
         resource_plan = self.resource_planner.plan(
             model_config,
             active_workers=self.resource_planner.cpu_worker_limit(len(self.workers)),

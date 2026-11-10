@@ -43,7 +43,6 @@ import {
   FileMetadata,
   SupportedFormats,
   ApiError,
-  AuthStatus,
   RegisterRequest,
   LoginRequest,
   AuthResponse,
@@ -223,13 +222,6 @@ class ApiClient {
     }
   }
 
-  // Authentication Endpoints
-  async getAuthStatus(): Promise<AuthStatus> {
-    const response = await this.retry(() => 
-      this.client.get<AuthStatus>('/api/v1/system/auth-status')
-    );
-    return response.data;
-  }
 
   async register(request: RegisterRequest): Promise<AuthResponse> {
     const response = await this.client.post<AuthResponse>(

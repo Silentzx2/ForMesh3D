@@ -5,6 +5,8 @@ to decide whether repair can be skipped, minimally targeted, or fully remeshed.
 """
 from __future__ import annotations
 
+import logging
+
 import functools
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -12,6 +14,8 @@ import yaml
 
 import numpy as np
 import trimesh
+
+logger = logging.getLogger(__name__)
 
 try:
     from backend.core.quality.metrics import compute_mesh_metrics
@@ -73,6 +77,7 @@ def evaluate_topology_gate(
             "violations": list[str],
         }
     """
+    logger.info("Starting topology gate evaluation: faces=%s", len(mesh.faces))
     if mesh is None:
         return {
             "repair_decision": "full_repair",

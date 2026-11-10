@@ -18,10 +18,14 @@ is an export concern, not a geometry one.
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Callable, Optional
 
 import numpy as np
 import trimesh
+
+logger = logging.getLogger(__name__)
 
 from ..schemas import CollisionOptions
 
@@ -100,6 +104,7 @@ def _simplify_hull(hull: trimesh.Trimesh, max_vertices: int) -> trimesh.Trimesh:
 
 def run_collision(mesh: trimesh.Trimesh, options: CollisionOptions | dict,
                   progress=None, cancel_checker: CancelChecker = None) -> tuple[trimesh.Scene, dict]:
+    logger.info("Starting collision hull generation: faces=%s, method=%s", len(mesh.faces), options.method if hasattr(options, 'method') else options.get('method', 'unknown') if isinstance(options, dict) else 'unknown')
     def emit(stage, frac, msg=""):
         _check_cancelled(cancel_checker)
         if progress:
@@ -129,7 +134,7 @@ def run_collision(mesh: trimesh.Trimesh, options: CollisionOptions | dict,
             emit("decimate", 0.1, "Preparing the mesh…")
             source = _decimate(mesh, int(options.input_faces))
             _check_cancelled(cancel_checker)
-            emit("decompose", 0.2, f"Decomposing {len(source.faces):,} faces into convex parts…")
+            emit("decompose", 0.25, f"Decomposing {len(source.faces):,} faces into convex parts…")
             try:
                 try:
                     coacd.set_log_level("error")
@@ -182,7 +187,7 @@ def run_collision(mesh: trimesh.Trimesh, options: CollisionOptions | dict,
         raise RuntimeError("Collision generation produced no hulls.")
 
     _check_cancelled(cancel_checker)
-    emit("simplify", 0.85, "Simplifying hulls…")
+    emit("simplify", 0.80, "Simplifying hulls…")
     hulls = [_simplify_hull(hull, int(options.max_hull_vertices)) for hull in hulls]
 
     scene = trimesh.Scene()

@@ -99,6 +99,13 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
     }
   };
 
+  // XYZ Gizmo axis tap -> camera preset (MeshViewer listens for setCameraPreset)
+  const snapGizmo = (key: 'front' | 'back' | 'top' | 'bottom' | 'right' | 'left') => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('setCameraPreset', { detail: key }));
+    }
+  };
+
   // 3. Viewport Lighting Tone
   const handleLightingChange = (tone: LightTone) => {
     setLightingTone(tone);
@@ -428,6 +435,64 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
         </div>
       </div>
 
+      {/* XYZ Gizmo — 64×64 glass disc; taps snap the camera, drags pass through to orbit */}
+      <div className="pointer-events-none absolute top-3 right-3 z-20 w-16 h-16 rounded-full bg-black/30 backdrop-blur-sm border border-white/10 flex items-center justify-center">
+        <button
+          type="button"
+          onClick={() => snapGizmo('right')}
+          className="absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-red-500 ring-1 ring-white/20 text-[9px] font-mono text-white font-bold shadow-md hover:scale-110 active:scale-90 transition-transform"
+          aria-label="Snap to Right view (+X)"
+          title="+X"
+        >
+          +X
+        </button>
+        <button
+          type="button"
+          onClick={() => snapGizmo('left')}
+          className="absolute left-1 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-red-500 ring-1 ring-white/20 text-[9px] font-mono text-white font-bold shadow-md hover:scale-110 active:scale-90 transition-transform"
+          aria-label="Snap to Left view (-X)"
+          title="-X"
+        >
+          -X
+        </button>
+        <button
+          type="button"
+          onClick={() => snapGizmo('top')}
+          className="absolute top-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-emerald-500 ring-1 ring-white/20 text-[9px] font-mono text-white font-bold shadow-md hover:scale-110 active:scale-90 transition-transform"
+          aria-label="Snap to Top view (+Y)"
+          title="+Y"
+        >
+          +Y
+        </button>
+        <button
+          type="button"
+          onClick={() => snapGizmo('bottom')}
+          className="absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-emerald-500 ring-1 ring-white/20 text-[9px] font-mono text-white font-bold shadow-md hover:scale-110 active:scale-90 transition-transform"
+          aria-label="Snap to Bottom view (-Y)"
+          title="-Y"
+        >
+          -Y
+        </button>
+        <button
+          type="button"
+          onClick={() => snapGizmo('front')}
+          className="absolute top-1 right-1 -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-blue-500 ring-1 ring-white/20 text-[9px] font-mono text-white font-bold shadow-md hover:scale-110 active:scale-90 transition-transform"
+          aria-label="Snap to Front view (+Z)"
+          title="+Z"
+        >
+          +Z
+        </button>
+        <button
+          type="button"
+          onClick={() => snapGizmo('back')}
+          className="absolute bottom-1 left-1 -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-blue-500 ring-1 ring-white/20 text-[9px] font-mono text-white font-bold shadow-md hover:scale-110 active:scale-90 transition-transform"
+          aria-label="Snap to Back view (-Z)"
+          title="-Z"
+        >
+          -Z
+        </button>
+      </div>
+
       {/* Bottom Floating Material & Shader Spheres Dock (Tripo 3D style) */}
       <div
         id="viewport-material-dock"
@@ -558,6 +623,17 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
           </button>
         </SimpleTooltip>
       </div>
+
+      {/* Mesh Stats Chip — bottom-left pill; hidden when no model is loaded */}
+      {currentAsset && currentAsset.faces > 0 && (
+        <div className="pointer-events-auto absolute bottom-3 left-3 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-[11px] font-mono text-zinc-300 shadow-md whitespace-nowrap">
+          <span>[ ▲ {currentAsset.faces.toLocaleString()} Tris ]</span>
+          <span className="mx-1">·</span>
+          <span>[ ● {currentAsset.vertices.toLocaleString()} Verts ]</span>
+          <span className="mx-1">·</span>
+          <span>[ ⬡ {currentAsset.topology} ]</span>
+        </div>
+      )}
     </div>
   );
 };

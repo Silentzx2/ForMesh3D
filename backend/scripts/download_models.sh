@@ -539,12 +539,10 @@ download_skintokens() {
     ensure_writable_model_dir "$model_dir" || return 1
     print_info "Downloading SkinTokens checkpoints from VAST-AI/SkinTokens..."
     if hf_download VAST-AI/SkinTokens --local-dir "$model_dir"; then
-        print_info "Downloading Qwen3-0.6B LLM config for TokenRig..."
+        print_info "Downloading Qwen3-0.6B LLM weights for TokenRig..."
         local qwen_dir="$model_dir/models/Qwen3-0.6B"
         mkdir -p "$qwen_dir" 2>/dev/null || true
-        for f in config.json generation_config.json tokenizer.json tokenizer_config.json vocab.json merges.txt; do
-            hf_download Qwen/Qwen3-0.6B "$f" --local-dir "$qwen_dir" || true
-        done
+        hf_download Qwen/Qwen3-0.6B --local-dir "$qwen_dir"
         if [ -d "$THIRDPARTY_DIR/SkinTokens" ]; then
             mkdir -p "$THIRDPARTY_DIR/SkinTokens/models" 2>/dev/null || true
             if [ ! -e "$THIRDPARTY_DIR/SkinTokens/models/Qwen3-0.6B" ]; then

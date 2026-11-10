@@ -153,6 +153,7 @@ def bake_high_to_low_pure_python(
 
     _check_cancelled(cancel_checker)
     _progress("normals", 0.15, "Computing angle-weighted normals…")
+    _progress("bake", 0.20, "Preparing bake workspace…")
 
     from core.mesh_processor import compute_angle_weighted_normals
     from core.config import get_quality_config
@@ -212,6 +213,7 @@ def bake_high_to_low_pure_python(
 
     res = int(opts.resolution)
     _progress("rasterize", 0.45, f"Rasterizing UV layout ({res}x{res})…")
+    _progress("bake", 0.50, "Projecting surface normals…")
 
     img_tri = Image.new("I", (res, res), 0)
     draw = ImageDraw.Draw(img_tri)

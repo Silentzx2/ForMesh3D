@@ -133,7 +133,8 @@ export interface ExecutionOptions {
   meshUrl?: string;
   meshRef?: { mesh_file_id?: string; mesh_path?: string };
   params: Record<string, any>;
-  onProgress?: (step: string, percent: number) => void;
+  onProgress?: (step: string, percent: number, stage?: string) => void;
+  onLog?: (message: string) => void;
   signal?: AbortSignal;
 }
 
@@ -149,7 +150,7 @@ export interface ExecutionResult {
  * Single unified dispatcher: executes either Neural AI (GPU scheduler) or Script (Python/Blender SSE)
  */
 export async function executeMeshOperation(options: ExecutionOptions): Promise<ExecutionResult> {
-  const { tool, engine, scriptId, meshFile, meshUrl, meshRef, params, onProgress, signal } = options;
+  const { tool, engine, scriptId, meshFile, meshUrl, meshRef, params, onProgress, onLog, signal } = options;
 
   if (signal?.aborted) {
     throw new Error('Operation cancelled by user');
@@ -261,7 +262,10 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
             try {
               const data = JSON.parse(line.replace(/^data:\s*/, ''));
               if (data.type === 'progress') {
-                onProgress?.(data.message || 'Processing script...', Math.round((data.frac || 0.5) * 100));
+                onProgress?.(data.message || 'Processing script...', Math.round((data.frac || 0.5) * 100), data.stage);
+                if (typeof data.log === 'string' && data.log.length > 0) {
+                  onLog?.(data.log);
+                }
               } else if (data.type === 'done') {
                 doneResult = data;
               } else if (data.type === 'error') {
