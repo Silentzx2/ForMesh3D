@@ -135,3 +135,43 @@ def test_blender_bake_worker_assigns_computed_cage_extrusion():
         )
     ]
     assert assignments, "Computed cage distance must be assigned to Blender bake.cage_extrusion"
+
+
+
+def test_mesh_limit_enforcement_does_not_run_discarded_repair_or_smoothing(monkeypatch):
+    source = trimesh.creation.icosphere(subdivisions=1)
+    original_vertices = source.vertices.copy()
+    original_faces = source.faces.copy()
+
+    def unexpected_call(*_args, **_kwargs):
+        raise AssertionError("Raw-source size enforcement must not repair or smooth geometry")
+
+    monkeypatch.setattr(trimesh.repair, "fill_holes", unexpected_call)
+    monkeypatch.setattr(trimesh.repair, "fix_winding", unexpected_call)
+    monkeypatch.setattr(trimesh.repair, "fix_normals", unexpected_call)
+    monkeypatch.setattr(trimesh.smoothing, "filter_taubin", unexpected_call)
+
+    namespace = {
+        "trimesh": trimesh,
+        "get_quality_config": lambda: {
+            "mesh": {
+                "max_vertices_per_mesh": 500000,
+                "max_faces_per_mesh": 1000000,
+            },
+            "shared": {"feature_edge_angle_deg": 35.0},
+        },
+        "memory_safe_decimate": lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("An in-cap mesh must not be decimated")
+        ),
+        "logger": logging.getLogger("batch2-test"),
+    }
+    path = ROOT / "backend" / "postprocess" / "pipeline.py"
+    enforce_mesh_limits = _load_function_from_source(
+        path, "_enforce_mesh_limits", namespace
+    )
+
+    result = enforce_mesh_limits(source, "in-cap-model")
+
+    assert result is source
+    np.testing.assert_array_equal(result.vertices, original_vertices)
+    np.testing.assert_array_equal(result.faces, original_faces)

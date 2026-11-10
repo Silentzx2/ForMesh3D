@@ -368,3 +368,11 @@ The Pixal3D, Paint3D, SkinTokens, FastMesh V4K, and TRELLIS text-painting gaps h
 - Set quality.yaml and the pipeline fallback for cage_extrusion / max_ray_distance to 0.0 (auto), so the isolated worker derives the cage from 2% of the low-poly bounding-box diagonal and the ray limit from 2.5x that cage; the worker now applies both resolved values to Blender's bake settings.
 - Added checked-in CPU regression coverage for FastMesh point-cloud preparation, mesh-limit decimator tuple handling / config ownership, and Blender cage-setting wiring. Updated backend CI to run the new test file instead of a test path absent from the current branch.
 - Scope boundary: no FastMesh weights/GPU inference or Blender runtime bake was executed in this source-editing session; those runtime checks remain environment-dependent.
+
+
+## 2026-11-10 — Batch 2: Raw-Source Size-Cap Boundary
+
+- Removed hole filling, winding/normal repair, and Taubin smoothing from `_enforce_mesh_limits()`. This function now only enforces the configured hard vertex/face caps and only decimates when a cap is exceeded.
+- Reason: the caller only exports the returned mesh when its vertex or face count decreases. Previously, repair/smoothing on an in-cap mesh was performed in memory and then discarded; on oversized meshes, it could modify the saved raw source despite not being part of size enforcement.
+- Added a regression test proving an in-cap source mesh is returned unchanged and no repair, smoothing, or decimation is attempted. The test is **NOT RUN** in this session; runtime and CI confirmation remain pending.
+- No model inference, GPU, Blender, or visual mesh-quality run was performed.

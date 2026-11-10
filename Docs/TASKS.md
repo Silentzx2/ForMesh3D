@@ -35,7 +35,7 @@ This reconciliation is based on the Git diff and current source changes, not on 
 |---|---|---|---|---|
 | 1 | `adapters/fastmesh_adapter.py` | Import and point-cloud preparation fixed on current dev; UI/model-registry and target-count contract still need review | P0 | PARTIAL |
 | 2 | `postprocess/services/hole_repair.py` | Fills only exactly planar holes | P0 | RUN |
-| 3 | `postprocess/pipeline.py::_enforce_mesh_limits` | Tuple-unpacking crash and shared-config lookup fixed on current dev; discarded in-memory work remains | P1 | PARTIAL |
+| 3 | `postprocess/pipeline.py::_enforce_mesh_limits` | Tuple-unpacking, shared-config lookup, and discarded raw-stage repair/smoothing are resolved on current dev | P1 | STATIC (regression added; not run in this session) |
 | 4 | `core/mesh_processor.py::feature_preserving_decimate` | Misses the target and is very slow | P0 | RUN |
 | 5 | `services/uv_backend_resolver.py::_unwrap_massive_mesh_safe` | Invalid UV for >50K tris | P0 | STATIC |
 | 6 | `postprocess/tools/bake_worker.py` | Cage extrusion is now applied and scale-aware on current dev | P0 (resolved) | CURRENT DEV DIFF |
@@ -47,7 +47,7 @@ This reconciliation is based on the Git diff and current source changes, not on 
 | 12 | UI panels / bridge | Hard-coded values, misleading labels, missing inspect modes | P1 | STATIC |
 | 13 | Config | yaml vs schema vs UI drift | P2 | STATIC |
 
-Correction (my earlier assumption was wrong): `_enforce_mesh_limits` smooths the raw mesh with Taubin, but when the mesh is already under the cap, the on-disk `master/source.glb` is not changed (the pipeline reads the master file again around line 2033). Therefore, the root cause of a "smooth raw mesh" is on the adapter/model side, not in post-processing.
+Correction: `_enforce_mesh_limits` previously ran hole filling, winding/normal repair, and Taubin smoothing before the size check. The caller only persisted the returned mesh when vertex or face counts decreased, so those edits were discarded for in-cap meshes; for oversized meshes, they could be included in the persisted decimated result. The raw-stage repair/smoothing calls have now been removed. This stage only enforces hard size caps; topology repair remains on the derived post-processing copy. Raw-mesh smoothness still requires adapter/model-side investigation.
 
 ---
 
@@ -154,11 +154,11 @@ Optional for large holes: use `pymeshlab.meshing_close_holes` followed by fairin
 
 ## 3. `_enforce_mesh_limits` — `postprocess/pipeline.py` line ~1754-1810
 
-**Current-dev status: PARTIAL.** The tuple-unpacking crash and top-level `shared` configuration lookup were fixed after the audit baseline, with CPU regression coverage checked in. Do not reapply those two fixes. The wasted in-memory `fill_holes` / Taubin work described below remains a separate issue to verify.
+**Current-dev status: RESOLVED for this function's audited issues.** The tuple-unpacking crash and root-level `shared` configuration lookup were fixed in Batch 1. The discarded `fill_holes` / winding / normal / Taubin work was removed in Batch 2. A regression test was added to prove an in-cap mesh is returned unchanged and that no repair, smoothing, or decimation function is invoked. That new test was not run in this editing session.
 
 **Original findings at the audit baseline (`2d5fd0c`):** items 1 and 3 were fixed on current `dev`; item 2 remains open.
 1. **Resolved on current dev:** the decimator returns a `(mesh, telemetry)` tuple. The audit baseline assigned that tuple directly to `mesh`, which caused the next `len(mesh.vertices)` access to raise `AttributeError` for meshes above the cap (>500K vertices / >1M faces). Current code unpacks the tuple.
-2. Even when the mesh is under the cap, `fill_holes` and `filter_taubin` operate on an in-memory copy that is later discarded (the master file is read again around line 2033). This is wasted computation.
+2. **Resolved on current dev (Batch 2):** raw-stage repair and smoothing calls were removed. `_enforce_mesh_limits` now only measures the mesh and decimates when a configured hard cap is exceeded. Repair is left to the derived post-processing pipeline.
 3. **Resolved on current dev:** the baseline read `shared` from `mesh_cfg`; current code reads it from the root quality configuration, where `shared` is a top-level key.
 
 ```python
@@ -166,8 +166,7 @@ Optional for large holes: use `pymeshlab.meshing_close_holes` followed by fairin
 crease_angle = float(cfg.get("shared", {}).get("feature_edge_angle_deg", 35.0))
 ```
 ```python
-# Remove the Taubin line (or make it opt-in behind a flag in quality.yaml):
-# trimesh.smoothing.filter_taubin(mesh, lamb=0.3, nu=-0.34, iterations=4)
+# Batch 2 resolution: no raw-stage repair or smoothing call belongs here.
 ```
 ```python
 # Historical fix from the audit baseline; already present on current dev.
@@ -476,7 +475,7 @@ Pages: `/workspace` (Generate, Texture, Remesh, UV, Segmentation, Rigging, Anima
 
 1. Read `AGENTS.md` and all `Docs/*.md` files top-to-bottom, then bottom-to-top.
 2. Do not modify the native `sm >= 80` path (Rule 1); these changes concern CPU post-processing and adapter input preparation.
-3. Work order: (3) remaining in-memory cleanup → (1) UI/model-registry contract → (2) hole fallback → (4) decimator replacement → (7) bake sampling → (5) UV guard → (9) feature snap → (10) crispness metric → (8) segmentation default + adapter → (11) UI.
+3. Work order: (1) UI/model-registry contract → (2) hole fallback → (4) decimator replacement → (7) bake sampling → (5) UV guard → (9) feature snap → (10) crispness metric → (8) segmentation default + adapter → (11) UI. The raw-stage in-memory cleanup item is complete.
 4. Add a checked-in test under `backend/tests/` for every fix:
    - hole fill: noisy sphere 12/18/40 edge holes → watertight
    - decimate: box 3072→1500 target hit

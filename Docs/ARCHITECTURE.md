@@ -1063,3 +1063,11 @@ The texture and pbr tool routes intentionally resolve to the same TexturePanel i
 - FastMesh output remains in the upstream model's canonical normalized coordinate convention; this adapter change does not add an inverse transform that the upstream inference entry point itself does not perform.
 - _enforce_mesh_limits() consumes both values returned by memory_safe_decimate() and reads the feature-edge angle from the root shared quality-policy section.
 - The bake policy and pipeline fallback use 0.0 for cage_extrusion and max_ray_distance to request automatic scale-aware distances. The isolated Blender worker derives cage extrusion as 2% of the low-poly bounding-box diagonal, derives max ray distance as 2.5x the cage, and assigns both to Blender's BakeSettings. GPU/weight inference and Blender runtime behavior still require their respective environments.
+
+
+## 2026-11-10 — Raw-Source Size-Cap Boundary (Batch 2)
+
+- `backend/postprocess/pipeline.py::_enforce_mesh_limits()` is a narrow pre-persistence guard: it reads `quality.yaml` hard caps and invokes `memory_safe_decimate()` only when the adapter mesh exceeds a vertex or face cap.
+- This raw-source guard does not fill holes, fix winding/normals, or apply Taubin smoothing. Those operations are not size enforcement and can alter model-native geometry; repair belongs on the derived post-processing mesh.
+- The pipeline persists the returned mesh when the size cap is actually reduced, then verifies the canonical master hash during downstream processing. An in-cap source is returned unchanged.
+- A CPU regression test now asserts identity/vertex/face preservation for an in-cap mesh and fails if raw-stage repair, smoothing, or decimation is invoked. The test was added but was **NOT RUN** in this editing session.

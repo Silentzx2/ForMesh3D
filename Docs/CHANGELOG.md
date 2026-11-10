@@ -1,5 +1,13 @@
 # ForMesh3D Changelog
 
+## 2026-11-10 — Batch 2: Raw-Source Mesh Fidelity
+
+- Narrowed `_enforce_mesh_limits()` to hard-cap enforcement only. Removed discarded hole filling, winding/normal repair, and Taubin smoothing from the pre-persistence raw-source stage.
+- In-cap adapter geometry now passes through unchanged; oversized meshes are still reduced through the existing memory-safe decimator before the canonical source is persisted.
+- Added a CPU regression test that rejects unexpected repair/smoothing/decimation calls for an in-cap mesh. The test was added but **NOT RUN** in this editing session; GPU and Blender checks also remain **NOT RUN**.
+
+---
+
 ## 2026-11-10 — Batch 1: Critical Backend Mesh Fixes
 
 - Fixed _enforce_mesh_limits() to unpack the (mesh, telemetry) result returned by memory_safe_decimate() and read shared.feature_edge_angle_deg from the root quality configuration.
@@ -16,10 +24,3 @@
 - Reuses the persistent MeshViewer scene, camera and WebGL renderer. The source mesh is loaded only while comparison is active; scissored render passes and a DOM-driven divider avoid a second WebGL context and per-pointer React renders.
 - Processing tasks retain their original input mesh URL on remesh, texture, segmentation, rigging and edit outputs, so the compare action can resolve genuine lineage rather than inventing a Before model.
 - Added Texture / PBR routing inside the existing Texture panel. The hidden PBR route reuses the same panel and its existing map-baking controls, preserving the persistent workspace transition.
-
-## 2026-11-09 — Workspace UI/UX Polish
-
-- Removed internal scrolling from the seven tool panels, contextual property inspectors, and paginated asset view.
-- Preserved existing controls, Studio Gold / matte-black styling, upload cards, Generate-panel reference, and permanently docked desktop side panels.
-- Added viewport-height-aware upload previews/dropzones, compact tablet inspector sizing, tool-specific empty-state copy, and slightly more readable rail labels.
-- No new tools, buttons, dependencies, or panel-collapse controls were introduced.

@@ -1752,11 +1752,12 @@ def _build_result(
 
 
 def _enforce_mesh_limits(mesh: trimesh.Trimesh, model_id: str) -> trimesh.Trimesh:
-    """Decimate mesh if it exceeds per-model vertex/face caps from quality.yaml mesh.limits.
-    Also applies hole repair, winding fix, normal fix, and Taubin smoothing.
+    """Decimate oversized adapter output before persisting the canonical source mesh.
 
-    Runs ONCE after adapter extraction, BEFORE saving to master/source.glb.
-    After this, master/source.glb is immutable and never touched again.
+    This stage intentionally does not repair or smooth topology. Its caller only
+    persists this result when the size cap is reduced, so in-memory repair on an
+    in-cap mesh would be discarded; smoothing here would also alter model-native
+    geometry. Topology repair belongs on the derived post-processing copy.
     """
     cfg = get_quality_config()
     mesh_cfg = cfg.get("mesh", {})
@@ -1767,19 +1768,6 @@ def _enforce_mesh_limits(mesh: trimesh.Trimesh, model_id: str) -> trimesh.Trimes
         cfg.get("shared", {}).get("feature_edge_angle_deg", 35.0)
     )
 
-    original_vertices = len(mesh.vertices)
-    original_faces = len(mesh.faces)
-
-    # Repair: fill holes, fix winding, fix normals — applies to every adapter output
-    try:
-        trimesh.repair.fill_holes(mesh)
-        trimesh.repair.fix_winding(mesh)
-        trimesh.repair.fix_normals(mesh)
-        trimesh.smoothing.filter_taubin(mesh, lamb=0.3, nu=-0.34, iterations=4)
-    except Exception as _t_repair_err:
-        logger.warning("[RAW SOURCE] Mesh repair failed for %s: %s", model_id, _t_repair_err)
-
-    # Re-measure after repair (hole fill can add faces)
     original_vertices = len(mesh.vertices)
     original_faces = len(mesh.faces)
 
