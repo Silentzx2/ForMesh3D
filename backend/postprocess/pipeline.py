@@ -2634,8 +2634,8 @@ def run_postprocess_job(
             bake_opts = BakeOptions(
                 resolution=bake_res,
                 maps=maps_to_bake,
-                cage_extrusion=float(bake_cfg.get("cage_extrusion", 0.02)),
-                max_ray_distance=float(bake_cfg.get("max_ray_distance", 0.05)),
+                cage_extrusion=float(bake_cfg.get("cage_extrusion", 0.0)),
+                max_ray_distance=float(bake_cfg.get("max_ray_distance", 0.0)),
                 margin=int(bake_cfg.get("gutter_dilation_pixels", 4)),
                 normal_space=str(bake_cfg.get("normal_space", "TANGENT")),
                 convention=str(bake_cfg.get("convention", "OPENGL")),

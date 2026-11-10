@@ -101,8 +101,8 @@ uv:
 bake:
   normal_space: TANGENT
   convention: OPENGL
-  max_ray_distance: 0.05
-  cage_extrusion: 0.02
+  max_ray_distance: 0.0  # Auto: derived from the scale-aware cage distance
+  cage_extrusion: 0.0   # Auto: 2% of the low-poly bounding-box diagonal
   texture_size: 1024
   gutter_dilation_pixels: 4
   min_uv_utilization: 0.60

@@ -4,7 +4,7 @@
 
 - Fixed _enforce_mesh_limits() to unpack the (mesh, telemetry) result returned by memory_safe_decimate() and read shared.feature_edge_angle_deg from the root quality configuration.
 - Aligned FastMesh adapter preprocessing with the upstream inference contract: normalize a copy of the input mesh, derive each sampled point's normal from its returned source-face index, use a deterministic 8,192-point subset, and move the input tensor to the model's scheduler-selected device. The adapter now imports sys for its model-specific third-party path setup and reports a clear failure when PyTorch is unavailable.
-- Applied the resolved scale-aware cage_extrusion value to Blender's bake settings instead of only calculating and reporting it.
+- Set quality.yaml and the pipeline fallback for cage_extrusion / max_ray_distance to 0.0 (auto), so the isolated worker derives the cage from 2% of the low-poly bounding-box diagonal and the ray limit from 2.5x that cage; the worker now applies both resolved values to Blender's bake settings.
 - Added checked-in CPU regression coverage for FastMesh point-cloud preparation, mesh-limit decimator tuple handling / config ownership, and Blender cage-setting wiring. Updated backend CI to run the new test file instead of a test path absent from the current branch.
 - Scope boundary: no FastMesh weights/GPU inference or Blender runtime bake was executed in this source-editing session; those runtime checks remain environment-dependent.
 

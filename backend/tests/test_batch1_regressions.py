@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import trimesh
+import yaml
 
 from backend.adapters.fastmesh_adapter import _prepare_fastmesh_point_cloud
 
@@ -102,6 +103,19 @@ def test_mesh_limit_enforcement_unpacks_decimator_result_and_reads_shared_policy
     assert captured["crease_angle_deg"] == 42.0
     assert captured["max_deviation_deg"] == 45.0
     assert captured["max_ram_fraction"] == 0.80
+
+
+def test_bake_config_keeps_scale_aware_cage_and_ray_autosizing_enabled():
+    quality = yaml.safe_load(
+        (ROOT / "backend" / "config" / "quality.yaml").read_text(encoding="utf-8")
+    )
+    bake_config = quality["bake"]
+    assert bake_config["cage_extrusion"] == 0.0
+    assert bake_config["max_ray_distance"] == 0.0
+
+    pipeline_source = (ROOT / "backend" / "postprocess" / "pipeline.py").read_text(encoding="utf-8")
+    assert 'bake_cfg.get("cage_extrusion", 0.0)' in pipeline_source
+    assert 'bake_cfg.get("max_ray_distance", 0.0)' in pipeline_source
 
 
 def test_blender_bake_worker_assigns_computed_cage_extrusion():
