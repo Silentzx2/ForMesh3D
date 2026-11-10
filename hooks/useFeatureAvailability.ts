@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getApiClient } from '@/services/apiClient';
-import { FeatureInfo, AvailableModels } from '@/types/api';
+import { FeatureInfo, AvailableModels, ModelRuntimeDetails } from '@/types/api';
 
 export interface FeatureAvailability {
   [featureName: string]: {
@@ -12,6 +12,8 @@ export interface FeatureAvailability {
 
 export interface UseFeatureAvailabilityReturn {
   features: FeatureAvailability;
+  modelDetails: Record<string, ModelRuntimeDetails>;
+  weightsStatus: Record<string, boolean>;
   loading: boolean;
   error: string | null;
   checkFeature: (featureName: string) => boolean;
@@ -40,6 +42,8 @@ const FEATURE_NAME_MAPPING: Record<string, string> = {
 
 export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
   const [features, setFeatures] = useState<FeatureAvailability>({});
+  const [modelDetails, setModelDetails] = useState<Record<string, ModelRuntimeDetails>>({});
+  const [weightsStatus, setWeightsStatus] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -109,6 +113,8 @@ export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
       }
 
       setFeatures(featureAvailability);
+      setModelDetails(modelsResponse.model_details || {});
+      setWeightsStatus(modelsResponse.weights_status || {});
       console.log('[FeatureAvailability] Loaded features:', featureAvailability);
 
     } catch (err) {
@@ -155,6 +161,8 @@ export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
 
   return {
     features,
+    modelDetails,
+    weightsStatus,
     loading,
     error,
     checkFeature,

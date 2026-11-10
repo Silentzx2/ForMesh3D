@@ -4,6 +4,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useWorkspace } from '../store/WorkspaceContext';
 import type { ModelAsset } from '../types';
+import { useFeatureAvailability } from '@/hooks/useFeatureAvailability';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import {
   Sparkles,
@@ -269,7 +270,50 @@ export const TexturePanel: React.FC = () => {
   } = useWorkspace();
 
   // Model & Core State
-  const [selectedModel, setSelectedModel] = useState('hunyuan3d_paint_v21_image_mesh_painting');
+  // ===== Dynamic model list from backend (weights-aware) =====
+  const { modelDetails, weightsStatus, getModelsForFeature, loading: modelsLoading } = useFeatureAvailability();
+
+  // Models not in working state — hidden from UI per product decision
+  const DISABLED_TEXTURE_MODELS = new Set([
+    'trellis2_image_mesh_painting',
+  ]);
+
+  const TEXTURE_MODEL_LABELS: Record<string, { label: string; tag: string; note: string; badge: string }> = {
+    'hunyuan3d_paint_v21_image_mesh_painting': { label: 'Hunyuan3D-Paint v2.1', tag: 'PBR Multi-view', note: 'Multi-view projection & full PBR maps', badge: '12GB VRAM' },
+    'paint3d': { label: 'Paint3D Multi-Stage', tag: 'Fast UV Inpaint', note: 'Coarse texture & depth-guided UV inpainting', badge: '12GB VRAM' },
+    'trellis_image_mesh_painting': { label: 'TRELLIS Paint', tag: 'Stable', note: '2048 texture atlas', badge: '12GB VRAM' },
+  };
+
+  const textureModels = useMemo(() => {
+    if (modelsLoading) return [];
+    const modelIds = getModelsForFeature('image_mesh_painting');
+    return modelIds
+      .filter(mid => !DISABLED_TEXTURE_MODELS.has(mid))
+      .filter(mid => {
+        const detail = modelDetails[mid];
+        if (detail) return detail.weights_available === true;
+        const ws = weightsStatus[mid];
+        if (ws !== undefined) return ws === true;
+        return true;
+      })
+      .map(mid => {
+        const info = TEXTURE_MODEL_LABELS[mid];
+        return {
+          id: mid,
+          label: info?.label || mid,
+          tag: info?.tag || '',
+          note: info?.note || '',
+          badge: info?.badge || '',
+        };
+      });
+  }, [modelsLoading, getModelsForFeature, modelDetails, weightsStatus]);
+
+  const defaultTextureModel = useMemo(() => {
+    const first = textureModels[0]?.id;
+    return first || 'hunyuan3d_paint_v21_image_mesh_painting';
+  }, [textureModels]);
+
+  const [selectedModel, setSelectedModel] = useState(defaultTextureModel);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const { state: meshUploadState, upload: uploadMesh } = useMeshAssetUpload();
   const isMeshUploading = meshUploadState.status === 'uploading' || meshUploadState.status === 'verifying';
@@ -426,30 +470,7 @@ export const TexturePanel: React.FC = () => {
     };
   }, []);
 
-  // Models supported by backend for texture generation & image mesh painting
-  const availableModels = [
-    {
-      id: 'hunyuan3d_paint_v21_image_mesh_painting',
-      label: 'Hunyuan3D-Paint v2.1',
-      tag: 'PBR Multi-view',
-      note: 'Multi-view projection & full PBR maps',
-      badge: '12GB VRAM',
-    },
-    {
-      id: 'paint3d',
-      label: 'Paint3D Multi-Stage',
-      tag: 'Fast UV Inpaint',
-      note: 'Coarse texture & depth-guided UV inpainting',
-      badge: '12GB VRAM',
-    },
-    {
-      id: 'trellis2_image_mesh_painting',
-      label: 'TRELLIS.2 Paint',
-      tag: 'Ultra Sharp',
-      note: 'Sharp structured image-to-mesh texturing',
-      badge: '14GB VRAM',
-    },
-  ];
+  const textureModelsList = modelsLoading ? [] : textureModels;
 
   const isMeshFile = (file: File) => {
     const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
@@ -1015,10 +1036,10 @@ export const TexturePanel: React.FC = () => {
                   </div>
                   <div className="min-w-0 flex items-baseline gap-1">
                     <p className="text-[10.5px] font-bold text-[hsl(var(--foreground))] truncate">
-                      {availableModels.find((m) => m.id === selectedModel)?.label || 'Select Model'}
+                      {textureModelsList.find((m) => m.id === selectedModel)?.label || 'Select Model'}
                     </p>
                     <span className="text-[8.5px] text-[hsl(var(--muted-foreground))] truncate opacity-75">
-                      {availableModels.find((m) => m.id === selectedModel)?.tag}
+                      {textureModelsList.find((m) => m.id === selectedModel)?.tag}
                     </span>
                   </div>
                 </div>
@@ -1036,7 +1057,7 @@ export const TexturePanel: React.FC = () => {
                   aria-label="Available AI models"
                   className="absolute top-full mt-1 left-0 right-0 rounded-xl bg-[#1a1b26] border border-white/10 shadow-2xl p-1 z-40 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
                 >
-                  {availableModels.map((m) => (
+                  {textureModelsList.map((m) => (
                     <button
                       key={m.id}
                       type="button"

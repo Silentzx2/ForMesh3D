@@ -4,6 +4,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useWorkspace } from '../store/WorkspaceContext';
 import type { ModelAsset } from '../types';
+import { useFeatureAvailability } from '@/hooks/useFeatureAvailability';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import {
   Sparkles,
@@ -265,7 +266,56 @@ export const GeneratePanel: React.FC = () => {
 
   const [isGeneralSettingsOpen, setIsGeneralSettingsOpen] = useState(false);
   const [intent, setIntent] = useState<GenerationIntent>('game_ready');
-  const [selectedModel, setSelectedModel] = useState('hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh');
+
+  // ===== Dynamic model list from backend (weights-aware) =====
+  const { modelDetails, weightsStatus, getModelsForFeature, loading: modelsLoading } = useFeatureAvailability();
+
+  // Models not in working state — hidden from UI per product decision
+  const DISABLED_MESH_MODELS = new Set([
+    'taoflowforge_image_to_raw_mesh',
+    'pixal3d_image_to_raw_mesh',
+    'trellis2_image_to_raw_mesh',
+    'trellis2_image_to_3d',
+  ]);
+
+  const MESH_MODEL_LABELS: Record<string, { label: string; tag: string; note: string }> = {
+    'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh': { label: 'Hunyuan3D-2 Mini Turbo', tag: 'Best Speed & Geometry', note: 'Fast Geometry · Official locked profile' },
+    'triposg_image_to_raw_mesh': { label: 'TripoSG', tag: 'Hierarchical Geometry', note: 'Stable · 1024 resolution' },
+    'hunyuan3d_shape_v21_image_to_raw_mesh': { label: 'Hunyuan3D-2.1 Shape', tag: 'High Detail', note: '10GB VRAM · 50 steps · 512 octree' },
+    'unique3d_image_to_raw_mesh': { label: 'Unique3D', tag: 'Legacy / Deprecated', note: 'Working but not actively used' },
+    'trellis_image_to_3d': { label: 'TRELLIS', tag: 'Stable', note: '50-step inference' },
+    'trellis_image_to_raw_mesh': { label: 'TRELLIS', tag: 'Raw Mesh', note: 'Stable production model' },
+  };
+
+  const meshModels = useMemo(() => {
+    if (modelsLoading) return [];
+    const modelIds = getModelsForFeature('image_to_raw_mesh');
+    return modelIds
+      .filter(mid => !DISABLED_MESH_MODELS.has(mid))
+      .filter(mid => {
+        const detail = modelDetails[mid];
+        if (detail) return detail.weights_available === true;
+        const ws = weightsStatus[mid];
+        if (ws !== undefined) return ws === true;
+        return true;
+      })
+      .map(mid => {
+        const info = MESH_MODEL_LABELS[mid];
+        return {
+          id: mid,
+          label: info?.label || mid,
+          tag: info?.tag || '',
+          note: info?.note || '',
+        };
+      });
+  }, [modelsLoading, getModelsForFeature, modelDetails, weightsStatus]);
+
+  const defaultMeshModel = useMemo(() => {
+    const first = meshModels[0]?.id;
+    return first || 'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh';
+  }, [meshModels]);
+
+  const [selectedModel, setSelectedModel] = useState(defaultMeshModel);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const { state: meshUploadState, upload: uploadMesh } = useMeshAssetUpload();
   const isMeshUploading = meshUploadState.status === 'uploading' || meshUploadState.status === 'verifying';
@@ -398,26 +448,8 @@ export const GeneratePanel: React.FC = () => {
     };
   }, [isModelDropdownOpen]);
 
-  const availableModels = [
-    {
-      id: 'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh',
-      label: 'Hunyuan3D-2 Mini Turbo',
-      tag: 'Best Speed & Geometry',
-      note: 'Fast Geometry · Official locked profile',
-    },
-    {
-      id: 'taoflowforge_image_to_raw_mesh',
-      label: 'TaoFlowForge',
-      tag: 'Native Flow Topology',
-      note: 'Progressive Flow · Clean surface loops',
-    },
-    {
-      id: 'pixal3d_image_to_raw_mesh',
-      label: 'Pixal3D',
-      tag: 'High Precision Reconstruction',
-      note: 'Neighborhood Attention · Fine Details',
-    },
-  ];
+  const meshModelsList = modelsLoading ? [] : meshModels;
+
 
   const isMeshFile = (file: File) => {
     const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
@@ -1180,10 +1212,10 @@ export const GeneratePanel: React.FC = () => {
               </div>
               <div className="min-w-0 flex items-baseline gap-1.5">
                 <p className="text-[11px] font-bold text-[hsl(var(--foreground))] truncate">
-                  {availableModels.find((m) => m.id === selectedModel)?.label || 'Select Model'}
+                  {meshModelsList.find((m) => m.id === selectedModel)?.label || 'Select Model'}
                 </p>
                 <span className="text-[9px] text-[hsl(var(--muted-foreground))] truncate hidden sm:inline opacity-75">
-                  {availableModels.find((m) => m.id === selectedModel)?.tag}
+                  {meshModelsList.find((m) => m.id === selectedModel)?.tag}
                 </span>
               </div>
             </div>
@@ -1201,7 +1233,7 @@ export const GeneratePanel: React.FC = () => {
               aria-label="Available AI models"
               className="absolute top-full mt-1 left-0 right-0 rounded-xl bg-[#1a1b26] border border-white/10 shadow-2xl p-1 z-40 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
             >
-              {availableModels.map((m) => (
+              {meshModelsList.map((m) => (
                 <button
                   key={m.id}
                   type="button"
