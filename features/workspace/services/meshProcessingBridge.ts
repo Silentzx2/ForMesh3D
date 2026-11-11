@@ -334,6 +334,7 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
     if (!jobId) throw new Error('AI Scheduler did not return a valid Job ID');
 
     onProgress?.(`AI Job queued on GPU (ID: ${jobId.slice(0, 8)})...`, 35);
+    onLog?.(`AI Job queued on GPU (ID: ${jobId.slice(0, 8)})`);
 
     return {
       success: true,

@@ -1485,6 +1485,12 @@ async def image_to_raw_mesh(
 
         job_id = await scheduler.schedule_job(job_request)
 
+        logger.info(
+            "Image-to-raw-mesh job queued successfully: job_id=%s model=%s image_file_id=%s",
+            job_id,
+            mesh_request.model_preference,
+            mesh_request.image_file_id,
+        )
         return MeshGenerationResponse(
             job_id=job_id,
             status="queued",

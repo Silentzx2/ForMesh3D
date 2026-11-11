@@ -303,13 +303,6 @@ export const RemeshPanel: React.FC = () => {
     setMounted(true);
   }, []);
 
-  // Synchronize image preview with workspace generationSettings
-  useEffect(() => {
-    if (generationSettings.image && generationSettings.image !== imagePreview) {
-      setImagePreview(generationSettings.image);
-    }
-  }, [generationSettings.image, imagePreview]);
-
   // Update polycount with debounce so slider drags at 120fps without lag or glitch
   const updatePolycount = (val: number, immediate = false) => {
     const clamped = Math.max(5000, Math.min(200000, val));
@@ -404,36 +397,12 @@ export const RemeshPanel: React.FC = () => {
     return null;
   };
 
-  const processImageFile = (file: File) => {
-    dragCounterRef.current = 0;
-    setIsDragOver(false);
-    if (file.size > 20 * 1024 * 1024) {
-      toast.error('Image exceeds 20MB limit');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      setImagePreview(result);
-      setGenerationSettings((prev) => ({
-        ...prev,
-        image: result,
-        imageName: file.name,
-      }));
-      setInputTab('image');
-      toast.success(`Image selected: ${file.name}`);
-    };
-    reader.readAsDataURL(file);
-  };
-
   const handleCardDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(true);
     const detected = detectDraggedFileType(e);
-    if (detected === 'mesh' && inputTab !== 'mesh') {
-      setInputTab('mesh');
-    } else if (detected === 'image' && inputTab !== 'image') {
-      setInputTab('image');
+    if (detected === 'mesh') {
+      // mesh tab is always active
     }
   };
 
@@ -453,37 +422,25 @@ export const RemeshPanel: React.FC = () => {
     }
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    dragCounterRef.current = 0;
-    setIsDragOver(false);
-    const file = e.target.files?.[0];
-    if (file) {
-      if (isMeshFile(file)) {
-        setInputTab('mesh');
-        await uploadMesh(file);
-        toast.success(`3D Mesh loaded: ${file.name}`);
-      } else {
-        processImageFile(file);
-      }
-    }
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
   const handleMeshUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     dragCounterRef.current = 0;
     setIsDragOver(false);
     const file = e.target.files?.[0];
     if (file) {
-      if (isImageFile(file)) {
-        setInputTab('image');
-        processImageFile(file);
-      } else {
-        setInputTab('mesh');
-        await uploadMesh(file);
-        toast.success(`3D Mesh loaded: ${file.name}`);
+      if (!isMeshFile(file)) {
+        toast.error('Please upload a valid 3D mesh file (GLB, OBJ, FBX, STL, PLY)');
+        return;
       }
+      setInputTab('mesh');
+      await uploadMesh(file);
+      toast.success(`3D Mesh loaded: ${file.name}`);
     }
     if (meshInputRef.current) meshInputRef.current.value = '';
+  };
+
+  const handleRemoveImage = () => {
+    setImagePreview(null);
+    setInputTab('mesh');
   };
 
   const handleUnifiedDrop = async (e: React.DragEvent<HTMLDivElement>) => {
@@ -495,34 +452,17 @@ export const RemeshPanel: React.FC = () => {
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
 
-    if (isMeshFile(file)) {
-      setInputTab('mesh');
-      await uploadMesh(file);
-      toast.success(`3D Mesh loaded: ${file.name}`);
-    } else if (isImageFile(file)) {
-      setInputTab('image');
-      processImageFile(file);
-    } else {
-      if (inputTab === 'mesh') {
-        await uploadMesh(file);
-        toast.success(`3D Mesh loaded: ${file.name}`);
-      } else {
-        processImageFile(file);
-      }
+    if (!isMeshFile(file)) {
+      toast.error('Please upload a valid 3D mesh file (GLB, OBJ, FBX, STL, PLY)');
+      return;
     }
-  };
 
-  const handleRemoveImage = (e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    setImagePreview(null);
-    setGenerationSettings((prev) => ({ ...prev, image: null, imageName: undefined }));
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    await uploadMesh(file);
+    toast.success(`3D Mesh loaded: ${file.name}`);
   };
 
   const handleRunRetopo = async () => {
-    if (!currentAsset && !generationSettings.image) {
+    if (!currentAsset) {
       toast.error('No active 3D model found. Please load or generate a mesh first.');
       return;
     }
@@ -585,17 +525,10 @@ export const RemeshPanel: React.FC = () => {
       <div className="flex-1 overflow-hidden p-2.5 flex flex-col justify-between gap-2.5 min-h-0 workspace-tool-body">
         <div className="space-y-2.5 flex-shrink-0">
           {/* 2. Studio Input Card (1-to-1 with GeneratePanel) */}
-          <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/png,image/jpeg,image/webp,image/*,.glb,.gltf,.obj,.fbx,.stl,.ply"
-          onChange={handleImageUpload}
-          className="hidden"
-        />
         <input
           ref={meshInputRef}
           type="file"
-          accept=".glb,.gltf,.obj,.fbx,.stl,.ply,image/png,image/jpeg,image/webp,image/*"
+          accept=".glb,.gltf,.obj,.fbx,.stl,.ply"
           onChange={handleMeshUpload}
           className="hidden"
         />
@@ -616,23 +549,6 @@ export const RemeshPanel: React.FC = () => {
           <div className="h-7 p-0.5 rounded-xl bg-[#0f0f1c] border border-white/[0.04] flex items-center gap-1">
             <button
               type="button"
-              onClick={() => setInputTab('image')}
-              onDragOver={(e) => {
-                e.preventDefault();
-                if (inputTab !== 'image') setInputTab('image');
-              }}
-              className={`flex-1 h-6 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                inputTab === 'image'
-                  ? 'bg-white text-black shadow-sm'
-                  : 'text-zinc-300 hover:text-white'
-              }`}
-              title="Image to 3D"
-            >
-              <ImageIcon className="w-3.5 h-3.5" />
-              <span>Image</span>
-            </button>
-            <button
-              type="button"
               onClick={() => setInputTab('mesh')}
               onDragOver={(e) => {
                 e.preventDefault();
@@ -651,89 +567,36 @@ export const RemeshPanel: React.FC = () => {
           </div>
 
           {/* Dropzone Container depending on Tab */}
-          {inputTab === 'image' ? (
-            imagePreview || generationSettings.image ? (
-              <div className="relative w-full h-[195px] workspace-upload-preview rounded-xl overflow-hidden bg-[#0c0d14] border border-white/[0.08] flex items-center justify-center group/preview">
-                <img
-                  src={imagePreview || generationSettings.image || ''}
-                  alt="Uploaded concept"
-                  className="max-h-[190px] w-auto max-w-full object-contain"
-                />
-
-                {/* Top-Right Trash Delete Button */}
+          {(inputTab === 'image' && (imagePreview || generationSettings.image)) ? (
+            <div className="relative w-full h-[195px] workspace-upload-preview rounded-xl overflow-hidden bg-[#0c0d14] border border-white/[0.08] flex items-center justify-center group/preview">
+              <img
+                src={imagePreview || generationSettings.image || ''}
+                alt="Uploaded concept"
+                className="max-h-[190px] w-auto max-w-full object-contain"
+              />
+              <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/75 hover:bg-black/95 text-white flex items-center justify-center border border-white/10 shadow-lg cursor-pointer transition-all group-hover/preview:scale-105">
                 <button
                   type="button"
                   onClick={handleRemoveImage}
                   aria-label="Remove uploaded image"
                   title="Remove image"
-                  className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/75 hover:bg-black/95 text-white flex items-center justify-center border border-white/10 shadow-lg cursor-pointer transition-all group-hover/preview:scale-105"
                 >
                   <Trash2 className="w-3.5 h-3.5 text-white" />
                 </button>
-
-                {/* Bottom Floating Replace Action */}
-                <div className="absolute bottom-2.5 right-2.5 pointer-events-none">
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    title="Replace Image"
-                    className="pointer-events-auto h-7 px-3 rounded-full bg-[#1b1c2b]/90 hover:bg-[#25273b] border border-white/10 text-white text-[10px] font-semibold flex items-center gap-1.5 shadow-lg cursor-pointer transition-all active:scale-95"
-                  >
-                    <Edit2 className="w-3 h-3 text-white" />
-                    <span>Replace</span>
-                  </button>
-                </div>
               </div>
-            ) : (
-              <div
-                role="button"
-                tabIndex={0}
-                aria-label="Upload concept image"
-                onClick={() => fileInputRef.current?.click()}
-                onDragOver={handleCardDragOver}
-                onDragEnter={handleCardDragEnter}
-                onDragLeave={handleCardDragLeave}
-                onDrop={handleUnifiedDrop}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    fileInputRef.current?.click();
-                  }
-                }}
-                className={`relative group w-full h-[200px] workspace-upload-dropzone rounded-xl border border-dashed transition-all p-2 flex flex-col items-center justify-between cursor-pointer shadow-inner ${
-                  isDragOver
-                    ? 'border-[#F9CF00] bg-[#1c1d2c] ring-1 ring-[#F9CF00]/40'
-                    : 'border-white/[0.12] hover:border-white/25 bg-[#0f1019]'
-                } [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:16px_16px] [background-position:0_0,0_8px,8px_-8px,-8px_0px]`}
-              >
-                {/* Top Right Tip Lightbulb */}
-                <div className="w-full flex justify-end">
-                  <span className="p-0.5 text-zinc-300 hover:text-[#F9CF00] transition-colors" title="Image prompt tips">
-                    <Lightbulb className="w-3.5 h-3.5" />
-                  </span>
-                </div>
-
-                {/* Center Upload Prompt */}
-                <div className="flex flex-col items-center text-center -mt-1">
-                  <ImageIcon
-                    className={`w-7 h-7 mb-1 transition-all ${
-                      isDragOver ? 'text-[#F9CF00] scale-110' : 'text-zinc-200 group-hover:text-white group-hover:scale-105'
-                    }`}
-                  />
-                  <span className="text-xs font-bold text-white tracking-wide">
-                    {isDragOver ? 'Drop Image Here' : 'Upload Image'}
-                  </span>
-                  <span className="text-[10px] text-zinc-300 font-mono mt-0.5">JPG, PNG, WEBP · Size ≤ 20MB</span>
-                </div>
-
-                {/* Bottom Helper Note */}
-                <div className="text-[10px] font-medium text-zinc-300 group-hover:text-white flex items-center gap-1 transition-colors pb-0.5">
-                  <span>Front view or clean background recommended</span>
-                </div>
+              <div className="absolute bottom-2.5 right-2.5 pointer-events-none">
+                <button
+                  type="button"
+                  onClick={() => meshInputRef.current?.click()}
+                  title="Replace Mesh"
+                  className="pointer-events-auto h-7 px-3 rounded-full bg-[#1b1c2b]/90 hover:bg-[#25273b] border border-white/10 text-white text-[10px] font-semibold flex items-center gap-1.5 shadow-lg cursor-pointer transition-all active:scale-95"
+                >
+                  <Edit2 className="w-3 h-3 text-white" />
+                  <span>Replace</span>
+                </button>
               </div>
-            )
+            </div>
           ) : (
-            /* 3D Mesh Upload Tab View */
             <div
               role="button"
               tabIndex={0}
@@ -773,6 +636,13 @@ export const RemeshPanel: React.FC = () => {
               <span className="text-[9px] text-zinc-500 font-mono mt-0.5">
                 Size ≤ 150MB
               </span>
+              <input
+                ref={meshInputRef}
+                type="file"
+                accept=".obj,.fbx,.stl,.glb,.ply,.gltf"
+                className="hidden"
+                onChange={handleMeshUpload}
+              />
             </div>
           )}
         </div>

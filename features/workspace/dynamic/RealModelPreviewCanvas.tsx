@@ -10,6 +10,7 @@ export interface RealModelPreviewCanvasProps {
   mode: 'rigging' | 'segmentation' | 'uv' | 'animation';
   selectedId?: string | null;
   onSelectId?: (id: string) => void;
+  onHoverId?: (id: string | null) => void;
   xrayBones?: boolean;
   orbitYaw?: number;
   bones?: Array<{ id: string; name: string; parent: string | null; pos: [number, number, number] }>;
@@ -27,6 +28,7 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
   mode,
   selectedId,
   onSelectId,
+  onHoverId,
   xrayBones = true,
   orbitYaw,
   bones = [],
@@ -180,7 +182,7 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
       renderer.dispose();
       if (renderer.domElement && el.contains(renderer.domElement)) el.removeChild(renderer.domElement);
     };
-  }, [activeModel, mode, selectedId, xrayBones, orbitYaw, bones, parts, highlightBoundaries, colorizeViewport, viewAngle, highlightSeams, viewportChecker, showArmature]);
+  }, [activeModel, mode, selectedId, xrayBones, orbitYaw, bones, parts, highlightBoundaries, colorizeViewport, viewAngle, highlightSeams, viewportChecker, showArmature, onHoverId]);
 
   const handlePointer = (e: React.MouseEvent<HTMLDivElement>, isClick: boolean) => {
     const el = containerRef.current;
@@ -197,11 +199,11 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
       const found = interactivesRef.current.find((i) => i.obj === hit || i.obj.children.includes(hit));
       if (found) {
         if (isClick && onSelectId) onSelectId(found.id);
-        else setHovered(found.id);
+        else { setHovered(found.id); onHoverId?.(found.id); }
         return;
       }
     }
-    if (!isClick) setHovered(null);
+    if (!isClick) { setHovered(null); onHoverId?.(null); }
   };
 
   return (

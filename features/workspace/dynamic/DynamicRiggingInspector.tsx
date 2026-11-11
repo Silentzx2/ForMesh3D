@@ -60,7 +60,7 @@ function findBoneInHierarchy(root: THREE.Object3D, targetIdOrName: string): THRE
 }
 
 export const DynamicRiggingInspector: React.FC = () => {
-  const { currentAsset } = useWorkspace();
+  const { currentAsset, setHoveredPartId } = useWorkspace();
   const activeModelObject = useViewerStore((s) => s.activeModelObject);
   const [bones, setBones] = useState<BoneJoint[]>(CANONICAL_BONES);
   const [selectedBoneId, setSelectedBoneId] = useState<string>('arm_l');
@@ -255,6 +255,7 @@ export const DynamicRiggingInspector: React.FC = () => {
           const b = bones.find((x) => x.id === id);
           toast.info(`Selected Bone: ${b ? b.name : id}`);
         }}
+        onHoverId={(id) => setHoveredPartId(id)}
         xrayBones={xrayMode}
         orbitYaw={orbitYaw}
         bones={bones}

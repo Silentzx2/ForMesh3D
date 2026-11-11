@@ -183,6 +183,8 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     executionProgress,
     executionStep,
     environmentSettings,
+    hoveredPartId,
+    setHoveredPartId,
   } = useWorkspace();
 
   const emptyStateCopy = (() => {
@@ -890,6 +892,57 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         }
       );
     }
+
+    // Highlight hovered part in main viewer when user hovers over part in right panel mini-preview
+    useEffect(() => {
+      if (!modelGroupRef.current || !hoveredPartId) {
+        // Restore all materials when no hover
+        modelGroupRef.current?.traverse((child) => {
+          if (child instanceof THREE.Mesh && child.userData.__hoverOriginalMaterial) {
+            child.material = child.userData.__hoverOriginalMaterial;
+            delete child.userData.__hoverOriginalMaterial;
+          }
+        });
+        return;
+      }
+
+      // Parse part index from id like "p1" -> 0, "p2" -> 1, etc.
+      const match = hoveredPartId.match(/^p(\d+)$/);
+      if (!match) return;
+      const meshIndex = parseInt(match[1], 1) - 1;
+
+      let meshCount = 0;
+      let found = false;
+      modelGroupRef.current.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          if (meshCount === meshIndex) {
+            // Store original material if not already stored
+            if (!child.userData.__hoverOriginalMaterial) {
+              child.userData.__hoverOriginalMaterial = child.material;
+            }
+            child.material = new THREE.MeshStandardMaterial({
+              color: 0xf9cf00,
+              emissive: 0xf9cf00,
+              emissiveIntensity: 0.5,
+              roughness: 0.2,
+              metalness: 0.1,
+            });
+            found = true;
+          }
+          meshCount++;
+        }
+      });
+
+      return () => {
+        // Restore original materials on cleanup
+        modelGroupRef.current?.traverse((child) => {
+          if (child instanceof THREE.Mesh && child.userData.__hoverOriginalMaterial) {
+            child.material = child.userData.__hoverOriginalMaterial;
+            delete child.userData.__hoverOriginalMaterial;
+          }
+        });
+      };
+    }, [hoveredPartId, modelGroupRef.current]);
 
     return () => {
       isCancelled = true;

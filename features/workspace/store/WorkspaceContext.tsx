@@ -109,6 +109,8 @@ interface WorkspaceContextType {
   rightPanelWidth: number;
   setRightPanelWidth: (width: number) => void;
   activeTask: ActiveTask | null;
+  hoveredPartId: string | null;
+  setHoveredPartId: (id: string | null) => void;
   jobsById: Record<string, ActiveTask>;
   dismissActiveTask: () => void;
   isExecuting: boolean;
@@ -633,6 +635,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [executionStep, setExecutionStep] = useState('');
   const [activeTask, setActiveTask] = useState<ActiveTask | null>(null);
   const [jobsById, setJobsById] = useState<Record<string, ActiveTask>>({});
+  const [hoveredPartId, setHoveredPartId] = useState<string | null>(null);
   const [activeComparisonGroup, setActiveComparisonGroup] = useState<string | null>(null);
   const [nextComparisonGroupId, setNextComparisonGroupId] = useState(1);
   const jobsByIdRef = useRef(jobsById);
@@ -895,13 +898,21 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const path = window.location.pathname;
     if (!path.startsWith('/workspace/')) return;
     const parts = path.replace('/workspace/', '').split('/');
-    const routeJobId = parts.find(p => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p));
+    const routeJobId = parts.find(p => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p) || /^[a-z0-9]+-[a-z0-9]+-[a-z0-9]{6}$/i.test(p));
     if (!routeJobId) return;
+
+    // Resolve friendly name-hash URL ID to backend job UUID via localStorage mapping
+    let backendJobId = routeJobId;
+    const isFriendlyId = !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(routeJobId);
+    if (isFriendlyId && typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem(`fm3d:job:${routeJobId}`);
+      if (stored) backendJobId = stored;
+    }
 
     const currentTask = jobsByIdRef.current[routeJobId] || activeTaskRef.current;
     if (!currentTask || (!currentAssetRef.current && currentTask.status === 'completed')) {
       let cancelled = false;
-      fetch(`/api/v1/system/jobs/${encodeURIComponent(routeJobId)}`)
+      fetch(`/api/v1/system/jobs/${encodeURIComponent(backendJobId)}`)
         .then(res => (res.ok ? res.json() : null))
         .then(payload => {
           if (cancelled || !payload) return;
@@ -1580,6 +1591,8 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
       // Keep the friendly local task ID (name-hash) in the URL; store the backend UUID separately
       window.history.replaceState(null, '', `${toolRoute}/${localTaskId}`);
+      // Persist friendly ID -> backend UUID mapping for post-refresh hydration
+      localStorage.setItem(`fm3d:job:${localTaskId}`, jobId);
     }
     setJobsById(prev => {
       const task = prev[localTaskId] || activeTaskRef.current;
@@ -1777,6 +1790,16 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         inputImage: inputThumbnail,
       });
       setExecutionStep('Generation queued on backend');
+      setActiveTask(prev => prev ? {
+        ...prev,
+        logs: [...(prev.logs || []), {
+          stage: 'synthesis',
+          progress: 35,
+          message: `Generation request accepted — ${effectiveModelId} queued on backend`,
+          level: 'success',
+          timestamp: new Date().toISOString(),
+        }]
+      } : null);
     } catch (error) {
       if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
         console.log('Generation cancelled by user');
@@ -2947,9 +2970,11 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
   const executionValue = useMemo(() => ({
     activeTask, jobsById, dismissActiveTask,
+    hoveredPartId, setHoveredPartId,
     isExecuting, executionProgress, executionStep, cancelExecution,
     dismissJob, selectJobToView, queueGenerationJob,
   }), [activeTask, jobsById, dismissActiveTask,
+    hoveredPartId, setHoveredPartId,
     isExecuting, executionProgress, executionStep, cancelExecution,
     dismissJob, selectJobToView, queueGenerationJob]);
 

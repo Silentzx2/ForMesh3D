@@ -106,7 +106,7 @@ function buildSimpleZip(files: { name: string; data: Uint8Array }[]): Blob {
 }
 
 export const DynamicSegmentationInspector: React.FC = () => {
-  const { currentAsset } = useWorkspace();
+  const { currentAsset, setHoveredPartId } = useWorkspace();
   const activeModelObject = useViewerStore((s) => s.activeModelObject);
   const [highlightBoundaries, setHighlightBoundaries] = useState(true);
   const [colorizeViewport, setColorizeViewport] = useState(true);
@@ -313,6 +313,7 @@ export const DynamicSegmentationInspector: React.FC = () => {
           const p = parts.find((x) => x.id === id);
           if (p) toast.info(`Selected Part: ${p.name}`);
         }}
+        onHoverId={(id) => setHoveredPartId(id)}
         parts={parts}
         highlightBoundaries={highlightBoundaries}
         colorizeViewport={colorizeViewport}
