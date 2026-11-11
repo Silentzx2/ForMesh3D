@@ -78,7 +78,13 @@ export function useMeshAssetUpload() {
     // 1. Immediately mount local asset so user sees their 3D model in the viewport without waiting
     addAsset(localAsset);
     setCurrentAsset(localAsset);
-    setState({ status: 'uploading', fileName: file.name, loadedBytes: file.size, totalBytes: file.size, percent: 50, error: null });
+
+    // Reflect the uploaded mesh in the URL so it's bookmarkable: /workspace/generate/<name>_<hash>
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', `/workspace/generate/${friendlyLocalId}`);
+    }
+
+    setState({ status: 'uploading', fileName: file.name, loadedBytes: 0, totalBytes: file.size, percent: 0, error: null });
 
     try {
       const serverAsset = await uploadMeshAsset(file, {

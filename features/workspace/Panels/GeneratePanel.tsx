@@ -33,6 +33,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
+import { getApiClient } from '@/services/apiClient';
 
 // ==========================================
 // 1. Quality Metrics & QualityBadge Export
@@ -339,6 +340,7 @@ export const GeneratePanel: React.FC = () => {
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const { state: meshUploadState, upload: uploadMesh } = useMeshAssetUpload();
   const isMeshUploading = meshUploadState.status === 'uploading' || meshUploadState.status === 'verifying';
+  const [imageUploadProgress, setImageUploadProgress] = useState<{ loaded: number; total: number; percent: number; uploading: boolean }>({ loaded: 0, total: 0, percent: 0, uploading: false });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const meshInputRef = useRef<HTMLInputElement>(null);
@@ -507,7 +509,7 @@ export const GeneratePanel: React.FC = () => {
     return null;
   };
 
-  const processImageFile = (file: File) => {
+  const processImageFile = async (file: File) => {
     dragCounterRef.current = 0;
     setIsDragOver(false);
     if (file.size > 20 * 1024 * 1024) {
@@ -524,9 +526,36 @@ export const GeneratePanel: React.FC = () => {
         imageName: file.name,
       }));
       setInputTab('image');
-      toast.success(`Image selected: ${file.name}`);
     };
     reader.readAsDataURL(file);
+
+    // Upload to backend with real progress tracking so user sees a live bar
+    setImageUploadProgress({ loaded: 0, total: file.size, percent: 0, uploading: true });
+    try {
+      const res = await getApiClient().uploadImageFile(file, (loaded, total) => {
+        setImageUploadProgress((prev) => ({
+          ...prev,
+          loaded,
+          total: total ?? prev.total,
+          percent: total ? Math.round((loaded / total) * 100) : prev.percent,
+        }));
+      });
+      setGenerationSettings((prev) => ({
+        ...prev,
+        imageFileId: res.file_id,
+      }));
+      // Reflect the uploaded image in the URL: /workspace/generate/<name>_<hash>
+      if (typeof window !== 'undefined') {
+        const cleanStem = file.name.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40) || 'image';
+        const shortHash = res.file_id.slice(-6);
+        window.history.replaceState(null, '', `/workspace/generate/${cleanStem}_${shortHash}`);
+      }
+      setImageUploadProgress({ ...imageUploadProgress, percent: 100, uploading: false });
+      toast.success(`Image uploaded: ${file.name}`);
+    } catch (err: any) {
+      setImageUploadProgress({ ...imageUploadProgress, uploading: false });
+      toast.error(`Image upload failed: ${err?.message || 'Unknown error'}`);
+    }
   };
 
   // Automatic pre-drop switch while user is hovering with dragged file
@@ -895,6 +924,36 @@ export const GeneratePanel: React.FC = () => {
                   ? `~${Math.max(1, Math.ceil((meshUploadState.totalBytes - meshUploadState.loadedBytes) / 2097152))}s left`
                   : 'Transferring...'}
               </span>
+            </div>
+          </div>
+        )}
+
+        {/* Live Image Upload Progress Bar */}
+        {imageUploadProgress.uploading && (
+          <div className="p-2 rounded-xl bg-black/40 border border-[#F9CF00]/30 space-y-1.5 animate-in fade-in">
+            <div className="flex items-center justify-between text-[10px]">
+              <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                <div className="w-2.5 h-2.5 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <span className="font-semibold text-white truncate text-[10px]">
+                  {`Uploading ${generationSettings.imageName || 'image'}...`}
+                </span>
+              </div>
+              <span className="font-mono font-bold text-[#F9CF00] text-[10px] flex-shrink-0">
+                {imageUploadProgress.percent}%
+              </span>
+            </div>
+            <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-200 rounded-full"
+                style={{ width: `${Math.max(4, Math.min(100, imageUploadProgress.percent))}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-[9px] text-zinc-400 font-mono">
+              <span>
+                {(imageUploadProgress.loaded / 1048576).toFixed(1)} MB /
+                {(imageUploadProgress.total / 1048576).toFixed(1)} MB
+              </span>
+              <span>Transferring...</span>
             </div>
           </div>
         )}

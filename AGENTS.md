@@ -1,4 +1,4 @@
-# PROJECT RULE: Read the entire AGENTS.md file from top to bottom and save it in context before doing any work. Do not skip sections.
+# PROJECT RULE: Read the entire AGENTS.md file from top to bottom and strictly follow it. save it in context before doing any work. Do not skip sections.
 
 # Ponytail, lazy senior dev mode
 

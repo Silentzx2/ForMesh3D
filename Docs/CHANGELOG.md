@@ -1,5 +1,18 @@
 # ForMesh3D Changelog
 
+## 2026-11-11 — Workspace Routing, Friendly Job URLs & Recent Jobs Chip
+
+- **Routing:** Bare `/workspace` now redirects to `/workspace/generate`; `/workspace/overview` and `/workspace/system` routes removed from the workspace UI (`WorkspaceShell.tsx`, `workspaceRouteContract.ts`, `WorkspaceContext.tsx`). Dashboard/assets/jobs route map simplified; `navigateToMain` points dashboard/workspace to `/workspace/generate`.
+- **Friendly URLs:** Mesh/image uploads now reflect in the URL as `/workspace/generate/<name>_<hash>` (`useMeshAssetUpload.ts`, `GeneratePanel.tsx`). Generation tasks use friendly `name-hash` IDs instead of raw UUIDs (`WorkspaceContext.tsx::startTask`). Backend job UUID stored separately as `backendJobId`; URL keeps the friendly local ID.
+- **Recent Jobs Chip:** New `RecentJobsChip.tsx` in top header shows live/done/failed counts with a dropdown of up to 6 recent jobs; clicking a job navigates to `/workspace/jobs/{id}` and hydrates the job into the viewport (`TopHeader.tsx`, `JobsTab.tsx` inspect link fixed to path param).
+- **XYZ Gizmo fix:** Moved below header overlap (`top-3` → `top-12`) and made axis buttons clickable (`pointer-events-auto`) (`ViewportToolOverlay.tsx`).
+- **Generate flow:** Removed unnecessary `resolveSmartIntent` hop; generate submits directly to `/api/v1/mesh-generation/image-to-raw-mesh` (`WorkspaceContext.tsx::generate3DModel`).
+- **Upload progress:** Image upload now posts to backend with real `onProgress` bar; mesh upload no longer fakes 50% start (starts at 0%, real progress through upload).
+- **AGENTS.md:** Added top project-rule notice; removed user-preferences section and table of contents; Section 3 research/search rules consolidated.
+- **Tests:** `npx tsc --noEmit` passed with 0 errors. Runtime server/browser not verified in this environment.
+
+---
+
 ## 2026-11-10 — Auto-load Mesh on Route Change, Single-Thumbnail Deduplication, Explicit Model VRAM Eviction, and TripoSG Thumbnail Generation
 
 - **Viewport Auto-Load & Route Hydration (`WorkspaceContext.tsx`):** Added `loadCompletedJobResult` to auto-load completed meshes into `MeshViewer` directly upon job completion and route navigation (`/workspace/[tool]/[job_id]`). Connected `loadModelInViewer` and viewport reframing. Updated `bindBackendJob` to sync the browser URL with the backend job UUID via `replaceState`.
@@ -8,21 +21,3 @@
 - **Explicit Candidate VRAM Eviction (`planner.py`, `multiprocess_scheduler.py`):** When a user explicitly chooses a model whose VRAM budget is tight due to another model resident on the GPU, marked candidate for eviction and proactively freed LRU workers rather than aborting.
 - **Model Selector Parity (`models.yaml`, `GeneratePanel.tsx`, `TexturePanel.tsx`):** Disabled non-functional pipelines (`trellis2*`, `pixal3d*`, `taoflowforge*`, `unique3d*`) and strictly enforced local weight availability before permitting model selection.
 - **Tests:** `bun x tsc --noEmit` passed with 0 errors; `bun test` passed (8 pass, 0 fail); `backend/tests/test_mesh_tools_verification.py` passed (4 pass, 3 skipped).
-
----
-
-## 2026-11-10 — Batch 3: UV Limits, Ray-Cast Baking, Feature Snapping, and UV Checker
-
-- **UV & Baking:** Removed proxy-transfer cKDTree in `uv_backend_resolver.py`, moved `max_safe_triangles` (100K) to `quality.yaml`, and tuned xatlas options. In `bake.py`, replaced nearest KD with inward ray casting (`sample_high_normals`) and barycentric normal interpolation; removed fake white AO image and corrected raster/sample half-pixel alignment.
-- **Retopology & Quality Gate:** Implemented sharp crease snapping (`snap_to_features`) in `autoretopo/pipeline.py` after projection; defaulted `watertight=False` on closed meshes. Replaced $O(N \times M)$ matrix in `_compute_feature_edge_retention` with KD-tree edge midpoints; added `crispness` metric in `gate.py`. In `segment.py`, added majority-vote label smoothing over face adjacency.
-- **UI Integrity & Viewport:** Defaulted `SegmentationPanel` to Script mode with honest disabled state for AI mode. Added 3D procedural UV checkerboard inspection mode in `MeshViewer.tsx`, `ViewportToolOverlay.tsx`, and `UVPanel.tsx`. Cleaned hardcoded defaults from `meshProcessingBridge.ts`.
-- **Tests:** 26 passed, 3 skipped in backend pytest; 8 passed, 0 failed in `bun test`; 0 TypeScript errors.
-
----
-
-## 2026-11-10 — Batch 1 mesh-quality completion
-
-- **FastMesh:** removed the stale V4K frontend registry/selector path, fixed workspace AI routing to V1K, and replaced the misleading AI target-budget UI with the checkpoint-fixed approximately 1K-vertex output. Verified the normalized-coordinate export contract against the vendored upstream inference entry point; adapter telemetry now records actual output vertices.
-- **Hole repair:** added a non-planar 3D ear-clipping fallback, retained edge-count safety checks, derived boundary incidence directly from triangle faces, and changed the perimeter cap to a bounding-box-diagonal fraction shared by targeted and UV-preserving repair.
-- **Decimation:** routed memory-safe decimation through the existing PyMeshLab QEM implementation in one pass, enabled planarquadric for untextured meshes, and removed the slow custom Python QEM implementation.
-- **Tests:** CI passed backend compileall and the Batch 1 regression suite (9 passed, 2 skipped), compute-mode resolver tests, frontend TypeScript type-check, and production build. Two optional PyMeshLab QEM integration tests were skipped because PyMeshLab is absent; FastMesh weights/GPU inference, Blender runtime, and visual mesh-quality validation were not run.

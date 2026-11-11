@@ -6,6 +6,7 @@ import { CommandPalette } from '../CommandPalette';
 import { SnapshotMenu } from './SnapshotMenu';
 import { useUIStore } from '@/stores/useUIStore';
 import { ResourceMonitor } from './ResourceMonitor';
+import { RecentJobsChip } from './RecentJobsChip';
 import { NotificationCenter } from '../Notifications/NotificationCenter';
 
 import { HugeiconsIcon } from '@hugeicons/react';
@@ -208,6 +209,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onMobileMenuToggle, isMobi
 
         {/* Resource Monitor - System Stats */}
         <ResourceMonitor />
+
+        {/* Recent Jobs Chip */}
+        <RecentJobsChip />
 
         {/* Command palette search */}
         <SimpleTooltip label="Command palette • Ctrl K" side="bottom">

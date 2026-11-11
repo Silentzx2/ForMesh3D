@@ -174,7 +174,7 @@ export function JobsTab() {
                       )}
                       <button
                         type="button"
-                        onClick={() => router.push(`/workspace/jobs?id=${job.id}`)}
+                        onClick={() => router.push(`/workspace/jobs/${job.id}`)}
                         className="text-[11px] text-[hsl(var(--admin-accent))] hover:underline flex items-center gap-0.5 font-medium cursor-pointer ml-auto"
                       >
                         <span>Inspect in Workspace</span>

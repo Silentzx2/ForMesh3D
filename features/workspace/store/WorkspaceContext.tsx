@@ -1543,7 +1543,9 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     activeAbortControllerRef.current = new AbortController();
 
     const isLocal = !promptId;
-    const taskId = promptId ?? `local_${crypto.randomUUID()}`;
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'job';
+    const shortHash = crypto.randomUUID().slice(0, 6);
+    const taskId = promptId ?? `${slug}-${shortHash}`;
     const task: ActiveTask = {
       id: taskId,
       backendJobId: !isLocal ? taskId : undefined,
@@ -1576,18 +1578,19 @@ function dataURLtoFile(dataURL: string, filename: string): File {
   const bindBackendJob = useCallback((localTaskId: string, jobId: string, updates: Partial<ActiveTask> = {}) => {
     if (typeof window !== 'undefined') {
       const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-      window.history.replaceState(null, '', `${toolRoute}/${jobId}`);
+      // Keep the friendly local task ID (name-hash) in the URL; store the backend UUID separately
+      window.history.replaceState(null, '', `${toolRoute}/${localTaskId}`);
     }
     setJobsById(prev => {
       const task = prev[localTaskId] || activeTaskRef.current;
       if (!task) return prev;
-      const next: ActiveTask = { ...task, ...updates, id: jobId, backendJobId: jobId, isLocal: false };
+      const next: ActiveTask = { ...task, ...updates, id: localTaskId, backendJobId: jobId, isLocal: false };
       const copy = { ...prev };
       delete copy[localTaskId];
-      copy[jobId] = next;
+      copy[localTaskId] = next;
       return copy;
     });
-    setActiveTask(prev => prev && (prev.id === localTaskId || prev.id === jobId) ? { ...prev, ...updates, id: jobId, backendJobId: jobId, isLocal: false } : prev);
+    setActiveTask(prev => prev && (prev.id === localTaskId || prev.id === jobId) ? { ...prev, ...updates, id: localTaskId, backendJobId: jobId, isLocal: false } : prev);
   }, []);
 
   const queueGenerationJob = useCallback(async (customSettings?: Partial<GenerationSettings>) => {
@@ -2872,11 +2875,10 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     }
 
     const routeMap: Record<string, string> = {
-      dashboard: '/workspace/overview',
+      dashboard: '/workspace/generate',
       assets: '/workspace/assets',
-      system: '/workspace/system',
       jobs: '/workspace/jobs',
-      workspace: '/workspace',
+      workspace: '/workspace/generate',
     };
     const targetRoute = routeMap[nav];
     if (targetRoute) {

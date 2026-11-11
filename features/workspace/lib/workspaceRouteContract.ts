@@ -6,7 +6,7 @@ const WORKSPACE_TOOL_SEGMENTS = new Set([
 ]);
 
 const WORKSPACE_VIEW_SEGMENTS = new Set([
-  'overview', 'dashboard', 'assets', 'outputs', 'system', 'jobs', 'models',
+  'dashboard', 'assets', 'outputs', 'jobs', 'models',
 ]);
 
 const JOB_ID_PATTERN = /^[a-zA-Z0-9_\-\.]{3,128}$/;

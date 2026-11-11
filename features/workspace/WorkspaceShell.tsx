@@ -265,21 +265,15 @@ export const WorkspaceShell: React.FC = () => {
     const rawPath = pathname?.toLowerCase() ?? '';
     const cleanPath = rawPath.replace(/\/+$/, ''); // Strip trailing slashes
 
-    // Overview / Dashboard routes
-    if (cleanPath === '/workspace/overview' || cleanPath === '/workspace/dashboard' || cleanPath === '/dashboard' || cleanPath === '/') {
-      setMainNav('dashboard');
+    // Bare /workspace always opens Generate; never an empty dashboard
+    if (cleanPath === '/workspace') {
+      router.replace('/workspace/generate');
       return;
     }
 
     // Outputs / Assets routes
     if (cleanPath === '/workspace/assets' || cleanPath === '/workspace/outputs' || cleanPath === '/outputs' || cleanPath === '/assets') {
       setMainNav('assets');
-      return;
-    }
-
-    // System routes
-    if (cleanPath === '/workspace/system' || cleanPath === '/system') {
-      setMainNav('system');
       return;
     }
 
@@ -309,16 +303,14 @@ export const WorkspaceShell: React.FC = () => {
       return;
     }
 
-    // Workspace tool routes: /workspace/[tool] or /workspace
+    // Workspace tool routes: /workspace/[tool]
     setMainNav('workspace');
     if (cleanPath.startsWith('/workspace/')) {
       const toolSegment = cleanPath.replace('/workspace/', '').split('/')[0];
       const matched = ROUTE_SEGMENT_TO_TOOL[toolSegment] || 'model';
       setActiveTool(matched);
-    } else if (cleanPath === '/workspace') {
-      setActiveTool('model');
     }
-  }, [pathname, setMainNav, setActiveTool]);
+  }, [pathname, setMainNav, setActiveTool, router]);
 
   // Close mobile nav on tool change
   useEffect(() => {
