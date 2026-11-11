@@ -129,12 +129,15 @@ def auto_unload_after_job_enabled() -> bool:
     return get_model_cache_ttl_seconds() == 0.0
 
 # Production budgets belong to post-processing. Never let them reach model inference.
+# NOTE: texture_enabled is NOT a production budget — it is an adapter instruction
+# telling the model adapter whether to run texture after raw inference. It must
+# reach the adapter via model_inputs, so it is intentionally excluded here.
 _POSTPROCESS_ONLY_INPUTS = frozenset({
     "candidate_count", "enable_postprocess", "plan", "fallback_chain",
     "target_polycount", "auto_optimize", "generateLOD", "lodPreset", "lodCount",
     "quality", "meshQuality", "mesh_quality", "topology_mode", "quad_topology", "auto_uv",
     "physics_enabled", "physics_config", "auto_paint", "paint_model_preference", "paint_resolution",
-    "texture_enabled", "generate_texture", "generateTexture", "texture_resolution",
+    "generate_texture", "generateTexture", "texture_resolution",
     "texture_resolution_preset", "production_texture_resolution",
     "enable_realesrgan", "enableRealESRGAN", "realeg",
     "faces", "num_faces", "simplify", "decimation_target", "remesh", "remesh_band", "remesh_project",
@@ -170,8 +173,6 @@ _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS = frozenset({
     "unique3d_image_to_raw_mesh",
     "taoflowforge_image_to_raw_mesh",
     "hunyuan3d_paint_v21_image_mesh_painting",
-    "paint3d",
-    "paint3d_image_mesh_painting",
 })
 _ADAPTER_OWNED_INFERENCE_INPUTS = frozenset({
     "source_quality", "requested_quality", "quality", "meshQuality", "mesh_quality",
@@ -185,6 +186,7 @@ _ADAPTER_OWNED_INFERENCE_INPUTS = frozenset({
     "input_processing", "do_refine", "expansion_weight", "init_type",
     "fill_holes", "offload", "enable_flashvdm",
 })
+
 
 # EXPERIMENTAL_MAX_DETAIL snapshot (2026-10-20). Ask the user once and get explicit confirmation
 # before changing any locked profile in a later task. Sources/limits: Docs/EXPERIMENTAL-MODEL-SETTINGS.md.

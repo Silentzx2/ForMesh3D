@@ -23,7 +23,7 @@ ForMesh 3D is an end-to-end generative 3D reconstruction and asset optimization 
 - **Frontend**: Next.js 16 (React 19, TypeScript, Three.js, React Three Fiber, Tailwind CSS)
 - **API Gateway**: FastAPI (Python 3.10, Conda env `3daigc-api`, Pydantic V2, AsyncIO)
 - **GPU Doctor & Compatibility Engine**: Standalone hardware planner (`patcher/doctor.py`), precision router, query-chunked SDPA (diff = 0.0), Accelerate offload, and bounded error recovery.
-- **Model Adapters**: 15 adapter modules and registry entries connecting the application to TRELLIS, TRELLIS.2, Hunyuan3D, Paint3D, PartUV, SkinTokens, FastMesh, TripoSG, Unique3D, ARDY, Pixal3D, and TaoFlowForge. Live GPU verified and locked: Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D. See `Docs/MEMORY.md`.
+- **Model Adapters**: 14 adapter modules and registry entries connecting the application to TRELLIS, TRELLIS.2, Hunyuan3D, TripoSG, Unique3D, Pixal3D, TaoFlowForge, PartUV, SkinTokens, FastMesh, ARDY. Live GPU verified and locked: Hunyuan3D-Shape v2.1, Hunyuan3D DiT Mini Turbo, and Unique3D. See `Docs/MEMORY.md`.
 - **Scheduler**: VRAM-aware multiprocess scheduler with GPU monitoring
 - **Queue/Broker**: Redis 7 (optional, multi-worker mode only)
 - **File Storage**: Local filesystem + Redis FileStore (multi-worker mode)
@@ -65,7 +65,7 @@ Intent presets (`backend/config/smart_presets.yaml`, version 1) define the defau
 ### GPU Placement & Derived Artifact Contract
 - The scheduler combines tracked reservations with live per-device free memory. Aggregate VRAM is admitted only for adapters that actually shard model layers or place independent components on multiple GPUs.
 - FastMesh multi-GPU placement is not a verified current capability: the manifest exposes V1K only and the shared adapter is hard-coded to the V1K checkpoint key. Hunyuan3D-Paint's source-level placement logic still requires supported-host validation before treating its multi-GPU behavior as production-ready.
-- Paint3D child-stage processes remain single-GPU and are not declared multi-GPU capable. SkinTokens, PartUV, and ARDY retain their existing single-device inference paths until their own adapters implement and verify actual sharding.
+- Texture generation runs inside the selected model's adapter after raw mesh inference, using already-loaded weights. Hunyuan3D-Paint v2.1 texture adapter operates in a dedicated worker process.
 - Rigging stores native FBX plus a GLB viewport artifact. The viewer obeys canonical artifact-format query values, and rigged geometry invalidates the previous thumbnail.
 
 
@@ -183,7 +183,7 @@ flowchart TD
     IN --> TEXTURE{"Textured Generation enabled?"}:::guard
     TEXTURE -->|No| RAW["Keep raw master<br/>No texture stage"]:::output
     TEXTURE -->|Yes| SIZE{"Requested atlas preset"}:::guard
-    SIZE -->|1K / 2K| PAINT3D["Paint3D<br/>Coarse generation + UV refinement"]:::process
+    SIZE -->|All resolutions| HUNYUAN["Hunyuan3D-Paint v2.1<br/>Texture generation with RealESRGAN"]:::process
     SIZE -->|4K / 8K| HUNYUAN["Hunyuan3D-Paint v2.1<br/>RealESRGAN enabled internally"]:::process
     PAINT3D --> VERIFY["Inspect embedded base-colour atlas<br/>Require exact requested square size"]:::process
     HUNYUAN --> VERIFY
@@ -200,7 +200,7 @@ flowchart TD
     IN --> TEXTURE{"Textured Generation enabled?"}:::guard
     TEXTURE -->|No| RAW["Keep raw master<br/>No texture stage"]:::output
     TEXTURE -->|Yes| SIZE{"Requested atlas preset"}:::guard
-    SIZE -->|1K / 2K| PAINT3D["Paint3D<br/>Coarse + UV refinement"]:::process
+    SIZE -->|All resolutions| HUNYUAN[\"Hunyuan3D-Paint v2.1<br/>Texture generation with RealESRGAN\"]:::process
     SIZE -->|4K / 8K| HUNYUAN["Hunyuan3D-Paint v2.1<br/>RealESRGAN enabled internally"]:::process
     PAINT3D --> VERIFY["Inspect embedded base-colour atlas<br/>Require exact requested dimensions"]:::process
     HUNYUAN --> VERIFY

@@ -205,11 +205,11 @@ Universal motion specifications compatible with `motion/react`:
 - `components/Providers.tsx`: Root providers (Theme, Toast, etc.).
 
 ### Texture Studio & Generation Panel Components
-- `TexturePanel.tsx`: Atlas resolution presets (1K, 2K, 4K, 8K), automatic engine routing (Paint3D for 1K/2K, Hunyuan3D-Paint for 4K/8K), reference image binding/upload, PBR map inspection. RealESRGAN runs as part of Hunyuan Paint; there is no separate UI toggle.
+- `TexturePanel.tsx`: Atlas resolution presets (1K, 2K, 4K, 8K), automatic engine routing to Hunyuan3D-Paint v2.1, reference image binding/upload, PBR map inspection. RealESRGAN runs as part of Hunyuan Paint; there is no separate UI toggle.
 - `GeneratePanel.tsx`: Simplified Studio Interface with single Target Polycount / Output Preset card (six canonical preset chips derived from the backend catalogue), locked model inference profiles, single postprocessing master switch, and clean Advanced production drawer. Universal Textured Generation toggle for all image-to-3D geometry models, atlas resolution preset selector, VRAM warning for 4K/8K.
 - Source-generation controls output raw geometry; texturing runs as a separate, optional, non-destructive stage preserving `master/source.glb`.
 - `systemStats`: Real-time GPU/VRAM telemetry in texture panel
-- Spot-mask mode draws to a separate UV mask canvas; localized inference remains visibly unavailable until supported by Paint3D/Hunyuan adapter calls.
+- Spot-mask mode draws to a separate UV mask canvas; localized inference remains visibly unavailable until supported by Hunyuan adapter calls.
 - UV Inspector is bound to the loaded viewport mesh's UV attributes; sampled edges are for responsiveness and only computed counts/bounds are shown.
 
 ### Simplified Generate Studio Panel & Production Drawer (GeneratePanel.tsx)
@@ -288,7 +288,9 @@ There is no `output_preset` body field and no `auto_optimize` field. The output 
 
 ---
 
-## 5. Centralized Texture Pipeline Flow (Paint3D & Hunyuan3D-Paint)
+## 5. Texture Pipeline Flow (Hunyuan3D-Paint)
+
+Texture generation runs inside the selected model's adapter after raw mesh inference, using already-loaded weights (no second weights load for models that share the texture-capable adapter).
 
 ```mermaid
 flowchart TD
@@ -301,7 +303,7 @@ flowchart TD
     IN --> TEXTURE{"Textured Generation enabled?"}:::guard
     TEXTURE -->|No| RAW["Keep raw master<br/>No texture stage"]:::output
     TEXTURE -->|Yes| SIZE{"Requested atlas preset"}:::guard
-    SIZE -->|1K / 2K| PAINT3D["Paint3D<br/>Coarse generation + UV refinement"]:::process
+    SIZE -->|All resolutions| HUNYUAN["Hunyuan3D-Paint v2.1<br/>Texture generation with RealESRGAN"]:::process
     SIZE -->|4K / 8K| HUNYUAN["Hunyuan3D-Paint v2.1<br/>RealESRGAN enabled internally"]:::process
     PAINT3D --> VERIFY["Inspect embedded base-colour atlas<br/>Require exact requested square size"]:::process
     HUNYUAN --> VERIFY
@@ -318,7 +320,7 @@ flowchart TD
     IN --> TEXTURE{"Textured Generation enabled?"}:::guard
     TEXTURE -->|No| RAW["Keep raw master<br/>No texture stage"]:::output
     TEXTURE -->|Yes| SIZE{"Requested atlas preset"}:::guard
-    SIZE -->|1K / 2K| PAINT3D["Paint3D<br/>Coarse generation + UV refinement"]:::process
+    SIZE -->|All resolutions| HUNYUAN["Hunyuan3D-Paint v2.1<br/>Texture generation with RealESRGAN"]:::process
     SIZE -->|4K / 8K| HUNYUAN["Hunyuan3D-Paint v2.1<br/>RealESRGAN enabled internally"]:::process
     PAINT3D --> VERIFY["Inspect embedded base-colour atlas<br/>Require exact requested square size"]:::process
     HUNYUAN --> VERIFY

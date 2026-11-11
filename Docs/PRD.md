@@ -36,7 +36,7 @@ Create a centralized, local AI 3D asset factory that takes a reference image and
 
 ### 2. Centralized PBR Texture Pipeline & Texture Studio
 - **Centralized Texture Routing**: Automatic model selection based on user-visible output resolution preset:
-  - **1K / 2K**: Paint3D (`OpenTexture/Paint3D`) coarse-to-fine UV texture diffusion
+  - **1K / 2K / 4K / 8K**: Hunyuan3D-Paint v2.1 texture generation with RealESRGAN
   - **4K / 8K**: Hunyuan3D-Paint-v2-1 with RealESRGAN x4+ enhancement
 - **Universal Texture Toggle**: Single Textured Generation toggle available across all image-to-3D geometry models.
 - **Durable Reference Image Preservation**: Passes the original reference image directly to the selected texture adapter along with the raw mesh.
@@ -177,7 +177,6 @@ flowchart TB
         TRIPO["TripoSG<br/>High-Fidelity Image-to-Mesh"]:::adapters
         UNIQ["Unique3D<br/>Multi-View Diffusion"]:::adapters
         PIXAL["Pixal3D<br/>Pixel-Aligned Projection"]:::adapters
-        P3D["Paint3D<br/>Coarse-to-Fine Texture"]:::adapters
         ARDY["ARDY<br/>Motion AI"]:::adapters
         UR["SkinTokens<br/>Auto-Rigging"]:::adapters
         FM["FastMesh<br/>Retopology"]:::adapters

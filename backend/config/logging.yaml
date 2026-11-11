@@ -1,26 +1,32 @@
 # All Python services and workers write to repository-root logs/master.log.
 # core.config.setup_logging resolves the filename absolutely so CWD does not matter.
+# Format: timestamp LEVEL   logger.name      [job=<job_id>] [stage=<stage>]   key=value key=value message
 version: 1
 disable_existing_loggers: false
 
 formatters:
   default:
-    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format: "%(asctime)s %(levelname)-8s %(name)-20s [job=%(job_id)s] [stage=%(stage)s] %(message)s"
     datefmt: "%Y-%m-%d %H:%M:%S"
   detailed:
-    format: "%(asctime)s - %(name)s - %(levelname)s - %(module)s:%(lineno)d - %(funcName)s - %(message)s"
+    format: "%(asctime)s %(levelname)-8s %(name)-20s [job=%(job_id)s] [stage=%(stage)s] %(module)s:%(lineno)d - %(funcName)s - %(message)s"
     datefmt: "%Y-%m-%d %H:%M:%S"
   simple:
-    format: "%(levelname)s - %(name)s - %(message)s"
+    format: "%(levelname)-8s %(name)-20s [job=%(job_id)s] [stage=%(stage)s] %(message)s"
+
+filters:
+  job_context:
+    () -> backend.core.logging_filters.JobContextFilter
 
 handlers:
   master_file:
     class: logging.FileHandler
     level: DEBUG
-    formatter: detailed
+    formatter: default
     filename: logs/master.log
     mode: a
     encoding: utf-8
+    filters: [job_context]
 
 loggers:
   "":  # Root logger
@@ -44,11 +50,11 @@ loggers:
     handlers: [master_file]
     propagate: false
   adapters:
-    level: INFO
+    level: DEBUG
     handlers: [master_file]
     propagate: false
   postprocess:
-    level: INFO
+    level: DEBUG
     handlers: [master_file]
     propagate: false
   uvicorn:

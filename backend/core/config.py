@@ -73,6 +73,7 @@ if torch is not None and torch.cuda.is_available():
         pass
 
 import yaml
+from backend.core.logging_filters import JobContextFilter
 from pydantic import Field, field_validator
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -598,15 +599,28 @@ def setup_logging(config: LoggingConfig):
                 handler["filename"] = str(master_log)
         try:
             logging.config.dictConfig(dict_config)
+            # Belt-and-suspenders: ensure JobContextFilter is attached to every
+            # handler so job_id/stage/duration_ms defaults are always present,
+            # even if the YAML filter reference is dropped later.
+            for handler in logging.getLogger().handlers:
+                if not any(isinstance(f, JobContextFilter) for f in handler.filters):
+                    handler.addFilter(JobContextFilter())
+            for name, lg in logging.Logger.manager.loggerDict.items():
+                if isinstance(lg, logging.Logger):
+                    for handler in lg.handlers:
+                        if not any(isinstance(f, JobContextFilter) for f in handler.filters):
+                            handler.addFilter(JobContextFilter())
             logging.getLogger(__name__).info("Logging configured: %s", master_log)
             return
         except Exception:
             logging.getLogger(__name__).exception("Failed to load YAML logging config; using the same master log")
 
+    handler = logging.FileHandler(master_log, mode="a", encoding="utf-8")
+    handler.addFilter(JobContextFilter())
     logging.basicConfig(
         level=getattr(logging, config.level.upper(), logging.INFO),
         format=config.format,
-        handlers=[logging.FileHandler(master_log, mode="a", encoding="utf-8")],
+        handlers=[handler],
         force=True,
     )
     logging.getLogger(__name__).info("Logging configured: %s", master_log)

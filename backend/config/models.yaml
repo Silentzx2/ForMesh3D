@@ -564,33 +564,11 @@ image_mesh_painting:
       multiview: false
       multi_gpu: true
       multi_gpu_strategy: accelerate_component_dispatch
+      cpu_offload: true
     vram_requirement: 12000  # MB — configured scheduler reservation, not a measured peak-memory guarantee
     supported_inputs: ["mesh", "text", "image"]
     supported_outputs: ["glb", "obj"]
     model_path: "backend/pretrained/tencent/Hunyuan3D-2.1"
-    enabled: true
-    max_workers: 1
-
-  # Active Paint3D generated-config recipe: stage-1 txt2img 40/CFG 7.0, stage-1 inpaint 40/CFG 3.0,
-  # stage-2 UV inpaint 40/CFG 3.0, and stage-2 UV img2img 40/CFG 7.0; supported atlas sizes are 1K/2K.
-  # These values describe actual per-job YAML fields, not a single two-stage step count. Do not change without owner approval.
-  paint3d:
-    model_name: "Paint3D"
-    upstream_repository: null
-    upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
-    checkpoint_license: "unverified"
-    capabilities:
-      native_topology: false
-      output_resolution: null
-      texture_generation: true
-      texture_refine: true
-      multiview: false
-      supported_resolutions: [1024, 2048]
-      # Paint3D stages run in isolated single-GPU subprocesses; aggregate VRAM is not model sharding.
-    vram_requirement: 12000  # MB
-    supported_inputs: ["mesh", "image"]
-    supported_outputs: ["glb", "obj"]
-    model_path: "backend/pretrained/Paint3D"
     enabled: true
     max_workers: 1
 

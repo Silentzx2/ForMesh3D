@@ -37,7 +37,7 @@ DEFAULT_ADAPTER_CLASS_MAP = {
     "hunyuan3d_paint_v21_image_mesh_painting": "Hunyuan3DPaintV21ImageMeshPaintingAdapter",
     "trellis_image_mesh_painting": "TrellisImageMeshPaintingAdapter",
     "trellis2_image_mesh_painting": "Trellis2ImageMeshPaintingAdapter",
-    "paint3d": "Paint3DAdapter",
+
     # Auto-Rig
     "skintokens_auto_rigging": "SkinTokensAdapter",
     "unirig_auto_rig": "SkinTokensAdapter",

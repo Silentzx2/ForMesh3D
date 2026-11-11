@@ -9,6 +9,7 @@ import asyncio
 import logging
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from uuid import uuid4
 from typing import Any, Dict, List, Optional
@@ -363,6 +364,7 @@ class ImageToRawMeshRequest(BaseModel):
     bake_normal_maps: bool = Field(True, description="Bake high-to-low detail maps when supported")
     texture_enabled: Optional[bool] = None
     generate_texture: Optional[bool] = None
+    texture_settings: Optional[dict] = Field(None, description="Model-specific texture settings passed to the adapter's texture pipeline")
     low_vram: Optional[bool] = Field(None, description="Enable low-VRAM execution mode (<= 15GB VRAM via sequential offload). Set False to run full 24GB in-memory pipeline.")
     output_format: str = Field("glb", description="Output mesh format")
     quality_mode: Optional[str] = Field("high", description="Target quality budget")
@@ -568,6 +570,7 @@ class ImageToTexturedMeshRequest(BaseModel):
     bake_normal_maps: bool = Field(True, description="Bake high-to-low detail maps when supported")
     texture_enabled: Optional[bool] = None
     generate_texture: Optional[bool] = None
+    texture_settings: Optional[dict] = Field(None, description="Model-specific texture settings passed to the adapter's texture pipeline")
     low_vram: Optional[bool] = Field(None, description="Enable low-VRAM execution mode (<= 15GB VRAM via sequential offload). Set False to run full 24GB in-memory pipeline.")
     output_format: str = Field("glb", description="Output mesh format")
     quality_mode: Optional[str] = Field("high", description="Target quality budget")
@@ -750,7 +753,7 @@ class ImageMeshPaintingRequest(BaseModel):
         "trellis_image_mesh_painting", description="Model name for mesh generation"
     )
     text_prompt: Optional[str] = Field(
-        None, description="Optional Paint3D text prompt; Hunyuan3D-Paint is reference-image guided"
+        None, description="Optional text prompt; Hunyuan3D-Paint is reference-image guided"
     )
     model_parameters: Optional[dict] = Field(
         None,
@@ -1130,6 +1133,14 @@ async def image_to_raw_mesh(
     Returns:
         Job information for the mesh generation task
     """
+    t0 = time.time()
+    logger.info(
+        "[stage=receive] image_file_id=%s model_preference=%s texture_enabled=%s enable_postprocess=%s",
+        mesh_request.image_file_id,
+        mesh_request.model_preference,
+        mesh_request.texture_enabled,
+        mesh_request.enable_postprocess,
+    )
     tracked_temp_dirs: List[str] = []
     try:
         user_id = None
@@ -1305,6 +1316,7 @@ async def image_to_raw_mesh(
             params.pop("generate_texture", None),
             params.pop("generateTexture", None),
             params.pop("auto_paint", None),
+            params.pop("texture_settings", None),
         ]
         top_level_texture_flags = [mesh_request.texture_enabled, mesh_request.generate_texture]
         texture_enabled = next(
@@ -1400,6 +1412,7 @@ async def image_to_raw_mesh(
                 "texture_resolution": texture_resolution,
                 "bake_normal_maps": mesh_request.bake_normal_maps,
                 "texture_enabled": texture_enabled,
+                "texture_settings": mesh_request.texture_settings,
                 "intent": mesh_request.intent,
                 "mesh_style": getattr(mesh_request, "mesh_style", "auto") or "auto",
                 "requested_quality": req_qual,
@@ -1451,6 +1464,7 @@ async def image_to_raw_mesh(
                 "texture_resolution": texture_resolution,
                 "bake_normal_maps": mesh_request.bake_normal_maps,
                 "texture_enabled": texture_enabled,
+                "texture_settings": mesh_request.texture_settings,
                 "reference_image_path": original_image_path,
                 "physics_enabled": physics_enabled,
                 "physics_config": mesh_request.physics_config,
@@ -1485,11 +1499,14 @@ async def image_to_raw_mesh(
 
         job_id = await scheduler.schedule_job(job_request)
 
+        duration_ms = int((time.time() - t0) * 1000)
         logger.info(
-            "Image-to-raw-mesh job queued successfully: job_id=%s model=%s image_file_id=%s",
+            "[job=%s] [stage=dispatch] status=queued duration_ms=%s model=%s image_file_id=%s texture_enabled=%s",
             job_id,
+            duration_ms,
             mesh_request.model_preference,
             mesh_request.image_file_id,
+            mesh_request.texture_enabled,
         )
         return MeshGenerationResponse(
             job_id=job_id,
@@ -1745,6 +1762,7 @@ async def image_to_textured_mesh(
             params.pop("generate_texture", None),
             params.pop("generateTexture", None),
             params.pop("auto_paint", None),
+            params.pop("texture_settings", None),
         ]
         top_level_texture_flags = [mesh_request.texture_enabled, mesh_request.generate_texture]
         texture_enabled = next(
@@ -1815,6 +1833,7 @@ async def image_to_textured_mesh(
                 "production_texture_resolution": texture_resolution,
                 "bake_normal_maps": mesh_request.bake_normal_maps,
                 "texture_enabled": texture_enabled,
+                "texture_settings": mesh_request.texture_settings,
                 "intent": mesh_request.intent,
                 "mesh_style": getattr(mesh_request, "mesh_style", "auto") or "auto",
                 "requested_quality": req_qual,
@@ -1865,6 +1884,7 @@ async def image_to_textured_mesh(
                 "texture_resolution": texture_resolution,
                 "bake_normal_maps": mesh_request.bake_normal_maps,
                 "texture_enabled": texture_enabled,
+                "texture_settings": mesh_request.texture_settings,
                 "reference_image_path": original_image_path,
                 "physics_enabled": physics_enabled,
                 "physics_config": mesh_request.physics_config,
@@ -1944,16 +1964,13 @@ async def image_mesh_painting(
         if mesh_request.mask_path or mesh_request.mask_base64 or mesh_request.mask_file_id:
             raise HTTPException(
                 status_code=422,
-                detail="Localized UV-mask retexturing is not supported by Paint3D/Hunyuan3D-Paint yet. Submit a full-mesh texture request without a mask.",
+                detail="Localized UV-mask retexturing is not supported by Hunyuan3D-Paint yet. Submit a full-mesh texture request without a mask.",
             )
 
-        # Resolution routing: 1K/2K strictly routes to Paint3D, 4K/8K strictly routes to Hunyuan3D-Paint-v2-1
+        # All resolutions route to Hunyuan3D-Paint v2.1; Paint3D removed from main repo.
         model_preference = mesh_request.model_preference
         if model_preference in ("trellis_image_mesh_painting", "auto", "default", None, ""):
-            if mesh_request.texture_resolution >= 4096:
-                model_preference = "hunyuan3d_paint_v21_image_mesh_painting"
-            else:
-                model_preference = "paint3d_image_mesh_painting"
+            model_preference = "hunyuan3d_paint_v21_image_mesh_painting"
 
         # Validate model preference
         validate_model_preference(

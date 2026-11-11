@@ -466,6 +466,7 @@ export interface GenerationSettings {
   texture_enabled?: boolean;
   textureEnabled?: boolean;
   texture_resolution?: '1K' | '2K' | '4K' | '8K';
+  texture_settings?: Record<string, any>;
   textureResolution?: '1K' | '2K' | '4K' | '8K';
   targetPolycount?: number;
   target_polycount?: number;

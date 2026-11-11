@@ -61,6 +61,7 @@ class Hunyuan3DV21ImageToRawMeshAdapter(BaseModel):
         self.version = "1.0"
         self.experimental = False
         self._pipeline: Any = None
+        self._paint_pipeline: Any = None
 
     def _load_model(self) -> Any:
         # Make the vendored hunyuan3d-2 source importable in the worker process,
@@ -70,6 +71,7 @@ class Hunyuan3DV21ImageToRawMeshAdapter(BaseModel):
         if _hunyuan2_root not in sys.path:
             sys.path.insert(0, _hunyuan2_root)
         from hy3dgen.shapegen.pipelines import Hunyuan3DDiTFlowMatchingPipeline
+        from hy3dgen.texgen.pipelines import Hunyuan3DPaintPipeline
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading Hunyuan3D-2.1 legacy pipeline from %s", weights_dir)
@@ -102,10 +104,21 @@ class Hunyuan3DV21ImageToRawMeshAdapter(BaseModel):
                 logger.warning("Could not enable model CPU offload for Hunyuan3D v2.1 Legacy: %s", offload_err)
         self._pipeline = pipeline
         self.model = pipeline
+
+        # Load paint pipeline from the same weights directory — one weights load,
+        # two pipelines (shape + paint). Enables raw + texture in a single _load_model call.
+        try:
+            paint_pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(weights_dir_path))
+            self._paint_pipeline = paint_pipeline
+            logger.info("Hunyuan3D-2.1 paint pipeline loaded from %s", weights_dir_path)
+        except Exception as paint_err:
+            logger.warning("Hunyuan3D-2.1 paint pipeline not loaded (texture disabled): %s", paint_err)
+            self._paint_pipeline = None
         return pipeline
 
     def _unload_model(self) -> None:
         self._pipeline = None
+        self._paint_pipeline = None
         self.model = None
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
@@ -175,6 +188,37 @@ class Hunyuan3DV21ImageToRawMeshAdapter(BaseModel):
 
         out = Path(tempfile.mkdtemp()) / f"hunyuan3d_v21_{seed}.glb"
         mesh.export(str(out))
+
+        # Texture pipeline: run paint on the raw mesh using already-loaded weights
+        # (single _load_model call loaded both shape + paint pipelines).
+        texture_enabled = bool(inputs.get("texture_enabled"))
+        texture_image_path = inputs.get("image_path") or inputs.get("image")
+        if texture_enabled and texture_image_path and Path(texture_image_path).is_file() and self._paint_pipeline is not None:
+            try:
+                from PIL import Image
+                image = Image.open(texture_image_path)
+                with ctx:
+                    textured = self._paint_pipeline(mesh=mesh, image=image)
+                textured_out = Path(tempfile.mkdtemp()) / f"hunyuan3d_v21_textured_{seed}.glb"
+                if hasattr(textured, "export"):
+                    textured.export(str(textured_out))
+                    return {
+                        "success": True,
+                        "output_mesh_path": str(out),
+                        "mesh_path": str(out),
+                        "textured_mesh_path": str(textured_out),
+                        "texture_enabled": True,
+                        "generation_info": {
+                            "seed": seed,
+                            "num_inference_steps": 50,
+                            "guidance_scale": 7.5,
+                            "octree_resolution": 512,
+                            "num_chunks": 80000,
+                        },
+                    }
+                logger.warning("Paint pipeline returned non-exportable object; returning raw mesh only")
+            except Exception as tex_err:
+                logger.warning("Hunyuan3D-2.1 texture generation failed: %s", tex_err, exc_info=True)
 
         return {
             "success": True,

@@ -46,10 +46,7 @@ export function buildTextureGenerationParameters(
   sourceReference?: { url?: string | null; fileId?: string | null },
 ): TextureGenerationRequest {
   const resolution = settings.resolution || '2K';
-  const isHighResolution = resolution === '4K' || resolution === '8K';
-  const modelPreference = isHighResolution
-    ? 'hunyuan3d_paint_v21_image_mesh_painting'
-    : 'paint3d';
+  const modelPreference = 'hunyuan3d_paint_v21_image_mesh_painting';
   const referenceImage = settings.referenceImage || sourceReference?.url;
   const referenceFileId = settings.referenceImageFileId || sourceReference?.fileId;
 
@@ -75,9 +72,9 @@ export function buildTextureGenerationParameters(
     body.image_path = referenceImage;
   }
 
-  // Paint3D accepts text guidance; Hunyuan3D-Paint is reference-image guided.
+  // All resolutions route to Hunyuan3D-Paint; text prompt is reference-image guided.
   const prompt = settings.prompt?.trim();
-  if (prompt && !isHighResolution) {
+  if (prompt) {
     body.text_prompt = prompt;
   }
 

@@ -5,7 +5,7 @@
 # 
 # Available models:
 #   hunyuan2mini, hunyuan21, trellis, trellis-text, trellis2,
-#   skintokens, partuv, fastmesh, triposg, ardy, unique3d, paint3d, pixal3d, taoflowforge, misc, all
+#   skintokens, partuv, fastmesh, triposg, ardy, unique3d, pixal3d, taoflowforge, misc, all
 #
 # Options:
 #   -h, --help              Show this help message
@@ -119,7 +119,7 @@ VERIFY_ONLY=false
 FORCE_DOWNLOAD=false
 
 # Available models
-AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "fastmesh" "triposg" "ardy" "unique3d" "paint3d" "pixal3d" "taoflowforge" "misc" "all")
+AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "fastmesh" "triposg" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
 
 show_help() {
     cat << EOF
@@ -149,7 +149,6 @@ Available models:
     triposg            - TripoSG and RMBG models
     ardy               - ARDY motion generation models
     unique3d           - Unique3D high-fidelity single-image to 3D model
-    paint3d            - Paint3D 1K/2K UV texture diffusion model
     pixal3d            - Pixal3D pixel-aligned image to 3D generation model
     taoflowforge       - TaoFlowForge progressive native mesh generation model (Alibaba)
     misc               - Miscellaneous utility models (RealESRGAN, DINOv2)
@@ -835,62 +834,7 @@ download_pixal3d() {
     print_success "Pixal3D model downloaded and verified successfully"
 }
 
-# Function to download Paint3D models
-download_paint3d() {
-    print_info "========================================"
-    print_info "Downloading Paint3D Models"
-    print_info "========================================"
-
-    local model_dir="$PRETRAINED_DIR/Paint3D"
-    local uv_control_dir="$model_dir/UVPos_Control"
-
-    if [ "$FORCE_DOWNLOAD" = false ] && \
-       verify_file "$uv_control_dir/diffusion_pytorch_model.bin" 100000000 && \
-       verify_file "$uv_control_dir/config.json"; then
-        print_info "Paint3D UV position ControlNet checkpoint already exists and verified"
-        return 0
-    fi
-
-    mkdir -p "$uv_control_dir"
-    print_info "Downloading Paint3D checkpoints from Hugging Face..."
-
-    local download_success=false
-    # First attempt: official GeorgeQi/Paint3d_UVPos_Control checkpoint
-    if hf_download GeorgeQi/Paint3d_UVPos_Control --local-dir "$uv_control_dir"; then
-        download_success=true
-        print_success "Paint3D UV Position ControlNet checkpoint downloaded"
-    fi
-
-    # Fallback or additional files from OpenTexture/Paint3D if available
-    if [ "$download_success" = false ]; then
-        print_info "Trying OpenTexture/Paint3D repository..."
-        if hf_download OpenTexture/Paint3D --local-dir "$model_dir"; then
-            download_success=true
-            if [ -f "$model_dir/diffusion_pytorch_model.bin" ]; then
-                cp -f "$model_dir/diffusion_pytorch_model.bin" "$uv_control_dir/"
-                [ -f "$model_dir/config.json" ] && cp -f "$model_dir/config.json" "$uv_control_dir/"
-            fi
-            print_success "Paint3D downloaded from OpenTexture/Paint3D"
-        fi
-    fi
-
-    # Verification logic checking mandatory files exist
-    if verify_file "$uv_control_dir/diffusion_pytorch_model.bin" 100000000 && \
-       verify_file "$uv_control_dir/config.json"; then
-        print_success "Paint3D mandatory checkpoint files verified"
-        return 0
-    elif [ -f "$model_dir/diffusion_pytorch_model.bin" ]; then
-        cp -f "$model_dir/diffusion_pytorch_model.bin" "$uv_control_dir/"
-        [ -f "$model_dir/config.json" ] && cp -f "$model_dir/config.json" "$uv_control_dir/"
-        print_success "Paint3D checkpoint files verified"
-        return 0
-    else
-        print_error "Paint3D mandatory checkpoint verification failed: required model files not found"
-        return 1
-    fi
-}
-
-# Function to download TaoFlowForge models
+# Function to download Pixal3D models
 download_taoflowforge() {
     print_info "========================================"
     print_info "Downloading TaoFlowForge Models"
@@ -1136,13 +1080,6 @@ verify_all_models() {
     # Also verify the thirdparty copy expected by the Paint adapter.
     verify_file "$PROJECT_ROOT/backend/thirdparty/hunyuan3d-paint-v2-1/hy3dpaint/ckpt/RealESRGAN_x4plus.pth" 50000000 || all_verified=false
 
-    print_info "Checking Paint3D..."
-    if [ -d "$PRETRAINED_DIR/Paint3D" ]; then
-        verify_directory "$PRETRAINED_DIR/Paint3D" 1 || all_verified=false
-    else
-        print_warning "Paint3D not found (can be downloaded via -m paint3d)"
-    fi
-
     print_info "Checking Pixal3D..."
     if [ -d "$PRETRAINED_DIR/Pixal3D" ]; then
         pixal3d_checkpoint_complete "$PRETRAINED_DIR/Pixal3D" || all_verified=false
@@ -1242,9 +1179,6 @@ for model in "${MODELS_ARRAY[@]}"; do
         "unique3d")
             download_unique3d
             ;;
-        "paint3d")
-            download_paint3d
-            ;;
         "pixal3d")
             download_pixal3d
             ;;
@@ -1267,7 +1201,6 @@ for model in "${MODELS_ARRAY[@]}"; do
             download_triposg
             download_ardy
             download_unique3d
-            download_paint3d
             download_pixal3d
             download_misc
             ;;

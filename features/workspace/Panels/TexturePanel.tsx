@@ -280,15 +280,13 @@ export const TexturePanel: React.FC = () => {
 
   const TEXTURE_MODEL_LABELS: Record<string, { label: string; tag: string; note: string; badge: string }> = {
     'hunyuan3d_paint_v21_image_mesh_painting': { label: 'Hunyuan3D-Paint v2.1', tag: 'PBR Multi-view', note: 'Multi-view projection & full PBR maps', badge: '12GB VRAM' },
-    'paint3d': { label: 'Paint3D Multi-Stage', tag: 'Fast UV Inpaint', note: 'Coarse texture & depth-guided UV inpainting', badge: '12GB VRAM' },
     'trellis_image_mesh_painting': { label: 'TRELLIS Paint', tag: 'Sharp Texture', note: 'Structured 2048 texture atlas', badge: '11GB VRAM' },
-  };
+};
 
-  const KNOWN_TEXTURE_MODEL_IDS = [
+const KNOWN_TEXTURE_MODEL_IDS = [
     'hunyuan3d_paint_v21_image_mesh_painting',
-    'paint3d',
     'trellis_image_mesh_painting',
-  ];
+];
 
   const textureModels = useMemo(() => {
     const rawIds = [

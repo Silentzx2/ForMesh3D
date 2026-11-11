@@ -155,15 +155,6 @@ class ModelFactory:
             "module": "adapters.unique3d_adapter",
             "class": "Unique3DImageToRawMeshAdapter",
         },
-        # Paint3D adapters
-        "paint3d": {
-            "module": "adapters.paint3d_adapter",
-            "class": "Paint3DAdapter",
-        },
-        "paint3d_image_mesh_painting": {
-            "module": "adapters.paint3d_adapter",
-            "class": "Paint3DAdapter",
-        },
         # Pixal3D adapter
         "pixal3d_image_to_raw_mesh": {
             "module": "adapters.pixal3d_adapter",

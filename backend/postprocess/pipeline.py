@@ -278,297 +278,20 @@ def _execute_texture_stage(
     cancel_checker: CancelChecker = None,
     progress: GenerationProgress = None,
 ) -> Dict[str, Any]:
-    """Run centralized texture stage using Paint3D (1K/2K), Hunyuan3D-Paint v2.1 (4K/8K), or TRELLIS.2."""
-    _check_cancelled(cancel_checker)
-    paint_preference = str(
-        job_inputs.get("paint_model_preference")
-        or job_inputs.get("paint_model")
-        or job_metadata.get("paint_model_preference")
-        or job_metadata.get("paint_model")
-        or ""
-    ).strip().lower()
+    """Texture pipeline moved into the model adapter (single weights load).
 
-    if paint_preference in {"trellis2", "trellis2_paint", "trellis2_image_mesh_painting"}:
-        model_id = "trellis2_image_mesh_painting"
-    else:
-        model_id = "paint3d" if preset_label in {"1K", "2K"} else "hunyuan3d_paint_v21"
-
-    ref_image_path = _resolve_reference_image(job_inputs, job_metadata)
-    if not ref_image_path or not ref_image_path.is_file():
-        err_msg = f"Original reference image not found or inaccessible for texturing: {ref_image_path}"
-        logger.warning("[POSTPROCESS TEXTURE] %s", err_msg)
-        return {
-            "status": "failed",
-            "error": err_msg,
-            "model": model_id,
-            "preset": preset_label,
-            "target_atlas_size": target_atlas_size,
-        }
-
-    texture_dir = asset_dir / "textures"
-    texture_dir.mkdir(parents=True, exist_ok=True)
-    textured_glb_path = texture_dir / f"{base_name}_textured.glb"
-
-    try:
-        if model_id == "trellis2_image_mesh_painting":
-            adapter = None
-            try:
-                from core.scheduler.model_factory import ModelFactory
-                for key in ("trellis2_image_mesh_painting", "trellis2_paint"):
-                    if key in ModelFactory.ADAPTER_REGISTRY:
-                        adapter = ModelFactory.create_model_from_config({
-                            "model_id": key,
-                            "vram_requirement": 16000,
-                            "feature_type": "image_mesh_painting",
-                        })
-                        break
-            except Exception as e:
-                logger.debug("ModelFactory Trellis2-Paint lookup: %s", e)
-
-            if adapter is None:
-                try:
-                    from backend.adapters.trellis2_paint_adapter import Trellis2ImageMeshPaintingAdapter
-                    adapter = Trellis2ImageMeshPaintingAdapter(vram_requirement=16000)
-                except Exception as exc:
-                    raise RuntimeError(f"TRELLIS.2 paint adapter could not be loaded: {exc}")
-
-            _check_cancelled(cancel_checker)
-            should_unload_t2 = False
-            from backend.core.models.base import ModelStatus
-            if getattr(adapter, "status", None) in (ModelStatus.UNLOADED, ModelStatus.ERROR):
-                gpu_id = getattr(adapter, "gpu_id", None)
-                if gpu_id is None:
-                    import os
-                    cuda_vis = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
-                    try:
-                        gpu_id = int(cuda_vis.split(",")[0])
-                    except Exception:
-                        gpu_id = 0
-                _emit(progress, 0.66, "texture", f"Loading {model_id} model on GPU {gpu_id}...")
-                adapter.load(gpu_id)
-                _emit(progress, 0.68, "texture", f"{model_id} model loaded successfully")
-                should_unload_t2 = True
-            try:
-                _emit(progress, 0.70, "texture", "Texturing mesh with TRELLIS.2...")
-                res = adapter.process({
-                    "mesh_path": str(target_mesh_path),
-                    "image_path": str(ref_image_path),
-                    "output_format": "glb",
-                    "extension_webp": True,
-                    "progress_callback": lambda stage, frac, msg: _emit(progress, frac, stage, msg),
-                    "timeout_seconds": 1800,
-                    "cancel_checker": cancel_checker,
-                })
-            finally:
-                if should_unload_t2:
-                    try:
-                        adapter.unload()
-                    except Exception:
-                        pass
-            out_mesh = res.get("output_mesh_path") if isinstance(res, dict) else None
-            if not out_mesh or not Path(out_mesh).is_file():
-                raise RuntimeError(f"TRELLIS.2 paint returned no output mesh: {res}")
-            shutil.copy2(out_mesh, textured_glb_path)
-
-        elif preset_label in {"1K", "2K"}:
-            adapter = None
-            try:
-                from core.scheduler.model_factory import ModelFactory
-                for key in ("paint3d", "paint3d_image_mesh_painting"):
-                    if key in ModelFactory.ADAPTER_REGISTRY:
-                        adapter = ModelFactory.create_model_from_config({
-                            "model_id": key,
-                            "vram_requirement": 12000,
-                            "feature_type": "image_mesh_painting",
-                        })
-                        break
-            except Exception as e:
-                logger.debug("ModelFactory Paint3D lookup: %s", e)
-
-            if adapter is None:
-                import importlib
-
-                mod = importlib.import_module("backend.adapters.paint3d_adapter")
-                cls = getattr(mod, "Paint3DAdapter", None)
-                if cls:
-                    adapter = cls(vram_requirement=12000)
-
-            if adapter is None:
-                raise RuntimeError("Paint3D texture adapter is not yet registered or installed.")
-
-            _check_cancelled(cancel_checker)
-            should_unload = False
-            from core.models.base import ModelStatus
-            if getattr(adapter, "status", None) in (ModelStatus.UNLOADED, ModelStatus.ERROR):
-                # BaseModel.load() requires gpu_id; use adapter's gpu_id or default to 0
-                gpu_id = getattr(adapter, "gpu_id", None)
-                if gpu_id is None:
-                    import os
-                    cuda_vis = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
-                    try:
-                        gpu_id = int(cuda_vis.split(",")[0])
-                    except Exception:
-                        gpu_id = 0
-                _emit(progress, 0.66, "texture", f"Loading {model_id} model on GPU {gpu_id}...")
-                adapter.load(gpu_id)
-                _emit(progress, 0.68, "texture", f"{model_id} model loaded successfully")
-                should_unload = True
-            try:
-                res = adapter.process({
-                    "mesh_path": str(target_mesh_path),
-                    "image_path": str(ref_image_path),
-                    "output_format": "glb",
-                    "resolution": target_atlas_size,
-                    "texture_resolution": target_atlas_size,
-                    "progress_callback": lambda stage, frac, msg: _emit(progress, frac, stage, msg),
-                    "timeout_seconds": 1800,
-                    "cancel_checker": cancel_checker,
-                })
-            finally:
-                if should_unload:
-                    try:
-                        adapter.unload()
-                    except Exception:
-                        pass
-            out_mesh = res.get("output_mesh_path") if isinstance(res, dict) else None
-            if not out_mesh or not Path(out_mesh).is_file():
-                raise RuntimeError(f"Paint3D returned no output mesh: {res}")
-            shutil.copy2(out_mesh, textured_glb_path)
-
-        else:
-            adapter = None
-            try:
-                from core.scheduler.model_factory import ModelFactory
-                if "hunyuan3d_paint_v21_image_mesh_painting" in ModelFactory.ADAPTER_REGISTRY:
-                    adapter = ModelFactory.create_model_from_config({
-                        "model_id": "hunyuan3d_paint_v21_image_mesh_painting",
-                        "vram_requirement": 21000,
-                        "feature_type": "image_mesh_painting",
-                    })
-            except Exception as e:
-                logger.debug("ModelFactory Hunyuan3D-Paint lookup: %s", e)
-
-            if adapter is None:
-                try:
-                    from backend.adapters.hunyuan3d_paint_v21 import Hunyuan3DPaintV21ImageMeshPaintingAdapter
-                    adapter = Hunyuan3DPaintV21ImageMeshPaintingAdapter(vram_requirement=21000)
-                except Exception as exc:
-                    raise RuntimeError(f"Hunyuan3D-Paint-v2.1 adapter could not be loaded: {exc}")
-
-            _check_cancelled(cancel_checker)
-            should_unload_hy = False
-            from core.models.base import ModelStatus
-            if getattr(adapter, "status", None) in (ModelStatus.UNLOADED, ModelStatus.ERROR):
-                # BaseModel.load() requires gpu_id; use adapter's gpu_id or default to 0
-                gpu_id = getattr(adapter, "gpu_id", None)
-                if gpu_id is None:
-                    import os
-                    cuda_vis = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
-                    try:
-                        gpu_id = int(cuda_vis.split(",")[0])
-                    except Exception:
-                        gpu_id = 0
-                _emit(progress, 0.66, "texture", f"Loading {model_id} model on GPU {gpu_id}...")
-                adapter.load(gpu_id)
-                _emit(progress, 0.68, "texture", f"{model_id} model loaded successfully")
-                should_unload_hy = True
-            try:
-                hy_res = 512 if preset_label == "4K" else 768
-                res = adapter.process({
-                    "mesh_path": str(target_mesh_path),
-                    "image_path": str(ref_image_path),
-                    "output_format": "glb",
-                    "resolution": hy_res,
-                    "texture_resolution": target_atlas_size,
-                    "max_num_view": int(job_inputs.get("max_num_view") or 6),
-                    "progress_callback": lambda stage, frac, msg: _emit(progress, frac, stage, msg),
-                    "timeout_seconds": 1800,
-                    "cancel_checker": cancel_checker,
-                })
-            finally:
-                if should_unload_hy:
-                    try:
-                        adapter.unload()
-                    except Exception:
-                        pass
-            out_mesh = res.get("output_mesh_path") if isinstance(res, dict) else None
-            if not out_mesh or not Path(out_mesh).is_file():
-                raise RuntimeError(f"Hunyuan3D-Paint-v2.1 returned no output mesh: {res}")
-            shutil.copy2(out_mesh, textured_glb_path)
-
-        _check_cancelled(cancel_checker)
-
-        normalized_material_count = _normalize_textured_glb_pbr_defaults(textured_glb_path)
-        if normalized_material_count:
-            logger.info(
-                "[POSTPROCESS TEXTURE] Applied safe PBR defaults to %d albedo-only material(s).",
-                normalized_material_count,
-            )
-
-        standard_textured = texture_dir / "textured.glb"
-        if not standard_textured.exists() or standard_textured.resolve() != textured_glb_path.resolve():
-            shutil.copy2(textured_glb_path, standard_textured)
-
-        base_color = _extract_base_color_texture(textured_glb_path)
-        actual_dim = list(base_color.size) if base_color is not None else None
-        valid_dim, actual_dim, dimension_error = _validate_texture_atlas_dimension(
-            actual_dim, target_atlas_size
-        )
-        if not valid_dim:
-            raise RuntimeError(dimension_error or "Texture atlas dimensions could not be verified.")
-        assert base_color is not None
-        pbr_output_report = _run_pbr_validation(textured_glb_path, required=True)
-        base_color_degenerate = any(
-            "degenerate texture map 'base_color'" in str(warning).lower()
-            for warning in pbr_output_report.get("warnings", [])
-        )
-        if pbr_output_report.get("uv_valid") is not True:
-            uv_warnings = [
-                str(warning) for warning in pbr_output_report.get("warnings", [])
-                if "uv" in str(warning).lower()
-            ]
-            raise RuntimeError(
-                "Textured GLB has missing or invalid UV coordinates: "
-                + ("; ".join(uv_warnings) if uv_warnings else "UV validation failed.")
-            )
-        if base_color_degenerate:
-            raise RuntimeError(
-                "Textured GLB contains a degenerate base-colour atlas (uniform black or white)."
-            )
-        base_color.save(texture_dir / "base_color.png")
-
-        logger.info(
-            "[POSTPROCESS TEXTURE] Stage completed for %s: model=%s preset=%s atlas=%dx%d",
-            job_id, model_id, preset_label, actual_dim[0], actual_dim[1],
-        )
-        return {
-            "status": "completed",
-            "model": model_id,
-            "preset": preset_label,
-            "target_atlas_size": target_atlas_size,
-            "validated_atlas_dimension": actual_dim,
-            "pbr_validation": pbr_output_report,
-            "normalized_material_count": normalized_material_count,
-            "textured_glb": str(textured_glb_path),
-            "texture_maps": {p.stem: str(p) for p in texture_dir.glob("*.png")},
-        }
-
-    except InterruptedError:
-        raise
-    except Exception as exc:
-        logger.warning(
-            "Centralized texture generation failed for %s: %s; preserving raw mesh artifacts",
-            job_id, exc, exc_info=True,
-        )
-        return {
-            "status": "failed",
-            "error": str(exc),
-            "model": model_id,
-            "preset": preset_label,
-            "target_atlas_size": target_atlas_size,
-        }
-    finally:
-        _clear_gpu_cache()
+    Post-process no longer runs a centralized texture stage. Texture generation,
+    when requested, is executed by the adapter in _process_request using already
+    loaded weights. This function is retained as a no-op compatibility shim.
+    """
+    logger.info(
+        "[job=%s] [stage=texture] SKIPPED: texture pipeline moved to model adapter",
+        job_id,
+    )
+    return {
+        "status": "skipped",
+        "reason": "Texture pipeline moved to model adapter; no post-process texture stage.",
+    }
 
 
 def _storage_root() -> Path:
@@ -2797,39 +2520,34 @@ def run_postprocess_job(
         }
         logger.info("[POSTPROCESS TEXTURE] Stage skipped: textured generation not requested")
     else:
-        _save_file(glb_path, _export_glb(uv_mesh))
-        painter_display = (
-            "trellis2_paint"
-            if str(
-                job_inputs.get("paint_model_preference")
-                or job_inputs.get("paint_model")
-                or job_metadata.get("paint_model_preference")
-                or job_metadata.get("paint_model")
-                or ""
-            ).strip().lower() in {"trellis2", "trellis2_paint", "trellis2_image_mesh_painting"}
-            else ("paint3d" if preset_label in {"1K", "2K"} else "hunyuan3d_paint_v21")
-        )
-        _emit(progress, 0.65, "texture", f"Generating {preset_label} textures with {painter_display}...")
-        texture_stage_info = _execute_texture_stage(
-            job_id=job_id,
-            asset_dir=asset_dir,
-            base_name=base_name,
-            target_mesh_path=glb_path,
-            job_inputs=job_inputs,
-            job_metadata=job_metadata,
-            preset_label=preset_label,
-            target_atlas_size=target_atlas_size,
-            cancel_checker=cancel_checker,
-            progress=progress,
-        )
-        if texture_stage_info.get("status") == "completed":
+        # Texture was already generated by the adapter in a single weights load
+        # (raw + texture in _process_request). Pick up the adapter's textured
+        # output as a separate artifact; do NOT run a second texture stage.
+        adapter_textured = generation_result.get("textured_mesh_path") or generation_result.get("textured_glb")
+        if adapter_textured and Path(adapter_textured).exists():
             texture_status = "completed"
-            for k, v in texture_stage_info.get("texture_maps", {}).items():
-                texture_paths[k] = v
-        elif texture_stage_info.get("status") == "failed":
-            texture_status = "failed"
-            artifact_errors["texture"] = texture_stage_info.get("error", "Texture generation failed")
-        _clear_gpu_cache()
+            textured_artifact = Path(adapter_textured)
+            textured_dest = texture_dir / f"{base_name}_textured.glb"
+            textured_dest.write_bytes(textured_artifact.read_bytes())
+            texture_stage_info = {
+                "status": "completed",
+                "reason": "Texture generated by model adapter in single weights load",
+                "textured_glb": str(textured_dest),
+                "texture_maps": {},
+            }
+            logger.info(
+                "[POSTPROCESS TEXTURE] Stage completed using adapter textured output: %s",
+                textured_dest,
+            )
+        else:
+            texture_stage_info = {
+                "status": "skipped",
+                "reason": "Texture requested but adapter produced no textured output (paint pipeline unavailable or texture disabled in adapter)",
+            }
+            logger.warning(
+                "[POSTPROCESS TEXTURE] Stage skipped: no textured output from adapter for job %s",
+                job_id,
+            )
 
     # Determine game-ready mesh for downstream production exports (GLB, FBX, LOD chain)
     is_raw_native_passthrough = (

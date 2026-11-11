@@ -2007,7 +2007,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   const runTextureGeneration = useCallback(async () => {
     const modelPreference = textureSettings.resolution === '4K' || textureSettings.resolution === '8K'
       ? 'hunyuan3d_paint_v21_image_mesh_painting'
-      : 'paint3d';
+      : 'hunyuan3d_paint_v21_image_mesh_painting';
 
     const localTaskId = startTask('texture', 'Texture generation', undefined, modelPreference, undefined, undefined, comparisonGroupId ?? undefined, comparisonSourceUrl(currentAsset));
     const signal = activeAbortControllerRef.current?.signal;

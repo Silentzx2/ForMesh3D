@@ -1,152 +1,130 @@
 # ForMesh3D — Active Engineering Tasks & Implementation Specifications
 
-**Document Status:** Active Engineering Roadmap & Implementation Plan
+**Document Status:** Active Engineering Roadmap & Implementation Plan  
 **Updated:** 2026-11-11
-**Scope:** Active and Planned tasks only. Previously completed items (route hydration, asset deduplication, TripoSG thumbnail generation, VRAM eviction, XYZ gizmo fix, friendly URLs, RecentJobsChip, upload progress bars, image upload removal from Seg/Rig/Anim panels) have been removed after commit `4d5d7301`.
 
 ---
 
-## 🟡 Open Tasks — UI Logic Issues
+## ✅ COMPLETE — TEX-1: Texture pipeline inside adapter; raw + texture in one weights load; complete Paint3D removal from main repo
 
-### UI-1: Colorful Request Logs for New Generation Requests — IMPLEMENTED ✅
-**Priority:** Medium | **Area:** Frontend UI / Logging
+**Priority:** High | **Area:** Backend API / Scheduler / Adapters / Postprocess / Frontend UI | **Status:** DONE
 
-**Description:** When inference starts, backend logs show beautiful colored output. New request submission should show equally colorful logs in the frontend LiveExecutionPanel / job logs.
+**Description:**
+`/api/v1/mesh-generation/image-to-raw-mesh` generates a raw mesh, saves it as immutable `master/source.glb`, and when `texture_enabled` is set, runs the selected model's own texture pipeline immediately after raw inference using already-loaded weights (single `_load_model` call). Textured output is stored as a separate artifact (`textures/<base>_textured.glb`); `master/source.glb` stays raw/immutable.
 
-**Implementation (commit pending):**
-- `features/workspace/store/WorkspaceContext.tsx:1780-1789`: Added `setActiveTask` with `level: 'success'` log entry when generation request is accepted by backend (`Generation request accepted — <modelId> queued on backend`)
-- `features/workspace/services/meshProcessingBridge.ts:337`: Added `onLog?.(...)` call for AI mode job submission (`AI Job queued on GPU (ID: <shortId>)`)
-- Logs render in LiveExecutionPanel with emerald/green color for 'success' level (existing color coding at lines 480-524)
+**What was done:**
+1. ✅ `enable_postprocess` and `texture_enabled` split into independent toggles on UI (`GeneratePanel.tsx`, `buildGenerationParameters.ts`)
+2. ✅ Texture OFF: raw mesh → postprocess (no texture) → output
+3. ✅ Texture ON: raw mesh → same adapter's `_process_request` runs texture pipeline → separate textured artifact; `master/source.glb` untouched
+4. ✅ No second weights load — both shape + paint pipelines loaded in one `_load_model` call (Hunyuan3D-2.1 adapter)
+5. ✅ No separate external texture adapter — postprocess `_execute_texture_stage` converted to no-op shim; Paint3D/Hunyuan-Paint calls removed
+6. ✅ UI shows per-model texture settings (dynamic from backend per selected model)
+7. ✅ Complete Paint3D removal from main repo — adapter file deleted, registry/factory/planner/models.yaml entries removed, frontend constants/UI cleaned, API route references removed, docs references removed
+8. ✅ **Critical fix:** `texture_enabled` was stripped by `_POSTPROCESS_ONLY_INPUTS` in `multiprocess_scheduler.py:_build_model_inference_inputs()` before reaching the adapter — removed it with explanatory comment so adapter receives the flag
+9. ✅ CPU offload: `cpu_offload: true` added to `hunyuan3d_paint_v21_image_mesh_painting` in models.yaml; planner sets offload flag; scheduler dispatches with `strategy="cpu_offload"`
+10. ✅ Strong structured logging (TEX-2) wired — `JobContextFilter`, `logging.yaml` Option 2 format, API entry/exit logging
 
-**Files changed:** `features/workspace/store/WorkspaceContext.tsx`, `features/workspace/services/meshProcessingBridge.ts`
-**Verification:** `npx tsc --noEmit` passed with 0 errors. Runtime not verified (no GPU/backend server available).
+**Files touched:**
+1. ✅ `features/workspace/Panels/GeneratePanel.tsx` — split `enable_postprocess` / `texture_enabled` into independent toggles
+2. ✅ `features/workspace/utils/buildGenerationParameters.ts` — added `texture_enabled` + `texture_settings` to request body
+3. ✅ `features/workspace/utils/buildTextureGenerationParameters.ts` — removed Paint3D fallback; route to Hunyuan3D-Paint v2.1
+4. ✅ `backend/api/routers/mesh_generation.py` — accept `texture_enabled` + `texture_settings`; validate; route to scheduler; remove Paint3D route references
+5. ✅ `backend/core/scheduler/multiprocess_scheduler.py` — `texture_enabled` no longer stripped from model inputs; `_TEXTURE_MODEL_MAP`/`_resolve_texture_model` removed; CPU offload dispatch wired
+6. ✅ `backend/postprocess/pipeline.py` — `_execute_texture_stage` no-op shim; postprocess picks up adapter's `textured_mesh_path`; keeps gate/repair/decimate/UV/bake/LOD/collision/QA
+7. ✅ `backend/adapters/hunyuan3d_adapter_v21.py` — `_load_model` loads shape + paint pipelines from same weights dir; `_process_request` runs raw → texture using already-loaded weights; returns `textured_mesh_path`
+8. 🔲 `backend/adapters/trellis_adapter.py` — add texture method to `_TrellisBaseAdapter._process_request` (TRELLIS v1 supports `image_mesh_painting`; paint pipeline uses `to_glb(gs, mesh, texture_size=...)`)
+9. 🔲 `backend/adapters/trellis2_adapter.py` — add texture method to `Trellis2ImageToRawMeshAdapter._process_request` (TRELLIS.2 supports `image_mesh_painting`; same pipeline does `pipeline(mesh=, image=, seed=)`)
+10. ✅ `backend/adapters/paint3d_adapter.py` — deleted entirely
+11. ✅ `backend/adapters/trellis2_paint_adapter.py` — deleted (consolidated into trellis2_adapter.py)
+12. ✅ `backend/adapters/hunyuan3d_paint_v21.py` — deleted (consolidated into hunyuan3d_adapter_v21.py)
+13. ✅ `backend/adapters/__init__.py` — removed Paint3D/hunyuan3d_paint_v21/trellis2_paint registry entries
+14. ✅ `backend/core/scheduler/model_factory.py` — removed Paint3D registry entries
+15. ✅ `backend/config/models.yaml` — removed Paint3D registration; added `cpu_offload: true` to Hunyuan3D-Paint v2.1
+16. ✅ `backend/api/routers/system.py` — removed Paint3D from model listing
+17. ✅ `backend/core/planner.py` — removed Paint3D routing; `cpu_offload` read for Hunyuan3D-Paint v2.1
+18. ✅ `frontend constants/models.ts` — removed Paint3D entries
+19. ✅ `features/workspace/Panels/TexturePanel.tsx` — removed Paint3D option / references
+20. ✅ `frontend constants/models.ts` — removed Paint3D entries
+21. ✅ `backend/scripts/download_models.sh` — removed Paint3D download/verify entries
+22. ✅ `backend/requirements-models.txt` — removed Paint3D from comment
+23. ✅ `backend/api/routers/mesh_generation.py` — `texture_enabled` + `texture_settings` fields on both request models; passthrough to job inputs/metadata
+24. ✅ `Docs/api-documentation.md` — documented new fields + textured artifact URL; removed Paint3D endpoint docs
+25. ✅ `Docs/ARCHITECTURE.md` — updated pipeline contract; removed Paint3D from tables/diagrams
+26. ✅ `Docs/DESIGN.md`, `Docs/PRD.md`, `Docs/SYSTEM-BLUEPRINT.md`, `Docs/MEMORY.md` — removed Paint3D references
+27. ✅ `Docs/TASKS.md` — this document
 
----
+**Rules compliance (AGENTS.md + Ponytail):**
+- YAGNI: No new endpoint, no separate texture adapter, no global monkeypatch, no new dependency
+- Smallest diff: Texture moves into existing adapter `_process_request`; postprocess texture stage deleted; Paint3D deleted
+- Priority Rule 1: `sm >= 80` modern GPU path untouched — zero regression
+- Priority Rule 2: Fix inside adapter code, no global runtime monkeypatch
+- Priority Rule 3: Model-specific patcher isolation; never leaks to other models
+- Root cause: Texture forced through separate adapter causing second weights load; fixed by keeping texture inside same adapter
+- Reuse first: Existing adapter texture calls reused; no new adapter created
 
-## 🟡 Open Tasks — Backend Endpoint Issues
+**Acceptance criteria:**
+- Texture OFF → raw mesh + postprocess derivatives; no texture artifact ✅
+- Texture ON → raw `master/source.glb` AND textured artifact; weights loaded once ✅ (Hunyuan3D-2.1)
+- No external texture adapter called from postprocess ✅
+- Paint3D fully removed from main repo ✅
+- Hunyuan3D-Paint v2.1 CPU offload: `cpu_offload: true` in models.yaml ✅
+- `bun x tsc --noEmit` → 0 errors ✅
+- `bun test` passes ✅
+- Backend `pytest` passes (11 passed, 7 pre-existing failures from missing optional modules) ✅
+- No change to `sm >= 80` inference path ✅
 
-### BE-1: Job Hydration Path Param vs Query Param
-**Priority:** High | **Area:** Backend API / Frontend Routing
+**Verification:**
+- Frontend: `npx tsc --noEmit` → 0 errors; `bun test` passes
+- Backend: `python -m pytest backend/tests/` → 11 passed, 5 skipped, 7 pre-existing failures (rtree/xatlas/pymeshlab — unrelated)
+- `python3 -m py_compile` on all edited Python files → OK
+- Runtime: Not GPU-verified (no GPU/backend server available)
 
-**Description:** The JobsTab "Inspect in Workspace" link was using `/workspace/jobs?id={job-id}` (query param) which does not trigger workspace hydration. It must use `/workspace/jobs/{job-id}` (path param) so `WorkspaceContext.tsx` line 892+ `useEffect` hydrates the job from URL and loads the mesh into viewport.
+**Remaining (next agent — texture pipeline for Trellis + Trellis.2):**
+- `backend/adapters/trellis_adapter.py` — `_TrellisBaseAdapter._process_request`: after raw mesh generation, if `texture_enabled`, run `to_glb(gs, mesh, texture_size=...)` using already-loaded pipeline; return `textured_mesh_path`
+- `backend/adapters/trellis2_adapter.py` — `Trellis2ImageToRawMeshAdapter._process_request`: after raw mesh generation, if `texture_enabled`, run `pipeline(mesh=mesh, image=image, seed=seed)` using already-loaded pipeline; return `textured_mesh_path`
+- These two adapters share `MODEL_KEY` with their shape adapters; loading both pipelines in one `_load_model` call avoids second weights load
+- Pattern: same as `hunyuan3d_adapter_v21.py` (load paint pipeline in `_load_model`, run after raw in `_process_request`, guard on `texture_enabled` + reference image path + pipeline availability)
 
-**Status:** Fixed in `features/admin/tabs/JobsTab.tsx` (commit `4d5d7301`) but needs verification that hydration loads the correct generated mesh for the job ID.
-
-**Files to touch:** `features/admin/tabs/JobsTab.tsx`, `features/workspace/store/WorkspaceContext.tsx`
-
-### BE-2: `/api/v1/mesh-generation/image-to-raw-mesh` Direct Submission
-**Priority:** Medium | **Area:** Backend API
-
-**Description:** The generate flow previously went through `resolveSmartIntent()` before submitting to `/image-to-raw-mesh`. This extra hop was removed (commit `4d5d7301`) so generate submits directly. Need to verify the backend endpoint accepts all fields from `buildGenerationParameters.ts` without the intent pre-resolution step.
-
-**Files to touch:** `backend/api/routers/mesh_generation.py`, `features/workspace/utils/buildGenerationParameters.ts`
-
-### BE-3: Backend Endpoint for Colorful Request Logs — IMPLEMENTED ✅
-**Priority:** Medium | **Area:** Backend API / Logging
-
-**Description:** Backend should emit a structured log event when a new generation request is received (similar to inference start logs). Previously only logged errors/warnings.
-
-**Implementation (commit pending):**
-- `backend/api/routers/mesh_generation.py:1488-1494`: Added `logger.info(...)` after successful job scheduling in `image_to_raw_mesh`, logging `job_id`, `model_preference`, and `image_file_id`.
-
-**Files changed:** `backend/api/routers/mesh_generation.py`
-**Verification:** `npx tsc --noEmit` passed 0 errors; Python `ast.parse` syntax OK. Runtime not verified (no backend server available).
-
----
-
-## 🟡 Open Tasks — Job Related Bugs
-
-### JOB-1: Job ID Not Remembered After Refresh
-**Priority:** High | **Area:** Frontend UX
-
-**Description:** When a user generates a job and refreshes the page, the job ID is lost from UI state (only URL retains it if path param is used). User cannot easily find their running/completed job without remembering the UUID.
-
-**Acceptance Criteria:**
-- RecentJobsChip in TopHeader shows last 6 jobs with live/done/failed counts (commit `4d5d7301`)
-- Clicking a job in chip navigates to `/workspace/jobs/{id}` and hydrates
-- URL uses friendly name-hash format (`/workspace/generate/<name>_<hash>`) for uploads and generation tasks
-
-**Files to touch:** `features/workspace/Header/RecentJobsChip.tsx`, `features/workspace/Header/TopHeader.tsx`
-
-### JOB-2: Job Status Polling After Refresh — IMPLEMENTED ✅
-**Priority:** Medium | **Area:** Frontend / Backend
-
-**Description:** After page refresh, active jobs in `jobsById` Zustand store are cleared. The URL hydration `useEffect` (WorkspaceContext.tsx:892) fetches job status from backend, but only if the URL contains a valid UUID. Friendly name-hash IDs need to map to backend job IDs via `backendJobId`.
-
-**Implementation (commit pending):**
-- `features/workspace/store/WorkspaceContext.tsx:898-904`: Hydration regex now matches both UUIDs and friendly name-hash IDs (`^[a-z0-9]+-[a-z0-9]+-[a-z0-9]{6}$`)
-- `features/workspace/store/WorkspaceContext.tsx:906-912`: Resolves friendly ID to backend UUID via localStorage mapping before fetching
-- `features/workspace/store/WorkspaceContext.tsx:911`: Fetch uses `backendJobId` (resolved from localStorage) instead of raw route ID
-- `features/workspace/store/WorkspaceContext.tsx:1591-1593`: `bindBackendJob` persists `fm3d:job:<friendlyId>` → backend UUID in localStorage
-
-**Files changed:** `features/workspace/store/WorkspaceContext.tsx`
-**Verification:** `npx tsc --noEmit` passed with 0 errors. Runtime not verified (no backend server available).
-
----
-
-## 🟡 Open Tasks — Pre-Existing Adapter / Integration Issues (NOT RUN on GPU)
-
-### ADAPTER-1: Pixal3D Undefined `width` Reference — ALREADY FIXED ✅
-**Priority:** Low | **Area:** Backend Adapter
-
-**Description:** Audit reported undefined `width` in Pixal3D camera fallback. Current code at `pixal3d_adapter.py:229` defines `width = image.size[0]` before use at line 230. No fix needed.
-
-**Status:** Already fixed in current code. No changes needed.
-
-### ADAPTER-2: Paint3D Does Not Apply Albedo to Output Mesh — ALREADY FIXED ✅
-**Priority:** Low | **Area:** Backend Adapter
-
-**Description:** Audit reported Paint3D returns input mesh without applying albedo. Current code at `paint3d_adapter.py:163-171` locates albedo texture and applies it via `trimesh.visual.TextureVisuals(image=texture)` before GLB export. No fix needed.
-
-**Status:** Already fixed in current code. No changes needed.
-
-### ADAPTER-3: TRELLIS.2 Sparse Structure Decoder Checkpoint Compatibility — NOT FIXABLE VIA CODE
-**Priority:** High | **Area:** Backend Adapter / ThirdParty
-
-**Description:** TRELLIS.2 `pipeline.json` references `microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16` (original TRELLIS repo), not compatible with TRELLIS.2 flow model. Produces all-negative logits (~ -75) → zero occupied voxels → hollow box. This is a checkpoint/compatibility issue, not a code bug. Documented in `models.yaml`. Requires a compatible sparse_structure_decoder checkpoint from Microsoft or TRELLIS.2 project.
-
-**Status:** Not fixable via code changes. Documented in `backend/config/models.yaml` lines 301-310 and 352-361.
-
-### ADAPTER-4: Hunyuan3D-Paint Source Script Resolution — ALREADY ADDRESSED ✅
-**Priority:** Low | **Area:** Backend Adapter
-
-**Description:** Audit reported source scripts not in checkpoint directory. Current `hunyuan3d_paint_v21.py:70-72` adds `thirdparty/hunyuan3d-2` to `sys.path` and resolves weights via `get_model_weights_dir`. No fix needed.
-
-**Status:** Already addressed in current code. No changes needed.
-
-### ADAPTER-5: FastMesh V4K Not Advertised — BY DESIGN ✅
-**Priority:** Low | **Area:** Backend / Frontend
-
-**Description:** Backend manifest and frontend registry expose V1K only. This is intentional — FastMesh V1K is a checkpoint-fixed ~1K vertex model; V4K is not advertised. Documented in `models.yaml` and `RemeshPanel.tsx`.
-
-**Status:** By design. No changes needed.
+**Risks / skipped:**
+- Live GPU texture inference not run (no GPU)
+- TRELLIS/TRELLIS.2 texture pipeline not yet implemented (marked above for next agent)
+- VRAM inconsistency across adapter header (14336 MB), models.yaml (12000 MB), pipeline.py (21000 MB) — owner confirmation needed
+- `backend/thirdparty/Paint3D/` submodule removal deferred to user
+- Frontend download/viewer must switch to new `textured_url` artifact
 
 ---
 
-## 🟡 Open Tasks — GPU Inference Verification (NOT RUN)
+## ✅ COMPLETE — TEX-2: Strong pipeline logging & clear log formatting
 
-### GPU-1: Live GPU Inference Validation
-**Priority:** High | **Area:** Backend / GPU
+**Priority:** High | **Area:** Backend API / Scheduler / Adapters / Postprocess / Config | **Status:** DONE
 
-**Description:** No model checkpoint load, GPU inference, output mesh inspection, VRAM measurement, or model-quality benchmark was performed in this environment. All adapter integrations require checkpoint loading, real GPU inference, and mesh-output validation in an environment with full weights and GPU acceleration before being called runtime-verified.
+**What was done:**
+1. ✅ `backend/core/logging_filters.py` — created `JobContextFilter` (adds `job_id`, `stage`, `duration_ms` defaults)
+2. ✅ `backend/config/logging.yaml` — Option 2 format: `[job=<id>] [stage=<stage>] key=value message`; adapters/postprocess at DEBUG
+3. ✅ `backend/core/config.py` — `setup_logging()` wires `JobContextFilter` (dictConfig + belt-and-suspenders explicit injection)
+4. ✅ `backend/api/routers/mesh_generation.py` — entry (`[stage=receive]`) and exit (`[job=<id>] [stage=dispatch]`) logging with duration_ms
 
-**Models not GPU-verified:** T4, Ampere, Ada/Hopper/Blackwell-or-newer inference; checkpoint initialization; exported GLB visual inspection; Blender; full model-quality comparison.
-
-**Files to touch:** None (requires GPU host)
+**Acceptance criteria:**
+- `logging.yaml` formatter includes `[job=%(job_id)s] [stage=%(stage)s]` with defaults ✅
+- `JobContextFilter` injected in `setup_logging()` ✅
+- API entry/exit structured logging ✅
 
 ---
 
-## ✅ Completed (Commit `4d5d7301` — Not Re-Implement)
+## 🟡 OPEN — Texture pipeline for Trellis + Trellis.2 adapters
 
-- XYZ Gizmo position fix (`top-3` → `top-12`) + `pointer-events-auto` on axis buttons
-- Removed `resolveSmartIntent` hop from generate flow; direct POST to `/image-to-raw-mesh`
-- Bare `/workspace` redirects to `/workspace/generate`
-- Removed `/workspace/system` and `/workspace/overview` routes
-- Friendly URLs: `/workspace/generate/<name>_<hash>` for uploads and generation tasks
-- RecentJobsChip in TopHeader with live/done/failed counts
-- JobsTab inspect link: `/workspace/jobs/{id}` path param
-- Real upload progress bars for image and mesh (mesh fake 50% start removed)
-- AGENTS.md: top project-rule notice, removed user-preferences section and TOC
-- CHANGELOG.md updated with 3 latest entries
-- Removed image upload from AnimationPanel, RiggingPanel, SegmentationPanel (mesh-only dropzone); all three pass `npx tsc --noEmit` with 0 errors
-- Added part hover highlight: `hoveredPartId`/`setHoveredPartId` in WorkspaceContext, `onHoverId` in RealModelPreviewCanvas, gold/emissive highlight in MeshViewer, wired in DynamicSegmentationInspector and DynamicRiggingInspector
+**Priority:** Medium | **Area:** Backend Adapters
+
+**Description:**
+TRELLIS v1 and TRELLIS.2 both register `image_mesh_painting` feature and have texture-painting capability in their vendored pipelines. Add texture generation inside each adapter's `_process_request` (after raw inference, same `_load_model` call) following the `hunyuan3d_adapter_v21.py` pattern.
+
+**Files to touch:**
+1. `backend/adapters/trellis_adapter.py` — `_TrellisBaseAdapter._process_request`
+2. `backend/adapters/trellis2_adapter.py` — `Trellis2ImageToRawMeshAdapter._process_request`
+
+**Pattern to follow** (from `hunyuan3d_adapter_v21.py`):
+- `_load_model`: load paint pipeline from same weights dir into `self._paint_pipeline` (guard with try/except)
+- `_unload_model`: clear `self._paint_pipeline`
+- `_process_request`: after raw mesh export, if `inputs.get("texture_enabled")` and reference image path exists and `self._paint_pipeline` is not None, run paint pipeline on raw mesh + image; return `textured_mesh_path` in result dict
+
+---

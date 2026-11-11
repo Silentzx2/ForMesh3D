@@ -49,7 +49,7 @@ Model-specific inference behavior is owned by the relevant adapter and upstream 
 Static source inspection of the `dev` baseline on 2026-11-01 identified material gaps:
 - The factory does not forward `model_id` through adapter constructor parameters, while adapter constructors may initialize the attribute to `None`.
 - Pixal3D has an undefined `width` reference and does not initialize the four projection-condition models that its vendored `from_pretrained` path leaves unset.
-- Paint3D resolves stage scripts from the weights directory and returns the input mesh rather than applying the generated albedo to the output mesh.
+- Pixal3D source scripts resolved via `get_model_weights_dir` and `sys.path` insertion in adapter `_load_model`; not a global patch. Paint3D adapter removed from main repo.
 - SkinTokens replaced legacy UniRig with unified autoregressive TokenRig framework and direct in-process inference adapter.
 - FastMesh's backend manifest and frontend registry expose V1K only. The UI reports the checkpoint-fixed approximately 1K-vertex output; no V4K model is advertised.
 - The TRELLIS text-painting registry entry reaches an image-conditioned adapter, not a verified text-conditioned pipeline.
@@ -170,7 +170,7 @@ The following points supersede older detailed notes in this section when they co
 - **SkinTokens:** direct in-process adapter calls official TokenRig pipeline (`get_model`, `predict_step`) with companion `bpy_server` binding daemon. Legacy UniRig has been completely decommissioned.
 - **FastMesh:** only V1K is registered in the backend manifest and frontend registry. The workspace routes AI retopology to fastmesh_v1k_retopology; the V1K checkpoint fixes its output resolution at approximately 1K vertices. Do not advertise V4K or multi-GPU placement as an available current capability.
 - **Pixal3D:** the adapter currently references an undefined `width` in its camera fallback and does not construct the projection-conditioning models that the vendored pipeline leaves for the official inference entry point.
-- **Paint3D:** source-stage scripts are in the ThirdParty source tree, not the model checkpoint directory. The current adapter's export path does not apply the generated albedo to the returned mesh.
+- **Pixal3D:** source-stage scripts resolved via `get_model_weights_dir` and `sys.path` insertion in adapter `_load_model`; not a global patch. Paint3D adapter removed from main repo.
 - **Hunyuan3D-Shape v2.1:** corrected the import root to the parent directory of the vendored `hy3dshape` package. The adapter now consumes the pipeline's flat list of meshes (skipping extraction failures represented by `None`) and forwards the seed through its supported generator argument.
 - **Unique3D:** the adapter no longer treats the ControlNet image-to-image refinement pipeline as a mesh generator. It now calls the vendored `generate3dv2` entry point, initializes the model zoo and reconstruction predictors with the model weights directory as CWD, and returns the GLB path produced by the official save helper.
 - **Model source paths:** the weights loader is not a Python source resolver. Source roots remain model-specific and must be verified against each vendored package; Hunyuan3D-Shape and Unique3D paths/call contracts were source-checked for this patch.
@@ -276,7 +276,7 @@ flowchart TB
     subgraph CORE["🧠 Model Execution Layer (Active Adapters)"]
         direction TB
         SHAPE["Shape Generation<br/>TRELLIS · Hunyuan3D-2.1<br/>TripoSG"]:::purple
-        PAINT["Optional Texture Stage<br/>Paint3D 1K/2K · Hunyuan Paint 4K/8K"]:::purple
+        PAINT["Optional Texture Stage<br/>Hunyuan Paint 4K/8K"]:::purple
         STRUCT["Structure & Motion<br/>FastMesh (V1K only)<br/>SkinTokens · ARDY"]:::purple
         RETARGET["Motion Retargeting<br/>Joint mapping · rotation and root-motion playback"]:::purple
     end
@@ -365,9 +365,9 @@ The Admin Logs tab treats `logs/master.log` as the canonical source and starts a
 | **GPU Monitor** | `backend/core/scheduler/gpu_monitor.py` | Real-time VRAM and temperature polling |
 | **Job Queue** | `backend/core/scheduler/job_queue.py` | Job request models and types |
 | **Redis Job Queue** | `backend/core/scheduler/redis_job_queue.py` | Redis-backed distributed job queue with dual Redis/SQLite atomic deletion synchronization |
-| **Model Adapters** | `backend/adapters/` | 15 adapter modules and registry entries cover TRELLIS, TRELLIS.2, Hunyuan3D, TripoSG, Unique3D, Pixal3D, TaoFlowForge, PartUV, SkinTokens, FastMesh, ARDY, and Paint3D. This is a registration inventory, not a validated list of working pipelines. Static audit findings and unverified integrations are listed in the Current Model-Native Source Fidelity Contract above and `Docs/MEMORY.md`. |
+- **Model Adapters** | `backend/adapters/` | 14 adapter modules and registry entries cover TRELLIS, TRELLIS.2, Hunyuan3D, TripoSG, Unique3D, Pixal3D, TaoFlowForge, PartUV, SkinTokens, FastMesh, ARDY. This is a registration inventory, not a validated list of working pipelines. Static audit findings and unverified integrations are listed in the Current Model-Native Source Fidelity Contract above and `Docs/MEMORY.md`. |
 | **Raw Geometry Fidelity Contracts** | `backend/adapters/*_adapter.py` | Model-native inference profiles (steps, guidance, octree/depth resolution, chunks, samplers) are adapter-owned and locked inside each adapter implementation. The scheduler strips request-side inference overrides (`_ADAPTER_OWNED_INFERENCE_INPUTS`) and production-only controls (`_POSTPROCESS_ONLY_INPUTS`) before invoking adapters; seed and image identity remain caller-controlled. |
-| **Texture Synthesis Pipeline** | `backend/adapters/hunyuan3d_paint_v21.py` & `backend/adapters/paint3d_adapter.py` | Centralized texture adapters (Paint3D for 1K/2K, Hunyuan3D-Paint for 4K/8K) operating downstream on post-processed raw mesh geometry. RealESRGAN x4+ super-resolution and DifferentiableRenderer for PBR validation. |
+- **Texture Synthesis Pipeline** | `backend/adapters/hunyuan3d_paint_v21.py` | Hunyuan3D-Paint texture adapter operates downstream on post-processed raw mesh geometry. RealESRGAN x4+ super-resolution and DifferentiableRenderer for PBR validation. Texture generation runs inside the model adapter's `_process_request` after raw mesh inference, using already-loaded weights (no second weights load).
 
 ### TRELLIS.2 Raw Mesh Integrity Contract — 2026-11-03
 
@@ -434,7 +434,7 @@ sequenceDiagram
     participant SCHED as VRAM-Aware Scheduler
     participant Adapter as Model Adapter
     participant PostProcess as Production Post-Processing
-    participant TexAdapter as Texture Stage (Paint3D / Hunyuan)
+    participant TexAdapter as Texture Stage (Hunyuan)
     participant Storage as backend/storage/
 
     User->>Frontend: Select image + toggle Post-Processing (+ budget / texture)
@@ -446,7 +446,7 @@ sequenceDiagram
     alt Post-Processing Enabled (enable_postprocess = true)
         SCHED->>PostProcess: Topology Gate -> Targeted Hole Repair -> Feature Decimation -> UV Resolver -> Normal Bake & PBR Validation -> LOD/Physics/QA
         opt Texture Enabled
-            PostProcess->>TexAdapter: Apply textures via Paint3D (1K/2K) or Hunyuan Paint (4K/8K)
+            PostProcess->>TexAdapter: Apply textures via Hunyuan Paint
             TexAdapter-->>PostProcess: Textured GLB + real texture maps
         end
         PostProcess->>Storage: Save game_ready/* final formats
@@ -588,7 +588,7 @@ The only retained project runtime log is the repository-root `logs/master.log`. 
 ### Mesh Generation & Processing
 - `POST /api/v1/mesh-generation/image-to-raw-mesh`: Primary image-to-3D route. It secures raw `master/source.glb` before optional post-processing texturing.
 - `POST /api/v1/mesh-generation/image-to-textured-mesh`: Backward-compatible endpoint; legacy textured geometry IDs map to their raw aliases, with optional centralized texturing controlled by the request.
-- Central texture routing: 1K/2K → Paint3D; 4K/8K → Hunyuan3D-Paint v2.1. Texture output is stored separately from the raw master; its exported atlas is validated against the requested square dimension.
+- Central texture routing: All resolutions → Hunyuan3D-Paint v2.1. Texture output is stored separately from the raw master; its exported atlas is validated against the requested square dimension.
 - `POST /api/v1/mesh-generation/image-mesh-painting`: Paint an existing mesh directly (Texture Studio/manual workflow).
 - `GET /api/v1/system/jobs/{job_id}`: Real-time generation job status.
 - `GET /api/v1/system/jobs/{job_id}/download?artifact_format=<format>`: Deliver canonical master, game-ready, LOD, collision, texture, preview, QA, or ZIP artifacts.
@@ -669,7 +669,6 @@ backend/thirdparty/
 ├── hunyuan3d-dit-v2-mini-turbo/  # Hunyuan3D-DiT-v2-mini-Turbo (0.6B)
 ├── TRELLIS/
 ├── TRELLIS.2/
-├── Paint3D/
 ├── PartUV/
 ├── Pixal3D/
 ├── FastMesh/
@@ -790,7 +789,7 @@ bash -n manager.sh backend/scripts/*.sh scripts/*.sh
 
 The production post-processing engine lives under `backend/postprocess/`. Successful mesh-generation jobs run this engine before the job is marked completed.
 
-Pipeline: MODEL INFERENCE -> immutable `master/source.glb` (SHA-256 pre-verification) -> working copy -> **Topology Gate** (14 geometric/topological metrics) -> **Targeted Hole Repair** (directed boundary loop triangulation) -> **Quad/Tri Retopology** -> **Memory-Safe Decimation** (feature-preserving QEM & psutil RAM guard) -> **UV Backend Resolver** (PartUV GPU / xatlas CPU driver) -> **Detail Normal Bake & PBR Validation** (OpenGL Y+ convention, packed RMA) -> **Centralized Texture Stage** (Paint3D 1K/2K, Hunyuan3D-Paint 4K/8K) -> GAME READY (GLB + Quad OBJ) -> LOD Cascades (LOD0-LOD3 via meshopt) -> CoACD Convex Physics Colliders -> Preview -> QA Diagnostic Engine (0-100 score).
+Pipeline: MODEL INFERENCE -> immutable `master/source.glb` (SHA-256 pre-verification) -> working copy -> **Topology Gate** (14 geometric/topological metrics) -> **Targeted Hole Repair** (directed boundary loop triangulation) -> **Quad/Tri Retopology** -> **Memory-Safe Decimation** (feature-preserving QEM & psutil RAM guard) -> **UV Backend Resolver** (PartUV GPU / xatlas CPU driver) -> **Detail Normal Bake & PBR Validation** (OpenGL Y+ convention, packed RMA) -> **Texture Generation** (model adapter's own pipeline, same weights load) -> GAME READY (GLB + Quad OBJ) -> LOD Cascades (LOD0-LOD3 via meshopt) -> CoACD Convex Physics Colliders -> Preview -> QA Diagnostic Engine (0-100 score).
 
 #### Post-Processing Pipeline Components:
 - **Topology Gate (`backend/postprocess/services/gate.py`)**: Evaluates mesh manifoldness, boundary loops, floater components, degenerate faces, and aspect ratios against the canonical `quality.yaml` gate thresholds. When topology is clean, repairs are bypassed (`skip_repair`, `skip_retopo=True`). If only small boundary loops exist (<= 50 vertices), routes to `minimal_repair`. Non-manifold or heavily defective geometry routes to `full_repair`.

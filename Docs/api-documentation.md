@@ -598,11 +598,11 @@ Content-Type: application/json
 }
 ```
 
-`texture_resolution` selects the final atlas size (1024/2048/4096/8192); 1K/2K routes to Paint3D and 4K/8K to Hunyuan3D-Paint v2.1. Adapter-owned inference keys such as `resolution` or `max_num_view` are stripped by the scheduler before the adapter runs.
+`texture_resolution` selects the final atlas size (1024/2048/4096/8192); all resolutions route to Hunyuan3D-Paint v2.1. Adapter-owned inference keys such as `resolution` or `max_num_view` are stripped by the scheduler before the adapter runs.
 
 ### Textured Generation Flow
 
-Normal image-to-3D generation always submits the selected geometry model to `image-to-raw-mesh`. When Textured Generation is enabled, centralized post-processing receives the raw mesh, original reference-image file reference, and requested atlas preset: 1K/2K uses Paint3D; 4K/8K uses Hunyuan3D-Paint v2.1 with its internal RealESRGAN path enabled. The API accepts named presets (`"1K"`, `"2K"`, `"4K"`, `"8K"`) or numeric dimensions (1024/2048/4096/8192). The stage inspects the embedded base-colour texture in the exported GLB and reports success only when its observed square dimensions match the requested target. If texturing fails or the atlas cannot be verified, the immutable raw master is preserved and the texture-stage result reports failure. The legacy `image-to-textured-mesh` path remains for API compatibility; legacy geometry IDs resolve to raw-only aliases rather than re-enabling model-native texture generation.
+Normal image-to-3D generation always submits the selected geometry model to `image-to-raw-mesh`. When Textured Generation is enabled, the selected model's own texture pipeline runs immediately after raw mesh generation in the same scheduler dispatch (no second weights load for models that share the texture-capable adapter). The scheduler routes to the model's texture adapter using the requested texture settings. The stage inspects the embedded base-colour texture in the exported GLB and reports success only when its observed square dimensions match the requested target. If texturing fails or the atlas cannot be verified, the immutable raw master is preserved and the texture-stage result reports failure. The legacy `image-to-textured-mesh` path remains for API compatibility; legacy geometry IDs resolve to raw-only aliases rather than re-enabling model-native texture generation.
 
 ### Get Job Status
 
@@ -659,8 +659,7 @@ GET /api/v1/system/models
     "image_mesh_painting": [
       "trellis_image_mesh_painting",
       "trellis2_image_mesh_painting",
-      "hunyuan3d_paint_v21_image_mesh_painting",
-      "paint3d"
+      "hunyuan3d_paint_v21_image_mesh_painting"
     ],
     "mesh_segmentation": [],
     "auto_rig": ["skintokens_auto_rigging"],

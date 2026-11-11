@@ -2,7 +2,7 @@
 # UNIFIED model dependencies file.
 # Installed only when compute mode is cuda. These are heavy ML packages
 # required by model adapters (TRELLIS, Hunyuan3D, TripoSG, Unique3D, Pixal3D,
-# SkinTokens, PartUV, FastMesh, ARDY, TaoFlowForge, Paint3D).
+# SkinTokens, PartUV, FastMesh, ARDY, TaoFlowForge).
 #
 # Version policy: only packages NOT already in requirements.txt go here.
 # Shared packages (numpy, scipy, trimesh, pillow, fastapi, uvicorn, pydantic,
