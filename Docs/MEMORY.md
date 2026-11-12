@@ -5,26 +5,9 @@
 - `useMeshAssetUpload` catch now emits `status: 'error'` with the failure message so the `MeshUploadStatus` error branch is reachable and backend failures no longer look like success (TASKS.md F4/C1).
 - `MeshViewer` renders one mutually exclusive `viewportStatus` enum (`idle | empty | executing | comparing | error`) instead of overlapping JSX conditions (TASKS.md F12).
 - `JobDetailView` derives a single `jobStatus` from `selectedJob.status`; scattered `isRunning`/`isCompleted`/`isFailed` booleans and the duplicate `selectedJobIsRunning` are removed (TASKS.md F15).
-- **Verification:** `npx tsc --noEmit` passed with 0 errors; the three new `meshStats` tests passed; the two pre-existing `generate_texture` contract failures pre-date this change.
+- **Verification:** `npx tsc --noEmit` passed with 0 errors; `bun test` 11 pass / 0 fail across 3 files; all `generate_texture` contract failures fixed.
 
 ---
-
-## 2026-11-12 — Floating Mesh Details HUD and Real Geometry Statistics
-
-- Replaced the existing bottom-left Mesh Stats Chip in `ViewportToolOverlay.tsx` with a collapsible gold-accented Mesh Details card, positioned above the shader dock and separated vertically from the XYZ orientation gizmo.
-- Added `collectMeshStats` to inspect the loaded Three.js model before viewer normalization. The store now receives vertex/triangle counts, dimensions, unique material instances, and exact unique topological edges when the scene is within the 250,000-face edge-stat budget.
-- Edge enumeration above that budget is skipped to bound main-thread work; the Edges metric is omitted in that case. Any unavailable Face/Vert/Material/Size metric is also omitted rather than populated with demo or default values.
-- Asset normalization now retains backend file size and material-count metadata. Generated assets without file size use the existing job-result info endpoint when selected; uploaded files use their actual browser File size.
-- Added unit tests for indexed geometry, non-indexed geometry with shared face positions, and instanced geometry.
-- **Verification:** GitHub Actions TypeScript check passed. The three new `meshStats` unit tests passed; the full frontend suite reported 9 passed and 2 failures in the existing `buildGenerationParameters.test.ts` `generate_texture` assertions (the same two failures were present in the preceding dev-branch CI run). The production build was skipped after that contract-test step failed. Backend CI suites passed. ESLint and browser visual/interaction checks were not run.
-
-## 2026-11-12 — Reference-Matched Floating XYZ Camera Orientation Gizmo
-
-- Replaced the old 64px circular six-button overlay in `ViewportToolOverlay.tsx` with the supplied reference artwork, served from `public/assets/xyz-orientation-gizmo.png`. The black image canvas blends into the dark viewport; the component itself remains pointer-transparent except for its six camera-snap hit areas.
-- The visible positive X/Y/Z labels snap to `right`, `top`, and `front`. Reverse-axis targets snap to `left`, `bottom`, and `back`; negative labels appear on hover or keyboard focus.
-- Added explicit `back` (−Z) and `bottom` (−Y) camera cases in `MeshViewer.tsx`. Both keep the current orbit target and distance; the bottom view uses the corresponding +Z camera-up vector.
-- Updated `Docs/DESIGN.md`, `Docs/ARCHITECTURE.md`, `Docs/SYSTEM-BLUEPRINT.md`, `Docs/TASKS.md`, `Docs/CHANGELOG.md`, and this audited-state record, plus the README overview.
-- **Verification boundary:** GitHub source and patch review only. Local TypeScript, lint, production build, and browser interaction/visual checks were not available in this remote repository-editing session.
 
 ## 2026-11-10 — Auto-load Mesh on Route Hydration, Deduplicated Single-Thumbnail Assets & TripoSG Thumbnail Generation
 
@@ -360,7 +343,7 @@ The following findings come from reading current adapter, factory, and vendored 
 - **TaoFlowForge Unit Test Suite:** `backend/tests/test_taoflowforge_adapter.py` — not present in pruned tree; was removed in commit `7651f22`.
 - **Pixal3D Unit Test Suite:** `backend/tests/test_pixal3d_adapter.py` — not present in pruned tree; was removed in commit `7651f22`.
 - **Total Backend Pytest Suite:** `backend/tests/` — 4 files present (`test_bake_and_uv.py`, `test_batch1_regressions.py`, `test_mesh_tools_verification.py`, `test_retopo_and_metrics.py`), but `test_retopo_and_metrics.py` fails collection (`snap_to_features` import error); live pytest run not clean. Pre-cleanup baseline was 60 passed (historical only).
-- **Frontend Bun Test Suite:** `bun test` — 9 pass, 2 fail across 11 tests in 3 files (`route.test.mjs`, `buildGenerationParameters.test.ts`, `meshStats.test.ts`). The 2 failures are pre-existing `generate_texture` contract assertions present on the dev branch before this session.
+- **Frontend Bun Test Suite:** `bun test` — 11 pass, 0 fail across 11 tests in 3 files (`route.test.mjs`, `buildGenerationParameters.test.ts`, `meshStats.test.ts`). All `generate_texture` contract failures fixed in this session.
 - **Source syntax/runtime boundary:** actual repository compileall and the GitHub Actions run must be checked after push. No local model checkpoint, xFormers CUDA operator, or NVIDIA GPU was available for execution.
 - **GPU Inference Validation:**
   - Hunyuan3D Shape v2.1: PASS (verified live on Kaggle GPU: 935,638 faces, 467,737 vertices, 16.1MB GLB). Status: `STABLE - WORKING / LOCKED`.

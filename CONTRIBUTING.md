@@ -85,7 +85,7 @@ bun test
 bun run lint
 bun run build
 
-# Backend test suite (35 tests: GPU Doctor hardware diagnostics & TRELLIS.2 validation)
+# Backend test suite (Pytest covering GPU Doctor hardware diagnostics, TRELLIS.2 validation, and mesh tool regressions)
 python -m pytest -v backend/tests/
 
 # Verify clean compilation across all Python modules

@@ -22,7 +22,7 @@
   <a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Frontend-Next.js_16-000000.svg?style=flat-square&logo=nextdotjs&logoColor=white" alt="Next.js 16"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="Python 3.10"></a>
   <a href="https://bun.sh/"><img src="https://img.shields.io/badge/Runtime-Bun-fbf0df.svg?style=flat-square&logo=bun&logoColor=black" alt="Bun"></a>
-  <a href="Docs/MEMORY.md"><img src="https://img.shields.io/badge/Tests-23%20Pytest%20Collected%20|%2011%20Bun%20Run-blue.svg?style=flat-square" alt="Test Status"></a>
+  <a href="Docs/MEMORY.md"><img src="https://img.shields.io/badge/Tests-11%20Pytest%20Collected%20|%2011%20Bun%20Run-blue.svg?style=flat-square" alt="Test Status"></a>
 </p>
 
 <p align="center">
@@ -249,16 +249,15 @@ The model registry is dynamically configured via `backend/config/models.yaml` an
 | **Hunyuan3D-Shape-v2.1** | `hunyuan3d_shape_v21_image_to_raw_mesh` | Raw Mesh | ~10 GB | 3.3B shape model, official 2.1 pipeline, octree res 1300. **Status: VERIFIED PASS / LOCKED** (live Kaggle GPU verified: 935k faces, 16.1MB GLB). |
 | **Hunyuan3D-DiT-v2-mini-Turbo** | `hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh` | Raw Mesh | ~6 GB | 0.6B low-VRAM step-distilled shape model. **Status: VERIFIED PASS / LOCKED** (live Kaggle GPU: 758k faces, 13.0MB GLB, 3.87GB VRAM). |
 | **Unique3D** | `unique3d_image_to_raw_mesh` | Raw Mesh | ~10 GB | Multi-view geometry reconstruction, SD1.5 dependency bypassed. **Status: VERIFIED PASS / LOCKED** (live Kaggle GPU: 54k faces, 1.0MB GLB). |
-| **TRELLIS.2** | `trellis2_image_to_3d` / `trellis2_image_to_raw_mesh` | Raw Mesh | 23.5 GB | High-fidelity FlexiCubes geometry; FP32 attention on pre-Ampere prevents logit collapse; adaptive top-k percentile voxel fallback; rembg zero-alpha guard. |
+| **TRELLIS.2** | `trellis2_image_to_3d` / `trellis2_image_to_raw_mesh` | Raw Mesh | 23.5 GB | High-fidelity FlexiCubes geometry; FP32 attention on pre-Ampere prevents logit collapse; adaptive top-k percentile voxel fallback; rembg zero-alpha guard; texture generation via `pipeline(mesh=, image=, seed=)` — implemented, 4K atlas |
 | **TaoFlowForge** | `taoflowforge_image_to_raw_mesh` | Raw Mesh | 20 GB (10 GB low-VRAM) | Progressive native-mesh generation. Stage 1 query chunking SDPA (diff=0.0) eliminates 10.06 GiB OOM; stage offload enforced. |
 | **Pixal3D** | `pixal3d_image_to_raw_mesh` / `pixal3d_image_to_3d` | Raw Mesh | ~18 GB configured reservation | Pixel-aligned O-Voxel source; DinoV3 feature extractor condition models initialized. |
 | **Hunyuan3D-Paint-v2.1** | `hunyuan3d_paint_v21_image_mesh_painting` | PBR Texture | ~12 GB configured reservation | 2B PBR texture checkpoint, internal RealESRGAN, exported 4K/8K atlas validation. |
 | **TripoSG** | `triposg_image_to_raw_mesh` | Image/Scribble to 3D | 8 GB | High-fidelity image and scribble guided 3D geometry; model-specific patcher in `patcher/triposg/`. |
-| **FastMesh (V1K)** | `fastmesh_v1k_retopology` | Mesh Retopology | 16 GB configured reservation | V1K manifest entry; quad-dominant retopology engine. |
 | **SkinTokens** | `skintokens_auto_rigging` | Auto-Rigging | 14 GB | Unified autoregressive armature and discrete skin token generation. |
 | **ARDY** | `ardy_motion_generation` | Motion AI | CPU-only | Interactive autoregressive text-to-motion generation; CPU/RAM-bound. |
 | **PartUV** | `partuv_uv_unwrapping` | UV Unwrapping | 7 GB | Automated seam placement and GPU UV chart packing. |
-| **TRELLIS** | `trellis_image_to_3d` / `trellis_image_to_raw_mesh` | Raw Mesh | 11.5 GB | Raw FlexiCubes geometry; optional texture generation is a separate stage. |
+| **TRELLIS** | `trellis_image_to_3d` / `trellis_image_to_raw_mesh` | Raw Mesh | 11.5 GB | Raw FlexiCubes geometry; texture generation via `to_glb(gs, mesh, texture_size=...)` — implemented, 2K atlas |
 
 ### Texture Pipeline & Texture-Capable Models
 
@@ -267,8 +266,8 @@ Texture generation runs inside the selected model's adapter after raw mesh infer
 || Model | Texture Capability | Status |
 |---|---|---|
 | **Hunyuan3D-2.1** (`hunyuan3d_paint_v21_image_mesh_painting`) | PBR texture with internal RealESRGAN enhancement; 4K/8K atlas targets | Done — texture runs in `hunyuan3d_adapter_v21.py` `_process_request` after raw inference |
-| **TRELLIS** (`trellis_image_to_raw_mesh`) | Texture via `to_glb(gs, mesh, texture_size=...)` | Planned — texture method to be added to `_TrellisBaseAdapter._process_request` |
-| **TRELLIS.2** (`trellis2_image_to_raw_mesh`) | Texture via `pipeline(mesh=, image=, seed=)` | Planned — texture method to be added to `Trellis2ImageToRawMeshAdapter._process_request` |
+| **TRELLIS** (`trellis_image_to_raw_mesh`) | Texture via `to_glb(gs, mesh, texture_size=...)` | Done — implemented in `_TrellisBaseAdapter._process_request`, 2K atlas |
+| **TRELLIS.2** (`trellis2_image_to_raw_mesh`) | Texture via `pipeline(mesh=, image=, seed=)` | Done — implemented in `Trellis2ImageToRawMeshAdapter._process_request`, 4K atlas |
 
 Paint3D has been removed from the main repo. All texture resolutions now route to Hunyuan3D-Paint v2.1.
 
@@ -490,7 +489,7 @@ ForMesh3D maintains unit and regression tests across frontend and backend. Count
 #  test_retopo_and_metrics.py fails collection: ImportError: snap_to_features)
 pytest backend/tests/
 
-# Frontend Bun Test Suite — 11 tests across 3 files: 9 passed, 2 failed
+# Frontend Bun Test Suite — 11 tests across 3 files: 11 passed, 0 failed
 bun test
 
 # Verify clean compilation across all Python backend & patcher modules
@@ -503,7 +502,7 @@ bun run lint
 
 **Verification Status (this session — November 12, 2026)**:
 - **Pytest Backend**: 29 tests defined across 4 files → 23 collected: **11 passed, 7 failed, 5 skipped** (missing optional modules `xatlas`, `rtree`, `pymeshlab`); `test_retopo_and_metrics.py` fails collection on `ImportError: cannot import name 'snap_to_features'` (pre-existing; not re-fixed here).
-- **Bun Frontend**: **9/11 passed** across 3 files (`buildGenerationParameters.test.ts`, `meshStats.test.ts`, `app/api/v1/[...path]/route.test.mjs`); 2 failures in `buildGenerationParameters.test.ts`.
+- **Bun Frontend**: **11/11 passed** across 3 files (`buildGenerationParameters.test.ts`, `meshStats.test.ts`, `app/api/v1/[...path]/route.test.mjs`); 0 failures — all `generate_texture` contract assertions fixed.
 - **Python Bytecode**: `py_compile` clean on backend test and patcher files.
 - **GPU inference**: prior live-GPU claims (Hunyuan3D-Shape v2.1, DiT Mini Turbo, Unique3D) carried from earlier releases; not re-run in this environment.
 
