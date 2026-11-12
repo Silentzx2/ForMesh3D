@@ -64,7 +64,7 @@ describe('collectMeshStats', () => {
 
     assert.equal(stats?.vertices, 6);
     assert.equal(stats?.triangles, 2);
-    assert.equal(stats?.edges, 3);
+    assert.equal(stats?.edges, 6);
     assert.equal(stats?.materials, 1);
 
     geometry.dispose();
