@@ -460,6 +460,14 @@ download_hunyuan3d_v20_paint() {
         fi
     fi
 
+    # Verify the paint texture files actually landed. hf CLI can exit 0 with
+    # 0 matched files when an --include filter finds nothing, which previously
+    # produced a false "SUCCESS" with an empty directory.
+    if ! verify_directory "$model_dir/hunyuan3d-paintpbr-v2-0" 3; then
+        print_error "Hunyuan3D-2 (v2.0) Paint download did not produce expected texture files"
+        return 1
+    fi
+
     # RealESRGAN dependency for paint pipeline
     local realesrgan_path="$PRETRAINED_DIR/misc/RealESRGAN_x4plus.pth"
     if [ "$FORCE_DOWNLOAD" = false ] && verify_file "$realesrgan_path" 50000000; then
@@ -1176,6 +1184,12 @@ verify_all_models() {
         print_warning "Some models are missing or corrupted. Run without -v flag to download them."
     fi
 }
+
+# ── Logging: tee all download activity to a log file ────────────────
+LOG_DIR="$PROJECT_ROOT/logs"
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+LOG_FILE="$LOG_DIR/model_download.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
 
 # Main execution
 print_info "========================================"
