@@ -324,10 +324,10 @@ export const DynamicSegmentationInspector: React.FC = () => {
       <div className="p-2 rounded-xl bg-black/40 border border-white/[0.08] space-y-1.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <Scissors className="w-3.5 h-3.5 text-[#F9CF00]" />
+            <Scissors className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
             <span className="text-xs font-semibold text-white">Parts Assembly</span>
           </div>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#F9CF00]/15 text-[#F9CF00] font-mono font-semibold border border-[#F9CF00]/30">
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] font-mono font-semibold border border-[hsl(var(--primary))]/30">
             {parts.length} Parts
           </span>
         </div>
@@ -358,7 +358,7 @@ export const DynamicSegmentationInspector: React.FC = () => {
           <button
             type="button"
             onClick={toggleAllVisibility}
-            className="text-[10px] text-[#F9CF00] hover:underline cursor-pointer font-semibold"
+            className="text-[10px] text-[hsl(var(--primary))] hover:underline cursor-pointer font-semibold"
           >
             {visibleCount === parts.length ? 'Hide All' : 'Show All'}
           </button>
@@ -373,8 +373,8 @@ export const DynamicSegmentationInspector: React.FC = () => {
                 onClick={() => setSelectedPartId(isSelected ? null : part.id)}
                 className={`p-1.5 rounded-lg border flex items-center justify-between transition-all cursor-pointer ${
                   isSelected
-                    ? 'bg-[#1b1c2b] border-[#F9CF00] text-white'
-                    : 'bg-[#12131d] border-white/[0.06] hover:border-white/20 text-zinc-300'
+                    ? 'bg-[hsl(var(--surface-1))] border-[hsl(var(--primary))] text-white'
+                    : 'bg-[hsl(var(--surface-1))] border-white/[0.06] hover:border-white/20 text-zinc-300'
                 } ${!part.visible ? 'opacity-40' : ''}`}
               >
                 <div className="flex items-center gap-2 min-w-0">
@@ -407,7 +407,7 @@ export const DynamicSegmentationInspector: React.FC = () => {
       </div>
 
       {/* Viewport Sync Controls */}
-      <div className="space-y-1.5 p-2 rounded-xl bg-[#12131d] border border-white/[0.08]">
+      <div className="space-y-1.5 p-2 rounded-xl bg-[hsl(var(--surface-1))] border border-white/[0.08]">
         <div className="flex items-center justify-between">
           <span className="text-[11px] text-zinc-200 font-medium">Highlight Part Seams</span>
           <button
@@ -415,7 +415,7 @@ export const DynamicSegmentationInspector: React.FC = () => {
             role="switch"
             aria-checked={highlightBoundaries}
             onClick={() => setHighlightBoundaries(!highlightBoundaries)}
-            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${highlightBoundaries ? 'bg-[#F9CF00]' : 'bg-white/15'}`}
+            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${highlightBoundaries ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'}`}
           >
             <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${highlightBoundaries ? 'translate-x-3 bg-black' : 'translate-x-0'}`} />
           </button>
@@ -427,7 +427,7 @@ export const DynamicSegmentationInspector: React.FC = () => {
             role="switch"
             aria-checked={colorizeViewport}
             onClick={() => setColorizeViewport(!colorizeViewport)}
-            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${colorizeViewport ? 'bg-[#F9CF00]' : 'bg-white/15'}`}
+            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${colorizeViewport ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'}`}
           >
             <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${colorizeViewport ? 'translate-x-3 bg-black' : 'translate-x-0'}`} />
           </button>
@@ -441,7 +441,7 @@ export const DynamicSegmentationInspector: React.FC = () => {
         disabled={isExportingZip}
         className="w-full h-8 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.1] text-white text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98]"
       >
-        <FolderArchive className="w-3.5 h-3.5 text-[#F9CF00]" />
+        <FolderArchive className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
         <span>{isExportingZip ? 'Packaging ZIP Archive...' : 'Export Separate Parts (.ZIP)'}</span>
       </button>
     </div>

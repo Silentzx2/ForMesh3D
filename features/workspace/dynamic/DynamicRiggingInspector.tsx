@@ -262,10 +262,10 @@ export const DynamicRiggingInspector: React.FC = () => {
       />
 
       {/* Bone Rotation Sliders */}
-      <div className="space-y-1.5 p-2 rounded-xl bg-[#12131d] border border-white/[0.08]">
+      <div className="space-y-1.5 p-2 rounded-xl bg-[hsl(var(--surface-1))] border border-white/[0.08]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 min-w-0">
-            <Bone className="w-3.5 h-3.5 text-[#F9CF00] flex-shrink-0" />
+            <Bone className="w-3.5 h-3.5 text-[hsl(var(--primary))] flex-shrink-0" />
             <span className="text-xs font-semibold text-white truncate">{selectedBone.name}</span>
           </div>
           <button
@@ -288,7 +288,7 @@ export const DynamicRiggingInspector: React.FC = () => {
           <div key={label} className="space-y-0.5">
             <div className="flex justify-between text-[10px] font-mono text-zinc-400">
               <span>{label}</span>
-              <span className="text-[#F9CF00] font-semibold">{selectedBone.rot[axis]}°</span>
+              <span className="text-[hsl(var(--primary))] font-semibold">{selectedBone.rot[axis]}°</span>
             </div>
             <input
               type="range"
@@ -297,7 +297,7 @@ export const DynamicRiggingInspector: React.FC = () => {
               step={5}
               value={selectedBone.rot[axis]}
               onChange={(e) => handleRotationChange(axis, parseInt(e.target.value, 10))}
-              className="w-full h-1 rounded-full appearance-none cursor-pointer bg-white/10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#F9CF00]"
+              className="w-full h-1 rounded-full appearance-none cursor-pointer bg-white/10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[hsl(var(--primary))]"
             />
           </div>
         ))}
@@ -323,7 +323,7 @@ export const DynamicRiggingInspector: React.FC = () => {
       </div>
 
       {/* Switches & Metrics */}
-      <div className="space-y-1.5 p-2 rounded-xl bg-[#12131d] border border-white/[0.08]">
+      <div className="space-y-1.5 p-2 rounded-xl bg-[hsl(var(--surface-1))] border border-white/[0.08]">
         <div className="flex items-center justify-between">
           <span className="text-[11px] text-zinc-200 font-medium">Symmetry Mirroring</span>
           <button
@@ -331,7 +331,7 @@ export const DynamicRiggingInspector: React.FC = () => {
             role="switch"
             aria-checked={symmetrySnap}
             onClick={() => setSymmetrySnap(!symmetrySnap)}
-            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${symmetrySnap ? 'bg-[#F9CF00]' : 'bg-white/15'}`}
+            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${symmetrySnap ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'}`}
           >
             <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${symmetrySnap ? 'translate-x-3 bg-black' : 'translate-x-0'}`} />
           </button>
@@ -343,7 +343,7 @@ export const DynamicRiggingInspector: React.FC = () => {
             role="switch"
             aria-checked={xrayMode}
             onClick={() => setXrayMode(!xrayMode)}
-            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${xrayMode ? 'bg-[#F9CF00]' : 'bg-white/15'}`}
+            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${xrayMode ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'}`}
           >
             <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${xrayMode ? 'translate-x-3 bg-black' : 'translate-x-0'}`} />
           </button>
@@ -351,11 +351,11 @@ export const DynamicRiggingInspector: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-2 gap-1.5">
-        <div className="p-1.5 rounded-lg bg-[#12131d] border border-white/[0.08] flex items-center justify-between">
+        <div className="p-1.5 rounded-lg bg-[hsl(var(--surface-1))] border border-white/[0.08] flex items-center justify-between">
           <span className="text-[10px] text-zinc-400">Total Bones</span>
           <span className="font-mono text-[11px] font-semibold text-white">{realBoneCount} Bones</span>
         </div>
-        <div className="p-1.5 rounded-lg bg-[#12131d] border border-white/[0.08] flex items-center justify-between">
+        <div className="p-1.5 rounded-lg bg-[hsl(var(--surface-1))] border border-white/[0.08] flex items-center justify-between">
           <span className="text-[10px] text-zinc-400">Skinning</span>
           <span className="font-mono text-[11px] font-semibold text-emerald-400">Linear Blend</span>
         </div>
@@ -367,7 +367,7 @@ export const DynamicRiggingInspector: React.FC = () => {
         disabled={isExporting}
         className="w-full h-8 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.1] text-white text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98]"
       >
-        <Download className="w-3.5 h-3.5 text-[#F9CF00]" />
+        <Download className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
         <span>{isExporting ? 'Packaging Rigged Model...' : 'Export Rigged Model (.GLB)'}</span>
       </button>
     </div>

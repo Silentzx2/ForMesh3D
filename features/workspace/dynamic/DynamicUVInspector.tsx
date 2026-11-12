@@ -279,7 +279,7 @@ export const DynamicUVInspector: React.FC = () => {
   return (
     <div className="space-y-2.5">
       {/* 2D UV Canvas Viewport */}
-      <div className="relative aspect-square w-full rounded-xl overflow-hidden border border-white/[0.08] bg-[#0a0b12] shadow-inner">
+      <div className="relative aspect-square w-full rounded-xl overflow-hidden border border-white/[0.08] bg-[hsl(var(--surface-0))] shadow-inner">
         <canvas
           ref={canvasRef}
           width={512}
@@ -289,7 +289,7 @@ export const DynamicUVInspector: React.FC = () => {
 
         {/* Real UV Overlay Badge */}
         {uvData && uvData.hasUV ? (
-          <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-md border border-[#F9CF00]/30 text-[9px] font-mono text-[#F9CF00] font-bold">
+          <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-md border-[hsl(var(--primary))]/30 text-[9px] font-mono text-[hsl(var(--primary))] font-bold">
             Real Mesh UV Wireframe
           </div>
         ) : (
@@ -307,7 +307,7 @@ export const DynamicUVInspector: React.FC = () => {
               <button
                 type="button"
                 onClick={handleQuickPlanarUV}
-                className="h-7 px-3 rounded-lg bg-[#F9CF00] hover:bg-[#F9CF00]/90 text-black text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all active:scale-95"
+                className="h-7 px-3 rounded-lg bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 text-black text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all active:scale-95"
               >
                 <Wand2 className="w-3.5 h-3.5" />
                 <span>Quick Viewport UVs</span>
@@ -328,13 +328,13 @@ export const DynamicUVInspector: React.FC = () => {
 
       {/* Real UV Coverage & Triangles Metrics */}
       <div className="grid grid-cols-2 gap-1.5">
-        <div className="p-2 rounded-lg bg-[#12131d] border border-white/[0.08] flex items-center justify-between">
+        <div className="p-2 rounded-lg bg-[hsl(var(--surface-1))] border border-white/[0.08] flex items-center justify-between">
           <span className="text-[10px] text-zinc-400">UV Coverage</span>
           <span className="font-mono text-[11px] font-semibold text-emerald-400">
             {uvData?.hasUV ? `${uvData.coverage}%` : '0%'}
           </span>
         </div>
-        <div className="p-2 rounded-lg bg-[#12131d] border border-white/[0.08] flex items-center justify-between">
+        <div className="p-2 rounded-lg bg-[hsl(var(--surface-1))] border border-white/[0.08] flex items-center justify-between">
           <span className="text-[10px] text-zinc-400">UV Faces</span>
           <span className="font-mono text-[11px] font-semibold text-white">
             {uvData?.hasUV ? uvData.totalTris.toLocaleString() : '0'}
@@ -343,7 +343,7 @@ export const DynamicUVInspector: React.FC = () => {
       </div>
 
       {/* 3D Viewport Synchronized Toggles */}
-      <div className="space-y-1.5 p-2 rounded-xl bg-[#12131d] border border-white/[0.08]">
+      <div className="space-y-1.5 p-2 rounded-xl bg-[hsl(var(--surface-1))] border border-white/[0.08]">
         <div className="flex items-center justify-between">
           <span className="text-[11px] text-zinc-200 font-medium">Highlight Seam Cuts</span>
           <button
@@ -351,7 +351,7 @@ export const DynamicUVInspector: React.FC = () => {
             role="switch"
             aria-checked={highlightSeams}
             onClick={toggleHighlightSeams}
-            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${highlightSeams ? 'bg-[#F9CF00]' : 'bg-white/15'}`}
+            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${highlightSeams ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'}`}
           >
             <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${highlightSeams ? 'translate-x-3 bg-black' : 'translate-x-0'}`} />
           </button>
@@ -364,7 +364,7 @@ export const DynamicUVInspector: React.FC = () => {
             role="switch"
             aria-checked={viewportChecker}
             onClick={toggleViewportChecker}
-            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${viewportChecker ? 'bg-[#F9CF00]' : 'bg-white/15'}`}
+            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${viewportChecker ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'}`}
           >
             <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${viewportChecker ? 'translate-x-3 bg-black' : 'translate-x-0'}`} />
           </button>
@@ -379,7 +379,7 @@ export const DynamicUVInspector: React.FC = () => {
           disabled={isExporting || !uvData?.hasUV}
           className="h-8 px-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] disabled:opacity-40 border border-white/[0.1] text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95"
         >
-          <Download className="w-3.5 h-3.5 text-[#F9CF00]" />
+          <Download className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
           <span>{isExporting ? 'Exporting...' : 'Export Layout'}</span>
         </button>
 
@@ -390,7 +390,7 @@ export const DynamicUVInspector: React.FC = () => {
             runUVUnwrapGeneration();
           }}
           disabled={isExecuting}
-          className="h-8 px-2 rounded-xl bg-[#F9CF00]/15 hover:bg-[#F9CF00]/25 border border-[#F9CF00]/30 text-[#F9CF00] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95"
+          className="h-8 px-2 rounded-xl bg-[hsl(var(--primary))]/15 hover:bg-[hsl(var(--primary))]/25 border border-[hsl(var(--primary))]/30 text-[hsl(var(--primary))] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isExecuting ? 'animate-spin' : ''}`} />
           <span>Auto Unwrap UV</span>

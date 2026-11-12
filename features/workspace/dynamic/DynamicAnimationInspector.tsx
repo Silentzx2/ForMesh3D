@@ -145,7 +145,7 @@ export const DynamicAnimationInspector: React.FC = () => {
       <div className="p-2.5 rounded-xl bg-black/40 border border-white/[0.08] space-y-1.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <Film className="w-3.5 h-3.5 text-[#F9CF00]" />
+            <Film className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
             <span className="text-xs font-semibold text-white truncate">
               {activeClip ? activeClip.name : 'Locomotion Clip'}
             </span>
@@ -162,12 +162,12 @@ export const DynamicAnimationInspector: React.FC = () => {
       </div>
 
       {/* Scrubber Timeline */}
-      <div className="space-y-1.5 p-2.5 rounded-xl bg-[#12131d] border border-white/[0.08]">
+      <div className="space-y-1.5 p-2.5 rounded-xl bg-[hsl(var(--surface-1))] border border-white/[0.08]">
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
             Timeline Scrubber
           </span>
-          <span className="font-mono text-[10px] text-[#F9CF00] font-semibold">
+          <span className="font-mono text-[10px] text-[hsl(var(--primary))] font-semibold">
             {currentTime.toFixed(2)}s / {duration.toFixed(1)}s
           </span>
         </div>
@@ -185,7 +185,7 @@ export const DynamicAnimationInspector: React.FC = () => {
           style={{
             background: `linear-gradient(to right, #F9CF00 0%, #F9CF00 ${progressPercent}%, rgba(255, 255, 255, 0.08) ${progressPercent}%, rgba(255, 255, 255, 0.08) 100%)`,
           }}
-          className="w-full h-1.5 rounded-full appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[#F9CF00]"
+          className="w-full h-1.5 rounded-full appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[hsl(var(--primary))]"
         />
 
         {/* Playback Controls Row */}
@@ -194,7 +194,7 @@ export const DynamicAnimationInspector: React.FC = () => {
             <button
               type="button"
               onClick={togglePlay}
-              className="w-7 h-7 rounded-lg bg-[#F9CF00] text-black hover:bg-[#ffe34d] flex items-center justify-center transition-all cursor-pointer font-bold shadow-sm active:scale-95"
+              className="w-7 h-7 rounded-lg bg-[hsl(var(--primary))] text-black hover:bg-[hsl(var(--primary))] flex items-center justify-center transition-all cursor-pointer font-bold shadow-sm active:scale-95"
               title={isPlaying ? 'Pause' : 'Play'}
             >
               {isPlaying ? <Pause className="w-3.5 h-3.5 fill-black" /> : <Play className="w-3.5 h-3.5 fill-black ml-0.5" />}
@@ -243,7 +243,7 @@ export const DynamicAnimationInspector: React.FC = () => {
       </div>
 
       {/* Diagnostics */}
-      <div className="p-2 rounded-xl bg-[#12131d] border border-white/[0.08] flex items-center justify-between">
+      <div className="p-2 rounded-xl bg-[hsl(var(--surface-1))] border border-white/[0.08] flex items-center justify-between">
         <span className="text-[10px] text-zinc-400">Foot Contact Lock</span>
         <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1 font-semibold">
           <Footprints className="w-3 h-3 text-emerald-400" />
@@ -252,7 +252,7 @@ export const DynamicAnimationInspector: React.FC = () => {
       </div>
 
       {/* 3D Overlays */}
-      <div className="space-y-1.5 p-2 rounded-xl bg-[#12131d] border border-white/[0.08]">
+      <div className="space-y-1.5 p-2 rounded-xl bg-[hsl(var(--surface-1))] border border-white/[0.08]">
         <div className="flex items-center justify-between">
           <span className="text-[11px] text-zinc-200 font-medium">Skeleton Armature</span>
           <button
@@ -260,7 +260,7 @@ export const DynamicAnimationInspector: React.FC = () => {
             role="switch"
             aria-checked={displayOptions.showSkeleton}
             onClick={() => setDisplayOptions({ showSkeleton: !displayOptions.showSkeleton })}
-            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${displayOptions.showSkeleton ? 'bg-[#F9CF00]' : 'bg-white/15'}`}
+            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${displayOptions.showSkeleton ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'}`}
           >
             <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${displayOptions.showSkeleton ? 'translate-x-3 bg-black' : 'translate-x-0'}`} />
           </button>
@@ -273,7 +273,7 @@ export const DynamicAnimationInspector: React.FC = () => {
             role="switch"
             aria-checked={showTrajectory}
             onClick={() => setShowTrajectory(!showTrajectory)}
-            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${showTrajectory ? 'bg-[#F9CF00]' : 'bg-white/15'}`}
+            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${showTrajectory ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'}`}
           >
             <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${showTrajectory ? 'translate-x-3 bg-black' : 'translate-x-0'}`} />
           </button>
@@ -287,7 +287,7 @@ export const DynamicAnimationInspector: React.FC = () => {
         disabled={isExporting}
         className="w-full h-8 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.1] text-white text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98]"
       >
-        <Download className="w-3.5 h-3.5 text-[#F9CF00]" />
+        <Download className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
         <span>{isExporting ? 'Packaging Motion Clip...' : 'Export Motion Clip (.GLB)'}</span>
       </button>
     </div>

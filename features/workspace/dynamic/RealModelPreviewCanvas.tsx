@@ -211,13 +211,13 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
       ref={containerRef}
       onClick={(e) => handlePointer(e, true)}
       onMouseMove={(e) => handlePointer(e, false)}
-      className={`relative w-full aspect-square max-h-[220px] rounded-xl overflow-hidden border border-white/[0.08] bg-[#0c0d14] ${
+      className={`relative w-full aspect-square max-h-[220px] rounded-xl overflow-hidden border border-white/[0.08] bg-[hsl(var(--surface-0))] ${
         hovered ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
       }`}
     >
       <div className="absolute inset-0 opacity-40 pointer-events-none [background:radial-gradient(circle_at_50%_50%,rgba(35,30,60,0.5)_0%,transparent_80%)]" />
       <div className="absolute top-1.5 left-2 text-[8px] font-mono text-zinc-500 pointer-events-none flex items-center gap-1 z-20">
-        <Rotate3d className="w-2.5 h-2.5 text-[#F9CF00]" />
+        <Rotate3d className="w-2.5 h-2.5 text-[hsl(var(--primary))]" />
         <span>Orbit · Select in 3D</span>
       </div>
       {activeModel && (
