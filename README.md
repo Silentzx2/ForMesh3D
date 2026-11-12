@@ -319,13 +319,12 @@ flowchart TD
 ## 7. Studio Workspace & Interactive 3D Viewport
 
 <div align="center">
-  <a href="assets/formeshed3d-studio-ui.jpg">
-    <img src="assets/formeshed3d-studio-ui.jpg" alt="ForMesh3D Studio Workspace — Live 3D Mesh Generation & Finishing Viewport" width="94%" style="border-radius: 8px; border: 1px solid #30363d; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);">
-  </a>
-  <p align="center">
-    <sub><b>Figure 1:</b> ForMesh3D unified Studio Workspace — live interactive Three.js viewport, real-time geometry telemetry HUD, model adapter selector with hardware VRAM admission, and automated production post-processing toggles.</sub>
-  </p>
+  <img src="assets/workspace-screenshot-1.png" alt="ForMesh3D Studio Workspace — Generate Model Panel" width="100%" style="border-radius: 8px; border: 1px solid #30363d; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); margin-bottom: 12px;">
 </div>
+
+<p align="center">
+  <sub><b>Figure 1:</b> ForMesh3D unified Studio Workspace — live interactive Three.js viewport, Generate Model panel with image/mesh upload, geometry & texture settings, AI model selector, and production post-processing toggles. Captured from <code>http://localhost:3000/workspace</code>.</sub>
+</p>
 
 The ForMesh3D Studio UI integrates neural generation and mesh finishing into a cohesive desktop-grade web application:
 
