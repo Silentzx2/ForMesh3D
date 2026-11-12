@@ -185,7 +185,6 @@ flowchart TD
     TEXTURE -->|Yes| SIZE{"Requested atlas preset"}:::guard
     SIZE -->|All resolutions| HUNYUAN["Hunyuan3D-Paint v2.1<br/>Texture generation with RealESRGAN"]:::process
     SIZE -->|4K / 8K| HUNYUAN["Hunyuan3D-Paint v2.1<br/>RealESRGAN enabled internally"]:::process
-    PAINT3D --> VERIFY["Inspect embedded base-colour atlas<br/>Require exact requested square size"]:::process
     HUNYUAN --> VERIFY
     VERIFY -->|Verified| EXPORT["Export separate textured GLB<br/>Keep source.glb untouched"]:::output
     VERIFY -->|Missing / mismatch / failure| RAWFAIL["Preserve raw master<br/>Record texture-stage failure"]:::output
@@ -202,7 +201,7 @@ flowchart TD
     TEXTURE -->|Yes| SIZE{"Requested atlas preset"}:::guard
     SIZE -->|All resolutions| HUNYUAN[\"Hunyuan3D-Paint v2.1<br/>Texture generation with RealESRGAN\"]:::process
     SIZE -->|4K / 8K| HUNYUAN["Hunyuan3D-Paint v2.1<br/>RealESRGAN enabled internally"]:::process
-    PAINT3D --> VERIFY["Inspect embedded base-colour atlas<br/>Require exact requested dimensions"]:::process
+
     HUNYUAN --> VERIFY
     VERIFY -->|Verified| EXPORT["Export separate textured GLB<br/>Keep source.glb untouched"]:::output
     VERIFY -->|Failed / mismatch| RAWFAIL["Preserve raw master<br/>Record texture-stage failure"]:::output

@@ -65,6 +65,7 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         self.version = "1.0"
         self.experimental = False
         self._pipeline: Any = None
+        self._paint_pipeline: Any = None
 
     def _load_model(self) -> Any:
         # Pre-Ampere detection (sm < 80, e.g. Tesla T4 sm_75):
@@ -164,6 +165,9 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         pipeline.to(device)
 
         self._pipeline = pipeline
+        # TRELLIS.2 is a single shape+paint pipeline: the same loaded object
+        # serves mesh painting, mirroring hunyuan3d_adapter_v21's _paint_pipeline.
+        self._paint_pipeline = pipeline
         self.model = pipeline
         self.device = device
         # Apply TRELLIS.2 model-specific patcher (sparse_structure_decoder
@@ -179,6 +183,7 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
 
     def _unload_model(self) -> None:
         self._pipeline = None
+        self._paint_pipeline = None
         self.model = None
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
@@ -275,6 +280,60 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
             return {"success": False, "error": f"TRELLIS.2 mesh processing produced invalid geometry: {exc}"}
 
         raw_mesh.export(str(out), file_type="glb")
+
+        # Texture pipeline: paint the raw mesh using the already-loaded pipeline
+        # (same object as self._pipeline). Mirrors hunyuan3d_adapter_v21's raw ->
+        # texture flow; never blocks the raw-mesh result on texture failure.
+        texture_enabled = bool(inputs.get("texture_enabled"))
+        texture_image_path = inputs.get("image_path") or inputs.get("image")
+        if (
+            texture_enabled
+            and texture_image_path
+            and Path(texture_image_path).is_file()
+            and self._paint_pipeline is not None
+        ):
+            try:
+                from PIL import Image
+
+                image = Image.open(texture_image_path)
+                if image.mode in ("RGBA", "LA") or (
+                    image.mode == "P" and "transparency" in getattr(image, "info", {})
+                ):
+                    image = image.convert("RGBA")
+                elif image.mode != "RGB":
+                    image = image.convert("RGB")
+
+                ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
+                with ctx:
+                    textured = self._paint_pipeline(
+                        mesh=mesh,
+                        image=image,
+                        seed=seed,
+                    )
+
+                textured_out = Path(tempfile.mkdtemp()) / f"trellis2_textured_{used_seed}.glb"
+                if hasattr(textured, "export"):
+                    textured.export(str(textured_out))
+                    return {
+                        "success": True,
+                        "output_mesh_path": str(out),
+                        "mesh_path": str(out),
+                        "textured_mesh_path": str(textured_out),
+                        "texture_enabled": True,
+                        "generation_info": {
+                            "seed": used_seed,
+                            "num_inference_steps": "adapter_owned",
+                            "guidance_scale": "adapter_owned",
+                            "octree_resolution": "adapter_owned",
+                            "pipeline_type": "1536_cascade",
+                            "max_num_tokens": 49152,
+                            "generate_texture": False,
+                        },
+                    }
+                logger.warning("TRELLIS.2 paint pipeline returned non-exportable object; returning raw mesh only")
+            except Exception as tex_err:  # pragma: no cover - texture is best-effort
+                logger.warning("TRELLIS.2 texture generation failed: %s", tex_err, exc_info=True)
+
         try:
             reloaded_mesh = trimesh.load(str(out), force="mesh", process=False)
             roundtrip_stats = validate_mesh_arrays(

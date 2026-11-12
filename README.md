@@ -252,13 +252,24 @@ The model registry is dynamically configured via `backend/config/models.yaml` an
 | **TaoFlowForge** | `taoflowforge_image_to_raw_mesh` | Raw Mesh | 20 GB (10 GB low-VRAM) | Progressive native-mesh generation. Stage 1 query chunking SDPA (diff=0.0) eliminates 10.06 GiB OOM; stage offload enforced. |
 | **Pixal3D** | `pixal3d_image_to_raw_mesh` / `pixal3d_image_to_3d` | Raw Mesh | ~18 GB configured reservation | Pixel-aligned O-Voxel source; DinoV3 feature extractor condition models initialized. |
 | **Hunyuan3D-Paint-v2.1** | `hunyuan3d_paint_v21_image_mesh_painting` | PBR Texture | ~12 GB configured reservation | 2B PBR texture checkpoint, internal RealESRGAN, exported 4K/8K atlas validation. |
-| **Paint3D** | `paint3d` | PBR Texture | ~12 GB | Centralized texturing stage for 1K/2K atlas targets. |
 | **TripoSG** | `triposg_image_to_raw_mesh` | Image/Scribble to 3D | 8 GB | High-fidelity image and scribble guided 3D geometry; model-specific patcher in `patcher/triposg/`. |
 | **FastMesh (V1K)** | `fastmesh_v1k_retopology` | Mesh Retopology | 16 GB configured reservation | V1K manifest entry; quad-dominant retopology engine. |
 | **SkinTokens** | `skintokens_auto_rigging` | Auto-Rigging | 14 GB | Unified autoregressive armature and discrete skin token generation. |
 | **ARDY** | `ardy_motion_generation` | Motion AI | CPU-only | Interactive autoregressive text-to-motion generation; CPU/RAM-bound. |
 | **PartUV** | `partuv_uv_unwrapping` | UV Unwrapping | 7 GB | Automated seam placement and GPU UV chart packing. |
 | **TRELLIS** | `trellis_image_to_3d` / `trellis_image_to_raw_mesh` | Raw Mesh | 11.5 GB | Raw FlexiCubes geometry; optional texture generation is a separate stage. |
+
+### Texture Pipeline & Texture-Capable Models
+
+Texture generation runs inside the selected model's adapter after raw mesh inference, using already-loaded weights — no second weights load for models that share the texture-capable adapter. The raw `master/source.glb` stays immutable; textured output is stored as a separate artifact (`textures/<base>_textured.glb`).
+
+|| Model | Texture Capability | Status |
+|---|---|---|
+| **Hunyuan3D-2.1** (`hunyuan3d_paint_v21_image_mesh_painting`) | PBR texture with internal RealESRGAN enhancement; 4K/8K atlas targets | Done — texture runs in `hunyuan3d_adapter_v21.py` `_process_request` after raw inference |
+| **TRELLIS** (`trellis_image_to_raw_mesh`) | Texture via `to_glb(gs, mesh, texture_size=...)` | Planned — texture method to be added to `_TrellisBaseAdapter._process_request` |
+| **TRELLIS.2** (`trellis2_image_to_raw_mesh`) | Texture via `pipeline(mesh=, image=, seed=)` | Planned — texture method to be added to `Trellis2ImageToRawMeshAdapter._process_request` |
+
+Paint3D has been removed from the main repo. All texture resolutions now route to Hunyuan3D-Paint v2.1.
 
 > **Registry source of truth:** the catalog above mirrors `backend/config/models.yaml`. Only entries with `enabled: true` are exposed by `GET /api/v1/system/models`. `backend/config/smart_presets.yaml` holds the intent presets (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`; `native` is a backend-only sentinel).
 
@@ -326,7 +337,7 @@ The ForMesh3D Studio UI integrates neural generation and mesh finishing into a c
 
 ### 🧰 Creative Workspace Modules:
 - **Generate Studio (`/workspace`)**: Image-to-3D generation with reference image intake, model selector, unified Target Polycount, and Output Presets (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`, `native`).
-- **Texture Studio (`/workspace/texture`)**: Multi-view PBR texture painting and PBR map inspection/export (Albedo, Normal, Roughness, Metallic, AO). Paint3D handles 1K/2K, while Hunyuan3D-Paint runs internal RealESRGAN enhancement for 4K/8K.
+- **Texture Studio (`/workspace/texture`)**: Multi-view PBR texture painting and PBR map inspection/export (Albedo, Normal, Roughness, Metallic, AO). Hunyuan3D-Paint v2.1 runs internal RealESRGAN enhancement for 4K/8K atlas targets.
 - **Retopology & Remesh (`/workspace/remesh`)**: FastMesh quad-dominant retopology with V1K and V4K target presets.
 - **UV Unwrapping (`/workspace/uv`)**: Automated conformal seam placement and atlas chart packing.
 - **Mesh Segmentation (`/workspace/segment`)**: Semantic part decomposition interface.
@@ -531,7 +542,7 @@ Yes. Once your model checkpoints are downloaded via `bash backend/scripts/downlo
 
 ForMesh3D runs on modern NVIDIA GPUs supporting CUDA 12.4+. VRAM figures are the scheduler reservations declared in `backend/config/models.yaml`:
 - **Lightweight Models (6 GB–10 GB VRAM)**: TripoSG (~8 GB), Hunyuan3D-DiT-v2-mini-Turbo (~6 GB), Unique3D (~10 GB), PartUV (~7 GB).
-- **Standard Models (11.5 GB–14 GB VRAM)**: TRELLIS (~11.5 GB), Hunyuan3D-Paint v2.1 (~12 GB configured reservation), Paint3D (~12 GB), SkinTokens (~14 GB).
+- **Standard Models (11.5 GB–14 GB VRAM)**: TRELLIS (~11.5 GB), Hunyuan3D-Paint v2.1 (~12 GB configured reservation), SkinTokens (~14 GB).
 - **Heavy & High-Poly Models (16 GB–24 GB+ VRAM)**: FastMesh V1K (~16 GB), Pixal3D (~18 GB), TaoFlowForge (~20 GB / 10 GB low-VRAM), TRELLIS.2 (~23.5 GB, runs on RTX 3090, 4090, A10, A100).
 </details>
 

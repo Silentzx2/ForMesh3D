@@ -71,6 +71,8 @@ class _TrellisBaseAdapter(BaseModel):
         self.version = "1.0"
         self.experimental = False
         self._pipeline: Any = None
+        self._paint_pipeline: Any = None
+        self._paint_app_rep: Any = None
 
     def _load_model(self) -> Any:
         # Make the vendored TRELLIS source importable in the worker subprocess,
@@ -138,10 +140,27 @@ class _TrellisBaseAdapter(BaseModel):
         pipeline.to(device)
         self._pipeline = pipeline
         self.model = pipeline
+
+        # TRELLIS has no separate paint weights: texture is baked from the
+        # appearance representation with trellis.utils.postprocessing_utils.to_glb.
+        # Load the capability here so _process_request only runs the bake.
+        try:
+            from trellis.utils.postprocessing_utils import to_glb
+
+            self._paint_pipeline = to_glb
+            logger.info("TRELLIS paint/texture capability loaded (to_glb)")
+        except Exception as paint_err:
+            logger.warning(
+                "TRELLIS paint/texture capability not loaded (texture disabled): %s",
+                paint_err,
+            )
+            self._paint_pipeline = None
         return pipeline
 
     def _unload_model(self) -> None:
         self._pipeline = None
+        self._paint_pipeline = None
+        self._paint_app_rep = None
         self.model = None
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
@@ -161,9 +180,12 @@ class _TrellisBaseAdapter(BaseModel):
 
         image = Image.open(image_path)
 
+        want_texture = bool(inputs.get("texture_enabled")) and self._paint_pipeline is not None
+        formats = ["mesh", "gaussian"] if want_texture else ["mesh"]
+
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
-            result = pipeline.run(image, seed=seed, formats=["mesh"])
+            result = pipeline.run(image, seed=seed, formats=formats)
 
         mesh = result.get("mesh") if isinstance(result, dict) else None
         if mesh is None:
@@ -172,6 +194,13 @@ class _TrellisBaseAdapter(BaseModel):
             mesh = mesh[0] if mesh else None
             if mesh is None:
                 return {"success": False, "error": "TRELLIS produced no mesh"}
+
+        # Keep the appearance representation (gaussian) so the texture bake can
+        # reuse it after the raw mesh is exported.
+        app_rep = result.get("gaussian") if isinstance(result, dict) else None
+        if isinstance(app_rep, list):
+            app_rep = app_rep[0] if app_rep else None
+        self._paint_app_rep = app_rep
 
         import numpy as np
         import trimesh
@@ -205,6 +234,45 @@ class _TrellisBaseAdapter(BaseModel):
             tmesh.vertices = centred @ rot.T
 
         tmesh.export(str(out))
+
+        # Texture pipeline: bake a PBR texture from the appearance
+        # representation onto the raw mesh using the already-loaded to_glb
+        # (same capability as upstream postprocessing_utils.to_glb(app_rep, mesh, ...)).
+        # Guarded so failures fall back to the raw mesh instead of failing the request.
+        texture_enabled = bool(inputs.get("texture_enabled"))
+        texture_image_path = inputs.get("image_path") or inputs.get("image")
+        if (
+            texture_enabled
+            and texture_image_path
+            and Path(texture_image_path).is_file()
+            and self._paint_pipeline is not None
+            and self._paint_app_rep is not None
+        ):
+            try:
+                textured = self._paint_pipeline(
+                    self._paint_app_rep, mesh, texture_size=1024
+                )
+                textured_out = Path(tempfile.mkdtemp()) / f"trellis_textured_{seed}.glb"
+                if hasattr(textured, "export"):
+                    textured.export(str(textured_out))
+                    return {
+                        "success": True,
+                        "output_mesh_path": str(out),
+                        "mesh_path": str(out),
+                        "textured_mesh_path": str(textured_out),
+                        "texture_enabled": True,
+                        "generation_info": {
+                            "seed": seed,
+                            "num_inference_steps": "adapter_owned",
+                            "guidance_scale": "adapter_owned",
+                            "octree_resolution": "adapter_owned",
+                        },
+                    }
+                logger.warning(
+                    "TRELLIS paint pipeline returned non-exportable object; returning raw mesh only"
+                )
+            except Exception as tex_err:
+                logger.warning("TRELLIS texture generation failed: %s", tex_err, exc_info=True)
 
         return {
             "success": True,

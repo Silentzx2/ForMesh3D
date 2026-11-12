@@ -64,7 +64,7 @@ Bug fix = root cause, not symptom: a report names a symptom. Grep every caller o
 
 ## Documentation Rules
 
-- **Continuous Documentation Integrity**: After completing every task or meaningful change, always review and update all relevant .md documentation files to accurately reflect the project's current state, architecture, implementation, decisions, configurations, and workflows; never leave documentation outdated or inconsistent with the actual codebase.
+- **Continuous Documentation Integrity**: After completing every task or meaningful change, always review and update all relevant .md documentation and README.md files to accurately reflect the project's current state, architecture, implementation, decisions, configurations, and workflows; never leave documentation outdated or inconsistent with the actual codebase.
 - **Documentation Map**:
   - Project-level technical documentation lives in `Docs/`; root-level contributor guidance lives in `AGENTS.md` and `CONTRIBUTING.md`.
   - Review and update every document relevant to a code/config/contract change; do not reference a document unless the path exists in the current tree.
