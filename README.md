@@ -331,7 +331,8 @@ The ForMesh3D Studio UI integrates neural generation and mesh finishing into a c
 ### 🎮 Viewport & Generation Controls:
 - **Interactive Three.js Viewport**: Smooth orbital camera controls, perspective/orthographic toggle, wireframe overlay, PBR matcap rendering, and continuous WebGL staging.
 - **Floating XYZ Orientation Gizmo**: Reference-matched image-backed camera control with interactive positive and negative X/Y/Z snaps, integrated into the existing viewport without a second renderer.
-- **Real-Time Geometry Telemetry HUD**: Direct in-viewport telemetry tracking triangle count, vertex count, watertight manifold status, physical bounding box dimensions ($W \times H \times D$), and quality score — replaces the collapsible Mesh Details panel formerly in `ViewportToolOverlay`.
+- **Snapshot Capture**: Two separate capture buttons — Header Snapshot captures the entire workspace as-is (`<name>_<hash>-workspace.png`) at 1920×1080 PNG; Tool Rail Camera captures mesh only (grid/axes hidden) (`<name>_<hash>-mesh.png`) at 1080p 100% quality. Both save to current route identity.
+- **Real-Time Geometry Telemetry HUD**: Direct in-viewport telemetry tracking triangle count, vertex count, watertight manifold status, physical bounding box dimensions (W x H x D), and quality score — replaces the collapsible Mesh Details panel formerly in `ViewportToolOverlay`.
 - **Hardware-Aware Model Selector**: Real-time VRAM estimator comparing model memory reservations with live GPU telemetry (`torch.cuda.mem_get_info`) to prevent out-of-memory crashes before jobs are queued.
 - **Production Post-Processing Controls**: Toggle automated quad retopology, hole repair, conformal UV unwrapping, normal baking, and collision hull generation without mutating the immutable `master/source.glb`.
 
@@ -345,6 +346,14 @@ The ForMesh3D Studio UI integrates neural generation and mesh finishing into a c
 - **Jobs & Run Inspector (`/workspace/jobs`)**: Real-time progress tracking, step telemetry, and VRAM monitoring.
 - **Admin & Model Registry (`/admin?tab=models`)**: Live GPU health, temperature, and adapter configuration.
 - **Database Administration (`/admin?tab=database`)**: Cross-store statistics (SQLite/Redis/queue/file-metadata/disk), read-only Redis key inspector, and paginated jobs table with per-row cancel/delete.
+
+### 🔗 URL & Job ID Convention
+- **Route format:** `/workspace/<tool>/<name>_<hash>` — e.g. `/workspace/generate/rabbit_380fbb`. Hash is first 6 chars of a stable ID.
+- **Same-tool click:** Clicking the already-active nav tab clears the loaded model and reverts URL to base `/workspace`.
+- **Tool switching:** Switching tools preserves `<name>_<hash>` in the URL path.
+- **Job ID format:** Backend `job_id` uses `<name>_<hash>` format (`rabbit_380fbb`) instead of UUID, matching the UI route. Displayed in JobDetailView as `job_id=rabbit_<jobIdHash>`.
+- **Task reuse:** `startTask()` checks for an existing task with the same source before creating a new `job_id`.
+- **Prefix stripping:** Stacked prefixes (`local_upload_`, `upload_`, `hist_`, `job-`) are stripped globally via `/^(?:local_|upload_|hist_|job-)+/`.
 
 ---
 

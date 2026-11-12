@@ -14,16 +14,17 @@ All colors and surfaces in ForMesh 3D use HSL CSS variable design tokens. Direct
 | :--- | :--- | :--- | :--- |
 | `background` | `0 0% 3.1%` | `#080808` | Global Matte Black app backdrop / canvas shell base |
 | `foreground` | `0 0% 96%` | `#F5F5F5` | Primary high-contrast typography (clean crisp white) |
-| `--surface-0` | `0 0% 2.4%` | `#060606` | Deepest surface (3D viewport, canvas background) |
-| `--surface-1` | `0 0% 6.7%` | `#111111` | Primary panel backgrounds, cards, navigation rails |
-| `--surface-2` | `0 0% 10.2%` | `#1A1A1A` | Secondary containers, active tabs, nested sub-panels |
-| `--surface-3` | `0 0% 14.1%` | `#242424` | Hovered interactive states, input backgrounds |
-| `--surface-4` | `0 0% 20%` | `#333333` | Raised borders, highlighted elements |
-| `--primary` | `48 100% 50%` | `#FFCC00` | Vivid Studio Electric Gold (high-saturation, maximum LCD punch) |
-| `--primary-foreground`| `0 0% 3%` | `#080808` | High-contrast dark typography on primary yellow (>12:1 WCAG contrast) |
+| `--surface-0` | `0 0% 6%` | `#0F0F0F` | Deepest surface (3D viewport, canvas background) — brightened from 3.1% for visibility |
+| `--surface-1` | `0 0% 7.5%` | `#131313` | Primary panel backgrounds, cards, navigation rails — kept dark |
+| `--surface-2` | `0 0% 14%` | `#242424` | Secondary containers, active tabs, nested sub-panels — slightly brighter from 11.5% |
+| `--surface-3` | `0 0% 15.5%` | `#272727` | Hovered interactive states, input backgrounds |
+| `--surface-4` | `0 0% 22%` | `#383838` | Raised borders, highlighted elements |
+| `--primary` | `44 89% 61%` | `#F9CF00` | Studio Gold — icon color, hover glow, primary accent |
+| `--primary-foreground`| `0 0% 5%` | `#0D0D0D` | High-contrast dark typography on primary yellow (>12:1 WCAG contrast) |
+| `--ring` | `44 89% 61%` | `#F9CF00` | Focus ring color |
 | `--accent-dark` | — | `#E09800` | Pressed states, gradient bottom stop |
 | `--accent-light` | — | `#FFE066` | Hover states, specular highlight top stop |
-| `--border` | `0 0% 20%` | `#333333` | Standard card and container borders |
+| `--border` | `0 0% 22%` | `#383838` | Standard card and container borders |
 | `--muted-foreground` | `0 0% 63%` | `#A0A0A0` | Readable secondary/placeholder typography (>4.5:1 WCAG AA) |
 | `--chart-gpu` | `48 100% 50%` | `#FFCC00` | Telemetry GPU telemetry line |
 | `--chart-vram`| `48 100% 70%`| `#FFE066` | Telemetry VRAM telemetry line |
@@ -33,6 +34,22 @@ All colors and surfaces in ForMesh 3D use HSL CSS variable design tokens. Direct
 | Semantic Warning | — | `#FFCC00` / `amber-400` | Degraded service, queue wait |
 | Semantic Destructive | `0 72% 56%` | `#EF4444` / `rose-500` | Errors, deletion modals, fatal logs |
 | Semantic Info | — | `#3B82F6` / `sky-400` | Info notices, informative tooltips |
+
+### Icon color scheme
+
+All icons across panels (LeftNavigation, GeneratePanel) use Studio Gold (`#F9CF00`) as their active color with a subtle hover glow:
+
+- **Resting:** `#A1A1AA` (muted gray)
+- **Active:** `#F9CF00` + `drop-shadow-[0_0_10px_rgba(249,207,0,0.6)]`
+- **Hover (inactive):** `#F9CF00` + `drop-shadow-[0_0_8px_rgba(249,207,0,0.5)]`
+- **Animation:** `transition-transform duration-200 group-hover:scale-110` + `transition-colors duration-300`
+
+### Surface brightness rules
+
+- Viewport (`--surface-0`): 6% — bright enough for mesh detail, still dark enough for studio feel
+- Left navigation (`--surface-1`): 7.5% — kept dark for contrast against brighter viewport
+- Right panel (`--surface-2`): 14% — slightly brighter than before for readable secondary content
+
 
 ### Color Palette Visual Reference
 

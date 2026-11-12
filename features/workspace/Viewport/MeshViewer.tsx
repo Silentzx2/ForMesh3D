@@ -56,10 +56,10 @@ export interface EnvironmentPreset {
 }
 
 export const LIGHT_TONES: Record<LightTone, { label: string; key: number; fill: number; rim: number }> = {
-  studio: { label: 'Studio', key: 0xffffff, fill: 0xedf2fa, rim: 0xfff1d4 },
+  studio: { label: 'Studio', key: 0xffffff, fill: 0xd4d4d4, rim: 0xfff1d4 },
   warm: { label: 'Warm Gold', key: 0xffe8cc, fill: 0xfff5ea, rim: 0xffcc00 },
   cool: { label: 'Cyber Cool', key: 0xffffff, fill: 0xd8e6ff, rim: 0xd0e0ff },
-  neutral: { label: 'Neutral', key: 0xffffff, fill: 0xffffff, rim: 0xffffff },
+  neutral: { label: 'Neutral', key: 0xffffff, fill: 0xe6e6e6, rim: 0xffffff },
 };
 
 export const BACKGROUND_OPTIONS = [
@@ -79,10 +79,10 @@ export const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
     id: 'studio',
     label: 'Studio Gold',
     settings: {
-      ambientIntensity: 0.75,
-      keyLightIntensity: 1.6,
-      fillLightIntensity: 0.9,
-      rimLightIntensity: 1.1,
+      ambientIntensity: 0.65,
+      keyLightIntensity: 1.5,
+      fillLightIntensity: 0.7,
+      rimLightIntensity: 1.2,
       exposure: 1.0,
       toneMapping: 'neutral',
       lightTone: 'studio',
@@ -283,27 +283,30 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     controls.minDistance = 0.5;
     controlsRef.current = controls;
 
-    // Lights - Natural Studio Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
+    // Lights - Natural Studio Lighting (balanced old + new for crisp details, no dark left side)
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
     ambientLightRef.current = ambientLight;
     scene.add(ambientLight);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
     keyLight.position.set(3, 5, 4);
     keyLight.castShadow = true;
-    keyLight.shadow.mapSize.width = 1024;
-    keyLight.shadow.mapSize.height = 1024;
-    keyLight.shadow.bias = -0.0001;
+    keyLight.shadow.mapSize.width = 2048;
+    keyLight.shadow.mapSize.height = 2048;
+    keyLight.shadow.bias = -0.0005;
+    keyLight.shadow.normalBias = 0.02;
     keyLightRef.current = keyLight;
     scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0xedf2fa, 0.9);
+    const fillLight = new THREE.DirectionalLight(0xd4d4d4, 0.7);
     fillLight.position.set(-4, 2, -2);
+    fillLight.castShadow = false;
     fillLightRef.current = fillLight;
     scene.add(fillLight);
 
-    const rimLight = new THREE.DirectionalLight(0xfff1d4, 1.1);
+    const rimLight = new THREE.DirectionalLight(0xfff1d4, 1.2);
     rimLight.position.set(0, 4, -4);
+    rimLight.castShadow = false;
     rimLightRef.current = rimLight;
     scene.add(rimLight);
 
@@ -498,58 +501,200 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     };
   }, []);
 
-  // 4. Asynchronous Zero-Load High-Definition Snapshot Capture Listener
-  useEffect(() => {
-    const handleSnapshot = () => {
-      const renderer = rendererRef.current;
-      const scene = sceneRef.current;
-      const camera = cameraRef.current;
-      if (!renderer || !scene || !camera) {
-        toast.error('3D Viewport is not ready for snapshot');
-        return;
+  // 4a. Camera Button — capture mesh only (hides grid/axes helpers)
+  const captureSnapshot = useCallback(() => {
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    if (!renderer || !scene || !camera) {
+      toast.error('3D Viewport is not ready for snapshot');
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      try {
+        const currentRenderer = rendererRef.current;
+        const currentScene = sceneRef.current;
+        const currentCamera = cameraRef.current;
+        if (!currentRenderer || !currentScene || !currentCamera) return;
+
+        const dom = currentRenderer.domElement;
+        const origWidth = dom.width;
+        const origHeight = dom.height;
+        const origPixelRatio = currentRenderer.getPixelRatio();
+        currentRenderer.setSize(1920, 1080, false);
+        currentRenderer.setPixelRatio(1);
+
+        const helpersToHide: THREE.Object3D[] = [];
+        currentScene.traverse((child) => {
+          if (
+            (child as any).isGridHelper ||
+            (child as any).isAxesHelper ||
+            (child as any).isHelper
+          ) {
+            child.visible = false;
+            helpersToHide.push(child);
+          }
+        });
+
+        currentRenderer.render(currentScene, currentCamera);
+        helpersToHide.forEach((h) => (h.visible = true));
+
+        currentRenderer.domElement.toBlob(
+          (blob) => {
+            currentRenderer.setSize(origWidth, origHeight, false);
+            currentRenderer.setPixelRatio(origPixelRatio);
+
+            if (!blob) {
+              toast.error('Failed to create snapshot image');
+              return;
+            }
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+
+            const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+            const parts = pathname.replace('/workspace/', '').split('/');
+            const routeName = parts.length > 1 && parts[parts.length - 1]
+              ? parts[parts.length - 1]
+              : 'mesh';
+            a.download = `${routeName}-mesh.png`;
+
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+            toast.success(`Snapshot saved as ${routeName}-mesh.png`);
+          },
+          'image/png',
+          1.0
+        );
+      } catch (err: any) {
+        console.error('Failed to capture snapshot:', err);
+        toast.error('Failed to capture snapshot');
       }
+    });
+  }, [rendererRef, sceneRef, cameraRef, toast]);
 
-      // Schedule asynchronously via requestAnimationFrame to avoid blocking the main event loop
-      requestAnimationFrame(() => {
-        try {
-          const currentRenderer = rendererRef.current;
-          const currentScene = sceneRef.current;
-          const currentCamera = cameraRef.current;
-          if (!currentRenderer || !currentScene || !currentCamera) return;
-
-          // Render current high-quality frame aligned with RAF
-          currentRenderer.render(currentScene, currentCamera);
-
-          // Capture asynchronously via toBlob on browser background thread - ZERO main-thread freeze
-          currentRenderer.domElement.toBlob(
-            (blob) => {
-              if (!blob) {
-                toast.error('Failed to create snapshot image');
-                return;
-              }
-              const blobUrl = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = blobUrl;
-              a.download = `formesh3d-snapshot-${Date.now()}.png`;
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
-              toast.success('High-resolution snapshot saved to Downloads!');
-            },
-            'image/png',
-            1.0
-          );
-        } catch (err: any) {
-          console.error('Failed to capture snapshot:', err);
-          toast.error('Failed to capture snapshot');
-        }
-      });
+  // 4b. Listen for camera button click from tool rail — capture mesh only
+  useEffect(() => {
+    const handleSnapshotEvent = () => {
+      captureSnapshot();
     };
 
-    window.addEventListener('takeViewportSnapshot', handleSnapshot as EventListener);
-    return () => window.removeEventListener('takeViewportSnapshot', handleSnapshot as EventListener);
-  }, []);
+    window.addEventListener('takeViewportSnapshot', handleSnapshotEvent as EventListener);
+    return () => window.removeEventListener('takeViewportSnapshot', handleSnapshotEvent as EventListener);
+  }, [captureSnapshot]);
+
+  // 4c. Header Snapshot Button — capture entire workspace as-is (no hiding helpers)
+  const captureWorkspace = useCallback(() => {
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    if (!renderer || !scene || !camera) {
+      toast.error('3D Viewport is not ready for snapshot');
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      try {
+        const currentRenderer = rendererRef.current;
+        const currentScene = sceneRef.current;
+        const currentCamera = cameraRef.current;
+        if (!currentRenderer || !currentScene || !currentCamera) return;
+
+        const dom = currentRenderer.domElement;
+        const origWidth = dom.width;
+        const origHeight = dom.height;
+        const origPixelRatio = currentRenderer.getPixelRatio();
+        currentRenderer.setSize(1920, 1080, false);
+        currentRenderer.setPixelRatio(1);
+
+        currentRenderer.render(currentScene, currentCamera);
+
+        currentRenderer.domElement.toBlob(
+          (blob) => {
+            currentRenderer.setSize(origWidth, origHeight, false);
+            currentRenderer.setPixelRatio(origPixelRatio);
+
+            if (!blob) {
+              toast.error('Failed to create snapshot image');
+              return;
+            }
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+
+            const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+            const parts = pathname.replace('/workspace/', '').split('/');
+            const routeName = parts.length > 1 && parts[parts.length - 1]
+              ? parts[parts.length - 1]
+              : 'workspace';
+            a.download = `${routeName}-workspace.png`;
+
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+            toast.success(`Snapshot saved as ${routeName}-workspace.png`);
+          },
+          'image/png',
+          1.0
+        );
+      } catch (err: any) {
+        console.error('Failed to capture snapshot:', err);
+        toast.error('Failed to capture snapshot');
+      }
+    });
+  }, [rendererRef, sceneRef, cameraRef, toast]);
+
+  // 5. Preload all shading materials at model load time for butter-smooth switching
+  const preloadShadingMaterials = useCallback((meshes: THREE.Mesh[]) => {
+    meshes.forEach((mesh) => {
+      if (!mesh.userData.__originalMaterial && mesh.material) {
+        mesh.userData.__originalMaterial = mesh.material;
+      }
+      const orig = mesh.userData.__originalMaterial;
+      if (!orig) return;
+
+      // Pre-create ALL shading variants so switching is instant (no disappear/reappear)
+      mesh.userData.__normalMaterial = new THREE.MeshNormalMaterial({ wireframe: false });
+      mesh.userData.__clayMaterial = new THREE.MeshStandardMaterial({
+        color: 0xb0b3b8,
+        roughness: 0.85,
+        metalness: 0.05,
+      });
+      mesh.userData.__goldMaterial = new THREE.MeshStandardMaterial({
+        color: 0xffd700,
+        roughness: 0.25,
+        metalness: 0.85,
+      });
+      mesh.userData.__chromeMaterial = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.05,
+        metalness: 0.98,
+      });
+      mesh.userData.__uvCheckerMaterial = new THREE.MeshStandardMaterial({
+        map: getUVCheckerTexture(),
+        roughness: 0.4,
+        metalness: 0.05,
+      });
+      mesh.userData.__wireMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ffcc,
+        wireframe: true,
+      });
+    });
+  }, [getUVCheckerTexture]);
+
+  // Call preload right after model is loaded and added to group
+  useEffect(() => {
+    if (!modelGroupRef.current) return;
+    const meshes: THREE.Mesh[] = [];
+    modelGroupRef.current.traverse((child) => {
+      if (child instanceof THREE.Mesh) meshes.push(child);
+    });
+    if (meshes.length > 0) preloadShadingMaterials(meshes);
+  }, [modelGroupRef.current, preloadShadingMaterials]);
 
   // Sync environment settings with Three.js scene lights & exposure
   useEffect(() => {
@@ -1065,6 +1210,18 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           : 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
       }}
     >
+      {/* Snapshot Button — top-left of viewport */}
+      <div className="absolute top-3 left-3 z-50 flex gap-1 pointer-events-auto">
+        <button
+          onClick={() => {
+            captureWorkspace();
+          }}
+          className="px-3 py-1.5 rounded-lg bg-[#F9CF00] text-[#080808] font-bold shadow-[0_0_15px_rgba(249,207,0,0.4)] hover:scale-105 hover:bg-[#FFE04D] transition-all duration-200 cursor-pointer"
+          aria-label="Take snapshot"
+        >
+          📷 Snapshot
+        </button>
+      </div>
       {/* Sleek Empty State Watermark matching Reference */}
       {viewportStatus === 'empty' && (
         <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center z-10">

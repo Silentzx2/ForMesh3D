@@ -571,12 +571,6 @@ export const GeneratePanel: React.FC = () => {
         ...prev,
         imageFileId: res.file_id,
       }));
-      // Reflect the uploaded image in the URL: /workspace/generate/<name>_<hash>
-      if (typeof window !== 'undefined') {
-        const cleanStem = file.name.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40) || 'image';
-        const shortHash = res.file_id.slice(-6);
-        window.history.replaceState(null, '', `/workspace/generate/${cleanStem}_${shortHash}`);
-      }
       setImageUploadProgress({ ...imageUploadProgress, percent: 100, uploading: false });
       toast.success(`Image uploaded: ${file.name}`);
     } catch (err: any) {
@@ -769,7 +763,7 @@ export const GeneratePanel: React.FC = () => {
               }`}
               title="Image to 3D"
             >
-              <ImageIcon className="w-3.5 h-3.5" />
+              <ImageIcon className="w-3.5 h-3.5 text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
               <span>Image</span>
             </button>
             <button
@@ -786,7 +780,7 @@ export const GeneratePanel: React.FC = () => {
               }`}
               title="Upload 3D Mesh"
             >
-              <Box className="w-3.5 h-3.5" />
+              <Box className="w-3.5 h-3.5 text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
               <span>3D Mesh</span>
             </button>
           </div>
@@ -850,7 +844,7 @@ export const GeneratePanel: React.FC = () => {
                 {/* Top Right Tip Lightbulb */}
                 <div className="w-full flex justify-end">
                   <span className="p-0.5 text-zinc-300 hover:text-[#F9CF00] transition-colors" title="Image prompt tips">
-                    <Lightbulb className="w-3.5 h-3.5" />
+                    <Lightbulb className="w-3.5 h-3.5 text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
                   </span>
                 </div>
 
@@ -903,7 +897,7 @@ export const GeneratePanel: React.FC = () => {
                     : 'bg-gradient-to-br from-[#6366F1] to-[#8B5CF6] text-white shadow-indigo-500/25 group-hover:scale-105'
                 }`}
               >
-                <Box className="w-5 h-5 text-white" strokeWidth={2} />
+                <Box className="w-5 h-5 text-white group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" strokeWidth={2} />
               </div>
               <span className="text-xs font-bold text-white tracking-wide">
                 {isDragOver ? 'Drop 3D Mesh Here' : isMeshUploading ? 'Uploading Mesh...' : 'Upload 3D Mesh'}
@@ -1068,7 +1062,7 @@ export const GeneratePanel: React.FC = () => {
                 className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                 aria-label="Close Geometry & Texture settings"
               >
-                <HugeiconsIcon icon={Cancel} size={13} />
+                <HugeiconsIcon icon={Cancel} size={13} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
               </button>
             </div>
 
@@ -1077,7 +1071,7 @@ export const GeneratePanel: React.FC = () => {
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-zinc-200 font-medium">Post-Processing</span>
                 <span title="Automatic mesh cleanup, manifold healing, smoothing and feature edge preservation" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                  <HugeiconsIcon icon={HelpCircleIcon} size={12} />
+                  <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
                 </span>
               </div>
               <button
@@ -1106,7 +1100,7 @@ export const GeneratePanel: React.FC = () => {
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-zinc-200 font-medium">Remove Lighting</span>
                 <span title="De-light albedo textures to extract true material colors" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                  <HugeiconsIcon icon={HelpCircleIcon} size={12} />
+                  <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
                 </span>
               </div>
               <button
@@ -1135,7 +1129,7 @@ export const GeneratePanel: React.FC = () => {
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-zinc-200 font-medium">PBR</span>
                 <span title="Generate physically based roughness, metallic and normal maps" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                  <HugeiconsIcon icon={HelpCircleIcon} size={12} />
+                  <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
                 </span>
               </div>
               <button
@@ -1165,7 +1159,7 @@ export const GeneratePanel: React.FC = () => {
                 <div className="flex items-center gap-1.5">
                   <span className="text-[11px] text-zinc-300 font-medium">Topology</span>
                   <span title="Target mesh face topology structure (requires Post-Processing)" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                    <HugeiconsIcon icon={HelpCircleIcon} size={12} />
+                    <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
                   </span>
                 </div>
                 {!enablePostprocess && (
@@ -1343,7 +1337,7 @@ export const GeneratePanel: React.FC = () => {
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-zinc-200 font-medium">Enable Texture</span>
               <span title="Generate PBR texture map on output mesh" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                <HugeiconsIcon icon={HelpCircleIcon} size={12} />
+                <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
               </span>
             </div>
             <button
@@ -1377,7 +1371,7 @@ export const GeneratePanel: React.FC = () => {
               <div className="flex items-center gap-1.5">
                 <span className="text-[11px] text-zinc-300 font-medium">Texture Quality</span>
                 <span title="Texture map resolution based on model pipeline" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                  <HugeiconsIcon icon={HelpCircleIcon} size={12} />
+                  <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
@@ -1498,7 +1492,7 @@ export const GeneratePanel: React.FC = () => {
               onClick={handleCancel}
               className="w-full py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 hover:text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-[0.98]"
             >
-              <HugeiconsIcon icon={Cancel} size={14} />
+              <HugeiconsIcon icon={Cancel} size={14} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
               <span>Cancel Generation</span>
             </button>
           </div>

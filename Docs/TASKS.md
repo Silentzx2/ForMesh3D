@@ -547,3 +547,32 @@ Read-only audit (no code changes). 10 subagents scanned: frontend (Viewport, Mes
 - **Visibility rule:** `textureSupport === 'none'` → entire Texture section hidden from UI; `textureSupport === '2k'` → only 2K resolution pill shows; `textureSupport === '4k'` → both 2K and 4K pills show
 - **Upgrade path:** read `texture_generation` + `output_resolution` from `backend/config/models.yaml` dynamically instead of hardcoded map
 
+### F64. Snapshot capture — `features/workspace/Viewport/MeshViewer.tsx` (header button) + `features/workspace/Viewport/ViewportToolOverlay.tsx` (camera button) (implicit)
+- **States:** `idle → capturing → idle`; file `rabbit_hash-mesh.png` (camera, mesh-only) or `rabbit_hash-workspace.png` (header, full workspace)
+- **Transitions:** header Snapshot button → `captureWorkspace()` → captures entire viewport as-is including all UI, saves as `<name>_<hash>-workspace.png`; tool rail Camera button → `captureSnapshot()` → temporarily hides grid/axes/helpers, captures mesh only at 1920×1080 100% quality, saves as `<name>_<hash>-mesh.png`
+- **Triggers:** header Snapshot click; tool rail Camera click
+- **Kind:** implicit — `isCapturing` guard prevents double capture; no persistent state enum
+- **Route behavior:** both save to the current route's name+hash (`rabbit_hash`) so `rabbit_hash-mesh.png` and `rabbit_hash-workspace.png` share the route identity
+- **UI:** header button has icon + subtle hover glow (drop-shadow); tool rail camera button is a small rounded button with icon + label tooltip "Capture workspace picture" (header) / "Capture mesh image" (tool rail)
+
+### F65. URL route management — `features/workspace/store/WorkspaceContext.tsx:2860–2916` (implicit)
+- **States:** `base route (/workspace)` → `tool route (/workspace/<tool>/<name>_<hash>)`
+- **Transitions:** `navigateToTool(tool)` checks `isSameTool` — when clicking the already-active tool, sets `activeId=null`, clears model, URL reverts to base `/workspace`; when clicking a different tool while model loaded, URL changes to `/workspace/<new-tool>/<name>_<hash>` preserving name+hash; task reuse — `startTask()` checks existing task for same source, reuses `job_id` instead of creating new job; stacked prefixes stripped globally via `/^(?:local_|upload_|hist_|job-)+/`
+- **Triggers:** nav bar tab click; tool rail tool click; generate job start; same-tool repeat click
+- **Kind:** implicit — `activeTool`/`activeId` booleans act as route machine
+
+### F66. Icon color + hover glow — `features/workspace/Navigation/LeftNavigation.tsx` + `features/workspace/Panels/GeneratePanel.tsx` (implicit)
+- **States:** `resting (text-[#A1A1AA]) ↔ active (text-[#F9CF00] + drop-shadow-[0_0_10px_rgba(249,207,0,0.6)]) ↔ hover (text-[#F9CF00] + drop-shadow-[0_0_8px_rgba(249,207,0,0.5)])`
+- **Transitions:** on mount/render icons set active if `active === toolId` else `#A1A1AA`; on group-hover, inactive icons glow gold `#F9CF00` with `drop-shadow-[0_0_8px_rgba(249,207,0,0.5)]`; active icons glow brighter `drop-shadow-[0_0_10px_rgba(249,207,0,0.6)]`
+- **Triggers:** cursor enter/leave; tool activation change
+- **Kind:** implicit CSS transition via Tailwind `group-hover:scale-110` + `transition-colors duration-300`
+
+### F67. Background brightness — `app/globals.css` design tokens (implicit)
+- **Viewport (`--surface-0`):** `0 0% 3.1%` → `0 0% 6%` (brighter viewport canvas)
+- **Left nav (`--surface-1`):** `0 0% 7.5%` → unchanged (kept dark)
+- **Right panel (`--surface-2`):** `0 0% 11.5%` → `0 0% 14%` (slightly brighter right panel)
+- **Transitions:** none — static CSS variables
+- **Kind:** implicit — no state machine, surface colors applied via `bg-surface-0/1/2` classes
+
+## Backend — New findings verified by 10-agent audit (additional)
+

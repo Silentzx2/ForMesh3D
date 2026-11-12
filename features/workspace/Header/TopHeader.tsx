@@ -18,7 +18,6 @@ import {
   LayersIcon,
   Menu,
   PackageIcon,
-  Search01Icon,
   SettingsIcon,
   SparklesIcon,
   UserIcon,
@@ -212,21 +211,6 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onMobileMenuToggle, isMobi
 
         {/* Recent Jobs Chip */}
         <RecentJobsChip />
-
-        {/* Command palette search */}
-        <SimpleTooltip label="Command palette • Ctrl K" side="bottom">
-          <button
-            id="btn-header-command-palette"
-            type="button"
-            onClick={() => useUIStore.getState().setCommandPaletteOpen(true)}
-            className="group hidden sm:flex items-center gap-1 h-6 px-2 rounded-full bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] hover:border-white/[0.16] text-[10px] text-zinc-300 hover:text-white transition-all duration-200 shadow-sm cursor-pointer active:scale-95"
-            aria-label="Open command palette"
-          >
-            <HugeiconsIcon icon={Search01Icon} size={12} className="w-3 h-3 text-zinc-400 group-hover:text-primary group-hover:scale-105 transition-all duration-200" />
-            <span className="font-semibold hidden md:inline">Search</span>
-            <kbd className="hidden lg:inline-flex items-center px-1 py-0.2 rounded border border-white/[0.1] bg-black/30 text-[8px] text-zinc-400 font-mono">Ctrl K</kbd>
-          </button>
-        </SimpleTooltip>
 
         {/* AI Models Button - hidden on small mobile */}
         <SimpleTooltip label="Manage AI 3D Models & Weights" side="bottom">

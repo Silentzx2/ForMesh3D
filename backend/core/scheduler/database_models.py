@@ -53,7 +53,7 @@ class JobModel(Base):
     __tablename__ = "jobs"
 
     # Primary key
-    job_id = Column(String(36), primary_key=True)
+    job_id = Column(String(64), primary_key=True)
 
     # Job definition
     feature = Column(String(100), nullable=False, index=True)

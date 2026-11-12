@@ -10,7 +10,7 @@ import { useWorkspace } from '../store/WorkspaceContext';
 import { getApiClient } from '@/services/apiClient';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { Box, CameraIcon, Cancel, CheckIcon, ChevronDown, CloudUpload, CompassIcon, DownloadIcon, FlipHorizontalIcon, GridIcon, Hand, Maximize02Icon, MoveIcon, RotateCcwIcon, RotateCw, SearchIcon, SparklesIcon, SunIcon, ZapIcon, ZoomInIcon, ZoomOutIcon, LoaderCircle, AlertCircle } from '@hugeicons/core-free-icons';
+import { Box, CameraIcon, Cancel, CheckIcon, ChevronDown, CloudUpload, CompassIcon, DownloadIcon, FlipHorizontalIcon, GridIcon, Hand, Maximize02Icon, MoveIcon, RotateCcwIcon, RotateCw, SparklesIcon, SunIcon, ZapIcon, ZoomInIcon, ZoomOutIcon, LoaderCircle, AlertCircle } from '@hugeicons/core-free-icons';
 
 interface ModelComparisonViewerProps {
   className?: string;

@@ -1,5 +1,16 @@
 # ForMesh3D — Audited Project State
 
+## 2026-11-12 — Snapshot, Icon Colors, Job ID Format, URL Management + Background Brightness
+
+- **Snapshot capture:** Two separate buttons — header Snapshot captures entire workspace as-is (`<name>_<hash>-workspace.png`) at 1920×1080 PNG; tool rail Camera captures mesh only (grid/axes hidden) (`<name>_<hash>-mesh.png`) at 1080p 100% quality. Both save to current route identity (`rabbit_hash`). TASKS.md F64.
+- **Icon colors + hover glow:** All icons across LeftNavigation and GeneratePanel use Studio Gold (`#F9CF00`) with `drop-shadow-[0_0_8px_rgba(249,207,0,0.5)]` hover glow (inactive) and `drop-shadow-[0_0_10px_rgba(249,207,0,0.6)]` (active). Resting: `#A1A1AA`. TASKS.md F66.
+- **Job ID format:** Backend `job_id` changed from UUID (`380fbba4-e122-4a78-818d-3418dbb0ee46`) to `<name>_<hash>` (`rabbit_380fbb`). DB column `String(36)` → `String(64)`. UI shows `job_id=rabbit_<jobIdHash>`. Matches UI route format.
+- **URL route management:** Same-tool nav click clears model + reverts URL to base `/workspace`; switching tools preserves `<name>_<hash>`; task reuse checks existing task before creating new job_id; stacked prefixes stripped via `/^(?:local_|upload_|hist_|job-)+/`. TASKS.md F65.
+- **Background brightness:** Viewport (`--surface-0`) 3.1% → 6%; right panel (`--surface-2`) 11.5% → 14%; left nav (`--surface-1`) kept dark at 7.5%. TASKS.md F67.
+- **Verification:** `npx tsc --noEmit` passed with 0 errors; `bun test` 11 pass / 0 fail across 3 files.
+
+---
+
 ## 2026-11-12 — Upload Error State, Single Viewport UI Status, Single Job Status Source
 
 - `useMeshAssetUpload` catch now emits `status: 'error'` with the failure message so the `MeshUploadStatus` error branch is reachable and backend failures no longer look like success (TASKS.md F4/C1).

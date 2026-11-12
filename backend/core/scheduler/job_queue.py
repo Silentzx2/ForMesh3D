@@ -1,6 +1,8 @@
 import asyncio
 import copy
+import hashlib
 import logging
+import re
 import shutil
 import time
 import uuid
@@ -75,7 +77,21 @@ class JobRequest:
         metadata: Optional[Dict[str, Any]] = None,
         user_id: Optional[str] = None,
     ):
-        self.job_id = str(uuid.uuid4())
+        # Build a human-readable job_id: <name>_<6-char-hash>
+        raw_name = (
+            inputs.get("asset_name")
+            or inputs.get("image_name")
+            or inputs.get("name")
+            or feature
+            or "job"
+        )
+        # Clean: strip extension, special chars, limit length
+        clean_name = str(raw_name).rsplit(".", 1)[0]
+        clean_name = re.sub(r"[^a-zA-Z0-9_-]", "_", clean_name).strip("_")[:40] or "job"
+        # Stable hash from name + timestamp + random for uniqueness
+        hash_input = f"{clean_name}:{time.time_ns()}:{uuid.uuid4().hex}"
+        short_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:6]
+        self.job_id = f"{clean_name}_{short_hash}"
         self.feature = feature
         self.inputs = inputs
         self.model_preference = model_preference

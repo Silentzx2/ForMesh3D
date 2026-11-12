@@ -10,7 +10,7 @@ import { getJobPresentation } from '../lib/jobPresentation';
 
 
 import { HugeiconsIcon } from '@hugeicons/react';
-import { ActivityIcon, AlertCircle, Box, CheckIcon, CheckmarkCircle02Icon, Copy, DownloadIcon, LayersIcon, RefreshCw, SearchIcon, SparklesIcon, StopCircleIcon, Trash2 } from '@hugeicons/core-free-icons';
+import { ActivityIcon, AlertCircle, Box, CameraIcon, CheckIcon, CheckmarkCircle02Icon, Copy, DownloadIcon, LayersIcon, RefreshCw, SparklesIcon, StopCircleIcon, Trash2 } from '@hugeicons/core-free-icons';
 const MeshViewer = dynamic(() => import('../Viewport/MeshViewer').then(mod => mod.MeshViewer), {
   ssr: false,
   loading: () => <div className="w-full h-full bg-[hsl(var(--surface-0))] animate-pulse flex items-center justify-center text-xs text-zinc-500">Loading 3D Output...</div>
@@ -57,7 +57,6 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
   const [selectedJob, setSelectedJob] = useState<RealJobItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [listFilter, setListFilter] = useState<'all' | 'running' | 'completed' | 'failed'>('all');
-  const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState(false);
   const [isRawJsonOpen, setIsRawJsonOpen] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -290,12 +289,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
         : listFilter === 'running'
         ? j.status === 'processing' || j.status === 'running' || j.status === 'queued'
         : j.status === listFilter;
-    const matchesSearch =
-      !searchQuery.trim() ||
-      j.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (j.feature || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (j.model_preference || '').toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesFilter && matchesSearch;
+    return matchesFilter;
   });
 
   const jobPresentation = selectedJob ? getJobPresentation(selectedJob) : null;
@@ -342,17 +336,6 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
         {/* Left Jobs List Sidebar */}
         <div className="w-80 border-r border-white/[0.08] bg-[hsl(var(--surface-1))]/50 flex flex-col flex-shrink-0">
           <div className="p-3 border-b border-white/[0.06] space-y-2">
-            <div className="relative">
-              <HugeiconsIcon icon={SearchIcon} size={16} className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search job ID or model..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-[hsl(var(--surface-0))] border border-white/[0.08] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-primary"
-              />
-            </div>
-
             {/* Filter pills */}
             <div className="flex items-center gap-1">
               {(['all', 'running', 'completed', 'failed'] as const).map((f) => (
@@ -451,15 +434,23 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold font-mono text-white">Job ID: {selectedJob.id}</span>
-                      <button
-                        type="button"
-                        onClick={handleCopyId}
-                        aria-label="Copy job ID to clipboard"
-                        className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/[0.06] cursor-pointer"
-                    >
-                      {copiedId ? <HugeiconsIcon icon={CheckIcon} size={16} className="w-3.5 h-3.5 text-emerald-400" /> : <HugeiconsIcon icon={Copy} size={16} className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
+                        <button
+                          type="button"
+                          onClick={handleCopyId}
+                          aria-label="Copy job ID to clipboard"
+                          className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/[0.06] cursor-pointer"
+                        >
+                          {copiedId ? <HugeiconsIcon icon={CheckIcon} size={16} className="w-3.5 h-3.5 text-emerald-400" /> : <HugeiconsIcon icon={Copy} size={16} className="w-3.5 h-3.5" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => window.dispatchEvent(new CustomEvent('takeViewportSnapshot'))}
+                          aria-label="Take viewport snapshot of job"
+                          className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/[0.06] cursor-pointer"
+                        >
+                          <HugeiconsIcon icon={CameraIcon} size={16} className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                   <div className="text-xs text-zinc-400">
                     Operation: <span className="text-white font-medium">{selectedJob.feature || '3D Mesh Synthesis'}</span> • Engine: <span className="text-primary font-medium">{selectedJob.model_preference || 'Auto'}</span>
                   </div>

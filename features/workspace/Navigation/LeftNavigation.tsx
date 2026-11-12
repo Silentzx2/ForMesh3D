@@ -130,8 +130,10 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
                 <div className="relative mb-0.5">
                   <IconComp
                     strokeWidth={active ? 2.5 : 2}
-                    className={`w-4 h-4 transition-transform duration-200 group-hover:scale-110 ${
-                      active ? 'text-[#F9CF00]' : 'text-zinc-200 group-hover:text-white'
+                    className={`w-4 h-4 transition-transform duration-200 group-hover:scale-110 transition-colors duration-300 ${
+                      active
+                        ? 'text-[#F9CF00] drop-shadow-[0_0_10px_rgba(249,207,0,0.6)]'
+                        : 'text-[#A1A1AA] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.4)]'
                     }`}
                   />
                   {executing && (

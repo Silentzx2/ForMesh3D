@@ -1080,3 +1080,37 @@ The texture and pbr tool routes intentionally resolve to the same TexturePanel i
 - This raw-source guard does not fill holes, fix winding/normals, or apply Taubin smoothing. Those operations are not size enforcement and can alter model-native geometry; repair belongs on the derived post-processing mesh.
 - The pipeline persists the returned mesh when the size cap is actually reduced, then verifies the canonical master hash during downstream processing. An in-cap source is returned unchanged.
 - A CPU regression test now asserts identity/vertex/face preservation for an in-cap mesh and fails if raw-stage repair, smoothing, or decimation is invoked. The test was added but was **NOT RUN** in this editing session.
+
+## 2026-11-12 — UI Features: Snapshot, Icon Colors, Job ID Format, URL Management, Background Brightness
+
+### Snapshot Capture
+Two separate capture buttons in the workspace:
+- **Header Snapshot:** Captures the entire workspace as-is (all UI visible) at 1920×1080 PNG, saved as `<name>_<hash>-workspace.png`.
+- **Tool Rail Camera:** Captures mesh only (grid/axes/helpers temporarily hidden) at 1080p 100% quality PNG, saved as `<name>_<hash>-mesh.png`.
+- Both files share the current route identity (`rabbit_hash`).
+- TASKS.md F64.
+
+### Icon Colors + Hover Glow
+All icons across `LeftNavigation.tsx` and `GeneratePanel.tsx`:
+- Resting: `#A1A1AA` (muted gray)
+- Active: `#F9CF00` (Studio Gold) + `drop-shadow-[0_0_10px_rgba(249,207,0,0.6)]`
+- Hover (inactive): `#F9CF00` + `drop-shadow-[0_0_8px_rgba(249,207,0,0.5)]`
+- Animation: `transition-transform duration-200 group-hover:scale-110` + `transition-colors duration-300`
+- TASKS.md F66.
+
+### Job ID Format
+Backend `job_id` changed from UUID (`380fbba4-e122-4a78-818d-3418dbb0ee46`) to `<name>_<hash>` format (`rabbit_380fbb`). SQLite `JobStatus` column `String(36)` → `String(64)`. UI shows `job_id=rabbit_<jobIdHash>` in JobDetailView, matching the UI route format.
+
+### URL Route Management
+- Same-tool nav click clears the loaded model and reverts URL to base `/workspace`.
+- Switching tools preserves `<name>_<hash>` in the URL path.
+- `startTask()` task reuse checks existing task for same source before creating a new `job_id`.
+- Stacked prefixes (`local_upload_`, `upload_`, `hist_`, `job-`) stripped globally via `/^(?:local_|upload_|hist_|job-)+/`.
+- TASKS.md F65.
+
+### Background Brightness
+- Viewport (`--surface-0`): 3.1% → 6% (brighter canvas for mesh detail)
+- Left navigation (`--surface-1`): 7.5% → unchanged (kept dark)
+- Right panel (`--surface-2`): 11.5% → 14% (slightly brighter for readable secondary content)
+- TASKS.md F67.
+

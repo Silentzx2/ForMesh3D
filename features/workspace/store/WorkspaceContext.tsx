@@ -1335,7 +1335,10 @@ function dataURLtoFile(dataURL: string, filename: string): File {
 
     if (typeof window !== 'undefined') {
       const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-      window.history.replaceState(null, '', `${toolRoute}/${jobId}`);
+      // Consistent URL: <name>_<hash> — no raw UUID in route
+      const cleanName = (job.title || 'job').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
+      const shortHash = jobId.slice(0, 6);
+      window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
     }
 
     const result = (job.result || {}) as Record<string, any>;
@@ -1384,7 +1387,15 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       // Must use the live activeTool (ref) — a stale closure here would rewrite
       // the URL to the wrong tool route and bounce the user to the Generate panel.
       const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-      window.history.replaceState(null, '', `${toolRoute}/${id}`);
+      // Consistent URL: <name>_<hash> — strip ALL known prefixes (local_/upload_/hist_/job-), no raw UUID
+      const asset = assets.find(a => a.id === id);
+      const rawName = asset?.name || id.replace(/^(?:local_|upload_|hist_|job-)+/, '');
+      const cleanName = rawName
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[^a-zA-Z0-9_-]/g, '_')
+        .slice(0, 40) || 'asset';
+      const shortHash = id.replace(/^(?:local_|upload_|hist_|job-)+/, '').slice(0, 6);
+      window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
     }
 
     // Increment viewport trigger to force MeshViewer reload
@@ -1548,6 +1559,15 @@ function dataURLtoFile(dataURL: string, filename: string): File {
   }, [activeTask, getApiClient]);
 
   const startTask = useCallback((type: ActiveTask['type'], title: string, promptId?: string, provider?: string, inputImage?: string, inputImageName?: string, comparisonGroupId?: string, sourceModelUrl?: string) => {
+    // REUSE LOGIC: If there's already an active task for the same source,
+    // reuse its ID instead of creating a new job_id/route. This keeps the
+    // URL stable (/workspace/generate/rabbit_hash) across tool switches
+    // and subsequent actions (texture, remesh, segmentation, etc.).
+    const existing = activeTaskRef.current;
+    if (existing) {
+      return existing.id;
+    }
+
     if (activeAbortControllerRef.current) {
       activeAbortControllerRef.current.abort();
     }
@@ -1579,8 +1599,15 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     setActiveTask(task);
 
     if (typeof window !== 'undefined') {
-      const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-      window.history.replaceState(null, '', `${toolRoute}/${taskId}`);
+      // During image→3d generation, keep the upload URL fixed (name + hash).
+      // Don't overwrite it with a job-specific URL — same image = same URL,
+      // and after generation completes the mesh loads on that same URL.
+      if (!inputImageName) {
+        const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
+        const cleanName = title.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40) || 'job';
+        const shortHash = title.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6) || 'job';
+        window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
+      }
     }
     setJobsById(prev => ({ ...prev, [taskId]: task }));
     return taskId;
@@ -1589,8 +1616,9 @@ function dataURLtoFile(dataURL: string, filename: string): File {
   const bindBackendJob = useCallback((localTaskId: string, jobId: string, updates: Partial<ActiveTask> = {}) => {
     if (typeof window !== 'undefined') {
       const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-      // Keep the friendly local task ID (name-hash) in the URL; store the backend UUID separately
-      window.history.replaceState(null, '', `${toolRoute}/${localTaskId}`);
+      // Consistent URL: <name>_<hash> — strip ALL known prefixes, convert dashes to underscores
+      const friendlyId = localTaskId.replace(/^(?:local_|upload_|hist_|job-)+/, '').replace(/-/g, '_');
+      window.history.replaceState(null, '', `${toolRoute}/${friendlyId}`);
       // Persist friendly ID -> backend UUID mapping for post-refresh hydration
       localStorage.setItem(`fm3d:job:${localTaskId}`, jobId);
     }
@@ -1789,6 +1817,15 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         provider: effectiveModelId,
         inputImage: inputThumbnail,
       });
+      // Set route to /workspace/generate/<imagename>_<hash> after generation request accepted
+      if (typeof window !== 'undefined') {
+        const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
+        const cleanName = generationSettings.imageName
+          ? generationSettings.imageName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40)
+          : 'asset';
+        const shortHash = jobId.slice(0, 6);
+        window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
+      }
       setExecutionStep('Generation queued on backend');
       setActiveTask(prev => prev ? {
         ...prev,
@@ -2864,13 +2901,33 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     setIsLeftPanelOpen(true);
     const baseRoute = TOOL_TO_ROUTE[tool] || '/workspace/generate';
     // Preserve current active model in the URL path across tool switches
-    let activeId = selectedAssetIdRef.current;
+    // Format: /workspace/<tool>/<name>_<hash>  (e.g. /workspace/segmentation/rabbit_dfg983)
+    // Clicking the SAME tool that is already active clears the model hash
+    // so the route becomes the default base route (/workspace/generate) and
+    // the model unloads. Navigating back to a hash URL reloads the model.
+    let activeId: string | null = null;
+    const isSameTool = tool === activeToolRef.current;
+
+    // 1) Try selectedAssetIdRef.current first, strip ALL known prefixes
+    const refId = selectedAssetIdRef.current;
+    if (refId && !isSameTool) {
+      activeId = refId.replace(/^(?:local_|upload_|hist_|job-)+/, '');
+    }
+
+    // 2) Fall back to reading from current URL pathname
     if (!activeId && typeof window !== 'undefined' && window.location.pathname.startsWith('/workspace/')) {
       const parts = window.location.pathname.replace('/workspace/', '').split('/');
       if (parts.length > 1 && parts[1]) {
-        activeId = decodeURIComponent(parts[1]);
+        activeId = decodeURIComponent(parts[1]).replace(/^(?:local_|upload_|hist_|job-)+/, '');
       }
     }
+
+    // When clicking the same active tool, clear the model so the route
+    // becomes the default base route (/workspace/generate) and the model unloads.
+    if (isSameTool && !activeId) {
+      setSelectedAssetId(null);
+    }
+
     const route = activeId ? `${baseRoute}/${activeId}` : baseRoute;
     if (!isWorkspaceShellActive(pathname)) {
       router.push(route);
@@ -2883,7 +2940,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         window.history.replaceState(null, '', route);
       }
     }
-  }, [pathname, router, setMainNav, setActiveTool, setIsLeftPanelOpen, isWorkspaceShellActive]);
+  }, [pathname, router, setMainNav, setActiveTool, setIsLeftPanelOpen, isWorkspaceShellActive, setSelectedAssetId]);
 
   const navigateToMain = useCallback((nav: MainNavRoute) => {
     setMainNav(nav);

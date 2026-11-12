@@ -22,7 +22,6 @@ import {
   PaletteIcon,
   Plus,
   RefreshCw,
-  Search01Icon,
   ShieldCheckIcon,
   SlidersHorizontalIcon,
   SparklesIcon,
@@ -61,10 +60,6 @@ export const RightPropertyPanel: React.FC = () => {
   const setRightPanelSectionExpanded = useUIStore((s) => s.setRightPanelSectionExpanded);
   const toggleRightPanelSection = useUIStore((s) => s.toggleRightPanelSection);
 
-  // Client-side text filter
-  const [filterQuery, setFilterQuery] = useState('');
-  const normalizedFilter = filterQuery.trim().toLowerCase();
-
   // Model comparison state
   const [selectedCompareAssetId, setSelectedCompareAssetId] = useState<string | null>(null);
   const [selectedLineageUrl, setSelectedLineageUrl] = useState<string | null>(null);
@@ -96,16 +91,10 @@ export const RightPropertyPanel: React.FC = () => {
   };
 
   const isSectionVisible = (keywords: string[]) => {
-    if (!normalizedFilter) return true;
-    return keywords.some(
-      (kw) => kw.toLowerCase().includes(normalizedFilter) || normalizedFilter.includes(kw.toLowerCase())
-    );
+    return true;
   };
 
   const isSectionExpanded = (sectionId: string, keywords: string[]) => {
-    if (normalizedFilter) {
-      return isSectionVisible(keywords);
-    }
     // Context section is ALWAYS expanded by default for tool inspectors
     if (sectionId === 'context') return true;
     // When inside a dedicated dynamic tool, collapse general mesh properties by default to keep the dynamic inspector front & center
@@ -710,22 +699,6 @@ export const RightPropertyPanel: React.FC = () => {
       {/* Client-side text filter */}
       <div className="px-2.5 py-2 border-b border-[hsl(var(--border))] bg-[hsl(var(--surface-0))]/50">
         <div className="relative flex items-center">
-          <HugeiconsIcon icon={Search01Icon} size={14} className="absolute left-2.5 text-[hsl(var(--muted-foreground))] pointer-events-none" />
-          <input
-            type="text"
-            value={filterQuery}
-            onChange={(e) => setFilterQuery(e.target.value)}
-            placeholder="Filter properties..."
-            className="w-full pl-8 pr-7 py-1 text-xs rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:ring-1 focus:ring-primary transition-all font-mono"
-          />
-          {filterQuery && (
-            <button
-              onClick={() => setFilterQuery('')}
-              className="absolute right-2 text-[hsl(var(--muted-foreground))] hover:text-white"
-            >
-              <HugeiconsIcon icon={Cancel} size={12} />
-            </button>
-          )}
         </div>
       </div>
 
