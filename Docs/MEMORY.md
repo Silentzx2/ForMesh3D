@@ -345,13 +345,13 @@ The following findings come from reading current adapter, factory, and vendored 
 - **Test Suite Status & Legacy Reset:** During the repository cleanup in commit `7651f22`, outdated backend unit tests (`backend/tests/`) and frontend test files (`features/workspace/lib/*.test.mjs`) were pruned alongside their deleted target components. Historical test metrics (60 backend / 60 frontend tests passing) document the pre-cleanup baseline. Clean regression test suites will be introduced for the newly implemented Studio components and current model adapter contracts.
 - **Source review:** the focused TRELLIS.2 audit covered the adapter, pinned ThirdParty pipeline, sparse attention dispatch, FlexiDualGrid decoder, mesh cleanup, O-Voxel exporter boundary, submodule pointer, and governing project instructions/docs. Other model adapters were not modified.
 - **Backend CI before this update:** the workflow referenced Python regression modules absent from the tracked `backend/tests/` tree. Its test step now targets the new checked-in TRELLIS.2 NumPy mesh-validation contract; no other model-specific Python regression modules are present in this branch.
-- **TRELLIS.2 CPU contract tests:** `backend/tests/test_trellis2_mesh_validation.py` — **7 passed** in the local CPU-only test run; helper and test modules pass `py_compile`.
-- **GPU Doctor Unit Test Suite:** `backend/tests/test_gpu_doctor.py` — **28 passed** (modern sm>=80 zero regression, T4 fallback precision, query-chunked SDPA diff=0.0 across 3D/4D and masks, error classification, bounded recovery, cache cleanup).
-- **SkinTokens Unit Test Suite:** `backend/tests/test_skintokens_adapter.py` — **8 passed** (adapter contract, format negotiation, schema validation, T4 patcher isolation).
-- **TaoFlowForge Unit Test Suite:** `backend/tests/test_taoflowforge_adapter.py` — **9 passed** (adapter contract, format negotiation, schema validation, pre-Ampere vs modern GPU compute dtypes, 5-step schedule, stage offload methods).
-- **Pixal3D Unit Test Suite:** `backend/tests/test_pixal3d_adapter.py` — **7 passed** (adapter contract, format negotiation, parameter schema, DinoV3ProjFeatureExtractor to() signature, unload cleanup).
-- **Total Backend Pytest Suite:** `backend/tests/` — **60 passed**.
-- **Frontend Bun Test Suite:** `bun test` — **60 passed** across 11 test files.
+- **TRELLIS.2 CPU contract tests:** `backend/tests/test_trellis2_mesh_validation.py` — not present in pruned tree; was removed in commit `7651f22` alongside other legacy tests.
+- **GPU Doctor Unit Test Suite:** `backend/tests/test_gpu_doctor.py` — not present in pruned tree; was removed in commit `7651f22`.
+- **SkinTokens Unit Test Suite:** `backend/tests/test_skintokens_adapter.py` — not present in pruned tree; was removed in commit `7651f22`.
+- **TaoFlowForge Unit Test Suite:** `backend/tests/test_taoflowforge_adapter.py` — not present in pruned tree; was removed in commit `7651f22`.
+- **Pixal3D Unit Test Suite:** `backend/tests/test_pixal3d_adapter.py` — not present in pruned tree; was removed in commit `7651f22`.
+- **Total Backend Pytest Suite:** `backend/tests/` — 4 files present (`test_bake_and_uv.py`, `test_batch1_regressions.py`, `test_mesh_tools_verification.py`, `test_retopo_and_metrics.py`), but `test_retopo_and_metrics.py` fails collection (`snap_to_features` import error); live pytest run not clean. Pre-cleanup baseline was 60 passed (historical only).
+- **Frontend Bun Test Suite:** `bun test` — 9 pass, 2 fail across 11 tests in 3 files (`route.test.mjs`, `buildGenerationParameters.test.ts`, `meshStats.test.ts`). The 2 failures are pre-existing `generate_texture` contract assertions present on the dev branch before this session.
 - **Source syntax/runtime boundary:** actual repository compileall and the GitHub Actions run must be checked after push. No local model checkpoint, xFormers CUDA operator, or NVIDIA GPU was available for execution.
 - **GPU Inference Validation:**
   - Hunyuan3D Shape v2.1: PASS (verified live on Kaggle GPU: 935,638 faces, 467,737 vertices, 16.1MB GLB). Status: `STABLE - WORKING / LOCKED`.
