@@ -1,11 +1,21 @@
 # ForMesh3D Changelog
 
+## 2026-11-12 — Floating Mesh Details HUD with Live Geometry Metrics
+
+- **Viewport UI:** Replaced the existing bottom-left stats pill with a collapsible Mesh Details card styled from the supplied reference and positioned above the shader dock / clear of the XYZ gizmo.
+- **Real data:** Faces, Verts, Edges, and Materials come from the loaded Three.js model; Size comes from the uploaded file or actual generated-job file metadata. Unsupported metrics are omitted.
+- **Performance:** Geometry stats are captured once on model load. Exact edge enumeration is capped at 250,000 faces; larger scenes omit only Edges.
+- **Metadata and tests:** Asset normalization retains real backend material counts and file size; added geometry-stat tests for indexed, non-indexed and instanced meshes.
+- **Documentation:** Updated design, architecture, system blueprint, project memory, task tracker, and README.
+
+---
+
 ## 2026-11-12 — Reference-Matched Floating XYZ Orientation Gizmo
 
 - **Viewport artwork:** Replaced the old 64×64 circular button cluster with the supplied XYZ sphere artwork at `public/assets/xyz-orientation-gizmo.png`. The image is cropped to the artwork bounds and blends into the dark viewport.
 - **Six-axis interaction:** The visible X/Y/Z labels snap to positive X/Y/Z views; reverse-axis hit targets snap to negative X/Y/Z and reveal their labels on hover or keyboard focus.
 - **Camera correctness:** Added explicit `back` (−Z) and `bottom` (−Y) cases in `MeshViewer.tsx`; both now snap to their intended cardinal view instead of the isometric fallback.
-- **Documentation:** Updated the design, architecture, system blueprint, task tracker, audited memory, and README references.
+- **Documentation:** Updated the design, architecture, system blueprint, task tracker, audited memory, and README.
 
 ---
 
@@ -19,14 +29,3 @@
 - **Upload progress:** Image upload now posts to backend with real `onProgress` bar; mesh upload no longer fakes 50% start (starts at 0%, real progress through upload).
 - **AGENTS.md:** Added top project-rule notice; removed user-preferences section and table of contents; Section 3 research/search rules consolidated.
 - **Tests:** `npx tsc --noEmit` passed with 0 errors. Runtime server/browser not verified in this environment.
-
----
-
-## 2026-11-10 — Auto-load Mesh on Route Change, Single-Thumbnail Deduplication, Explicit Model VRAM Eviction, and TripoSG Thumbnail Generation
-
-- **Viewport Auto-Load & Route Hydration (`WorkspaceContext.tsx`):** Added `loadCompletedJobResult` to auto-load completed meshes into `MeshViewer` directly upon job completion and route navigation (`/workspace/[tool]/[job_id]`). Connected `loadModelInViewer` and viewport reframing. Updated `bindBackendJob` to sync the browser URL with the backend job UUID via `replaceState`.
-- **Thumbnail & Asset Deduplication (`WorkspaceContext.tsx`, `system.py`, `file_upload.py`):** Resolved duplicate thumbnails for generated meshes by excluding internal `job-*` and job UUID entries from `/api/v1/file-upload/list` and deduplicating assets by job UUID across local, upload, and history sources.
-- **On-Demand Mesh Thumbnail Generation & Storage Download (`system.py`, `file_upload.py`):** Enhanced `get_job_status` and `download_job_thumbnail` to auto-render missing thumbnails from raw meshes (e.g. TripoSG output) using `generate_mesh_thumbnail`. Allowed storage-based mesh access in `file_upload.py` without 404 errors.
-- **Explicit Candidate VRAM Eviction (`planner.py`, `multiprocess_scheduler.py`):** When a user explicitly chooses a model whose VRAM budget is tight due to another model resident on the GPU, marked candidate for eviction and proactively freed LRU workers rather than aborting.
-- **Model Selector Parity (`models.yaml`, `GeneratePanel.tsx`, `TexturePanel.tsx`):** Disabled non-functional pipelines (`trellis2*`, `pixal3d*`, `taoflowforge*`, `unique3d*`) and strictly enforced local weight availability before permitting model selection.
-- **Tests:** `bun x tsc --noEmit` passed with 0 errors; `bun test` passed (8 pass, 0 fail); `backend/tests/test_mesh_tools_verification.py` passed (4 pass, 3 skipped).

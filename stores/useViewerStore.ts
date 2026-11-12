@@ -19,6 +19,8 @@ export type ShadingPreset = 'default' | 'clay' | 'metallic' | 'wireframe' | 'nor
 export interface ModelMeshStats {
   vertices: number;
   triangles: number;
+  edges?: number;
+  materials?: number;
   dimensions: { x: number; y: number; z: number };
   surfaceArea?: number;
   volume?: number;

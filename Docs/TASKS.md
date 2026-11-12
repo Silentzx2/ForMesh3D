@@ -5,6 +5,18 @@
 
 ---
 
+## VIEW-MESH-DETAILS — Floating Real Mesh Statistics Card
+
+**Priority:** Medium | **Area:** Studio Viewport / Geometry Telemetry / Asset Metadata | **Status:** IMPLEMENTED — verification pending
+
+- Reworked the existing bottom-left Mesh Stats Chip into the reference-style collapsible Mesh Details card with Faces, Verts, Edges, Materials, and Size.
+- Faces, vertices, triangle count, dimensions, unique material instances, and edge topology are sourced from the actual loaded Three.js object before viewport recentering/normalization.
+- Uploaded file size is retained from the browser File; generated asset size uses the existing job-result info response when selected; backend material count is retained when supplied.
+- Metrics without authoritative data are omitted. Exact Edges enumeration is capped at 250,000 faces to prevent long UI-thread work.
+- Added tests for indexed, non-indexed, and instanced geometry. TypeScript, test, build and browser verification remain pending CI.
+
+---
+
 ## ✅ COMPLETE — VIEW-XYZ: Reference-Matched Floating Camera Orientation Gizmo
 
 **Priority:** Medium | **Area:** Studio Viewport / Camera Navigation / Documentation | **Status:** DONE

@@ -15,6 +15,8 @@ import { useWorkspace } from '../store/WorkspaceContext';
 import type { ShadingMode } from '../types';
 import { useViewerStore } from '@/stores/useViewerStore';
 import { useAnimationStore } from '@/stores/useAnimationStore';
+import { getApiClient } from '@/services/apiClient';
+import { collectMeshStats } from './meshStats';
 
 import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
@@ -185,6 +187,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     environmentSettings,
     hoveredPartId,
     setHoveredPartId,
+    updateAssetProperties,
   } = useWorkspace();
 
   const emptyStateCopy = (() => {
@@ -397,6 +400,29 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       comparisonBeforeGroupRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!currentAsset || currentAsset.category !== 'generation' || currentAsset.fileSize) return;
+
+    const jobId = currentAsset.id.startsWith('local_')
+      ? currentAsset.id.slice('local_'.length)
+      : currentAsset.id;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId)) return;
+
+    let cancelled = false;
+    void getApiClient().getJobResultInfo(jobId).then((result) => {
+      const fileSizeMb = Number(result.file_info?.file_size_mb);
+      if (!cancelled && Number.isFinite(fileSizeMb) && fileSizeMb > 0) {
+        updateAssetProperties(currentAsset.id, { fileSize: `${fileSizeMb.toFixed(1)} MB` });
+      }
+    }).catch((error) => {
+      if (!cancelled) console.warn('[MeshViewer] Could not read generated mesh file size:', error);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentAsset?.id, currentAsset?.category, currentAsset?.fileSize, updateAssetProperties]);
 
   // 2. Camera Preset Event Listener
   useEffect(() => {
@@ -769,6 +795,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   useEffect(() => {
     if (!modelUrl || !modelGroupRef.current) {
       setHasModel(false);
+      useViewerStore.getState().setModelStats(null);
       return;
     }
 
@@ -783,6 +810,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       disposeObject3D(child);
     }
     useViewerStore.getState().setActiveModelObject(null);
+    useViewerStore.getState().setModelStats(null);
     if (mixerRef.current) {
       mixerRef.current.stopAllAction();
       mixerRef.current = null;
@@ -802,6 +830,9 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         disposeObject3D(object);
         return;
       }
+
+      // Capture native geometry before viewport normalization changes its dimensions.
+      useViewerStore.getState().setModelStats(collectMeshStats(object));
 
       // Center and normalize model dimensions to fit comfortably inside unit space
       const box = new THREE.Box3().setFromObject(object);

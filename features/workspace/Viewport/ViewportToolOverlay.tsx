@@ -612,16 +612,154 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
         </SimpleTooltip>
       </div>
 
-      {/* Mesh Stats Chip — bottom-left pill; hidden when no model is loaded */}
-      {currentAsset && currentAsset.faces > 0 && (
-        <div className="pointer-events-auto absolute bottom-3 left-3 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-[11px] font-mono text-zinc-300 shadow-md whitespace-nowrap">
-          <span>[ ▲ {currentAsset.faces.toLocaleString()} Tris ]</span>
-          <span className="mx-1">·</span>
-          <span>[ ● {currentAsset.vertices.toLocaleString()} Verts ]</span>
-          <span className="mx-1">·</span>
-          <span>[ ⬡ {currentAsset.topology} ]</span>
-        </div>
-      )}
+      {/* Floating Mesh Details — show only stats sourced from loaded geometry or asset metadata */}
+      {currentAsset && (() => {
+        const details: Record<string, unknown> = currentAsset.meshDetails && typeof currentAsset.meshDetails === 'object'
+          ? currentAsset.meshDetails
+          : {};
+        const asCount = (value: unknown): number | null =>
+          typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+
+        const faces = asCount(
+          modelStats?.triangles ??
+          (currentAsset.statsAvailable || currentAsset.faces > 0 ? currentAsset.faces : undefined)
+        );
+        const vertices = asCount(
+          modelStats?.vertices ??
+          (currentAsset.statsAvailable || currentAsset.vertices > 0 ? currentAsset.vertices : undefined)
+        );
+        const edges = asCount(modelStats?.edges ?? details.edge_count ?? details.edges);
+        const materials = asCount(
+          modelStats?.materials ??
+          currentAsset.materialCount ??
+          (currentAsset.materials?.length ? currentAsset.materials.length : undefined)
+        );
+
+        const formatBytes = (bytes: number) => {
+          if (bytes >= 1024 ** 3) return `${(bytes / (1024 ** 3)).toFixed(1)} GB`;
+          if (bytes >= 1024 ** 2) return `${(bytes / (1024 ** 2)).toFixed(1)} MB`;
+          if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+          return `${bytes} B`;
+        };
+        const sizeBytes = asCount(details.file_size_bytes);
+        const sizeMb = asCount(details.file_size_mb);
+        const fileSize = currentAsset.fileSize?.trim() ||
+          (sizeBytes !== null && sizeBytes > 0
+            ? formatBytes(sizeBytes)
+            : sizeMb !== null && sizeMb > 0
+              ? `${sizeMb.toFixed(1)} MB`
+              : null);
+
+        const compact = (value: number) =>
+          new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
+        const rawMetrics: { key: string; label: string; value: string | null }[] = [
+          { key: 'faces', label: 'Faces', value: faces === null ? null : compact(faces) },
+          { key: 'vertices', label: 'Verts', value: vertices === null ? null : compact(vertices) },
+          { key: 'edges', label: 'Edges', value: edges === null ? null : compact(edges) },
+          { key: 'materials', label: 'Materials', value: materials === null ? null : compact(materials) },
+          { key: 'size', label: 'Size', value: fileSize ?? null },
+        ];
+        const metrics = rawMetrics.filter(
+          (metric): metric is { key: string; label: string; value: string } => metric.value !== null
+        );
+
+        if ((faces === null && vertices === null) || metrics.length === 0) return null;
+
+        const glyphs: Record<string, React.ReactNode> = {
+          faces: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" className="h-8 w-8 text-[#F9CF00]">
+              <path d="M12 3 21 20H3L12 3Z" />
+            </svg>
+          ),
+          vertices: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-8 w-8 text-zinc-200">
+              <path d="M5 5H19V19H5Z" strokeDasharray="3 3" />
+              <circle cx="5" cy="5" r="2" fill="#F9CF00" stroke="#F9CF00" />
+              <circle cx="19" cy="5" r="2" fill="currentColor" />
+              <circle cx="5" cy="19" r="2" fill="#F9CF00" stroke="#F9CF00" />
+              <circle cx="19" cy="19" r="2" fill="currentColor" />
+            </svg>
+          ),
+          edges: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-8 w-8 text-zinc-200">
+              <path d="M5 19 19 5" />
+              <circle cx="5" cy="19" r="3" fill="#0d0e10" stroke="currentColor" />
+              <circle cx="19" cy="5" r="3" fill="#0d0e10" stroke="#F9CF00" />
+            </svg>
+          ),
+          materials: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" className="h-8 w-8 text-[#F9CF00]">
+              <path d="m12 3 9 4.5-9 4.5-9-4.5L12 3Z" />
+              <path d="m3 12 9 4.5 9-4.5M3 16.5 12 21l9-4.5" />
+            </svg>
+          ),
+          size: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" className="h-8 w-8 text-zinc-200">
+              <path d="m12 2.8 8.5 4.6v9.2L12 21.2l-8.5-4.6V7.4L12 2.8Z" />
+              <path d="M3.5 7.4 12 12l8.5-4.6M12 12v9.2" />
+              <path d="M12 2.8V12" stroke="#F9CF00" />
+            </svg>
+          ),
+        };
+
+        return (
+          <section
+            id="viewport-mesh-details"
+            aria-label="Mesh details"
+            className={`pointer-events-auto absolute bottom-[176px] left-3 z-20 w-[min(700px,calc(100%_-_24px))] overflow-hidden rounded-[22px] shadow-[0_14px_44px_rgba(0,0,0,0.62)] backdrop-blur-xl ${isRightPanelOpen ? 'hidden md:block' : ''}`}
+            style={{
+              border: '1px solid transparent',
+              background: 'linear-gradient(#0d0e10,#0d0e10) padding-box, linear-gradient(115deg,#F9CF00 0%,rgba(255,255,255,0.24) 48%,#F9CF00 100%) border-box',
+              maxWidth: isRightPanelOpen ? 'min(700px, calc(100% - 300px))' : undefined,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setIsMeshDetailsExpanded((expanded) => !expanded)}
+              aria-expanded={isMeshDetailsExpanded}
+              aria-controls="viewport-mesh-details-content"
+              className="flex h-16 w-full items-center gap-3 px-4 text-left transition-colors hover:bg-white/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#F9CF00]"
+            >
+              <svg viewBox="0 0 28 28" fill="none" stroke="#F9CF00" strokeWidth="1.8" strokeLinejoin="round" className="h-9 w-9 shrink-0">
+                <path d="M14 3 3.5 23H24.5L14 3Z" />
+                <path d="M14 3 14 14M3.5 23 14 14 24.5 23" />
+                <circle cx="14" cy="3" r="2.1" fill="#0d0e10" />
+                <circle cx="3.5" cy="23" r="2.1" fill="#0d0e10" />
+                <circle cx="24.5" cy="23" r="2.1" fill="#0d0e10" />
+              </svg>
+              <span className="min-w-0 flex-1 text-base font-semibold tracking-wide text-white sm:text-lg">Mesh Details</span>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={`h-6 w-6 shrink-0 text-white transition-transform duration-200 motion-reduce:transition-none ${isMeshDetailsExpanded ? '' : 'rotate-180'}`}
+              >
+                <path d="m5 14 7-7 7 7" />
+              </svg>
+            </button>
+
+            <div
+              id="viewport-mesh-details-content"
+              className={`grid border-t border-white/[0.12] ${isMeshDetailsExpanded ? '' : 'hidden'}`}
+              style={{ gridTemplateColumns: `repeat(${metrics.length}, minmax(0, 1fr))` }}
+            >
+              {metrics.map((metric, index) => (
+                <div
+                  key={metric.key}
+                  className={`flex min-w-0 flex-col items-center justify-center gap-1.5 px-1.5 py-4 sm:py-5 ${index < metrics.length - 1 ? 'border-r border-white/[0.1]' : ''}`}
+                >
+                  {glyphs[metric.key]}
+                  <span className="max-w-full truncate text-[19px] font-semibold tabular-nums text-white sm:text-[21px]">{metric.value}</span>
+                  <span className="max-w-full truncate text-[13px] text-zinc-400 sm:text-sm">{metric.label}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
     </div>
   );
 };

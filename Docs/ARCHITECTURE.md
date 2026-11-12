@@ -330,7 +330,7 @@ flowchart TB
 | **App Router** | `app/` | Next.js 16 App Router with server components, layouts, and API proxy routes |
 | **Workspace Shell** | `features/workspace/WorkspaceShell.tsx` | Main workspace UI with tabbed panels, persistent asset store, and model viewport |
 | **API Client** | `services/apiClient.ts` | Unified axios client for all FastAPI backend REST/SSE communication |
-| **3D Canvas** | `features/workspace/Viewport/MeshViewer.tsx` | High-performance Three.js WebGL viewport with zero-allocation shading switcher, event-driven reflection capture, TransformControls 3D manipulator, six-axis camera orientation gizmo, axial camera presets, and HUD background job capsule |
+| **3D Canvas** | `features/workspace/Viewport/MeshViewer.tsx` | High-performance Three.js WebGL viewport with zero-allocation shading switcher, event-driven reflection capture, TransformControls 3D manipulator, six-axis camera orientation gizmo, floating live Mesh Details HUD, axial camera presets, and HUD background job capsule |
 | **Telemetry HUD** | `components/Header.tsx` | Real-time vertical-pipe hardware gauges (VRAM/RAM/CPU) with saturated load colors and outside-click auto-dismissal |
 | **Asset Persistence** | `stores/useAppStore.ts` | Durable image & mesh reference tracking backed by `/api/v1/file-upload/` persistent storage endpoints |
 | **State Stores** | `stores/` | Zustand stores for global client state (`useAppStore`, `useViewerStore`, `useAnimationStore`, `useRiggingStore`, `useUIStore`) |
@@ -933,6 +933,11 @@ The Next.js 16 Presentation Layer unifies all creation, editing, retopology, rig
   - Loads the image-backed orientation control from `/assets/xyz-orientation-gizmo.png`; the viewport UI supplies six independent, accessible hit areas without creating a second Three.js scene or renderer.
   - Camera presets map `right/left` to positive/negative X, `top/bottom` to positive/negative Y, and `front/back` to positive/negative Z. All six views preserve the orbit target and camera distance.
   - Explicit `back` and `bottom` cases prevent those negative-axis actions from falling through to the isometric default; the vertical-axis presets set a matching camera-up vector to keep the view upright.
+- **Floating Mesh Details HUD (`ViewportToolOverlay.tsx`, `MeshViewer.tsx`, `meshStats.ts`)**:
+  - Replaces the former bottom-left stats pill with a responsive, collapsible card that presents Faces, Verts, Edges, Materials, and Size without creating another scene, renderer, or polling loop.
+  - `MeshViewer` captures vertex/triangle counts, dimensions, unique material instances, and unique topological edges from the actual loaded Three.js object before viewport normalization; counts are held in `useViewerStore.modelStats`.
+  - Asset normalization retains real upload/backend `file_size_mb` and `material_count` metadata. For selected generated jobs, the viewer uses the existing job-result info endpoint to obtain the actual output file size when the metadata is absent.
+  - Missing values are omitted instead of guessed. Unique-edge enumeration is bounded to 250,000 rendered faces; larger scenes retain other metrics while Edges is omitted.
 - **Streamlined Single-Scene Viewport (Decommissioned MeshDiffViewer)**:
   - Previously, dual-scene comparison was mounted in `MeshDiffViewer.tsx`. As part of the November 7, 2026 workspace cleanup and Studio modernization, `MeshDiffViewer.tsx` and `ImagePointCloud.ts` were decommissioned to eliminate multi-context WebGL overhead and keep the viewport lightweight, memory-efficient, and single-canvas focused.
 

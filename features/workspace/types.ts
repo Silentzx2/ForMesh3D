@@ -138,6 +138,14 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
     (typeof polyCount === 'number' && polyCount > 0) ||
     (typeof vertCount === 'number' && vertCount > 0)
   );
+  const rawFileSizeMb = Number(raw.file_size_mb);
+  const fileSize = typeof raw.fileSize === 'string' && raw.fileSize.trim()
+    ? raw.fileSize.trim()
+    : typeof raw.fileSize === 'number' && Number.isFinite(raw.fileSize) && raw.fileSize >= 0
+      ? `${raw.fileSize.toFixed(1)} MB`
+      : raw.file_size_mb !== undefined && raw.file_size_mb !== null && Number.isFinite(rawFileSizeMb) && rawFileSizeMb >= 0
+        ? `${rawFileSizeMb.toFixed(1)} MB`
+        : undefined;
 
   const rawArtifacts = (raw.artifacts || {}) as Record<string, any>;
   const collisionUrl =
@@ -232,10 +240,12 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
     statsAvailable: hasStats,
     topology: raw.topology || 'Triangle',
     format: raw.format || 'GLB',
+    fileSize,
     dimensions: raw.dimensions,
     boundingBox: raw.boundingBox || raw.bounding_box,
     objectCount: raw.objectCount ?? raw.object_count,
     componentCount: raw.componentCount ?? raw.component_count,
+    materialCount: raw.materialCount ?? raw.material_count,
     postprocessStatus: (raw.production_status === 'degraded' || raw.productionStatus === 'degraded')
       ? 'degraded'
       : (raw.postprocessStatus ?? raw.postprocess_status),
@@ -307,7 +317,7 @@ export async function uploadMeshAsset(file: File, callbacks: MeshUploadCallbacks
     triangles: meshStats?.polygon_count || 0,
     statsAvailable: Boolean((meshStats?.polygon_count ?? 0) > 0 || (meshStats?.vertex_count ?? 0) > 0),
     format: formats[extension] || 'GLB',
-    fileSize: `${(file.size / 1048576).toFixed(1)} MB`,
+    file_size_mb: file.size / 1048576,
     source: {
       filename: result.filename || file.name,
       subfolder: 'models',

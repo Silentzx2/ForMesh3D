@@ -1,5 +1,14 @@
 # ForMesh3D — Audited Project State
 
+## 2026-11-12 — Floating Mesh Details HUD and Real Geometry Statistics
+
+- Replaced the existing bottom-left Mesh Stats Chip in `ViewportToolOverlay.tsx` with a collapsible gold-accented Mesh Details card, positioned above the shader dock and separated vertically from the XYZ orientation gizmo.
+- Added `collectMeshStats` to inspect the loaded Three.js model before viewer normalization. The store now receives vertex/triangle counts, dimensions, unique material instances, and exact unique topological edges when the scene is within the 250,000-face edge-stat budget.
+- Edge enumeration above that budget is skipped to bound main-thread work; the Edges metric is omitted in that case. Any unavailable Face/Vert/Material/Size metric is also omitted rather than populated with demo or default values.
+- Asset normalization now retains backend file size and material-count metadata. Generated assets without file size use the existing job-result info endpoint when selected; uploaded files use their actual browser File size.
+- Added unit tests for indexed geometry, non-indexed geometry with shared face positions, and instanced geometry.
+- **Verification boundary:** GitHub source and documentation patches were reviewed. Local TypeScript, ESLint, unit tests, production build, and browser screenshots still require CI or a repository runner.
+
 ## 2026-11-12 — Reference-Matched Floating XYZ Camera Orientation Gizmo
 
 - Replaced the old 64px circular six-button overlay in `ViewportToolOverlay.tsx` with the supplied reference artwork, served from `public/assets/xyz-orientation-gizmo.png`. The black image canvas blends into the dark viewport; the component itself remains pointer-transparent except for its six camera-snap hit areas.

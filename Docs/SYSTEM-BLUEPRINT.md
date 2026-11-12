@@ -427,6 +427,7 @@ The Next.js 16 Presentation Layer runs a persistent, non-destructive 3D workspac
 - **Interactive TransformControls**: Embedded 3D translate/rotate/scale gizmo in Edit mode, synchronized with OrbitControls mutual exclusion to prevent camera rotation while dragging.
 - **Axial Camera View Presets**: Perspective, Front, Side, and Top alignment presets smoothly snapping camera position to cardinal coordinate axes.
 - **Floating XYZ Orientation Gizmo**: A responsive, image-backed viewport control uses the reference artwork at `public/assets/xyz-orientation-gizmo.png`. Six separate hit targets dispatch the existing camera-preset event for `±X`, `±Y`, and `±Z`; the `back` and `bottom` presets are handled explicitly in `MeshViewer` rather than falling back to the isometric view.
+- **Floating Mesh Details HUD**: The existing stats chip becomes a collapsible five-metric card. Geometry counts and materials come from the loaded Three.js scene; file size comes from upload or backend job metadata. Missing values are omitted. Exact edge counting is capped at 250,000 faces to protect viewport responsiveness.
 - **Decoupled MeshDiffViewer RAF Loop**: Replaced stateful React animation frame re-render loop with a direct `requestAnimationFrame` render loop with `cancelAnimationFrame` cleanup, eliminating 60–120fps component re-render overhead.
 
 ### Postprocessing Pipeline Hardening
