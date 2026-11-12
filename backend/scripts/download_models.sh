@@ -444,14 +444,14 @@ download_hunyuan3d_v20_paint() {
     local model_dir="$PRETRAINED_DIR/tencent/Hunyuan3D-2"
 
     if [ "$FORCE_DOWNLOAD" = false ] && \
-       verify_directory "$model_dir/hunyuan3d-paintpbr-v2-0" 3; then
+       verify_directory "$model_dir/hunyuan3d-paint-v2-0" 3; then
         print_info "Hunyuan3D-2 (v2.0) Paint models already exist and verified"
     else
         mkdir -p "$model_dir" 2>/dev/null || true
         ensure_writable_model_dir "$model_dir" || return 1
         print_info "Downloading Hunyuan3D-2 (v2.0) paint models (texture weights only)..."
         if hf_download tencent/Hunyuan3D-2 \
-            --include "hunyuan3d-paintpbr-v2-0/*" \
+            --include "hunyuan3d-paint-v2-0/*" \
             --local-dir "$model_dir"; then
             print_success "Hunyuan3D-2 (v2.0) Paint models downloaded successfully"
         else
@@ -463,7 +463,7 @@ download_hunyuan3d_v20_paint() {
     # Verify the paint texture files actually landed. hf CLI can exit 0 with
     # 0 matched files when an --include filter finds nothing, which previously
     # produced a false "SUCCESS" with an empty directory.
-    if ! verify_directory "$model_dir/hunyuan3d-paintpbr-v2-0" 3; then
+    if ! verify_directory "$model_dir/hunyuan3d-paint-v2-0" 3; then
         print_error "Hunyuan3D-2 (v2.0) Paint download did not produce expected texture files"
         return 1
     fi
