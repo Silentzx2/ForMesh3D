@@ -463,9 +463,9 @@ Read-only audit (no code changes). 10 subagents scanned: frontend (Viewport, Mes
 - **Transitions:** `active → expired` when `JobRequest.is_expired()` returns true; cleanup loop stops owning worker and `fail_job()` marks FAILED ("Job processing timed out after 3600 seconds").
 - **Triggers:** timeout elapsed since job started; `_job_queue_cleanup_loop` calls `cleanup_expired_jobs()` every 60s.
 
-### B31. Queue-age staleness (impossible-job detection) — `backend/core/scheduler/job_queue.py:229–232`; `backend/core/scheduler/multiprocess_scheduler.py:1794–1796, 1971–1974` (implicit)
+### B31. Queue-age staleness (impossible-job detection) — `backend/core/scheduler/job_queue.py:229–232`; `backend/core/scheduler/multiprocess_scheduler.py:1782–1783, 1971–1974` (implicit)
 - **States:** `fresh (queued, age < 3600s) → stale (age > 3600s) → job failed as impossible`
-- **Transitions:** `fresh → stale` when `created_at + 3600s < now`; `_is_job_impossible()` fails job before dequeue.
+- **Transitions:** `fresh → stale` when `created_at + 3600s < now`; `_is_job_impossible()` fails job before dequeue. Staleness check invoked at line 1782-1783; fail path at 1971-1974.
 - **Triggers:** job age exceeding 1 hour; impossibility check at dequeue in `_job_processing_loop`.
 
 ### B32. Redis cancel-request signaling — `backend/core/scheduler/redis_job_queue.py:86, 636–659, 660–709`; `backend/core/scheduler/multiprocess_scheduler.py:1498–1512, 1873–1896` (implicit)
@@ -478,9 +478,9 @@ Read-only audit (no code changes). 10 subagents scanned: frontend (Viewport, Mes
 - **Transitions:** `_find_or_create_worker_for_job()` → `_create_worker_for_model()` spawns worker, polls control response queue up to `max_load_timeout` (600s default, 1800s for large models); init success → ready; failure/timeout/death → init_failed.
 - **Triggers:** job needs worker for its model; WorkerResponse 'init' success/failure; worker load timeout.
 
-### B34. Model residency: idle TTL eviction and auto-unload-after-job — `backend/core/scheduler/multiprocess_scheduler.py:115–137, 1150–1156, 1218–1224, 1257–1264, 3682–3722, 3724–3788` (implicit)
+### B34. Model residency: idle TTL eviction and auto-unload-after-job — `backend/core/scheduler/multiprocess_scheduler.py:102–129, 1205–1216, 3682–3788` (implicit)
 - **States:** `resident (worker holds loaded model, idle timer ticking) → evicted (idle >= TTL) / auto-unloaded after job → unloaded`; dead-process variant → destroyed
-- **Transitions:** `_cleanup_idle_workers()` evicts idle workers when `idle_time >= ttl` (default 300s; 0 = immediate via `AUTO_UNLOAD_AFTER_JOB`); `_process_job_in_worker()` unloads model after job completion/failure when `auto_unload_after_job_enabled()`; `_cleanup_dead_workers()` destroys dead workers.
+- **Transitions:** `_cleanup_idle_workers()` evicts idle workers when `idle_time >= ttl` (default 300s; 0 = immediate via `AUTO_UNLOAD_AFTER_JOB`); `_process_job_in_worker()` unloads model after job completion/failure when `auto_unload_after_job_enabled()` (checked at line 1205); `_cleanup_dead_workers()` destroys dead workers.
 - **Triggers:** idle TTL expiry; job completion or failure; worker process death.
 
 ### B35. Batch max-parallel concurrency slot — `backend/core/scheduler/multiprocess_scheduler.py:1945–1974, 1963–1982` (implicit)
