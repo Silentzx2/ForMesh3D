@@ -50,6 +50,10 @@ Bug fix = root cause, not symptom: a report names a symptom. Grep every caller o
 - Before introducing any new function, method, API call, utility, component, service, dependency, or duplicate logic, the agent MUST first question whether it is genuinely necessary: Can an existing implementation, function, abstraction, API, or workflow be reused, extended, refactored, or improved instead?
 - The agent must inspect and evaluate existing code before creating anything new, prefer reuse and simplification over duplication, and only introduce a new implementation when there is a clear technical justification. After making the decision, proceed with the most maintainable and minimal solution.
 
+### 7. Always Debug After Implementing + Implicit State Machine Audit
+- After implementing anything, the agent MUST debug it before declaring done: run the relevant tests, linters, type checks and build, exercise neighboring code paths, and confirm the fix resolves the original issue without regressions.
+- On every task, the agent MUST first run this prompt: "find all of the implicit state machines in my formesh3d app" — scan the codebase for scattered booleans/flags acting as implicit state machines (UI toggles, loading/idle/error flows, compare modes, shading modes, presets, turntable, wireframe, snapshot, settings popover, mesh upload lifecycle, job status transitions, texture pipeline states, abort/controller flows, panel open/close, camera presets, lighting tone, exposure slider, model loader states, scheduler/worker states, job queue states, adapter registry states) and report each with name, states, transitions, triggers, file+line, and whether explicit or implicit.
+
 ## General Engineering & Code Quality Rules
 
 - **No abstractions that weren't explicitly requested.**
