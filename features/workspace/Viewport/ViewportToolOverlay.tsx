@@ -493,6 +493,9 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
           <button
             type="button"
             onClick={() => snapGizmo('right')}
+            disabled={!currentAsset}
+            aria-disabled={!currentAsset}
+            aria-pressed={gizmoActiveAxis === 'x'}
             aria-label="Snap camera to +X axis"
             className={`absolute -top-0.5 right-0 w-5 h-5 rounded-full border-2 border-[#ef4444] bg-[#ef4444]/10 ${gizmoActiveAxis === 'x' ? 'bg-[#ef4444] shadow-[0_0_12px_rgba(239,68,68,0.7)]' : ''} transition-all duration-150 disabled:opacity-30 disabled:pointer-events-none`}
           >
@@ -501,6 +504,9 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
           <button
             type="button"
             onClick={() => snapGizmo('top')}
+            disabled={!currentAsset}
+            aria-disabled={!currentAsset}
+            aria-pressed={gizmoActiveAxis === 'y'}
             aria-label="Snap camera to +Y axis"
             className={`absolute top-0 -left-0.5 w-5 h-5 rounded-full border-2 border-[#22c55e] bg-[#22c55e]/10 ${gizmoActiveAxis === 'y' ? 'bg-[#22c55e] shadow-[0_0_12px_rgba(34,197,94,0.7)]' : ''} transition-all duration-150 disabled:opacity-30 disabled:pointer-events-none`}
           >
@@ -509,6 +515,9 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
           <button
             type="button"
             onClick={() => snapGizmo('front')}
+            disabled={!currentAsset}
+            aria-disabled={!currentAsset}
+            aria-pressed={gizmoActiveAxis === 'z'}
             aria-label="Snap camera to +Z axis"
             className={`absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full border-2 border-[#3b82f6] bg-[#3b82f6]/10 ${gizmoActiveAxis === 'z' ? 'bg-[#3b82f6] shadow-[0_0_12px_rgba(59,130,246,0.7)]' : ''} transition-all duration-150 disabled:opacity-30 disabled:pointer-events-none`}
           >
