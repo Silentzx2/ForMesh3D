@@ -462,48 +462,60 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
         aria-label="3D camera orientation"
         className="pointer-events-auto absolute top-4 right-3 z-20 select-none"
       >
-        {/* CSS 3D container: represents camera's local axes in world space */}
         <div
           ref={gizmoContainerRef}
-          className="relative w-12 h-12 perspective-500"
-          style={{ transformStyle: 'preserve-3d' }}
+          className="relative w-14 h-14 flex items-center justify-center"
         >
-          {/* Axis X — red, horizontal */}
+          {/* SVG axis lines: X red horizontal, Y green vertical, Z blue depth ring */}
+          <svg
+            width="60"
+            height="60"
+            viewBox="0 0 60 60"
+            className="block drop-shadow-[0_6px_16px_rgba(0,0,0,0.45)]"
+          >
+            {/* Center anchor */}
+            <circle cx="30" cy="30" r="6" fill="hsl(var(--surface-1))" stroke="hsl(var(--surface-3))" strokeWidth="1" opacity="0.95"/>
+            {/* Z axis — blue depth ring */}
+            <ellipse cx="30" cy="30" rx="18" ry="18" fill="none" stroke="#3b82f6" strokeWidth="1.5"
+                     opacity={gizmoActiveAxis === 'z' ? 0.85 : 0.14}
+                     className="transition-opacity duration-200"/>
+            {/* X axis — red horizontal */}
+            <line x1="6" y1="30" x2="54" y2="30" stroke="#ef4444" strokeWidth="2"
+                  opacity={gizmoActiveAxis === 'x' ? 0.85 : 0.12}
+                  className="transition-opacity duration-200"/>
+            {/* Y axis — green vertical */}
+            <line x1="30" y1="6" x2="30" y2="54" stroke="#22c55e" strokeWidth="2"
+                  opacity={gizmoActiveAxis === 'y' ? 0.85 : 0.12}
+                  className="transition-opacity duration-200"/>
+          </svg>
+
+          {/* Axis endpoint buttons */}
           <button
             type="button"
             onClick={() => snapGizmo('right')}
-            aria-label="Snap camera to positive X axis"
-            title="+X"
-            className={`absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 w-8 h-1 rounded-full ${gizmoActiveAxis === 'x' ? 'bg-[#ef4444] opacity-100 shadow-[0_0_10px_rgba(239,68,68,0.7)] ring-1 ring-[#ef4444]' : 'bg-[#ef4444]/60 opacity-60'} hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ef4444]/60 active:scale-95 transition-transform duration-150 disabled:opacity-30 disabled:pointer-events-none`}
-          />
-          {/* Label +X */}
-          <span className={`absolute left-1/2 top-[-8px] -translate-x-1/2 -z-10 text-[10px] font-bold ${gizmoActiveAxis === 'x' ? 'text-[#ef4444]' : 'text-[#ef4444]/60'} shadow-sm`}>+X</span>
-
-          {/* Axis Y — green, vertical */}
+            aria-label="Snap camera to +X axis"
+            className={`absolute -top-0.5 right-0 w-5 h-5 rounded-full border-2 border-[#ef4444] bg-[#ef4444]/10 ${gizmoActiveAxis === 'x' ? 'bg-[#ef4444] shadow-[0_0_12px_rgba(239,68,68,0.7)]' : ''} transition-all duration-150 disabled:opacity-30 disabled:pointer-events-none`}
+          >
+            <span className="absolute -top-2.5 -right-1 text-[8px] font-bold text-[#ef4444]">${gizmoActiveAxis === 'x' ? '+X' : ''}</span>
+          </button>
           <button
             type="button"
             onClick={() => snapGizmo('top')}
-            aria-label="Snap camera to positive Y axis"
-            title="+Y"
-            className={`absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-1 h-8 rounded-full ${gizmoActiveAxis === 'y' ? 'bg-[#22c55e] opacity-100 shadow-[0_0_10px_rgba(34,197,94,0.7)] ring-1 ring-[#22c55e]' : 'bg-[#22c55e]/60 opacity-60'} hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#22c55e]/60 active:scale-95 transition-transform duration-150 disabled:opacity-30 disabled:pointer-events-none`}
-          />
-          {/* Label +Y */}
-          <span className={`absolute top-1/2 left-[-8px] -translate-y-1/2 -z-10 text-[10px] font-bold ${gizmoActiveAxis === 'y' ? 'text-[#22c55e]' : 'text-[#22c55e]/60'} shadow-sm`}>+Y</span>
-
-          {/* Axis Z — blue, depth (shown as a ring) */}
+            aria-label="Snap camera to +Y axis"
+            className={`absolute top-0 -left-0.5 w-5 h-5 rounded-full border-2 border-[#22c55e] bg-[#22c55e]/10 ${gizmoActiveAxis === 'y' ? 'bg-[#22c55e] shadow-[0_0_12px_rgba(34,197,94,0.7)]' : ''} transition-all duration-150 disabled:opacity-30 disabled:pointer-events-none`}
+          >
+            <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[8px] font-bold text-[#22c55e]">${gizmoActiveAxis === 'y' ? '+Y' : ''}</span>
+          </button>
           <button
             type="button"
             onClick={() => snapGizmo('front')}
-            aria-label="Snap camera to positive Z axis"
-            title="+Z"
-            className={`absolute inset-0 rounded-full border-2 ${gizmoActiveAxis === 'z' ? 'border-[#3b82f6] opacity-100 shadow-[0_0_10px_rgba(59,130,246,0.7)]' : 'border-[#3b82f6]/50 opacity-60'} hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6]/60 active:scale-[1.1] transition-transform duration-150 disabled:opacity-30 disabled:pointer-events-none`}
-          />
-          {/* Label +Z */}
-          <span className={`absolute bottom-[-6px] left-1/2 -translate-x-1/2 text-[10px] font-bold ${gizmoActiveAxis === 'z' ? 'text-[#3b82f6]' : 'text-[#3b82f6]/60'} shadow-sm`}>+Z</span>
-
-          {/* Negative indicators mousedowned by clicking same handle again flips to negative preset per axis handled in snapGizmo via detail mapping */}
+            aria-label="Snap camera to +Z axis"
+            className={`absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full border-2 border-[#3b82f6] bg-[#3b82f6]/10 ${gizmoActiveAxis === 'z' ? 'bg-[#3b82f6] shadow-[0_0_12px_rgba(59,130,246,0.7)]' : ''} transition-all duration-150 disabled:opacity-30 disabled:pointer-events-none`}
+          >
+            <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[8px] font-bold text-[#3b82f6]">${gizmoActiveAxis === 'z' ? '+Z' : ''}</span>
+          </button>
         </div>
-        <p className="absolute bottom-[-18px] left-1/2 -translate-x-1/2 text-[9px] text-zinc-400 tracking-wider uppercase">
+        <p className="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[9px] text-zinc-400 tracking-wider uppercase font-medium">
           XYZ Orientation
         </p>
       </div>
