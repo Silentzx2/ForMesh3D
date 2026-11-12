@@ -304,6 +304,8 @@ export const GeneratePanel: React.FC = () => {
       ...getModelsForFeature('image_to_raw_mesh'),
       ...getModelsForFeature('image-to-raw-mesh'),
       ...getModelsForFeature('image_to_mesh'),
+      ...getModelsForFeature('image_to_textured_mesh'),
+      ...getModelsForFeature('image-to-textured-mesh'),
     ];
     const candidatePool = rawIds.length > 0 ? rawIds : KNOWN_MESH_MODEL_IDS;
     const uniqueCandidates = Array.from(new Set(candidatePool));
