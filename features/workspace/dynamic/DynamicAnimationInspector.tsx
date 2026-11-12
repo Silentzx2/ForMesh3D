@@ -195,7 +195,7 @@ export const DynamicAnimationInspector: React.FC = () => {
               type="button"
               onClick={togglePlay}
               className="w-7 h-7 rounded-lg bg-[hsl(var(--primary))] text-black hover:bg-[hsl(var(--primary))] flex items-center justify-center transition-all cursor-pointer font-bold shadow-sm active:scale-95"
-              title={isPlaying ? 'Pause' : 'Play'}
+              aria-label={isPlaying ? 'Pause' : 'Play'}
             >
               {isPlaying ? <Pause className="w-3.5 h-3.5 fill-black" /> : <Play className="w-3.5 h-3.5 fill-black ml-0.5" />}
             </button>

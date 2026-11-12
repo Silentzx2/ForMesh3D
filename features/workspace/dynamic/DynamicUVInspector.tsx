@@ -295,7 +295,7 @@ export const DynamicUVInspector: React.FC = () => {
         ) : (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 bg-black/80 backdrop-blur-sm text-center space-y-2">
             <div className="w-8 h-8 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
-              <AlertCircle className="w-4 h-4" />
+              <AlertCircle className="w-4 h-4" aria-hidden="true" />
             </div>
             <div>
               <h4 className="text-xs font-bold text-white">No UV Map Found</h4>
@@ -309,7 +309,7 @@ export const DynamicUVInspector: React.FC = () => {
                 onClick={handleQuickPlanarUV}
                 className="h-7 px-3 rounded-lg bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 text-black text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all active:scale-95"
               >
-                <Wand2 className="w-3.5 h-3.5" />
+                <Wand2 className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Quick Viewport UVs</span>
               </button>
               <button
@@ -318,7 +318,7 @@ export const DynamicUVInspector: React.FC = () => {
                 disabled={isExecuting}
                 className="h-7 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer border border-white/10 transition-all active:scale-95"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isExecuting ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-3.5 h-3.5 ${isExecuting ? 'animate-spin' : ''}`} aria-hidden="true" />
                 <span>{isExecuting ? 'Unwrapping...' : 'Smart UV Unwrap'}</span>
               </button>
             </div>

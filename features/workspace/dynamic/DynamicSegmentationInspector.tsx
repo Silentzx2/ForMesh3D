@@ -324,7 +324,7 @@ export const DynamicSegmentationInspector: React.FC = () => {
       <div className="p-2 rounded-xl bg-black/40 border border-white/[0.08] space-y-1.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <Scissors className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
+            <Scissors className="w-3.5 h-3.5 text-[hsl(var(--primary))]" aria-hidden="true" />
             <span className="text-xs font-semibold text-white">Parts Assembly</span>
           </div>
           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] font-mono font-semibold border border-[hsl(var(--primary))]/30">
@@ -396,7 +396,7 @@ export const DynamicSegmentationInspector: React.FC = () => {
                   type="button"
                   onClick={(e) => togglePartVisibility(part.id, e)}
                   className="p-1 rounded hover:bg-white/10 text-zinc-400 hover:text-white transition-colors cursor-pointer"
-                  title={part.visible ? 'Hide Part' : 'Show Part'}
+                  aria-label={part.visible ? 'Hide Part' : 'Show Part'}
                 >
                   {part.visible ? <Eye className="w-3.5 h-3.5 text-zinc-300" /> : <EyeOff className="w-3.5 h-3.5 text-zinc-500" />}
                 </button>
@@ -441,7 +441,7 @@ export const DynamicSegmentationInspector: React.FC = () => {
         disabled={isExportingZip}
         className="w-full h-8 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.1] text-white text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98]"
       >
-        <FolderArchive className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
+        <FolderArchive className="w-3.5 h-3.5 text-[hsl(var(--primary))]" aria-hidden="true" />
         <span>{isExportingZip ? 'Packaging ZIP Archive...' : 'Export Separate Parts (.ZIP)'}</span>
       </button>
     </div>

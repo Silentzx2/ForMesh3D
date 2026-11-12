@@ -367,7 +367,7 @@ export const DynamicRiggingInspector: React.FC = () => {
         disabled={isExporting}
         className="w-full h-8 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.1] text-white text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98]"
       >
-        <Download className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
+        <Download className="w-3.5 h-3.5 text-[hsl(var(--primary))]" aria-hidden="true" />
         <span>{isExporting ? 'Packaging Rigged Model...' : 'Export Rigged Model (.GLB)'}</span>
       </button>
     </div>
