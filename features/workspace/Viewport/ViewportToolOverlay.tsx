@@ -56,23 +56,6 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
 
   const settingsPopoverRef = useRef<HTMLDivElement>(null);
   const settingsTriggerRef = useRef<HTMLButtonElement>(null);
-  const gizmoContainerRef = useRef<HTMLDivElement>(null);
-  const [gizmoActiveAxis, setGizmoActiveAxis] = useState<'x' | 'y' | 'z' | null>(null);
-
-  // Track live camera rotation from MeshViewer so the gizmo reflects the active axis
-  useEffect(() => {
-    const handleRotation = (e: CustomEvent<string>) => {
-      const axis = e.detail;
-      const map: Record<string, 'x' | 'y' | 'z'> = {
-        front: 'z', back: 'z',
-        top: 'y', bottom: 'y',
-        right: 'x', left: 'x',
-      };
-      setGizmoActiveAxis(map[axis] ?? null);
-    };
-    window.addEventListener('setCameraRotation', handleRotation as EventListener);
-    return () => window.removeEventListener('setCameraRotation', handleRotation as EventListener);
-  }, []);
 
   // Auto-close settings popover on outside click or Escape
   useEffect(() => {
@@ -114,13 +97,6 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
   const handleSnapCamera = (preset: 'Front' | 'Top' | 'Side' | 'Iso') => {
     setActivePreset(preset);
     const key = preset === 'Iso' ? 'perspective' : preset.toLowerCase();
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('setCameraPreset', { detail: key }));
-    }
-  };
-
-  // XYZ Gizmo axis tap -> camera preset (MeshViewer listens for setCameraPreset)
-  const snapGizmo = (key: 'front' | 'back' | 'top' | 'bottom' | 'right' | 'left') => {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('setCameraPreset', { detail: key }));
     }
@@ -455,79 +431,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
         </div>
       </div>
 
-      {/* Interactive XYZ Orientation Gizmo (top-right) → tied to MeshViewer camera */}
-      <div
-        id="viewport-xyz-gizmo"
-        role="group"
-        aria-label="3D camera orientation"
-        className="pointer-events-auto absolute top-4 right-3 z-20 select-none"
-      >
-        <div
-          ref={gizmoContainerRef}
-          className="relative w-14 h-14 flex items-center justify-center"
-        >
-          {/* SVG axis lines: X red horizontal, Y green vertical, Z blue depth ring */}
-          <svg
-            width="60"
-            height="60"
-            viewBox="0 0 60 60"
-            className="block drop-shadow-[0_6px_16px_rgba(0,0,0,0.45)]"
-          >
-            {/* Center anchor */}
-            <circle cx="30" cy="30" r="6" fill="hsl(var(--surface-1))" stroke="hsl(var(--surface-3))" strokeWidth="1" opacity="0.95"/>
-            {/* Z axis — blue depth ring */}
-            <ellipse cx="30" cy="30" rx="18" ry="18" fill="none" stroke="#3b82f6" strokeWidth="1.5"
-                     opacity={gizmoActiveAxis === 'z' ? 0.85 : 0.14}
-                     className="transition-opacity duration-200"/>
-            {/* X axis — red horizontal */}
-            <line x1="6" y1="30" x2="54" y2="30" stroke="#ef4444" strokeWidth="2"
-                  opacity={gizmoActiveAxis === 'x' ? 0.85 : 0.12}
-                  className="transition-opacity duration-200"/>
-            {/* Y axis — green vertical */}
-            <line x1="30" y1="6" x2="30" y2="54" stroke="#22c55e" strokeWidth="2"
-                  opacity={gizmoActiveAxis === 'y' ? 0.85 : 0.12}
-                  className="transition-opacity duration-200"/>
-          </svg>
 
-          {/* Axis endpoint buttons */}
-          <button
-            type="button"
-            onClick={() => snapGizmo('right')}
-            disabled={!currentAsset}
-            aria-disabled={!currentAsset}
-            aria-pressed={gizmoActiveAxis === 'x'}
-            aria-label="Snap camera to +X axis"
-            className={`absolute -top-0.5 right-0 w-5 h-5 rounded-full border-2 border-[#ef4444] bg-[#ef4444]/10 ${gizmoActiveAxis === 'x' ? 'bg-[#ef4444] shadow-[0_0_12px_rgba(239,68,68,0.7)]' : ''} transition-all duration-150 disabled:opacity-30 disabled:pointer-events-none`}
-          >
-            <span className="absolute -top-2.5 -right-1 text-[8px] font-bold text-[#ef4444]">${gizmoActiveAxis === 'x' ? '+X' : ''}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => snapGizmo('top')}
-            disabled={!currentAsset}
-            aria-disabled={!currentAsset}
-            aria-pressed={gizmoActiveAxis === 'y'}
-            aria-label="Snap camera to +Y axis"
-            className={`absolute top-0 -left-0.5 w-5 h-5 rounded-full border-2 border-[#22c55e] bg-[#22c55e]/10 ${gizmoActiveAxis === 'y' ? 'bg-[#22c55e] shadow-[0_0_12px_rgba(34,197,94,0.7)]' : ''} transition-all duration-150 disabled:opacity-30 disabled:pointer-events-none`}
-          >
-            <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[8px] font-bold text-[#22c55e]">${gizmoActiveAxis === 'y' ? '+Y' : ''}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => snapGizmo('front')}
-            disabled={!currentAsset}
-            aria-disabled={!currentAsset}
-            aria-pressed={gizmoActiveAxis === 'z'}
-            aria-label="Snap camera to +Z axis"
-            className={`absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full border-2 border-[#3b82f6] bg-[#3b82f6]/10 ${gizmoActiveAxis === 'z' ? 'bg-[#3b82f6] shadow-[0_0_12px_rgba(59,130,246,0.7)]' : ''} transition-all duration-150 disabled:opacity-30 disabled:pointer-events-none`}
-          >
-            <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[8px] font-bold text-[#3b82f6]">${gizmoActiveAxis === 'z' ? '+Z' : ''}</span>
-          </button>
-        </div>
-        <p className="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[9px] text-zinc-400 tracking-wider uppercase font-medium">
-          XYZ Orientation
-        </p>
-      </div>
 
       {/* Bottom Floating Material & Shader Spheres Dock (Tripo 3D style) */}
       <div
