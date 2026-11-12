@@ -119,7 +119,7 @@ VERIFY_ONLY=false
 FORCE_DOWNLOAD=false
 
 # Available models
-AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "fastmesh" "triposg" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
+AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "stable_fast_3d" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "triposg" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
 
 show_help() {
     cat << EOF
@@ -150,6 +150,7 @@ Available models:
     ardy               - ARDY motion generation models
     unique3d           - Unique3D high-fidelity single-image to 3D model
     hunyuan3d_v20_paint       - Hunyuan3D-2 (v2.0) Paint model (texture weights only)
+    stable_fast_3d            - Stable Fast 3D — single image to textured mesh (~0.5s, ~6GB VRAM, HF-gated weights)
     pixal3d            - Pixal3D pixel-aligned image to 3D generation model
     taoflowforge       - TaoFlowForge progressive native mesh generation model (Alibaba)
     misc               - Miscellaneous utility models (RealESRGAN, DINOv2)
@@ -473,6 +474,34 @@ download_hunyuan3d_v20_paint() {
     fi
 
     print_success "Hunyuan3D-2 (v2.0) Paint models and RealESRGAN dependency are ready"
+}
+
+# Function to download Stable Fast 3D (single image → textured mesh, HF-gated)
+download_stable_fast_3d() {
+    print_info "=========================================="
+    print_info "Downloading Stable Fast 3D (SF3D)"
+    print_info "=========================================="
+
+    local model_dir="$PRETRAINED_DIR/stable-fast-3d"
+
+    if [ "$FORCE_DOWNLOAD" = false ] && verify_directory "$model_dir" 2; then
+        print_info "Stable Fast 3D already exists and verified"
+        return 0
+    fi
+
+    mkdir -p "$model_dir" 2>/dev/null || true
+    ensure_writable_model_dir "$model_dir" || return 1
+
+    print_info "Downloading Stable Fast 3D weights from stabilityai/stable-fast-3d (HF)..."
+    if hf_download stabilityai/stable-fast-3d --local-dir "$model_dir"; then
+        print_success "Stable Fast 3D downloaded successfully"
+    else
+        print_error "Failed to download Stable Fast 3D"
+        print_warning "stabilityai/stable-fast-3d is gated on Hugging Face — run 'hf auth login' with an accepted license first."
+        return 1
+    fi
+
+    print_success "Stable Fast 3D is ready"
 }
 
 # Function to download Hunyuan3D-DiT-v2-mini-Turbo models
@@ -1191,6 +1220,9 @@ for model in "${MODELS_ARRAY[@]}"; do
         "hunyuan3d_v20_paint")
             download_hunyuan3d_v20_paint
             ;;
+        "stable_fast_3d")
+            download_stable_fast_3d
+            ;;
         "hunyuan3d_dit_v2_mini_turbo")
             download_hunyuan3d_dit_v2_mini_turbo
             ;;
@@ -1213,7 +1245,7 @@ for model in "${MODELS_ARRAY[@]}"; do
             download_partuv
             ;;
         "fastmesh")
-            download_fastmesh
+            print_warning "FastMesh removed from main repo (thirdparty/FastMesh deleted). Skipping."
             ;;
         "triposg")
             download_triposg
@@ -1237,6 +1269,7 @@ for model in "${MODELS_ARRAY[@]}"; do
             download_hunyuan21
             download_hunyuan3d_paint_v21
             download_hunyuan3d_v20_paint
+            download_stable_fast_3d
             download_hunyuan2mini
             download_trellis
             download_trellis_text

@@ -69,6 +69,23 @@ export const CANONICAL_MODELS: ModelDefinition[] = [
     status: 'available',
     description: 'Ultra-high-definition image-to-3D pipeline with 2K texture baking and crisp geometry.',
   },
+  {
+    id: 'stable_fast_3d_image_to_textured_mesh',
+    name: 'Stable Fast 3D (Image → Textured Mesh)',
+    category: 'mesh_generation',
+    feature: 'image_to_textured_mesh',
+    featureLabel: 'Image to Textured 3D',
+    vramMb: 6144,
+    lowVramSupported: true,
+    lowVramMb: 4096,
+    supportsTexture: true,
+    supportedInputs: ['image'],
+    supportedOutputs: ['glb', 'obj'],
+    modelPath: 'backend/pretrained/stable-fast-3d',
+    enabled: true,
+    status: 'available',
+    description: 'Ultra-fast single-image to textured mesh (~0.5s, ~6GB VRAM). UV-unwrapped PBR textures with albedo + normal maps. HF-gated weights.',
+  },
   // ── MESH GENERATION (Image to Raw Geometry) ──────────────────────────
   {
     id: 'trellis2_image_to_raw_mesh',

@@ -503,6 +503,28 @@ image_to_textured_mesh:
     enabled: false
     max_workers: 1
 
+  stable_fast_3d_image_to_textured_mesh:
+    model_name: "Stable Fast 3D — Image to Textured Mesh"
+    upstream_repository: "https://github.com/Stability-AI/stable-fast-3d"
+    upstream_ref: null
+    checkpoint_license: "stability_ai_community"  # Non-MIT, gated on HF — requires HF_TOKEN + accepted license
+    capabilities:
+      native_topology: false
+      output_resolution: null
+      text_to_3d: false
+      image_to_3d: true
+      multiview: false
+      texture_generation: true
+      texture_refine: false
+      multi_gpu: false
+      low_vram_supported: true
+    vram_requirement: 6144  # MB — ~6GB for single image, fits T4/16GB consumer cards
+    supported_inputs: ["image"]
+    supported_outputs: ["glb", "obj"]
+    model_path: "backend/pretrained/stable-fast-3d"
+    enabled: true
+    max_workers: 1
+
 # image-conditioned mesh painting
 image_mesh_painting:
   # EXPERIMENTAL_MAX_DETAIL: TRELLIS texture size stays at its supported 2048 default; higher atlas targets are not assumed to be supported by this adapter.

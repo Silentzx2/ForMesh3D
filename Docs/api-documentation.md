@@ -566,6 +566,45 @@ Content-Type: application/json
 }
 ```
 
+### Stable Fast 3D — Single Image → Textured Mesh
+
+Generate a UV-unwrapped textured mesh (PBR albedo + normal maps) from a single reference image in one forward pass using Stability AI's Stable Fast 3D (SF3D). SF3D is a complete image→textured-mesh pipeline — mesh and texture are produced together, with no separate texture stage. The model is gated on Hugging Face (`stabilityai/stable-fast-3d`) and requires `HF_TOKEN` with an accepted license before weights can be downloaded.
+
+```http
+POST /api/v1/mesh-generation/image-to-raw-mesh
+Content-Type: application/json
+
+{
+  "image_file_id": "img_abc123",
+  "output_format": "glb",
+  "model_preference": "stable_fast_3d_image_to_textured_mesh",
+  "model_parameters": { "seed": 42891, "texture_resolution": 1024 }
+}
+```
+
+**Request fields (SF3D-specific, forwarded via `model_parameters`):**
+
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `seed` | integer | `42891` | Random seed for reproducibility |
+| `texture_resolution` | integer | `1024` | Output texture atlas resolution (512, 1024, or 2048) |
+| `remesh_option` | string | `"none"` | Remeshing operation: `none`, `triangle`, or `quad` |
+| `target_vertex_count` | integer | `-1` | Target vertex count for decimation (`-1` = no reduction) |
+
+**Response (202):** Same queued response shape as other generation endpoints. On completion, the job exposes a single textured GLB artifact — SF3D does not produce a separate raw-only master.
+
+**Textured artifact URL:** Completed SF3D jobs expose the textured mesh through the standard download endpoint:
+
+```
+GET /api/v1/system/jobs/{job_id}/download?artifact_format=glb
+```
+
+This returns the textured GLB with embedded albedo and normal maps. The immutable raw master (`master/source.glb`) is not produced by SF3D — use `hunyuan3d_shape_v21_image_to_raw_mesh` for raw-only generation.
+
+**VRAM:** ~6 GB for single-image input; fits T4 and 16 GB consumer cards. Inference runs in ~0.5 seconds on a GPU with 7 GB+ VRAM.
+
+**License:** Stability AI Community License (non-MIT, gated weights). Review before commercial use.
+
 ### Text Mesh Painting
 
 Paint textures onto an existing mesh using text prompts.
@@ -655,7 +694,7 @@ GET /api/v1/system/models
       "trellis2_image_to_3d",
       "trellis2_image_to_raw_mesh"
     ],
-    "image_to_textured_mesh": ["trellis_image_to_textured_mesh", "trellis2_image_to_textured_mesh"],
+    "image_to_textured_mesh": ["trellis_image_to_textured_mesh", "trellis2_image_to_textured_mesh", "stable_fast_3d_image_to_textured_mesh"],
     "image_mesh_painting": [
       "trellis_image_mesh_painting",
       "trellis2_image_mesh_painting",
