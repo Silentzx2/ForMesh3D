@@ -619,12 +619,12 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
 
         const glyphs: Record<string, React.ReactNode> = {
           faces: (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" className="h-8 w-8 text-[#F9CF00]">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" className="h-6 w-6 text-[#F9CF00]">
               <path d="M12 3 21 20H3L12 3Z" />
             </svg>
           ),
           vertices: (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-8 w-8 text-zinc-200">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-6 w-6 text-zinc-200">
               <path d="M5 5H19V19H5Z" strokeDasharray="3 3" />
               <circle cx="5" cy="5" r="2" fill="#F9CF00" stroke="#F9CF00" />
               <circle cx="19" cy="5" r="2" fill="currentColor" />
@@ -633,20 +633,20 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
             </svg>
           ),
           edges: (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-8 w-8 text-zinc-200">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-6 w-6 text-zinc-200">
               <path d="M5 19 19 5" />
               <circle cx="5" cy="19" r="3" fill="#0d0e10" stroke="currentColor" />
               <circle cx="19" cy="5" r="3" fill="#0d0e10" stroke="#F9CF00" />
             </svg>
           ),
           materials: (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" className="h-8 w-8 text-[#F9CF00]">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" className="h-6 w-6 text-[#F9CF00]">
               <path d="m12 3 9 4.5-9 4.5-9-4.5L12 3Z" />
               <path d="m3 12 9 4.5 9-4.5M3 16.5 12 21l9-4.5" />
             </svg>
           ),
           size: (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" className="h-8 w-8 text-zinc-200">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" className="h-6 w-6 text-zinc-200">
               <path d="m12 2.8 8.5 4.6v9.2L12 21.2l-8.5-4.6V7.4L12 2.8Z" />
               <path d="M3.5 7.4 12 12l8.5-4.6M12 12v9.2" />
               <path d="M12 2.8V12" stroke="#F9CF00" />
@@ -658,7 +658,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
           <section
             id="viewport-mesh-details"
             aria-label="Mesh details"
-            className={`pointer-events-auto absolute bottom-[176px] left-3 z-20 w-[min(700px,calc(100%_-_24px))] overflow-hidden rounded-[22px] shadow-[0_14px_44px_rgba(0,0,0,0.62)] backdrop-blur-xl ${isRightPanelOpen ? 'hidden md:block' : ''}`}
+            className={`pointer-events-auto absolute top-4 right-3 z-20 w-[min(260px,calc(100vw_-_2rem))] max-w-[260px] overflow-hidden rounded-[16px] shadow-[0_10px_36px_rgba(0,0,0,0.55)] backdrop-blur-xl ${isRightPanelOpen ? 'hidden md:block' : ''}`}
             style={{
               border: '1px solid transparent',
               background: 'linear-gradient(#0d0e10,#0d0e10) padding-box, linear-gradient(115deg,#F9CF00 0%,rgba(255,255,255,0.24) 48%,#F9CF00 100%) border-box',
@@ -670,7 +670,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
               onClick={() => setIsMeshDetailsExpanded((expanded) => !expanded)}
               aria-expanded={isMeshDetailsExpanded}
               aria-controls="viewport-mesh-details-content"
-              className="flex h-16 w-full items-center gap-3 px-4 text-left transition-colors hover:bg-white/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#F9CF00]"
+              className="flex h-12 w-full items-center gap-2 px-2.5 text-left transition-colors hover:bg-white/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#F9CF00]"
             >
               <svg viewBox="0 0 28 28" fill="none" stroke="#F9CF00" strokeWidth="1.8" strokeLinejoin="round" className="h-9 w-9 shrink-0">
                 <path d="M14 3 3.5 23H24.5L14 3Z" />
@@ -679,7 +679,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
                 <circle cx="3.5" cy="23" r="2.1" fill="#0d0e10" />
                 <circle cx="24.5" cy="23" r="2.1" fill="#0d0e10" />
               </svg>
-              <span className="min-w-0 flex-1 text-base font-semibold tracking-wide text-white sm:text-lg">Mesh Details</span>
+              <span className="min-w-0 text-xs font-semibold tracking-wide text-white sm:text-xs">Mesh Details</span>
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -701,7 +701,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
               {metrics.map((metric, index) => (
                 <div
                   key={metric.key}
-                  className={`flex min-w-0 flex-col items-center justify-center gap-1.5 px-1.5 py-4 sm:py-5 ${index < metrics.length - 1 ? 'border-r border-white/[0.1]' : ''}`}
+                  className={`flex min-w-0 flex-col items-center justify-center gap-1 px-1 py-2 sm:py-2.5 ${index < metrics.length - 1 ? 'border-r border-white/[0.1]' : ''}`}
                 >
                   {glyphs[metric.key]}
                   <span className="max-w-full truncate text-[19px] font-semibold tabular-nums text-white sm:text-[21px]">{metric.value}</span>
