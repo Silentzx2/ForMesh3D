@@ -8,7 +8,7 @@ orjson>=3.9.0
 
 # fastapi>=0.109.0 imports starlette._exception_handler; pin a compatible
 # starlette so the resolver does not silently pull an incompatible release.
-starlette>=0.36.3,<0.37.0
+starlette>=1.3.1,<1.4.0
 
 httpx==0.25.2
 python-multipart==0.0.31
@@ -19,7 +19,7 @@ python-dotenv==1.2.2
 sqlalchemy==2.0.23
 
 aiofiles==23.2.1
-Pillow==12.3.0
+Pillow==13.0.0
 
 GPUtil==1.4.0
 psutil>=6.0.0
@@ -35,7 +35,7 @@ python-box>=7.0.0
 
 pytest==9.0.3
 pytest-asyncio==0.21.1
-black==26.3.1
+black==26.10.1
 flake8==6.1.0
 mypy==1.7.1
 
