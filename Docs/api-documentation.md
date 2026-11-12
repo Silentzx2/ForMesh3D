@@ -74,7 +74,7 @@ This shape is returned by the custom exception handlers (`BaseAPIException`, `Va
 
 ## Authentication
 
-Authentication has been removed entirely from backend and frontend (personal/self-hosted use, no paid SaaS). All endpoints are unauthenticated by default. The API-level request-rate limit is disabled by default in personal deployment (`rate_limit_enabled: false`, `rate_limit_per_minute: 0`) so local frontend polling is never blocked.
+Authentication is present but disabled by default (personal/self-hosted use, no paid SaaS). All endpoints are unauthenticated unless API-key authentication is enabled. The API-level request-rate limit is disabled by default in personal deployment (`rate_limit_enabled: false`, `rate_limit_per_minute: 0`) so local frontend polling is never blocked.
 
 Optional rate limiting remains available via `security.rate_limit_enabled` and `security.rate_limit_per_minute` in `backend/config/system.yaml` for remote deployments behind a perimeter proxy.
 

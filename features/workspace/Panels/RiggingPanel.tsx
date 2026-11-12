@@ -23,6 +23,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
+import { MeshUploadStatus } from './MeshUploadStatus';
 
 // ==========================================
 // 1. Quality Metrics & QualityBadge Export
@@ -228,9 +229,9 @@ QualityBadge.displayName = 'QualityBadge';
 // ==========================================
 export const RiggingPanel: React.FC = () => {
   const {
-    isExecuting: isWorkspaceExecuting,
-    executionProgress: workspaceProgress,
-    executionStep: workspaceStep,
+    isExecuting,
+    executionProgress,
+    executionStep,
     cancelExecution,
     currentAsset,
     generationSettings,
@@ -238,7 +239,7 @@ export const RiggingPanel: React.FC = () => {
     runAutoRigging,
   } = useWorkspace();
 
-  const { state: meshUploadState, upload: uploadMesh } = useMeshAssetUpload();
+  const { state: meshUploadState, upload: uploadMesh, reset: resetMeshUpload } = useMeshAssetUpload();
   const isMeshUploading = meshUploadState.status === 'uploading' || meshUploadState.status === 'verifying';
 
   // 1-to-1 Untouched Upload card refs & state
@@ -259,20 +260,16 @@ export const RiggingPanel: React.FC = () => {
   const [symmetrySnapping, setSymmetrySnapping] = useState<boolean>(true);
   const [mounted, setMounted] = useState(false);
 
-  // Local Execution State & Job Tracking
+  // Local auto-rig execution state (kept separate from workspace job execution)
   const [isLocalExecuting, setIsLocalExecuting] = useState(false);
   const [localProgress, setLocalProgress] = useState(0);
   const [localStep, setLocalStep] = useState('');
   const currentJobIdRef = useRef<string | null>(null);
+
   const lastUploadedAssetRef = useRef<ModelAsset | null>(null);
 
   const advancedTriggerRef = useRef<HTMLButtonElement>(null);
   const advancedFlyoutRef = useRef<HTMLDivElement>(null);
-
-  // Combined execution status
-  const isExecuting = isLocalExecuting || isWorkspaceExecuting;
-  const executionProgress = isLocalExecuting ? localProgress : workspaceProgress;
-  const executionStep = isLocalExecuting ? localStep : workspaceStep;
 
   useEffect(() => {
     setMounted(true);
@@ -485,6 +482,15 @@ export const RiggingPanel: React.FC = () => {
       toast.error(`Cancel failed: ${err.message || 'Unknown error'}`);
     }
   };
+
+  // Risk R3 — decoupled execution flags: the local panel run and the workspace
+  // job run are independent execution machines. The UI renders exactly one
+  // source at a time (local run first, then workspace, else idle), so
+  // concurrent runs can never show ambiguous progress/step. `isBusy` is a
+  // read-only render gate, never a merged executing flag.
+  const isBusy = isLocalExecuting || isExecuting;
+  const step = isLocalExecuting ? localStep : executionStep || 'Auto-rigging character...';
+  const progress = isLocalExecuting ? localProgress : executionProgress;
 
   return (
     <div className="flex flex-col h-full w-full bg-[hsl(var(--surface-1))] text-[hsl(var(--foreground))] overflow-hidden">
@@ -867,24 +873,24 @@ export const RiggingPanel: React.FC = () => {
 
       {/* 7. Sticky Bottom Action CTA Button (ZERO model name in button or subtitle as required) */}
       <div className="p-3 pt-2 pb-3 border-t border-white/[0.08] bg-[hsl(var(--surface-1))] flex-shrink-0 space-y-1.5">
-        {isExecuting ? (
+        {isBusy ? (
           <div className="p-3 rounded-2xl bg-[#141524] border border-[#F9CF00]/30 shadow-xl space-y-2 animate-in fade-in">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-2 min-w-0 pr-2">
                 <div className="w-3.5 h-3.5 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
                 <span className="font-semibold text-white truncate text-xs">
-                  {executionStep || 'Auto-rigging character...'}
+                  {step}
                 </span>
               </div>
               <span className="font-mono font-bold text-[#F9CF00] text-xs flex-shrink-0">
-                {Math.round(executionProgress)}%
+                {Math.round(progress)}%
               </span>
             </div>
 
             <div className="w-full h-1.5 rounded-full bg-black/40 overflow-hidden border border-white/10">
               <div
                 className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-300 rounded-full"
-                style={{ width: `${Math.max(4, Math.min(100, Math.round(executionProgress)))}%` }}
+                style={{ width: `${Math.max(4, Math.min(100, Math.round(progress)))}%` }}
               />
             </div>
 

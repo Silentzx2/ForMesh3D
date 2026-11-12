@@ -83,7 +83,7 @@ Create a centralized, local AI 3D asset factory that takes a reference image and
 - Provider-specific inference is unavailable until an adapter is added.
 
 ### 11. Retopology
-- **FastMesh**: Fast neural retopology (V1K, V4K)
+- **FastMesh**: Fast neural retopology (V1K only)
 - Manifold cleanup and target face count control
 
 ### 12. UV Unwrapping
@@ -271,9 +271,8 @@ flowchart TD
 | ARDY | CPU-only; no GPU VRAM reservation | Motion AI & Animation; CPU/RAM-bound | Host-dependent; slower than GPU inference |
 | SkinTokens | 14 GB | Auto-rigging | ~20 seconds |
 | FastMesh-V1K | 16 GB | Retopology | ~30 seconds |
-| FastMesh-V4K | 24.5 GB | High-res retopology | ~30 seconds |
 
-FastMesh's V1K/V4K VRAM figures above are conservative ForMesh3D scheduler budgets, not official minimums published by the model authors. Upstream lists an A6000-tested environment and uses batch size 3 for V1K and 1 for V4K, but does not state an exact minimum VRAM. Public weight files are approximately 4.38 GB and 4.39 GB respectively; disk size is not peak inference memory. When one card cannot meet the reservation, the adapter uses Accelerate automatic layer placement and admits aggregate memory only if the generated map spans at least two selected GPUs. GPU/checkpoint inference and peak memory still require validation on the target hardware.
+FastMesh's V1K VRAM figure above is a conservative ForMesh3D scheduler budget, not an official minimum published by the model authors. Upstream lists an A6000-tested environment and uses batch size 3 for V1K, but does not state an exact minimum VRAM. Public weight files are approximately 4.38 GB; disk size is not peak inference memory. When one card cannot meet the reservation, the adapter uses Accelerate automatic layer placement and admits aggregate memory only if the generated map spans at least two selected GPUs. GPU/checkpoint inference and peak memory still require validation on the target hardware.
 
 ## QA Scoring Methodology
 

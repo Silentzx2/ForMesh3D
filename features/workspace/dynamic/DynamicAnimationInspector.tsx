@@ -33,12 +33,14 @@ export const DynamicAnimationInspector: React.FC = () => {
     setPlaybackSpeed,
     isLooping,
     setIsLooping,
+    tickPlayback,
     displayOptions,
     setDisplayOptions,
   } = useAnimationStore();
 
   const [showTrajectory, setShowTrajectory] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   // Sync duration with active animation clip if available on model
   const activeClip = useMemo(() => {
@@ -54,33 +56,18 @@ export const DynamicAnimationInspector: React.FC = () => {
     }
   }, [activeClip, setDuration]);
 
-  // Synchronized animation clock
+  // Single animation clock: store tickPlayback drives currentTime; one rAF ticks it
   useEffect(() => {
-    let animId: number;
+    let id: number;
     if (isPlaying) {
-      let lastTime = performance.now();
       const tick = (now: number) => {
-        const delta = (now - lastTime) / 1000;
-        lastTime = now;
-        const effectiveDuration = duration > 0 ? duration : 2.0;
-        let nextTime = currentTime + delta * playbackSpeed;
-        if (nextTime >= effectiveDuration) {
-          if (isLooping) {
-            nextTime = nextTime % effectiveDuration;
-          } else {
-            nextTime = effectiveDuration;
-            setIsPlaying(false);
-            setCurrentTime(nextTime);
-            return;
-          }
-        }
-        setCurrentTime(nextTime);
-        animId = requestAnimationFrame(tick);
+        tickPlayback(now);
+        id = requestAnimationFrame(tick);
       };
-      animId = requestAnimationFrame(tick);
+      id = requestAnimationFrame(tick);
     }
-    return () => cancelAnimationFrame(animId);
-  }, [isPlaying, playbackSpeed, isLooping, duration, currentTime, setCurrentTime, setIsPlaying]);
+    return () => cancelAnimationFrame(id);
+  }, [isPlaying, tickPlayback]);
 
   const currentFrame = Math.round(currentTime * 30);
   const totalFrames = Math.round(duration * 30);
@@ -88,9 +75,10 @@ export const DynamicAnimationInspector: React.FC = () => {
 
   // Real Export: Downloads backend clip or exports client GLB with animation tracks
   const handleExportClip = async () => {
+    setIsExporting(true);
+    setExportError(null);
+    toast.info('Preparing animation motion clip export...');
     try {
-      setIsExporting(true);
-      toast.info('Preparing animation motion clip export...');
 
       const assetId = currentAsset?.id;
       if (assetId) {
@@ -133,6 +121,7 @@ export const DynamicAnimationInspector: React.FC = () => {
         throw new Error('No active 3D model available to export');
       }
     } catch (err: any) {
+      setExportError(err.message || 'Export failed');
       toast.error(`Export failed: ${err.message || 'Unknown error'}`);
     } finally {
       setIsExporting(false);
@@ -290,6 +279,9 @@ export const DynamicAnimationInspector: React.FC = () => {
         <Download className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
         <span>{isExporting ? 'Packaging Motion Clip...' : 'Export Motion Clip (.GLB)'}</span>
       </button>
+      {exportError && (
+        <div className="text-[10px] text-rose-400">{exportError}</div>
+      )}
     </div>
   );
 };

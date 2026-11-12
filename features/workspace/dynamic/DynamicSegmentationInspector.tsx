@@ -113,6 +113,7 @@ export const DynamicSegmentationInspector: React.FC = () => {
   const [selectedPartId, setSelectedPartId] = useState<string | null>('p1');
   const [viewAngle, setViewAngle] = useState<'front' | 'ortho' | 'side'>('ortho');
   const [isExportingZip, setIsExportingZip] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   // Extract REAL submesh parts from loaded model
   const { realParts, isRealModelData } = useMemo(() => {
@@ -212,9 +213,10 @@ export const DynamicSegmentationInspector: React.FC = () => {
 
   // Real Export: Downloads backend ZIP or generates real multi-part client ZIP
   const handleExportZip = async () => {
+    setIsExportingZip(true);
+    setExportError(null);
+    toast.info('Packaging segmented parts into ZIP archive...');
     try {
-      setIsExportingZip(true);
-      toast.info('Packaging segmented parts into ZIP archive...');
 
       const assetId = currentAsset?.id;
       if (assetId) {
@@ -267,6 +269,7 @@ export const DynamicSegmentationInspector: React.FC = () => {
         throw new Error('No active 3D model available to export');
       }
     } catch (err: any) {
+      setExportError(err.message || 'Export failed');
       toast.error(`Export failed: ${err.message || 'Unknown error'}`);
     } finally {
       setIsExportingZip(false);
@@ -444,6 +447,9 @@ export const DynamicSegmentationInspector: React.FC = () => {
         <FolderArchive className="w-3.5 h-3.5 text-[hsl(var(--primary))]" aria-hidden="true" />
         <span>{isExportingZip ? 'Packaging ZIP Archive...' : 'Export Separate Parts (.ZIP)'}</span>
       </button>
+      {exportError && (
+        <div className="text-[10px] text-rose-400">{exportError}</div>
+      )}
     </div>
   );
 };

@@ -99,7 +99,7 @@ flowchart TB
 
 **Primary Icon Library**: [Hugeicons](https://hugeicons.com) (`@hugeicons/react` + `@hugeicons/core-free-icons`).
 
-> No other icon libraries are permitted. Custom SVGs are restricted to brand/logo assets only.
+> Hugeicons is the canonical icon library; some panels still import lucide-react while migration finishes. Custom SVGs are restricted to brand/logo assets only.
 
 ### Icon Size Hierarchy
 

@@ -33,6 +33,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
+import { MeshUploadStatus } from './MeshUploadStatus';
 import { getApiClient } from '@/services/apiClient';
 
 // ==========================================
@@ -364,6 +365,30 @@ export const GeneratePanel: React.FC = () => {
   const [topologyMode, setTopologyMode] = useState<'Quad' | 'Triangle'>('Triangle');
   const [polycount, setPolycount] = useState(600000);
   const [seed, setSeed] = useState<number | ''>(typeof generationSettings.seed === 'number' ? generationSettings.seed : '');
+
+  // ==========================================
+  // Texture Support State Machine (implicit)
+  // States: 'none' (model has no texture pipeline)
+  //         → '2k'  (model supports texture, max 2048 atlas)
+  //         → '4k'  (model supports texture up to 4096+ atlas)
+  // Triggers: selectedModel changes
+  // Transitions driven by TEXTURE_CAPABILITY lookup below.
+  // Shortcut: hardcoded map from models.yaml capabilities; upgrade path is to
+  // read texture_generation + output_resolution from backend config dynamically.
+  // ==========================================
+  const TEXTURE_CAPABILITY: Record<string, 'none' | '2k' | '4k'> = {
+    // 4K-capable texture pipeline models
+    'trellis2_image_mesh_painting': '4k',
+    'hunyuan3d_paint_v21_image_mesh_painting': '4k',
+    'hunyuan3d_v20_paint_image_mesh_painting': '4k',
+    'stable_fast_3d_image_to_textured_mesh': '4k',
+    // 2K-only texture pipeline models
+    'trellis_image_mesh_painting': '2k',
+  };
+  // All other models (raw mesh generators, etc.) default to 'none'.
+
+  // Derived texture support state — recomputed whenever selectedModel changes
+  const textureSupport: 'none' | '2k' | '4k' = TEXTURE_CAPABILITY[selectedModel] ?? 'none';
   const dragCounterRef = useRef(0);
 
   // Keep imagePreview in sync with workspace generationSettings
@@ -1047,77 +1072,6 @@ export const GeneratePanel: React.FC = () => {
               </button>
             </div>
 
-            {/* Toggle 3: Texture Enable */}
-            <div className="flex items-center justify-between py-0.5">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-zinc-200 font-medium">Texture</span>
-                <span title="Generate high-resolution texture map" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                  <HugeiconsIcon icon={HelpCircleIcon} size={12} />
-                </span>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={enableTexture}
-                onClick={() => {
-                  const next = !enableTexture;
-                  setEnableTexture(next);
-                  setGenerationSettings((prev) => ({
-                    ...prev,
-                    generateTexture: next,
-                    texture_enabled: next,
-                    textureEnabled: next,
-                  }));
-                }}
-                className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer ${
-                  enableTexture ? 'bg-[#6366F1]' : 'bg-white/15'
-                }`}
-              >
-                <div
-                  className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
-                    enableTexture ? 'translate-x-3.5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Texture Quality: 2K / 4K pills (8K removed as requested) */}
-            <div className="space-y-1 pt-0.5">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-zinc-300 font-medium">Texture Quality</span>
-                <span title="Texture map resolution" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                  <HugeiconsIcon icon={HelpCircleIcon} size={12} />
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
-                {(['2K', '4K'] as const).map((res) => {
-                  const isSelected = textureQuality === res;
-                  return (
-                    <button
-                      key={res}
-                      type="button"
-                      onClick={() => {
-                        setTextureQuality(res);
-                        setGenerationSettings((prev) => ({
-                          ...prev,
-                          textureResolution: res,
-                          texture_resolution: res,
-                          textureQuality: res === '4K' ? 'high' : 'medium',
-                        }));
-                      }}
-                      className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-[#3b3577] text-white border border-[#6366F1] shadow-sm'
-                          : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-                      }`}
-                    >
-                      <span>{res}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
             {/* Toggle 4: Remove Lighting */}
             <div className="flex items-center justify-between py-0.5">
               <div className="flex items-center gap-1.5">
@@ -1348,6 +1302,88 @@ export const GeneratePanel: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* 4c. Texture Settings (model-aware — hidden when model has no texture pipeline) */}
+      {textureSupport !== 'none' && (
+        <div className="border-t border-[hsl(var(--border))] pt-2 space-y-1">
+          <label className="text-[10px] font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider block">
+            Texture
+          </label>
+          {/* Texture Enable toggle */}
+          <div className="flex items-center justify-between py-0.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-zinc-200 font-medium">Enable Texture</span>
+              <span title="Generate PBR texture map on output mesh" className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                <HugeiconsIcon icon={HelpCircleIcon} size={12} />
+              </span>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={enableTexture}
+              onClick={() => {
+                const next = !enableTexture;
+                setEnableTexture(next);
+                setGenerationSettings((prev) => ({
+                  ...prev,
+                  generateTexture: next,
+                  texture_enabled: next,
+                  textureEnabled: next,
+                }));
+              }}
+              className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer ${
+                enableTexture ? 'bg-[#6366F1]' : 'bg-white/15'
+              }`}
+            >
+              <div
+                className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                  enableTexture ? 'translate-x-3.5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+          {/* Texture Quality: 2K / 4K pills (filtered by model capability) */}
+          {enableTexture && (
+            <div className="space-y-1 pt-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-zinc-300 font-medium">Texture Quality</span>
+                <span title="Texture map resolution based on model pipeline" className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                  <HugeiconsIcon icon={HelpCircleIcon} size={12} />
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
+                {(['2K', '4K'] as const)
+                  .filter((res) => textureSupport === '4k' || res === '2K')
+                  .map((res) => {
+                    const isSelected = textureQuality === res;
+                    return (
+                      <button
+                        key={res}
+                        type="button"
+                        onClick={() => {
+                          setTextureQuality(res);
+                          setGenerationSettings((prev) => ({
+                            ...prev,
+                            textureResolution: res,
+                            texture_resolution: res,
+                            textureQuality: res === '4K' ? 'high' : 'medium',
+                          }));
+                        }}
+                        className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-[#3b3577] text-white border border-[#6366F1] shadow-sm'
+                            : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
+                        }`}
+                      >
+                        <span>{res}</span>
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 4b. Seed & Randomizer */}
       <div className="space-y-1">

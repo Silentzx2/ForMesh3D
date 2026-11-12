@@ -205,6 +205,7 @@ export function buildGenerationParameters(
     slicer_handoff: enablePostprocess ? Boolean(settings.slicerHandoff) : undefined,
     bake_normal_maps: Boolean(settings.highResolutionNormalBaking ?? true),
     texture_enabled: textureEnabled,
+    generate_texture: textureEnabled,
     ...(textureEnabled ? {
       texture_resolution: numericTextureResolution,
       texture_resolution_preset: textureResolutionPreset,

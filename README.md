@@ -22,7 +22,7 @@
   <a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Frontend-Next.js_16-000000.svg?style=flat-square&logo=nextdotjs&logoColor=white" alt="Next.js 16"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="Python 3.10"></a>
   <a href="https://bun.sh/"><img src="https://img.shields.io/badge/Runtime-Bun-fbf0df.svg?style=flat-square&logo=bun&logoColor=black" alt="Bun"></a>
-  <a href="Docs/MEMORY.md"><img src="https://img.shields.io/badge/Tests-36%20Pytest%20|%2060%20Bun%20PASS-brightgreen.svg?style=flat-square" alt="Test Status"></a>
+  <a href="Docs/MEMORY.md"><img src="https://img.shields.io/badge/Tests-23%20Pytest%20Collected%20|%2011%20Bun%20Run-blue.svg?style=flat-square" alt="Test Status"></a>
 </p>
 
 <p align="center">
@@ -46,8 +46,9 @@
 - [11. REST & Streaming API Reference](#11-rest--streaming-api-reference)
 - [12. Verification & Test Suite](#12-verification--test-suite)
 - [13. Frequently Asked Questions (FAQ)](#13-frequently-asked-questions-faq)
-- [14. Technical Documentation Index](#14-technical-documentation-index)
-- [15. License & Legal Attribution](#15-license--legal-attribution)
+- [15. State Machines and Implicit State Machine Audit](#15-state-machines-and-implicit-state-machine-audit)
+- [16. Technical Documentation Index](#14-technical-documentation-index)
+- [17. License & Legal Attribution](#15-license--legal-attribution)
 
 ---
 
@@ -332,8 +333,7 @@ The ForMesh3D Studio UI integrates neural generation and mesh finishing into a c
 ### 🎮 Viewport & Generation Controls:
 - **Interactive Three.js Viewport**: Smooth orbital camera controls, perspective/orthographic toggle, wireframe overlay, PBR matcap rendering, and continuous WebGL staging.
 - **Floating XYZ Orientation Gizmo**: Reference-matched image-backed camera control with interactive positive and negative X/Y/Z snaps, integrated into the existing viewport without a second renderer.
-- **Floating Mesh Details HUD**: Collapsible live Faces, Verts, Edges, Materials, and file-size metrics sourced from the loaded Three.js geometry and real asset metadata; unavailable values are omitted.
-- **Real-Time Geometry Telemetry HUD**: Direct in-viewport telemetry tracking triangle count, vertex count, watertight manifold status, physical bounding box dimensions ($W \times H \times D$), and quality score.
+- **Real-Time Geometry Telemetry HUD**: Direct in-viewport telemetry tracking triangle count, vertex count, watertight manifold status, physical bounding box dimensions ($W \times H \times D$), and quality score — replaces the collapsible Mesh Details panel formerly in `ViewportToolOverlay`.
 - **Hardware-Aware Model Selector**: Real-time VRAM estimator comparing model memory reservations with live GPU telemetry (`torch.cuda.mem_get_info`) to prevent out-of-memory crashes before jobs are queued.
 - **Production Post-Processing Controls**: Toggle automated quad retopology, hole repair, conformal UV unwrapping, normal baking, and collision hull generation without mutating the immutable `master/source.glb`.
 
@@ -481,15 +481,16 @@ The FastAPI backend exposes comprehensive REST and SSE streaming endpoints:
 
 ## 12. Verification & Test Suite
 
-ForMesh3D maintains rigorous unit, integration, and regression test suites across frontend and backend:
+ForMesh3D maintains unit and regression tests across frontend and backend. Counts below reflect a clean run of `pytest backend/tests/` and `bun test` on the current tree:
 
 ```bash
-# Backend Pytest Suite (36 passed)
-# Includes GPU Doctor hardware diagnostics & chunked SDPA tests (28 passed)
-# and TRELLIS.2 mesh validation & domain bounding box rejection tests (8 passed)
+# Backend Pytest Suite — 29 tests defined across 4 files;
+# 23 collected in this environment: 11 passed, 7 failed, 5 skipped
+# (failures/skips need optional modules not installed here: xatlas, rtree, pymeshlab;
+#  test_retopo_and_metrics.py fails collection: ImportError: snap_to_features)
 pytest backend/tests/
 
-# Frontend Bun Test Suite (60 passed across 11 test files)
+# Frontend Bun Test Suite — 11 tests across 3 files: 9 passed, 2 failed
 bun test
 
 # Verify clean compilation across all Python backend & patcher modules
@@ -498,16 +499,13 @@ python3 -m py_compile patcher/doctor.py patcher/__init__.py backend/tests/*.py
 # Frontend type and lint checks
 npx tsc --noEmit
 bun run lint
-
-# Verify shell script syntax
-bash -n manager.sh backend/scripts/*.sh scripts/*.sh
 ```
 
-**Live Verification Status (November 5, 2026)**:
-- **Pytest Backend**: **36/36 passed** (`backend/tests/test_gpu_doctor.py` + `backend/tests/test_trellis2_mesh_validation.py`).
-- **Bun Frontend**: **60/60 passed** across 11 test files.
-- **Python Bytecode**: 100% clean compilation on all backend, adapter, thirdparty, and patcher files.
-- **Live GPU Inference Verification**: Hunyuan3D-Shape v2.1 (PASS, 935k faces), Hunyuan3D DiT Mini Turbo (PASS, 758k faces), and Unique3D (PASS, lightweight geometry mode). Status: `STABLE & LOCKED`.
+**Verification Status (this session — November 12, 2026)**:
+- **Pytest Backend**: 29 tests defined across 4 files → 23 collected: **11 passed, 7 failed, 5 skipped** (missing optional modules `xatlas`, `rtree`, `pymeshlab`); `test_retopo_and_metrics.py` fails collection on `ImportError: cannot import name 'snap_to_features'` (pre-existing; not re-fixed here).
+- **Bun Frontend**: **9/11 passed** across 3 files (`buildGenerationParameters.test.ts`, `meshStats.test.ts`, `app/api/v1/[...path]/route.test.mjs`); 2 failures in `buildGenerationParameters.test.ts`.
+- **Python Bytecode**: `py_compile` clean on backend test and patcher files.
+- **GPU inference**: prior live-GPU claims (Hunyuan3D-Shape v2.1, DiT Mini Turbo, Unique3D) carried from earlier releases; not re-run in this environment.
 
 ---
 
@@ -556,7 +554,7 @@ ForMesh3D exports standard **GLB / glTF 2.0**, **OBJ**, **STL**, and **FBX** (vi
 
 ---
 
-## 14. Technical Documentation Index
+## 16. Technical Documentation Index
 
 | Documentation Guide | Description |
 |---|---|
@@ -575,7 +573,22 @@ ForMesh3D exports standard **GLB / glTF 2.0**, **OBJ**, **STL**, and **FBX** (vi
 
 ---
 
-## 15. License & Legal Attribution
+## 15. State Machines and Implicit State Machine Audit
+
+ForMesh3D's studio and scheduler are driven by dozens of scattered booleans, enums, and flags that act as **implicit state machines** — none centralized in a state-chart library. The full inventory, with verified file paths and line numbers, lives in **[Docs/TASKS.md](Docs/TASKS.md)** ("ForMash3D — Implicit State Machine Inventory"), a read-only multi-agent audit.
+
+### Frontend machines (F1–F62)
+Generation/execution FSM, batch queue, viewport model load, image/mesh upload, task polling, SSE connection, feature availability, navigation/tool, hover/part highlight, turntable, animation mixer, viewport UI shell, settings popover, job polls, job status lifecycle, wireframe toggle, shading-mode cycle, camera preset, lighting tone/exposure, snapshot, export modal, comparison divider, animation playback, viewer store, upload lifecycle, dynamic inspectors, panels, and app-store machines (downloads, tasks, current job, install progress, history, sidebars, command palette, recent jobs).
+
+### Backend machines (B1–B38)
+Job lifecycle and queue residency, worker lifecycle and busy bookkeeping, admission/placement outcomes, model load states, VRAM tracking, rate limiter, deployment mode, SSE log stream, app lifespan, scheduler start/stop, job-queue persistence, Redis hooks, single-worker lifespan, postprocess stage axis, job timeouts, queue-age staleness, Redis cancel signaling, worker creation handshake, model residency TTL/eviction, batch concurrency slots, settings lazy init, model download lifecycle, service/menu lifecycle.
+
+### Audit methodology
+On every task, scan the codebase for scattered booleans/flags acting as implicit state machines — UI toggles, loading/idle/error flows, compare modes, shading modes, presets, turntable, wireframe, snapshot, settings popover, mesh upload lifecycle, job status transitions, texture pipeline states, abort/controller flows, panel open/close, camera presets, lighting tone, exposure slider, model loader states, scheduler/worker states, job queue states, adapter registry states. For each machine report: name, states, transitions, triggers, file + line, and explicit vs implicit. Resolve overlaps, delete dead machines with zero callers (e.g. `setRigStatus`), and fix shared transition logic once rather than per caller.
+
+Docs/TASKS.md is the source of truth for the inventory; update it when machines are added, promoted to explicit enums, or removed.
+
+## 17. License & Legal Attribution
 
 - **ForMesh3D Core**: Licensed under the **[Apache License 2.0](LICENSE)**.
 - **Post-Processing Pipeline**: Ported and adapted from **[visualbruno/3DGenStudio](https://github.com/visualbruno/3DGenStudio)** under the **3D Gen Studio Community License**. See **[backend/postprocess/THIRD_PARTY_LICENSE.md](backend/postprocess/THIRD_PARTY_LICENSE.md)**.

@@ -1041,6 +1041,20 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     updateComparisonPosition(rect.left + (rect.width * next) / 100);
   };
 
+  // Single source of truth for the viewport UI shell: one mutually exclusive
+  // status replaces the previously overlapping JSX conditions (empty vs
+  // executing vs comparing vs error toast).
+  type ViewportUIStatus = 'idle' | 'empty' | 'executing' | 'comparing' | 'error';
+  const viewportStatus: ViewportUIStatus = loadError
+    ? 'error'
+    : isExecuting
+      ? 'executing'
+      : !hasModel
+        ? 'empty'
+        : isComparing && canCompareModels
+          ? 'comparing'
+          : 'idle';
+
   return (
     <div
       ref={containerRef}
@@ -1052,7 +1066,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       }}
     >
       {/* Sleek Empty State Watermark matching Reference */}
-      {!hasModel && !isExecuting && (
+      {viewportStatus === 'empty' && (
         <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center z-10">
           <div className="flex flex-col items-center text-center px-4 max-w-sm select-none">
             {/* ForMesh3D Electric Gold Brand Mark */}
@@ -1071,7 +1085,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       )}
 
       {/* Execution Progress Overlay */}
-      {isExecuting && (
+      {viewportStatus === 'executing' && (
         <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center z-20 bg-black/40 backdrop-blur-sm">
           <div className="flex flex-col items-center gap-3 p-6 rounded-2xl bg-[#1A1A1E]/95 border border-white/[0.08] shadow-2xl">
             <div className="w-8 h-8 rounded-full border-2 border-[#F9CF00] border-t-transparent animate-spin" />
@@ -1087,7 +1101,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         </div>
       )}
 
-      {isComparing && canCompareModels && hasModel && (
+      {viewportStatus === 'comparing' && (
         <div className="absolute inset-0 z-10 pointer-events-none">
           <div className="absolute top-3 left-3 px-2 py-1 rounded-md bg-black/65 border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white">
             Before
@@ -1149,7 +1163,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       )}
 
       {/* Error Toast */}
-      {loadError && (
+      {viewportStatus === 'error' && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-xl bg-red-950/90 border border-red-500/30 text-red-200 text-xs shadow-xl backdrop-blur-md">
           {loadError}
         </div>

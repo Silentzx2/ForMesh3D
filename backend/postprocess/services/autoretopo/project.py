@@ -158,3 +158,57 @@ def _project(pq, V, F, target_mesh, iters, relax_strength,
         Dn = _lap_smooth(dn[:, None] * normals, idx, ptr, deg, 1)
         Vc = Vc + Dn
     return np.ascontiguousarray(Vc)
+
+
+def snap_to_features(
+    V,
+    target_mesh,
+    angle_deg=35.0,
+    tol_frac=0.03,
+    spacing_frac=0.004,
+):
+    """Snap vertices of ``V`` onto the sharp feature edges of ``target_mesh``.
+
+    Only vertices within ``tol_frac * diagonal`` of a sharp edge (adjacent-face
+    dihedral angle >= ``angle_deg``) are moved; each is projected to the closest
+    point on the nearest sharp edge segment. Everything else is returned
+    unchanged, so a smooth mesh with no sharp edges passes through untouched.
+    ``spacing_frac`` is reserved for grid-based snapping and is not needed for
+    projection onto existing edges.
+    """
+    V = np.asarray(V, float).copy()
+    if len(V) == 0:
+        return V
+    mesh = trimesh.Trimesh(
+        vertices=np.asarray(target_mesh.vertices, float),
+        faces=np.asarray(target_mesh.faces, int),
+        process=False,
+    )
+    if len(mesh.faces) == 0 or len(mesh.vertices) == 0:
+        return V
+    try:
+        edge_pairs = np.asarray(mesh.face_adjacency_edges, int)
+        angles = np.asarray(mesh.face_adjacency_angles, float)
+    except (AttributeError, ValueError):
+        return V
+    if len(edge_pairs) == 0:
+        return V
+    sharp = angles >= np.deg2rad(float(angle_deg))
+    if not np.any(sharp):
+        return V
+    segments = np.asarray(mesh.vertices, float)[edge_pairs[sharp]]  # (S, 2, 3)
+    tol = float(tol_frac) * float(np.linalg.norm(mesh.bounds[1] - mesh.bounds[0]))
+    if tol <= 0.0:
+        return V
+    p = V[:, None, :]                        # (N, 1, 3)
+    a = segments[None, :, 0, :]              # (1, S, 3)
+    ab = segments[None, :, 1, :] - a         # (1, S, 3)
+    t = np.sum((p - a) * ab, axis=2) / np.maximum(np.sum(ab * ab, axis=2), 1e-12)
+    closest = a + np.clip(t, 0.0, 1.0)[:, :, None] * ab  # (N, S, 3)
+    dist = np.linalg.norm(closest - p, axis=2)           # (N, S)
+    nearest = np.argmin(dist, axis=1)
+    min_dist = dist[np.arange(len(V)), nearest]
+    move = min_dist <= tol
+    idx = np.nonzero(move)[0]
+    V[idx] = closest[idx, nearest[idx]]
+    return np.ascontiguousarray(V)

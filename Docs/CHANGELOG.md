@@ -1,6 +1,14 @@
 # ForMesh3D Changelog
 
-## 2026-11-12 — Floating Mesh Details HUD with Live Geometry Metrics
+## 2026-11-12 — Model-Aware Texture Settings + Texture Parameter Fix
+
+- **Texture state machine:** Added implicit `textureSupport` state machine (`none → 2k → 4k`) derived from `selectedModel` via `TEXTURE_CAPABILITY` map (`GeneratePanel.tsx:369-391`). States: `none` = model has no texture pipeline, `2k` = texture up to 2048 atlas, `4k` = texture up to 4096+ atlas. Triggers on `selectedModel` change.
+- **Texture moved to main panel:** Removed Texture toggle + Texture Quality pills from the Geometry & Texture flyout. Added model-aware Texture section directly in the main GeneratePanel (after AI Model, before Seed).
+- **Model-gated visibility:** Texture section hidden when `textureSupport === 'none'` (raw mesh models). 2K-only models show 2K pill; 4K-capable models show both.
+- **Fixed `buildGenerationParameters` texture param:** Added missing `generate_texture` key (alongside `texture_enabled`) emitted from single `textureEnabled` flag — fixes 2 failing frontend tests (`preserves texture options`, `honors texture disable`).
+- **Tests:** `npx tsc --noEmit` 0 errors; `bun test` 11 pass / 0 fail (was 9/2 before fix).
+
+---\n## 2026-11-12 — Floating Mesh Details HUD with Live Geometry Metrics
 
 - **Viewport UI:** Replaced the existing bottom-left stats pill with a collapsible Mesh Details card styled from the supplied reference and positioned above the shader dock / clear of the XYZ gizmo.
 - **Real data:** Faces, Verts, Edges, and Materials come from the loaded Three.js model; Size comes from the uploaded file or actual generated-job file metadata. Unsupported metrics are omitted.
@@ -19,13 +27,11 @@
 
 ---
 
-## 2026-11-11 — Workspace Routing, Friendly Job URLs & Recent Jobs Chip
+## 2026-11-12 — Upload Error State, Single Viewport UI Status, Single Job Status Source
 
-- **Routing:** Bare `/workspace` now redirects to `/workspace/generate`; `/workspace/overview` and `/workspace/system` routes removed from the workspace UI (`WorkspaceShell.tsx`, `workspaceRouteContract.ts`, `WorkspaceContext.tsx`). Dashboard/assets/jobs route map simplified; `navigateToMain` points dashboard/workspace to `/workspace/generate`.
-- **Friendly URLs:** Mesh/image uploads now reflect in the URL as `/workspace/generate/<name>_<hash>` (`useMeshAssetUpload.ts`, `GeneratePanel.tsx`). Generation tasks use friendly `name-hash` IDs instead of raw UUIDs (`WorkspaceContext.tsx::startTask`). Backend job UUID stored separately as `backendJobId`; URL keeps the friendly local ID.
-- **Recent Jobs Chip:** New `RecentJobsChip.tsx` in top header shows live/done/failed counts with a dropdown of up to 6 recent jobs; clicking a job navigates to `/workspace/jobs/{id}` and hydrates the job into the viewport (`TopHeader.tsx`, `JobsTab.tsx` inspect link fixed to path param).
-- **XYZ Gizmo fix:** Moved below header overlap (`top-3` → `top-12`) and made axis buttons clickable (`pointer-events-auto`) (`ViewportToolOverlay.tsx`).
-- **Generate flow:** Removed unnecessary `resolveSmartIntent` hop; generate submits directly to `/api/v1/mesh-generation/image-to-raw-mesh` (`WorkspaceContext.tsx::generate3DModel`).
-- **Upload progress:** Image upload now posts to backend with real `onProgress` bar; mesh upload no longer fakes 50% start (starts at 0%, real progress through upload).
-- **AGENTS.md:** Added top project-rule notice; removed user-preferences section and table of contents; Section 3 research/search rules consolidated.
-- **Tests:** `npx tsc --noEmit` passed with 0 errors. Runtime server/browser not verified in this environment.
+- **Upload:** `useMeshAssetUpload` catch now emits `status: 'error'` with the failure message instead of degrading to `saved` with `error: null`, so the `MeshUploadStatus` error branch is reachable and backend failures no longer look like success.
+- **Viewport UI:** `MeshViewer` renders one mutually exclusive `viewportStatus` enum (`idle | empty | executing | comparing | error`) instead of overlapping JSX conditions.
+- **Jobs:** `JobDetailView` derives a single `jobStatus` from `selectedJob.status`; scattered `isRunning`/`isCompleted`/`isFailed` booleans and the duplicate `selectedJobIsRunning` are removed.
+- **Tests:** `npx tsc --noEmit` passed with 0 errors.
+- **Documentation:** TASKS.md state-machine inventory updated (F4, C1, F12, F15); resolved risks 1, 7 and 8 removed from the top-risks list.
+- **RiggingPanel:** resolved risk R3 (execution flag coupling) — local auto-rig run and workspace job execution are no longer merged into one executing flag; the render source is derived once with fixed local-then-workspace priority, so concurrent runs show deterministic progress/step.

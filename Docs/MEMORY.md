@@ -1,5 +1,14 @@
 # ForMesh3D — Audited Project State
 
+## 2026-11-12 — Upload Error State, Single Viewport UI Status, Single Job Status Source
+
+- `useMeshAssetUpload` catch now emits `status: 'error'` with the failure message so the `MeshUploadStatus` error branch is reachable and backend failures no longer look like success (TASKS.md F4/C1).
+- `MeshViewer` renders one mutually exclusive `viewportStatus` enum (`idle | empty | executing | comparing | error`) instead of overlapping JSX conditions (TASKS.md F12).
+- `JobDetailView` derives a single `jobStatus` from `selectedJob.status`; scattered `isRunning`/`isCompleted`/`isFailed` booleans and the duplicate `selectedJobIsRunning` are removed (TASKS.md F15).
+- **Verification:** `npx tsc --noEmit` passed with 0 errors; the three new `meshStats` tests passed; the two pre-existing `generate_texture` contract failures pre-date this change.
+
+---
+
 ## 2026-11-12 — Floating Mesh Details HUD and Real Geometry Statistics
 
 - Replaced the existing bottom-left Mesh Stats Chip in `ViewportToolOverlay.tsx` with a collapsible gold-accented Mesh Details card, positioned above the shader dock and separated vertically from the XYZ orientation gizmo.

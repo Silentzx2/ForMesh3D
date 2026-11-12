@@ -239,8 +239,6 @@ interface AnimationState {
   setAnimations: (animations: AnimationClipItem[]) => void;
 
   // Rigging Engine
-  rigStatus: 'not_rigged' | 'preparing' | 'rigging' | 'rigged' | 'failed';
-  setRigStatus: (status: AnimationState['rigStatus']) => void;
   rigProfile: 'humanoid' | 'quadruped' | 'generic';
   setRigProfile: (profile: 'humanoid' | 'quadruped' | 'generic') => void;
   rigOptions: {
@@ -520,8 +518,6 @@ export const useAnimationStore = create<AnimationState>((set, get) => ({
     })),
   setAnimations: (animations) => set({ animations }),
 
-  rigStatus: 'not_rigged',
-  setRigStatus: (rigStatus) => set({ rigStatus }),
   rigProfile: 'humanoid',
   setRigProfile: (rigProfile) => set({ rigProfile }),
   rigOptions: {

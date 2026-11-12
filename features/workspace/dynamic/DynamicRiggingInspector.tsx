@@ -68,6 +68,7 @@ export const DynamicRiggingInspector: React.FC = () => {
   const [symmetrySnap, setSymmetrySnap] = useState<boolean>(true);
   const [xrayMode, setXrayMode] = useState<boolean>(true);
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const { isRealRig, realBoneCount } = useMemo(() => {
     if (!activeModelObject) return { isRealRig: false, realBoneCount: 54 };
@@ -171,9 +172,10 @@ export const DynamicRiggingInspector: React.FC = () => {
   };
 
   const handleExportRig = async () => {
+    setIsExporting(true);
+    setExportError(null);
+    toast.info('Packaging rigged model armature and weights...');
     try {
-      setIsExporting(true);
-      toast.info('Packaging rigged model armature and weights...');
       const assetId = currentAsset?.id;
       if (assetId) {
         try {
@@ -211,6 +213,7 @@ export const DynamicRiggingInspector: React.FC = () => {
         throw new Error('No active 3D model available to export');
       }
     } catch (err: any) {
+      setExportError(err.message || 'Export failed');
       toast.error(`Export failed: ${err.message || 'Unknown error'}`);
     } finally {
       setIsExporting(false);
@@ -370,6 +373,9 @@ export const DynamicRiggingInspector: React.FC = () => {
         <Download className="w-3.5 h-3.5 text-[hsl(var(--primary))]" aria-hidden="true" />
         <span>{isExporting ? 'Packaging Rigged Model...' : 'Export Rigged Model (.GLB)'}</span>
       </button>
+      {exportError && (
+        <div className="text-[10px] text-rose-400">{exportError}</div>
+      )}
     </div>
   );
 };

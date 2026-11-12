@@ -138,20 +138,26 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
     }
   }, []);
 
-  const selectedJobIsRunning = selectedJob?.status === 'processing' || selectedJob?.status === 'running' || selectedJob?.status === 'queued';
+  const jobStatus: 'idle' | 'running' | 'completed' | 'failed' = selectedJob?.status === 'failed'
+    ? 'failed'
+    : selectedJob?.status === 'processing' || selectedJob?.status === 'running' || selectedJob?.status === 'queued'
+      ? 'running'
+      : selectedJob?.status === 'completed'
+        ? 'completed'
+        : 'idle';
   useEffect(() => {
     if (!selectedJobId) return;
     const refresh = () => {
       if (document.visibilityState === 'visible') void fetchSelectedJobDetails(selectedJobId);
     };
     void fetchSelectedJobDetails(selectedJobId);
-    const interval = setInterval(refresh, selectedJobIsRunning ? 1200 : 30000);
+    const interval = setInterval(refresh, jobStatus === 'running' ? 1200 : 30000);
     document.addEventListener('visibilitychange', refresh);
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', refresh);
     };
-  }, [selectedJobId, selectedJobIsRunning, fetchSelectedJobDetails]);
+  }, [selectedJobId, jobStatus, fetchSelectedJobDetails]);
 
   const handleCopyId = () => {
     if (!selectedJobId) return;
@@ -165,7 +171,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
   const handleCancelOrDeleteJob = async () => {
     if (!selectedJobId) return;
     try {
-      if (selectedJobIsRunning) {
+      if (jobStatus === 'running') {
         const res = await getApiClient().cancelGenerationJob(selectedJobId);
         if (res.cancelled) {
           toast.success('Generation cancelled');
@@ -179,7 +185,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
         await fetchJobs();
       }
     } catch (e: any) {
-      toast.error(selectedJobIsRunning ? 'Failed to cancel job' : 'Failed to delete job', { description: e?.message });
+      toast.error(jobStatus === 'running' ? 'Failed to cancel job' : 'Failed to delete job', { description: e?.message });
     }
   };
 
@@ -291,9 +297,6 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
     return matchesFilter && matchesSearch;
   });
 
-  const isCompleted = selectedJob?.status === 'completed';
-  const isFailed = selectedJob?.status === 'failed';
-  const isRunning = selectedJob?.status === 'processing' || selectedJob?.status === 'running' || selectedJob?.status === 'queued';
   const jobPresentation = selectedJob ? getJobPresentation(selectedJob) : null;
 
   return (
@@ -464,14 +467,14 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
                 <div className="flex items-center gap-2">
                   <span
                     className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
-                      isCompleted
+                      jobStatus === 'completed'
                         ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                        : isRunning
+                        : jobStatus === 'running'
                         ? 'bg-primary/20 text-primary border border-primary/30 animate-pulse'
                         : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                     }`}
                   >
-                    <span className={`w-2 h-2 rounded-full ${isCompleted ? 'bg-emerald-400' : isRunning ? 'bg-primary' : 'bg-rose-400'}`} />
+                    <span className={`w-2 h-2 rounded-full ${jobStatus === 'completed' ? 'bg-emerald-400' : jobStatus === 'running' ? 'bg-primary' : 'bg-rose-400'}`} />
                     {selectedJob.status}
                   </span>
                   {selectedJob.productionStatus && selectedJob.productionStatus !== 'processing' && (
@@ -509,16 +512,16 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
                   <button
                     type="button"
                     onClick={handleCancelOrDeleteJob}
-                    aria-label={selectedJobIsRunning ? 'Cancel Job' : 'Delete Job'}
+                    aria-label={jobStatus === 'running' ? 'Cancel Job' : 'Delete Job'}
                     className="p-1.5 rounded-lg bg-[hsl(var(--surface-0))] hover:bg-rose-500/20 text-zinc-400 hover:text-rose-300 border border-white/[0.06] transition-colors cursor-pointer"
                   >
-                    {selectedJobIsRunning ? <HugeiconsIcon icon={StopCircleIcon} size={16} className="w-4 h-4" /> : <HugeiconsIcon icon={Trash2} size={16} className="w-4 h-4" />}
+                    {jobStatus === 'running' ? <HugeiconsIcon icon={StopCircleIcon} size={16} className="w-4 h-4" /> : <HugeiconsIcon icon={Trash2} size={16} className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
 
               {/* Progress & Error Diagnostics */}
-              {isRunning && (
+              {jobStatus === 'running' && (
                 <div className="rounded-xl bg-[hsl(var(--surface-1))] border border-white/[0.08] p-4 space-y-3">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-zinc-300 font-medium flex items-center gap-1.5">
@@ -536,7 +539,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
                 </div>
               )}
 
-              {isFailed && selectedJob.productionStatus !== 'failed' && (
+              {jobStatus === 'failed' && selectedJob.productionStatus !== 'failed' && (
                 <div className="rounded-xl bg-rose-500/10 border border-rose-500/30 p-4 space-y-2">
                   <div className="flex items-center gap-2 text-rose-300 font-bold text-xs">
                     <HugeiconsIcon icon={AlertCircle} size={16} className="w-4 h-4" />
@@ -549,7 +552,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
               )}
 
               {/* Output Actions & Details Card */}
-              {isCompleted && jobPresentation && (
+              {jobStatus === 'completed' && jobPresentation && (
                 <div className={`rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 ${
                   jobPresentation.productionStatus === 'ready' && jobPresentation.outputKind === 'game-ready'
                     ? 'bg-emerald-500/10 border border-emerald-500/30'

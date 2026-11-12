@@ -15,6 +15,7 @@ export const DynamicUVInspector: React.FC = () => {
   const [highlightSeams, setHighlightSeams] = useState(false);
   const [viewportChecker, setViewportChecker] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [forceRefresh, setForceRefresh] = useState(0);
 
   // Extract REAL UV coordinates and metadata from active Three.js model
@@ -262,6 +263,7 @@ export const DynamicUVInspector: React.FC = () => {
   const handleExportUV = () => {
     if (!canvasRef.current) return;
     setIsExporting(true);
+    setExportError(null);
     try {
       const dataUrl = canvasRef.current.toDataURL('image/png');
       const a = document.createElement('a');
@@ -270,6 +272,7 @@ export const DynamicUVInspector: React.FC = () => {
       a.click();
       toast.success('UV Layout exported as PNG');
     } catch (err: any) {
+      setExportError(err.message || 'Failed to export UV layout');
       toast.error('Failed to export UV layout', { description: err.message });
     } finally {
       setIsExporting(false);
@@ -396,6 +399,9 @@ export const DynamicUVInspector: React.FC = () => {
           <span>Auto Unwrap UV</span>
         </button>
       </div>
+      {exportError && (
+        <div className="text-[10px] text-rose-400">{exportError}</div>
+      )}
     </div>
   );
 };

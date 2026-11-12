@@ -464,6 +464,16 @@ class JobQueue:
             if job_id in self._processing_cache:
                 job = self._processing_cache[job_id]
 
+                # Snapshot pre-requeue state so a failed persist leaves the job
+                # untouched in the processing cache (status and residency stay
+                # consistent with the database).
+                previous = (
+                    job.status,
+                    job.started_at,
+                    job.assigned_model,
+                    job.progress,
+                )
+
                 # Reset job status
                 job.status = JobStatus.QUEUED
                 job.started_at = None
@@ -472,6 +482,8 @@ class JobQueue:
 
                 # Save updated job to database
                 if not await asyncio.to_thread(self.db_manager.save_job, job):
+                    # Roll back: nothing moved, so restore in-memory state too.
+                    job.status, job.started_at, job.assigned_model, job.progress = previous
                     logger.error(f"Failed to save requeued job {job_id} to database")
                     return False
 
@@ -520,6 +532,18 @@ class JobQueue:
 
             job = self._queue_cache.popleft()
 
+            # Transition status and container together: persist PROCESSING before
+            # exposing the job in the processing cache so status and residency
+            # can never drift (queued status while living in processing cache).
+            job.status = JobStatus.PROCESSING
+            if not await asyncio.to_thread(self.db_manager.save_job, job):
+                # Roll back the in-memory move if persistence failed
+                self._queue_cache.appendleft(job)
+                logger.error(
+                    "Failed to persist dequeued job %s to database", job.job_id
+                )
+                return None
+
             # Move to processing cache
             self._processing_cache[job.job_id] = job
 
@@ -547,9 +571,12 @@ class JobQueue:
                 job = self._processing_cache[job_id]
                 job.mark_completed(result)
 
-                # Save to database
+                # Persist before moving containers so a failed save leaves the
+                # job in the processing cache instead of drifting into the
+                # completed cache with no durable record.
                 if not await asyncio.to_thread(self.db_manager.save_job, job):
                     logger.error(f"Failed to save completed job {job_id} to database")
+                    return
 
                 # Move from processing to completed
                 del self._processing_cache[job_id]
@@ -560,26 +587,33 @@ class JobQueue:
     async def fail_job(self, job_id: str, error: str):
         """Mark job as failed"""
         async with self._cache_lock:
-            job = self._processing_cache.pop(job_id, None)
-            if not job:
+            job = self._processing_cache.get(job_id)
+            queue_index: Optional[int] = None
+            if job is None:
                 for i, q_job in enumerate(self._queue_cache):
                     if q_job.job_id == job_id:
                         job = q_job
-                        del self._queue_cache[i]
+                        queue_index = i
                         break
 
-            if job:
-                job.mark_failed(error)
+            if job is None:
+                return
 
-                # Save to database
-                if not await asyncio.to_thread(self.db_manager.save_job, job):
-                    logger.error(f"Failed to save failed job {job_id} to database")
+            job.mark_failed(error)
+            job.metadata["error_code"] = classify_job_error(error)
 
-                job.metadata["error_code"] = classify_job_error(error)
-                if not await asyncio.to_thread(self.db_manager.save_job, job):
-                    logger.error(f"Failed to persist failed-job error code for {job_id}")
-                self._completed_cache[job_id] = job
-                logger.error(f"Failed job {job_id}: {error}")
+            # Persist once with complete state before moving containers so a
+            # failed save leaves every container unchanged (no drift).
+            if not await asyncio.to_thread(self.db_manager.save_job, job):
+                logger.error(f"Failed to save failed job {job_id} to database")
+                return
+
+            if queue_index is not None:
+                del self._queue_cache[queue_index]
+            else:
+                self._processing_cache.pop(job_id, None)
+            self._completed_cache[job_id] = job
+            logger.error(f"Failed job {job_id}: {error}")
 
     async def cancel_job(self, job_id: str, force: bool = False) -> bool:
         """Cancel a queued job, or a force-stopped processing job."""
@@ -606,10 +640,14 @@ class JobQueue:
                 if not force:
                     logger.warning("Cannot cancel job %s: already processing", job_id)
                     return False
-                job = self._processing_cache.pop(job_id)
+                job = self._processing_cache[job_id]
                 job.mark_cancelled()
+                # Persist before moving containers so a failed save leaves the
+                # job in the processing cache rather than losing it.
                 if not await asyncio.to_thread(self.db_manager.save_job, job):
                     logger.error("Failed to save cancelled job %s", job_id)
+                    return False
+                del self._processing_cache[job_id]
                 self._completed_cache[job_id] = job
                 return True
 

@@ -1358,6 +1358,9 @@ class MultiprocessModelScheduler:
 
         # Per-worker locks to prevent race conditions between check-and-mark
         self.worker_locks: Dict[str, asyncio.Lock] = {}
+        # Serializes worker busy/idle bookkeeping across the event loop and the
+        # worker-response handler thread so check-then-mark cannot interleave.
+        self.worker_bookkeeping_lock = threading.Lock()
 
         # Thread pool for async operations
         self.thread_executor = ThreadPoolExecutor(max_workers=4)
@@ -3526,14 +3529,15 @@ class MultiprocessModelScheduler:
         for worker_id in worker_ids:
             if worker_id not in self.worker_locks:
                 self.worker_locks[worker_id] = asyncio.Lock()
-            
+
             async with self.worker_locks[worker_id]:
-                proc = self.workers.get(worker_id)
-                if proc and proc.is_alive() and not self.worker_status.get(worker_id, False):
-                    # Tentatively mark as busy to prevent race
-                    self.worker_status[worker_id] = True
-                    self.worker_last_used[worker_id] = time.time()
-                    return worker_id
+                with self.worker_bookkeeping_lock:
+                    proc = self.workers.get(worker_id)
+                    if proc and proc.is_alive() and not self.worker_status.get(worker_id, False):
+                        # Tentatively mark as busy to prevent race
+                        self.worker_status[worker_id] = True
+                        self.worker_last_used[worker_id] = time.time()
+                        return worker_id
         return None
 
     def _mark_worker_busy(
@@ -3543,16 +3547,14 @@ class MultiprocessModelScheduler:
         # Ensure lock exists for this worker
         if worker_id not in self.worker_locks:
             self.worker_locks[worker_id] = asyncio.Lock()
-        
-        # Use the lock to prevent race conditions
-        # Note: This is a synchronous method called from async context,
-        # so we can't await here. The lock is used in async methods instead.
-        self.worker_status[worker_id] = True
-        self.worker_last_used[worker_id] = time.time()
-        if job_id is not None:
-            self.worker_current_job[worker_id] = job_id
-        if callback_id is not None:
-            self.worker_current_callback[worker_id] = callback_id
+
+        with self.worker_bookkeeping_lock:
+            self.worker_status[worker_id] = True
+            self.worker_last_used[worker_id] = time.time()
+            if job_id is not None:
+                self.worker_current_job[worker_id] = job_id
+            if callback_id is not None:
+                self.worker_current_callback[worker_id] = callback_id
 
     async def _mark_worker_busy_async(
         self, worker_id: str, job_id: Optional[str] = None, callback_id: Optional[str] = None
@@ -3560,33 +3562,35 @@ class MultiprocessModelScheduler:
         """Async version of _mark_worker_busy with lock to prevent race conditions"""
         if worker_id not in self.worker_locks:
             self.worker_locks[worker_id] = asyncio.Lock()
-        
+
         async with self.worker_locks[worker_id]:
-            # Double-check worker is still available or was tentatively reserved for this job
-            current_job = self.worker_current_job.get(worker_id)
-            if current_job is not None and current_job != job_id:
-                return False  # Truly busy with another active job
-            
-            self.worker_status[worker_id] = True
-            self.worker_last_used[worker_id] = time.time()
-            if job_id is not None:
-                self.worker_current_job[worker_id] = job_id
-            if callback_id is not None:
-                self.worker_current_callback[worker_id] = callback_id
-            return True
+            with self.worker_bookkeeping_lock:
+                # Double-check worker is still available or was tentatively reserved for this job
+                current_job = self.worker_current_job.get(worker_id)
+                if current_job is not None and current_job != job_id:
+                    return False  # Truly busy with another active job
+
+                self.worker_status[worker_id] = True
+                self.worker_last_used[worker_id] = time.time()
+                if job_id is not None:
+                    self.worker_current_job[worker_id] = job_id
+                if callback_id is not None:
+                    self.worker_current_callback[worker_id] = callback_id
+                return True
 
     def _mark_worker_available(self, worker_id: str):
         """Mark a worker as available"""
-        self.worker_status[worker_id] = False
-        self.worker_last_used[worker_id] = time.time()
-        job_id = self.worker_current_job.pop(worker_id, None)
-        callback_id = self.worker_current_callback.pop(worker_id, None)
-        if job_id:
-            self.job_to_callback.pop(job_id, None)
-        if callback_id:
-            for j_id, cb_id in list(self.job_to_callback.items()):
-                if cb_id == callback_id:
-                    self.job_to_callback.pop(j_id, None)
+        with self.worker_bookkeeping_lock:
+            self.worker_status[worker_id] = False
+            self.worker_last_used[worker_id] = time.time()
+            job_id = self.worker_current_job.pop(worker_id, None)
+            callback_id = self.worker_current_callback.pop(worker_id, None)
+            if job_id:
+                self.job_to_callback.pop(job_id, None)
+            if callback_id:
+                for j_id, cb_id in list(self.job_to_callback.items()):
+                    if cb_id == callback_id:
+                        self.job_to_callback.pop(j_id, None)
 
     def _handle_worker_responses(self):
         """Handle responses from worker processes (runs in separate thread)"""

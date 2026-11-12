@@ -126,14 +126,15 @@ export function useMeshAssetUpload() {
       return mergedAsset;
     } catch (error) {
       // Backend is unavailable or disconnected; keep the active local mesh rendered seamlessly in the viewport!
+      // Emit the live `error` state so MeshUploadStatus can surface the failure instead of faking success.
       console.warn('Backend mesh upload failed or offline; active in client-side preview mode:', error);
       setState({
-        status: 'saved',
+        status: 'error',
         fileName: file.name,
         loadedBytes: file.size,
         totalBytes: file.size,
         percent: 100,
-        error: null,
+        error: error instanceof Error ? error.message : String(error),
       });
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = setTimeout(() => {
