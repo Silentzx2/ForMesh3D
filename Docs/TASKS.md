@@ -510,6 +510,7 @@ Read-only audit (no code changes). 10 subagents scanned: frontend (Viewport, Mes
 - Job result handling / postprocess / auto-rig → B24
 - Texture support state machine → F63 (GeneratePanel.tsx:369-391)
 - `buildGenerationParameters` emits both `texture_enabled` and `generate_texture` from single `textureEnabled` flag — fixed missing `generate_texture` key that caused 2 frontend test failures (features/workspace/utils/buildGenerationParameters.ts:208)
+- `MeshUploadStatus` now rendered in GeneratePanel when `meshUploadState.status === 'error'` — backend mesh-upload failures previously went unseen (hook emitted `error` but component was imported yet unrendered). Fix in GeneratePanel.tsx:956-960.
 
 ### F63. Texture support state machine — `features/workspace/Panels/GeneratePanel.tsx:369-391` (implicit)
 - **States:** `none` (model has no texture pipeline) → `2k` (texture up to 2048 atlas) → `4k` (texture up to 4096+ atlas)

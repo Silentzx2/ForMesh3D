@@ -954,6 +954,10 @@ export const GeneratePanel: React.FC = () => {
             </div>
           </div>
         )}
+        {/* Upload error surface — reachable when backend mesh upload fails */}
+        {meshUploadState.status === 'error' && (
+          <MeshUploadStatus state={meshUploadState} />
+        )}
 
         {/* Live Image Upload Progress Bar */}
         {imageUploadProgress.uploading && (
