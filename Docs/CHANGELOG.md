@@ -5,7 +5,7 @@
 - **Viewport UI:** Replaced the existing bottom-left stats pill with a collapsible Mesh Details card styled from the supplied reference and positioned above the shader dock / clear of the XYZ gizmo.
 - **Real data:** Faces, Verts, Edges, and Materials come from the loaded Three.js model; Size comes from the uploaded file or actual generated-job file metadata. Unsupported metrics are omitted.
 - **Performance:** Geometry stats are captured once on model load. Exact edge enumeration is capped at 250,000 faces; larger scenes omit only Edges.
-- **Metadata and tests:** Asset normalization retains real backend material counts and file size; added geometry-stat tests for indexed, non-indexed and instanced meshes.
+- **Metadata and tests:** Asset normalization retains real backend material counts and file size; added geometry-stat tests for indexed, non-indexed and instanced meshes. CI type-check and all three new geometry tests passed; the wider suite still has two pre-existing `generate_texture` contract failures, so the workflow skipped the production build.
 - **Documentation:** Updated design, architecture, system blueprint, project memory, task tracker, and README.
 
 ---

@@ -7,7 +7,7 @@
 - Edge enumeration above that budget is skipped to bound main-thread work; the Edges metric is omitted in that case. Any unavailable Face/Vert/Material/Size metric is also omitted rather than populated with demo or default values.
 - Asset normalization now retains backend file size and material-count metadata. Generated assets without file size use the existing job-result info endpoint when selected; uploaded files use their actual browser File size.
 - Added unit tests for indexed geometry, non-indexed geometry with shared face positions, and instanced geometry.
-- **Verification boundary:** GitHub source and documentation patches were reviewed. Local TypeScript, ESLint, unit tests, production build, and browser screenshots still require CI or a repository runner.
+- **Verification:** GitHub Actions TypeScript check passed. The three new `meshStats` unit tests passed; the full frontend suite reported 9 passed and 2 failures in the existing `buildGenerationParameters.test.ts` `generate_texture` assertions (the same two failures were present in the preceding dev-branch CI run). The production build was skipped after that contract-test step failed. Backend CI suites passed. ESLint and browser visual/interaction checks were not run.
 
 ## 2026-11-12 — Reference-Matched Floating XYZ Camera Orientation Gizmo
 
