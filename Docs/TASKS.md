@@ -78,11 +78,11 @@ Read-only audit (no code changes). 10 subagents scanned: frontend (Viewport, Mes
 - **States:** slow poll (30s) ↔ fast poll (5s / 1200ms when any job running / selected job running)
 - **Triggers:** computed `hasRunningJobs` / `jobStatus === 'running'`; `visibilitychange`
 
-### F15. Job status lifecycle — `features/workspace/Jobs/JobDetailView.tsx:141, 466–552`
-- **Kind:** single inference source of truth: `jobStatus: 'idle' | 'running' | 'completed' | 'failed'` derived once from `selectedJob.status`; production axis (`productionStatus`) unchanged as a separate badge
-- **Derived booleans:** none — `isRunning`/`isCompleted`/`isFailed` replaced by `jobStatus` checks everywhere (badge, progress card, error diagnostics, output card, cancel/delete action)
+### F15. Job status lifecycle — `features/workspace/Jobs/JobDetailView.tsx:141, 466–552` (implicit)
+- **Kind:** single inference source of truth: `jobStatus: 'idle' | 'running' | 'completed' | 'failed'` derived once from `selectedJob.status` AND `selectedJob.productionStatus`; both axes unified into a single `jobStatus`.
+- **Derived booleans:** none — `isRunning`/`isCompleted`/`isFailed` replaced by `jobStatus` checks everywhere (badge, progress card, error diagnostics, output card, cancel/delete action). Production axis (`productionStatus`) is folded into `jobStatus` — if production is `failed` or `running`, jobStatus reflects that.
 - **Triggers:** polling `fetchSelectedJobDetails`
-- **Risk:** none — `jobStatus` is the single source of truth for the inference axis; no duplicate `selectedJobIsRunning` remains.
+- **Risk:** none — `jobStatus` is the single source of truth for both inference and production axes; no duplicate `selectedJobIsRunning` remains.
 
 ### F16. Copy-ID toast — `features/workspace/Jobs/JobDetailView.tsx:162–169`
 - **Kind:** implicit timeout machine
@@ -240,12 +240,37 @@ Read-only audit (no code changes). 10 subagents scanned: frontend (Viewport, Mes
 
 ## Backend — implicit state machines NOT in files list (verified present, not yet added)
 
-### B25–B29. Admin / utility toggles (verified present, not yet inventoried)
-- **ModelComparisonViewer isLoading** — `features/workspace/Viewport/ModelComparisonViewer.tsx:69`: `idle ↔ loading` for comparison model loads.
-- **ResourceMonitor isLoading** — `features/workspace/Header/ResourceMonitor.tsx:39`: `idle ↔ loading` for resource-stats refresh.
-- **DatabaseTab redisLoading** — `features/workspace/admin/tabs/DatabaseTab.tsx:107`: `idle ↔ inspecting` Redis.
-- **LogsTab isPolling** — `features/workspace/admin/tabs/LogsTab.tsx:124–163`: `idle ↔ polling` for live log-tail.
-- **_initialized lazy-init guards** — `backend/core/scheduler/multiprocess_scheduler.py:1287`, `backend/core/scheduler/database_manager.py:56`: `uninitialized → initialized`.
+### B25–B29. Admin / utility toggles (verified present, fully inventoried)
+
+#### B25. ModelComparisonViewer isLoading — `features/workspace/Viewport/ModelComparisonViewer.tsx:69` (implicit)
+- **States:** `idle ↔ loading`
+- **Transitions:** `idle → loading` when model comparison data is being fetched; `loading → idle` when data is loaded or fails
+- **Triggers:** Model comparison data fetch start/complete
+- **Kind:** implicit (`isLoading` useState)
+
+#### B26. ResourceMonitor isLoading — `features/workspace/Header/ResourceMonitor.tsx:39` (implicit)
+- **States:** `idle ↔ loading`
+- **Transitions:** `idle → loading` when resource stats are being fetched; `loading → idle` when stats are received
+- **Triggers:** Resource stats fetch start/complete
+- **Kind:** implicit (`isLoading` useState)
+
+#### B27. DatabaseTab redisLoading — `features/workspace/admin/tabs/DatabaseTab.tsx:107` (implicit)
+- **States:** `idle ↔ inspecting`
+- **Transitions:** `idle → inspecting` when Redis keys are being inspected; `inspecting → idle` when inspection completes
+- **Triggers:** Redis key inspection start/complete
+- **Kind:** implicit (`redisLoading` useState)
+
+#### B28. LogsTab isPolling — `features/workspace/admin/tabs/LogsTab.tsx:124–163` (implicit)
+- **States:** `idle ↔ polling`
+- **Transitions:** `idle → polling` when live log-tail polling starts; `polling → idle` when polling stops
+- **Triggers:** Log tail poll start/stop
+- **Kind:** implicit (`isPolling` useState)
+
+#### B29. _initialized lazy-init guards — `backend/core/scheduler/multiprocess_scheduler.py:1287`, `backend/core/scheduler/database_manager.py:56` (implicit)
+- **States:** `uninitialized → initialized`
+- **Transitions:** `uninitialized → initialized` on first initialization call
+- **Triggers:** First scheduler/database manager initialization
+- **Kind:** implicit (`_initialized` flag)
 
 ## Negative findings (checked, NOT state machines)
 - `backend/core/planner.py` — pure function; only memoization caches
@@ -258,18 +283,20 @@ Read-only audit (no code changes). 10 subagents scanned: frontend (Viewport, Mes
 
 ## Top risks / recommended actions
 
-1. **setRigStatus never called** — rigStatus FSM was dead code; removed from `useAnimationStore` (zero callers, no rigging pipeline to drive it).
-2. **Duplicated animation clocks** — unified: inspector rAF now ticks the store's single `tickPlayback`; duplicate local clock removed.
-3. **Execution flag coupling** — resolved: RiggingPanel no longer merges local + workspace `isExecuting`; the render source is derived once with fixed local-then-workspace priority, so concurrent runs show deterministic progress/step. Workspace path unchanged.
-4. **Export machines collapse failure into idle** — fixed: all four `isExporting*` flags now record `exportError` on failure, so failure is distinguishable from success after `finally` resets the busy flag.
-5. **Job status / container drift** — fixed: `complete_job()` and `requeue_job()` now complete the atomic persist-before-move pattern; all queue transitions persist to SQLite before moving caches and skip/roll back the move on save failure.
+1. **setRigStatus never called** — RESOLVED: rigStatus FSM was dead code (zero callers, no rigging pipeline); removed from `useAnimationStore`.
+2. **Duplicated animation clocks** — RESOLVED: inspector rAF now ticks the store's single `tickPlayback`; duplicate local clock removed from `DynamicAnimationInspector.tsx`.
+3. **Execution flag coupling** — RESOLVED: RiggingPanel no longer merges local + workspace `isExecuting`; local execution state (`isLocalExecuting`/`localProgress`/`localStep`) is derived and rendered separately with fixed local-then-workspace priority. Concurrent runs show deterministic progress/step.
+4. **Export machines collapse failure into idle** — RESOLVED: all four `isExporting*` flags (Animation, UV, Rigging, Segmentation inspectors) now record `exportError` on failure, set in `catch`, cleared at export start, rendered under the button. Image upload progress also records `error` state on failure (`GeneratePanel.tsx`).
+5. **Job status / container drift** — RESOLVED: `complete_job()` and `requeue_job()` in `job_queue.py` now persist to SQLite before moving containers; on save failure the in-memory move is rolled back. All queue transitions persist first, then move containers only on success.
 
 ## New findings verified by 10-agent audit (additional)
 
-### F25. Image upload progress — `features/workspace/Panels/GeneratePanel.tsx:358, 536–573, 946–974` (implicit)
-- **States:** `idle (percent=0) → uploading (percent rising 0→100) → idle after success (percent=100)` / `idle after error`
-- **Transitions:** `idle → uploading` when image picked/dropped (`processImageFile` resets loaded/total/percent). `uploading → idle` on backend success (percent=100). `uploading → idle` on failure (error toast — **failure collapses into idle, no distinct error state**).
+### F25. Image upload progress — `features/workspace/Panels/GeneratePanel.tsx:344, 539–586, 989–1015` (implicit)
+- **Kind:** implicit — `imageUploadProgress: { loaded: number; total: number; percent: number; uploading: boolean; error: string \| null }`
+- **States:** `idle (percent=0) → uploading (percent rising 0→100) → idle after success (percent=100)` / `idle after error (error message shown)`
+- **Transitions:** `idle → uploading` when image picked/dropped (`processImageFile` resets loaded/total/percent/error and sets `uploading=true`). `uploading → idle` on backend success (percent=100). `uploading → idle` on failure with `error` set (error surface displayed, error toast).
 - **Triggers:** image file input/drop; `getApiClient().uploadImageFile` progress callback; promise success/failure.
+- **Risk:** none — image upload failures now show `error` state via `MeshUploadStatus` component rendered in GeneratePanel (`GeneratePanel.tsx:991–1015`).
 
 ### F26. Image presence (`imagePreview`) — `features/workspace/Panels/GeneratePanel.tsx:365, 383–387, 535–537, 664–666, 783–803` (implicit)
 - **States:** `empty (null) ↔ selected (data URL string)`

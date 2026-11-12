@@ -343,7 +343,7 @@ export const GeneratePanel: React.FC = () => {
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const { state: meshUploadState, upload: uploadMesh } = useMeshAssetUpload();
   const isMeshUploading = meshUploadState.status === 'uploading' || meshUploadState.status === 'verifying';
-  const [imageUploadProgress, setImageUploadProgress] = useState<{ loaded: number; total: number; percent: number; uploading: boolean }>({ loaded: 0, total: 0, percent: 0, uploading: false });
+  const [imageUploadProgress, setImageUploadProgress] = useState<{ loaded: number; total: number; percent: number; uploading: boolean; error: string | null }>({ loaded: 0, total: 0, percent: 0, uploading: false, error: null });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const meshInputRef = useRef<HTMLInputElement>(null);
@@ -557,7 +557,7 @@ export const GeneratePanel: React.FC = () => {
     reader.readAsDataURL(file);
 
     // Upload to backend with real progress tracking so user sees a live bar
-    setImageUploadProgress({ loaded: 0, total: file.size, percent: 0, uploading: true });
+    setImageUploadProgress({ loaded: 0, total: file.size, percent: 0, uploading: true, error: null });
     try {
       const res = await getApiClient().uploadImageFile(file, (loaded, total) => {
         setImageUploadProgress((prev) => ({
@@ -580,7 +580,7 @@ export const GeneratePanel: React.FC = () => {
       setImageUploadProgress({ ...imageUploadProgress, percent: 100, uploading: false });
       toast.success(`Image uploaded: ${file.name}`);
     } catch (err: any) {
-      setImageUploadProgress({ ...imageUploadProgress, uploading: false });
+      setImageUploadProgress({ ...imageUploadProgress, uploading: false, error: err?.message || 'Image upload failed' });
       toast.error(`Image upload failed: ${err?.message || 'Unknown error'}`);
     }
   };
@@ -985,6 +985,31 @@ export const GeneratePanel: React.FC = () => {
                 {(imageUploadProgress.total / 1048576).toFixed(1)} MB
               </span>
               <span>Transferring...</span>
+            </div>
+          </div>
+        )}
+        {/* Image upload error surface — reachable when backend image upload fails */}
+        {imageUploadProgress.error && (
+          <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-1.5 animate-in fade-in">
+            <div className="flex items-center justify-between text-[10px]">
+              <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                <div className="w-2.5 h-2.5 border-2 border-rose-500 rounded-full animate-pulse flex-shrink-0" />
+                <span className="font-semibold text-rose-300 truncate text-[10px]">
+                  Image upload failed
+                </span>
+              </div>
+              <span className="font-mono font-bold text-rose-300 text-[10px] flex-shrink-0">
+                Error
+              </span>
+            </div>
+            <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-rose-500 to-rose-400 transition-all duration-200 rounded-full"
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-[9px] text-rose-300 font-mono">
+              <span>{imageUploadProgress.error}</span>
             </div>
           </div>
         )}

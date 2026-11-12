@@ -138,11 +138,12 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
     }
   }, []);
 
-  const jobStatus: 'idle' | 'running' | 'completed' | 'failed' = selectedJob?.status === 'failed'
+  const resolvedProductionStatus: string | undefined = selectedJob?.productionStatus;
+  const jobStatus: 'idle' | 'running' | 'completed' | 'failed' = selectedJob?.status === 'failed' || (resolvedProductionStatus === 'failed')
     ? 'failed'
-    : selectedJob?.status === 'processing' || selectedJob?.status === 'running' || selectedJob?.status === 'queued'
+    : selectedJob?.status === 'processing' || selectedJob?.status === 'running' || selectedJob?.status === 'queued' || resolvedProductionStatus === 'processing' || resolvedProductionStatus === 'running'
       ? 'running'
-      : selectedJob?.status === 'completed'
+      : selectedJob?.status === 'completed' || resolvedProductionStatus === 'completed'
         ? 'completed'
         : 'idle';
   useEffect(() => {
