@@ -1,124 +1,199 @@
-# ForMesh3D — Active Engineering Tasks & Implementation Specifications
+# ForMash3D — Implicit State Machine Inventory
 
-**Document Status:** Active Engineering Roadmap & Implementation Plan  
-**Updated:** 2026-11-12
+Read-only audit (no code changes). 4 subagents scanned: frontend (Viewport, MeshViewer, panels, stores, hooks) and backend (scheduler, job queue, adapters, API routers). 12+ implicit state machines found, plus explicit enums for reference.
 
----
+## Frontend — Implicit state machines
 
-## VIEW-MESH-DETAILS — Floating Real Mesh Statistics Card
+### F1. Generation / execution FSM — `features/workspace/store/WorkspaceContext.tsx:633–645, 1038–1043, 1169–1317, 1485–1548, 1550–1587`
+- **Kind:** implicit (`isExecuting`, `executionProgress`, `executionStep`, `activeTask`, `jobsById`, `activeAbortControllerRef`)
+- **States:** `idle → queued → running → completed / failed / interrupted`
+- **Transitions:** `startTask()` sets `isExecuting=true`, progress 0, status `queued`, writes URL `/{toolRoute}/{taskId}`. `bindBackendJob()` maps local id → backend UUID via `localStorage` (`fm3d:job:${id}`). Backend poller (1.2s visible / 3s hidden) flips `queued/running → completed` (loads result, adds asset) or `failed/cancelled → interrupted/failed`. `cancelExecution()` aborts controller, sets `interrupted`. URL hydration on mount rebuilds `ActiveTask` so in-flight status survives refresh.
+- **Triggers:** Generate/Remesh click, backend job status polling, SSE `executed`/`execution_error`, explicit cancel, page refresh.
 
-**Priority:** Medium | **Area:** Studio Viewport / Geometry Telemetry / Asset Metadata | **Status:** IMPLEMENTED — TypeScript verified; full CI partly blocked
+### F2. Batch queue FSM — `features/workspace/store/WorkspaceContext.tsx` + `useAppStore` (`batchQueue`)
+- **Kind:** implicit (`BatchQueueItem.status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'`)
+- **States:** `queued → running → completed / failed / cancelled`
+- **Transitions:** `processBatchQueue()` submits each queued item → `running`, stores jobId mapping. 5s polling fetches each job, flips on terminal backend states, deletes from `batchJobIdMap`. `cancelBatchProcessing()` marks running/queued `cancelled`. `retryFailedBatchItems()` resets failed → `queued`, clears jobId.
+- **Triggers:** user actions, backend poll, `jobsByIdRef` sync.
 
-- Reworked the existing bottom-left Mesh Stats Chip into the reference-style collapsible Mesh Details card with Faces, Verts, Edges, Materials, and Size.
-- Faces, vertices, triangle count, dimensions, unique material instances, and edge topology are sourced from the actual loaded Three.js object before viewport recentering/normalization.
-- Uploaded file size is retained from the browser File; generated asset size uses the existing job-result info response when selected; backend material count is retained when supplied.
-- Metrics without authoritative data are omitted. Exact Edges enumeration is capped at 250,000 faces to prevent long UI-thread work.
-- Added tests for indexed, non-indexed, and instanced geometry. GitHub Actions TypeScript check passed and all three new geometry tests passed. The overall frontend contract suite remains red on two pre-existing `generate_texture` assertions; production build was skipped by the workflow, and browser interaction/visual checks remain unverified.
+### F3. Viewport model-load FSM — `features/workspace/Viewport/MeshViewer.tsx:215–217, 795–938`
+- **Kind:** implicit (`hasModel`, `loadError`, `isComparisonLoading`, `isCancelled` ref)
+- **States:** `empty → loading → loaded / error`; comparison adds `comparison loading` sub-state
+- **Transitions:** `modelUrl` change clears previous model + starts loader (cancellation-safe via `isCancelled`). Success → `setHasModel(true)`, `setLoadError(null)`. Failure → `setLoadError(msg)`. Falsy URL → `setHasModel(false)`, cleared stats.
+- **Triggers:** `modelUrl` change (derived from `currentAsset.source.*` / `loadedModelUrl`), `viewportResetTrigger`, `isComparing` toggling `comparisonBeforeGroup`.
 
----
+### F4. Image/mesh upload FSM — `hooks/useMeshAssetUpload.ts:9–146`, `features/workspace/Panels/GeneratePanel.tsx:345, 514–561`
+- **Kind:** implicit on top of explicit `status: 'idle' | 'uploading' | 'saved' | 'error'` useState
+- **States:** `idle → uploading → saved →(2s timeout) idle`; error degrades to `saved` (never actually enters `error`)
+- **Transitions:** `upload()` sets `uploading`, `onProgress` updates percent. Success → `saved`, percent=100, auto-reset to `idle` after 2000ms. Catch block sets `saved` with `error: null` — **`'error'` state is dead code** (declared but never emitted).
+- **Triggers:** file drop/paste input, backend success/failure, 2s timeout reset.
+- **Risk:** backend failures look like success to the UI; `MeshUploadStatus` error branch (Panels/MeshUploadStatus.tsx:54–56) is unreachable via this hook.
 
-## ✅ COMPLETE — VIEW-XYZ: Reference-Matched Floating Camera Orientation Gizmo
+### F5. Task polling FSMs — `hooks/useTaskPolling.ts:19–168`, `hooks/useTaskManager.ts:51–257`
+- **Kind:** implicit (`isPolling` guard, `pollTickCountRef` with exponential backoff 5s→7.5s→10s)
+- **States:** poll active; `queued/running → terminal`
+- **Triggers:** mount/unmount, tab visibility (`documentVisible`), store changes. Only polls uuid-shaped backend jobs; local placeholder ids never polled.
+- **Risk:** overlaps with F1 backend job poller — both write `isExecuting`/`activeTask` from different stores; race on refresh plausible.
 
-**Priority:** Medium | **Area:** Studio Viewport / Camera Navigation / Documentation | **Status:** DONE
+### F6. SSE connection FSM — `hooks/useSSE.ts:5–71`
+- **Kind:** implicit (`connected`, `data`, `reconnectAttemptsRef`, exponential backoff 1s→2s→4s→8s cap 30s)
+- **States:** `disconnected → connecting → connected`; reconnect with backoff; fallback poll while `connected === false`
+- **Triggers:** `EventSource` open/message/error, unmount cleanup.
 
-- Replaced the previous small circular six-button XYZ overlay in `features/workspace/Viewport/ViewportToolOverlay.tsx` with the supplied reference artwork at `public/assets/xyz-orientation-gizmo.png`.
-- Kept all six camera directions interactive: `+X/right`, `−X/left`, `+Y/top`, `−Y/bottom`, `+Z/front`, and `−Z/back`. Reverse-axis hit areas expose their labels on hover/focus.
-- Corrected the `back` and `bottom` camera cases in `features/workspace/Viewport/MeshViewer.tsx`; those directions previously fell through to the isometric default.
-- No new dependency or additional Three.js scene/renderer was introduced.
-- **Verification limit:** The source changes were reviewed through GitHub. TypeScript, lint, build, and live browser checks remain pending because this session has no connected repository runner.
+### F7. Feature / model availability FSM — `hooks/useFeatureAvailability.ts:43–173`
+- **Kind:** implicit (`loading → loaded / error`, `weightsStatus` gates dropdown)
+- **Transitions:** `fetchFeatureAvailability()` on mount / `refetch()`. Merges `/system/features` and `/system/models`. Disabled-model filter in GeneratePanel (`isMeshModelDisabled`).
 
-## ✅ COMPLETE — TEX-4: Stable Fast 3D (SF3D) Adapter — Single Image → Textured Mesh
+### F8. Navigation / tool FSM — `features/workspace/store/WorkspaceContext.tsx:208–220, 2860–2916`
+- **Kind:** implicit (`activeTool`, `mainNav`, `activeRightTab`, panel booleans `isLeftPanelOpen`, `isRightPanelOpen`, `toolPanelOpen`, `isGeomTextureOpen`, `isModelDropdownOpen`, `isDragOver`)
+- **Transitions:** `navigateToTool()` sets tool + mainNav + URL `replaceState`. `navigateToMain()` pushes/replaces admin or workspace routes. `TOOL_TO_ROUTE` map (208–220) is the transition table. URL pathname syncs `selectedAssetId`.
+- **Implicit coupling:** `activeTool === 'remesh'` forces `showWireframe=true` (974–975). `effectiveShadingMode` forces `uv-checker` when tool is `uv` (662–665).
 
-**Priority:** High | **Area:** Backend Adapters / Scheduler / Frontend / Download Manager | **Status:** DONE — ADAPTER CREATED, WIRED UP
+### F9. Viewport hover / part highlight — `features/workspace/Viewport/MeshViewer.tsx:941–985`
+- **Kind:** implicit (mesh `userData.__hoverOriginalMaterial` backup)
+- **States:** `none highlighted → part highlighted` → restored on unmount / hover change
+- **Triggers:** `hoveredPartId` from workspace context
 
-**Description:**
-Add Stability Fast 3D (SF3D) as a new image-to-textured-mesh adapter. SF3D generates a raw mesh AND PBR textures (albedo + normal) from a single reference image in one forward pass, using ~6GB VRAM and running in ~0.5 seconds on a GPU with 7GB+. Unlike Hunyuan3D-2-Paint (texture-only), SF3D is a complete image→textured-mesh pipeline. The model is gated on Hugging Face (requires access request + HF token) and uses the Stability AI license (non-MIT).
+### F10. Viewport turntable — `features/workspace/Viewport/MeshViewer.tsx:341–346`
+- **Kind:** implicit boolean driving per-frame RAF mutation
+- **States:** `still → rotating` (continuous `modelGroup.rotation.y` mutation)
 
-**Model Details (from research):**
-- Model ID: `stabilityai/stable-fast-3d` (Hugging Face, gated)
-- Upstream: https://github.com/Stability-AI/stable-fast-3d
-- Paper: SIGGRAPH Asia 2026
-- VRAM: ~6GB for single image input (fits T4/16GB consumer cards)
-- Speed: ~0.5 seconds per asset on GPU with 7GB+ VRAM
-- Output: Textured GLB with UV unwrapping, albedo + normal maps
-- License: Stability AI Community License (non-MIT, gated weights)
-- Python: 3.8+, CUDA or MPS
-- Texture resolution: 512 / 1024 / 2048 pixels
-- Based on TripoSR architecture with UV-unwrapping and illumination disentanglement
-- Third-party vendored at: `backend/thirdparty/StableFast3D/` ✅ CLONED
+### F11. Animation mixer — `features/workspace/Viewport/MeshViewer.tsx:859–869`
+- **Kind:** implicit (`mixerRef` presence + `useAnimationStore.isPlaying`)
+- **States:** `none → playing → stopped/nulled` on model reload
 
-**Files to touch:**
+### F12. Composite UI shell — `features/workspace/Viewport/MeshViewer.tsx:1054–1156`
+- **Kind:** implicit overlapping render conditions (no single UI-status enum)
+- **States/branches:** empty (`!hasModel && !isExecuting`) vs execution overlay (`isExecuting`) vs comparison UI (`isComparing && canCompareModels && hasModel`) vs error toast (`loadError`)
+- **Risk:** JSX order resolves overlaps; fragile when adding flags.
 
-1. ✅ `backend/adapters/stable_fast_3d_adapter.py` — NEW adapter file created
-   - Class: `StableFast3DAdapter(BaseModel)`
-   - MODEL_KEY: `stabilityai/stable-fast-3d`
-   - FEATURE_TYPE: `image_to_textured_mesh` (single pass: raw mesh + texture)
-   - `_load_model`: Loads SF3D pipeline from HF repo `stabilityai/stable-fast-3d`
-   - `_process_request`: Runs `pipeline.run_image(image, bake_resolution=..., remesh=..., vertex_count=...)`, returns textured GLB
-   - Texture generated as part of same pipeline
+### F13. Settings popover — `features/workspace/Viewport/ViewportToolOverlay.tsx:59–85, 51`
+- **Kind:** explicit `isSettingsOpen` useState + implicit outside-click/Escape dismiss
+- **States:** `closed → open → closed`
+- **Triggers:** settings button toggle; outside click / Escape (document listeners); close button.
 
-2. ✅ `backend/adapters/__init__.py` — Registered `stable_fast_3d_image_to_textured_mesh` → `backend.adapters.stable_fast_3d_adapter`
+### F14. Job detail poll cadence — `features/workspace/Jobs/JobDetailView.tsx:94–106` (list) and `:141–154` (selected)
+- **Kind:** implicit interval-length machine
+- **States:** slow poll (30s) ↔ fast poll (5s / 1200ms when any job running / selected job running)
+- **Triggers:** computed `hasRunningJobs` / `selectedJobIsRunning`; `visibilitychange`
 
-3. ✅ `backend/config/models.yaml` — Added `stable_fast_3d_image_to_textured_mesh` entry under `image_to_textured_mesh` feature category with `vram_requirement: 6144`, `supportsTexture: true`, `cpu_offload: false`
+### F15. Job status lifecycle — `features/workspace/Jobs/JobDetailView.tsx:141, 294–296, 477–497`
+- **Kind:** implicit two-axis status (inference axis `queued/processing/running → completed/failed`; production axis `absent → ready/degraded/failed`)
+- **Derived booleans:** `isRunning`, `isCompleted`, `isFailed`; production badges
+- **Triggers:** polling `fetchSelectedJobDetails`
+- **Risk:** no single source of truth; two independent status axes scattered as booleans.
 
-4. ✅ `backend/scripts/download_models.sh` — Added `download_stable_fast_3d()` function that downloads from `stabilityai/stable-fast-3d` HF repo (requires HF token). Add to `AVAILABLE_MODELS`, case statement, and "all" case.
+### F16. Copy-ID toast — `features/workspace/Jobs/JobDetailView.tsx:156–163`
+- **Kind:** implicit timeout machine
+- **States:** `cleared → showing → cleared after 2000ms`
+- **Triggers:** `handleCopyId`; `setTimeout`
 
-5. ✅ `constants/models.ts` — Added frontend model entry with `category: 'mesh_generation'`, `feature: 'image_to_textured_mesh'`, `vramMb: 6144`, `supportsTexture: true`, `supportedInputs: ['image']`, `supportedOutputs: ['glb', 'obj']`, `modelPath: 'backend/pretrained/stable-fast-3d'`
-
-6. ✅ `features/workspace/Panels/TexturePanel.tsx` — Model appears automatically via `getModelsForFeature('image_to_textured_mesh')` if registry-driven. May need to add to model selection UI.
-
-7. ✅ `backend/api/routers/mesh_generation.py` — No code change needed if `validate_model_preference()` checks `_ADAPTER_MAP` registry. Model ID flows through as `model_preference`.
-
-**Completed files summary:**
-- `backend/adapters/stable_fast_3d_adapter.py` — NEW adapter file created ✅
-- `backend/adapters/__init__.py` — Registered `stable_fast_3d_image_to_textured_mesh` ✅
-- `backend/config/models.yaml` — Added `stable_fast_3d_image_to_textured_mesh` entry ✅
-- `backend/scripts/download_models.sh` — Added `download_stable_fast_3d()` + AVAILABLE_MODELS + case + "all" case ✅
-- `constants/models.ts` — Added frontend model entry ✅
-- `backend/requirements-models.txt` — Removed FastMesh deps block ✅
-- `backend/adapters/__init__.py` — Removed FastMesh registry entry ✅
-
-**Risks / skipped:**
-- Live GPU inference not run (no GPU available)
-- SF3D model is gated on Hugging Face — requires `hf auth login` + accepted license before weights can download
-- SF3D license is Stability AI Community License (non-MIT) — review before commercial use
-- SF3D Python API follows `pipeline.run_image(image, bake_resolution=..., remesh=..., vertex_count=...)` — verified from vendored `sf3d/system.py`
-- Texture resolution is set per-request (512/1024/2048), not per-model preset
-
----
-
-## ✅ COMPLETE — TEX-1: Texture pipeline inside adapter; raw + texture in one weights load; complete Paint3D removal from main repo
-
-**Priority:** High | **Status:** DONE
-
-All three texture-capable models implemented:
-- Hunyuan3D-2.1 (`hunyuan3d_adapter_v21.py`) ✅
-- TRELLIS (`trellis_adapter.py`) ✅
-- TRELLIS.2 (`trellis2_adapter.py`) ✅
-
-Paint3D fully removed from main repo. CPU offload wired. Structured logging wired.
-- **FastMesh** removed from main repo (`backend/thirdparty/FastMesh/` deleted) ✅
+### F17. Retry-postprocess guard — `features/workspace/Jobs/JobDetailView.tsx:186–199`
+- **Kind:** implicit
+- **States:** `idle → retrying (button disabled) → idle`
+- **Triggers:** `handleRetryPostprocess`; `finally` resets flag.
 
 ---
 
-## ✅ COMPLETE — TEX-2: Strong pipeline logging & clear log formatting
+## Frontend — Animation + dynamic inspectors (subagent 2)
 
-**Priority:** High | **Status:** DONE
+### A1. Animation playback — `stores/useAnimationStore.ts:203–215, 430–448` (semi-explicit) + `DynamicAnimationInspector.tsx:40–41, 58–83, 181–207` (implicit)
+- **States:** `stopped → playing → stopped`; `at-end` implicit (`currentTime >= duration`, `isPlaying` forced false if non-looping)
+- **Risk:** two clocks — inspector rAF effect and store `tickPlayback` (appears unused by this inspector).
 
-JobContextFilter created, logging.yaml Option 2 format, API entry/exit logging wired.
+### A2. Rig status — `stores/useAnimationStore.ts:242–243, 523–524` (explicit, dead)
+- **States:** `not_rigged → preparing → rigging → rigged / failed`
+- **Risk:** `setRigStatus` has **zero callers** — declared but never driven.
+
+### A3–A8. Explicit enums/toggles in `useAnimationStore` — studio mode, inspector tab, viewport tool/render/camera preset, constraint/waypoint/time/ARDY mode, motion AI generation (`idle → generating → completed/failed`), bone/weight/waypoint booleans.
+
+### B1. 3D model load — `stores/useViewerStore.ts:61–62, 86–87, 106–120, 136–142` (implicit)
+- **States:** `unloaded (loadedModelUrl === null) → loaded (url + activeModelObject) → replaced` (old blob URL revoked first)
+- **Risk:** no `loading`/`error` status enum; state inferred from presence of URL/object.
+
+### C1. Upload lifecycle — `hooks/useMeshAssetUpload.ts:9–16, 30, 34–146` (explicit typed union)
+- **States:** `idle → uploading → verifying → saved →(2s) idle`; `error` declared but never emitted (dead state).
+
+### D1–D5. Dynamic inspectors — all implicit:
+- **Export busy flags** (×4: Animation, UV, Rigging, Segmentation inspectors): `idle ↔ exporting`, `finally` resets to idle regardless of success/failure → failed exports indistinguishable from success except via toast.
+- **UV presence:** `uvData === null` ("No UV Map Found") → non-null (via `handleQuickPlanarUV` / Smart UV Unwrap bumping `forceRefresh`).
+- **Selected bone:** `null ↔ bone id`; defaults to `bones[0]`.
+- **Pose preset:** `t_pose / a_pose / combat / sitting` applied as values, not stored as mode.
+- **Selected part:** `null ↔ part id`; real-model load resets to first part.
+- **View angle:** `'front' / 'ortho' / 'side'` (explicit).
+- **Part visibility:** per-part `visible` boolean + scene-graph `node.visible`; all-visibility toggle collapses mixed states to "show all".
+- **Hover:** `null ↔ id` on `RealModelPreviewCanvas`.
+- **Drag-over:** `idle ↔ dragging` via `isDragOver` boolean + `dragCounterRef` counter (nested enter/leave handling).
+
+### E1–E5. Panels:
+- **RiggingPanel execution:** `idle → executing (progress 10→30→100) → idle`; error → `idle`, progress 0, step = error message. Coupling trap: `isExecuting = isLocalExecuting || isWorkspaceExecuting` — concurrent local + workspace runs produce ambiguous progress/step.
+- **GeneratePanel flow:** input tab `'image' / 'mesh'`; generation `idle → queued → running → completed/failed` (delegated to WorkspaceContext F1/F4); flyout modals open/closed with outside-click/Escape.
+- **MeshUploadStatus:** stateless view only.
 
 ---
 
-## ✅ COMPLETE — TEX-3: Hunyuan3D-2 (v2.0) Paint texture adapter
+## Backend — Implicit state machines
 
-**Priority:** Medium | **Status:** IMPLEMENTED — NOT COMMITTED
+### B9. Job lifecycle — `backend/core/scheduler/job_queue.py:57–74` (explicit `JobStatus` enum) + `database_models.py:25–30` (duplicate `DBJobStatus`)
+- **States:** `QUEUED → PROCESSING → COMPLETED / FAILED / CANCELLED`; recovery `PROCESSING → QUEUED`; retry `COMPLETED → PROCESSING`
+- **Transitions:** `enqueue()` QUEUED; `dequeue()` → processing cache; `mark_job_started()` PROCESSING; `complete_job()` COMPLETED; `fail_job()` FAILED (error classified by `classify_job_error()` into CUDA_OOM/INSUFFICIENT_VRAM/MODEL_NOT_READY/INPUT_NOT_FOUND/JOB_TIMEOUT/JOB_CANCELLED/JOB_FAILED); `cancel_job()` CANCELLED; `recover_processing_jobs()` on restart; `prepare_postprocess_retry()` COMPLETED → PROCESSING.
+- **Risk:** status enum and physical container (`_queue_cache` / `_processing_cache` / `_completed_cache`) updated separately without transaction — can drift. Duplicate enum in `database_models.py` kept in sync by convention only.
 
-Hunyuan3D-2 (v2.0) texture-only paint adapter implemented:
-- `backend/adapters/hunyuan3d_v20_paint_adapter.py` — NEW texture-only adapter
-- `backend/adapters/__init__.py` — registered `hunyuan3d_v20_paint_image_mesh_painting`
-- `backend/config/models.yaml` — added entry with `cpu_offload: true`, 11000 MB VRAM
-- `backend/scripts/download_models.sh` — added `download_hunyuan3d_v20_paint()` (texture weights only)
-- `constants/models.ts` — added frontend model entry
-- VRAM: ~11 GB — fits on 16 GB consumer cards
+### B10. Queue residency — `backend/core/scheduler/job_queue.py:301–303` + `redis_job_queue.py:78–96` (implicit)
+- **States:** pending / processing / completed (by cache or Redis set membership: `3daigc:queue:pending`, `3daigc:queue:processing`, `3daigc:jobs`)
+- **Risk:** dual bookkeeping (status enum + container membership updated separately).
+
+### B11. Worker process lifecycle — `backend/core/scheduler/multiprocess_scheduler.py:351–559` (implicit)
+- **States:** `starting (load model at init) → idle (main loop waiting on control_queue/job_queue) → processing (_process_job_in_worker) → idle → shutdown`
+- **Triggers:** `WorkerMessage.Type`: PROCESS_JOB, LOAD_MODEL, UNLOAD_MODEL, GET_STATUS, SHUTDOWN, HEALTH_CHECK. Model load failure at init → worker exits (terminal). `processing_job` variable is the busy guard.
+
+### B12. Worker busy/idle bookkeeping — `backend/core/scheduler/multiprocess_scheduler.py:1328, 1338, 2099` (implicit)
+- **States:** worker idle / busy (`worker_status: Dict[str, bool]`, `worker_current_job`)
+- **Risk:** if busy-marking fails between check and mark, job requeued.
+
+### B13. Admission / placement outcome — `backend/core/scheduler/multiprocess_scheduler.py:2896, 1960` (implicit string sentinels)
+- **States:** `NO_FEATURE → fail immediately`; `MODEL_LOAD_FAILED → fallback-chain retry → fail`; `WORKERS_BUSY / NO_VRAM → requeue + sleep → retry`; `worker_id → mark busy, enqueue`
+- **Cooldown:** `_vram_wait_until` cooldown honored by `_job_processing_loop`.
+- **Cancellation:** `_cancel_requested_jobs: set[str]`, `_active_postprocess_cancels: Dict[str, threading.Event]`
+
+### B14. Model load state — `backend/core/models/base.py:16–21` (explicit `ModelStatus`)
+- **States:** `UNLOADED → LOADING → LOADED → PROCESSING → LOADED/ERROR → UNLOADED`
+
+### B15. GPU VRAM tracking — `backend/core/scheduler/gpu_monitor.py:38–39` (implicit)
+- **States:** tracked allocated VRAM per GPU mutated by `allocate_vram()` / `deallocate_vram()`
+
+### B16. Rate limiter — `backend/api/dependencies.py:345–412` (implicit)
+- **States:** disabled (passthrough) / enabled; Redis Lua atomic INCR+EXPIRE per 60s window per hashed IP, or process-local two-window counter (single-worker only, unsafe multi-worker)
+
+### B17. Deployment mode switch — `backend/api/dependencies.py:28–47` (implicit)
+- **States:** `single_worker / multi_worker` (fixed at construction, branches on `if self._scheduler`)
+
+### B18. SSE log stream — `backend/api/routers/system.py:685–806` (implicit)
+- **States:** `fresh (tail + emit sync) → streaming (read chunks, idle-poll backoff, heartbeat) → reset (file replaced/truncated or identity mismatch) → disconnected (terminal)`
+
+### B19. App lifespan — `backend/api/main_multiworker.py:97–183` + `backend/api/dependencies.py:195–219` (implicit)
+- **States:** globals `redis_job_queue`/`file_store` None → connected at startup → None at shutdown
 
 ---
+
+## Negative findings (checked, NOT state machines)
+- `backend/core/planner.py` — pure function; only memoization caches
+- `backend/core/scheduler/model_factory.py` — static `ADAPTER_REGISTRY`, no runtime state
+- `backend/core/logging_filters.py` — stateless `JobContextFilter`
+- `backend/core/config.py` — singleton `get_settings()` + `reload_settings()`
+- `backend/adapters/__init__.py` — static `_ADAPTER_MAP`
+- `backend/scripts/download_models.sh` / `manager.sh` — procedural, skip-if-cached gates
+- `features/workspace/lib/api.ts` — `ApiClient` is an event emitter; `getSystemStats` computes `online/offline` per call, not persistent
+
+---
+
+## Top risks / recommended actions
+
+1. **MeshUploadStatus error branch unreachable** — upload hook catch degrades to `saved` with `error: null`; backend failures look like success. Consider emitting `error` or removing dead branch.
+2. **setRigStatus never called** — rigStatus FSM is dead code.
+3. **Duplicated animation clocks** — inspector rAF and store `tickPlayback` both model playing→ended; only inspector wired.
+4. **Execution flag coupling** — RiggingPanel merges local + workspace `isExecuting`; concurrent runs produce ambiguous progress/step.
+5. **Export machines collapse failure into idle** — all four `isExporting*` flags reset in `finally` regardless of outcome.
+6. **Job status / container drift** — status enum and physical container updated separately without transaction.
+7. **MeshViewer composite UI shell** — overlapping JSX render conditions (no single UI-status enum); fragile when adding flags.
+8. **JobDetailView two-axis status** — inference × production status scattered as derived booleans, no enum.

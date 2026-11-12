@@ -52,7 +52,7 @@ scripts/.cloudflare_tunnels/*.url
 *.bak
 *.dir
 *.dat
-
+.goals/
 # OS
 .DS_Store
 Thumbs.db
