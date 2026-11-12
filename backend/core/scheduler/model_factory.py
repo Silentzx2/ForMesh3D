@@ -169,6 +169,11 @@ class ModelFactory:
             "module": "adapters.taoflowforge_adapter",
             "class": "TaoFlowForgeImageToRawMeshAdapter",
         },
+        # Stable Fast 3D (single-image to textured mesh)
+        "stable_fast_3d_image_to_textured_mesh": {
+            "module": "adapters.stable_fast_3d_adapter",
+            "class": "StableFast3DAdapter",
+        },
     }
 
     LEGACY_IMAGE_TO_RAW_ALIASES = {
