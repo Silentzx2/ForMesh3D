@@ -932,61 +932,97 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       );
     }
 
-    // Highlight hovered part in main viewer when user hovers over part in right panel mini-preview
-    useEffect(() => {
-      if (!modelGroupRef.current || !hoveredPartId) {
-        // Restore all materials when no hover
-        modelGroupRef.current?.traverse((child) => {
-          if (child instanceof THREE.Mesh && child.userData.__hoverOriginalMaterial) {
-            child.material = child.userData.__hoverOriginalMaterial;
-            delete child.userData.__hoverOriginalMaterial;
-          }
-        });
-        return;
-      }
-
-      // Parse part index from id like "p1" -> 0, "p2" -> 1, etc.
-      const match = hoveredPartId.match(/^p(\d+)$/);
-      if (!match) return;
-      const meshIndex = parseInt(match[1], 1) - 1;
-
-      let meshCount = 0;
-      let found = false;
-      modelGroupRef.current.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          if (meshCount === meshIndex) {
-            // Store original material if not already stored
-            if (!child.userData.__hoverOriginalMaterial) {
-              child.userData.__hoverOriginalMaterial = child.material;
-            }
-            child.material = new THREE.MeshStandardMaterial({
-              color: 0xf9cf00,
-              emissive: 0xf9cf00,
-              emissiveIntensity: 0.5,
-              roughness: 0.2,
-              metalness: 0.1,
-            });
-            found = true;
-          }
-          meshCount++;
-        }
-      });
-
-      return () => {
-        // Restore original materials on cleanup
-        modelGroupRef.current?.traverse((child) => {
-          if (child instanceof THREE.Mesh && child.userData.__hoverOriginalMaterial) {
-            child.material = child.userData.__hoverOriginalMaterial;
-            delete child.userData.__hoverOriginalMaterial;
-          }
-        });
-      };
-    }, [hoveredPartId, modelGroupRef.current]);
-
     return () => {
       isCancelled = true;
     };
   }, [modelUrl, fitCameraToModel, shadingMode, showWireframe, applyShadingToMesh]);
+
+  // 6. Highlight hovered part in main viewer (top-level hook — never nested inside another hook)
+  useEffect(() => {
+    const group = modelGroupRef.current;
+    if (!group || !hoveredPartId) {
+      group?.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.userData.__hoverOriginalMaterial) {
+          child.material = child.userData.__hoverOriginalMaterial;
+          delete child.userData.__hoverOriginalMaterial;
+        }
+      });
+      return;
+    }
+
+    // Parse part index from id like "p1" -> 0, "p2" -> 1, etc.
+    const match = hoveredPartId.match(/^p(\d+)$/);
+    if (!match) return;
+    const meshIndex = parseInt(match[1], 1) - 1;
+
+    let meshCount = 0;
+    group.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        if (meshCount === meshIndex) {
+          if (!child.userData.__hoverOriginalMaterial) {
+            child.userData.__hoverOriginalMaterial = child.material;
+          }
+          child.material = new THREE.MeshStandardMaterial({
+            color: 0xf9cf00,
+            emissive: 0xf9cf00,
+            emissiveIntensity: 0.5,
+            roughness: 0.2,
+            metalness: 0.1,
+          });
+        }
+        meshCount++;
+      }
+    });
+
+    return () => {
+      group.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.userData.__hoverOriginalMaterial) {
+          child.material = child.userData.__hoverOriginalMaterial;
+          delete child.userData.__hoverOriginalMaterial;
+        }
+      });
+    };
+  }, [hoveredPartId]);
+
+  // 7. Broadcast live camera rotation so an external XYZ gizmo can reflect the active axis
+  useEffect(() => {
+    const controls = controlsRef.current;
+    const camera = cameraRef.current;
+    if (!controls || !camera) return;
+
+    const update = () => {
+      if (!camera || !controls) return;
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      // Find which cardinal axis the camera is most aligned with
+      const absX = Math.abs(dir.dot(new THREE.Vector3(1, 0, 0)));
+      const absY = Math.abs(dir.dot(new THREE.Vector3(0, 1, 0)));
+      const absZ = Math.abs(dir.dot(new THREE.Vector3(0, 0, 1)));
+      const axis =
+        absX >= absY && absX >= absZ
+          ? dir.x > 0
+            ? 'right'
+            : 'left'
+          : absY >= absX && absY >= absZ
+          ? dir.y > 0
+            ? 'top'
+            : 'bottom'
+          : dir.z > 0
+          ? 'front'
+          : 'back';
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('setCameraRotation', { detail: axis }));
+      }
+    };
+
+    // Initial broadcast so the gizmo reflects the starting view
+    update();
+    controls.addEventListener('change', update);
+
+    return () => {
+      controls.removeEventListener('change', update);
+    };
+  }, []);
 
   const updateComparisonPosition = (clientX: number) => {
     const rect = containerRef.current?.getBoundingClientRect();
