@@ -73,7 +73,7 @@ if torch is not None and torch.cuda.is_available():
         pass
 
 import yaml
-from backend.core.logging_filters import JobContextFilter
+from core.logging_filters import JobContextFilter
 from pydantic import Field, field_validator
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
