@@ -680,6 +680,12 @@ An output preset must never silently downgrade the immutable master. A requested
   - **Top**: Downward planar snap along Y-axis (`[0, distance, 0]`).
 - Dispatches `setCameraPreset` custom events handled by `applyCameraPreset()`, maintaining model focal point and bounding-sphere framing.
 
+### Floating XYZ Orientation Gizmo
+- **Reference-Matched Artwork**: The viewport uses the supplied axis-sphere artwork from `public/assets/xyz-orientation-gizmo.png`, cropped to the artwork bounds and blended with the dark viewport so it reads as a floating control rather than a panel or tile.
+- **Six-Axis Camera Interaction**: The visible X/Y/Z labels are the positive-axis hit targets. The opposite `−X`, `−Y`, and `−Z` directions remain available as transparent hit targets and reveal a compact label on hover or keyboard focus.
+- **Camera Contract**: Hit targets dispatch the existing `setCameraPreset` event; `MeshViewer` maps `right/left` to `±X`, `top/bottom` to `±Y`, and `front/back` to `±Z`. The camera focal point and current orbit distance are preserved.
+- **Placement & Accessibility**: The control floats at the viewport's lower-right edge, scales down on narrow viewports, and exposes descriptive accessible names, native titles, and visible keyboard focus without intercepting pointer input outside its six hit areas.
+
 ### MeshDiffViewer Dual-Scene WebGL Architecture
 - **Uncoupled Animation Loop**: Dual comparative viewports (`leftScene` / `rightScene`) operate on an independent `requestAnimationFrame` loop completely decoupled from React state, eliminating 60–120fps component re-renders.
 - **Synchronized Camera Orbiting**: Interacting with either the left or right viewport smoothly mirrors camera matrices to provide seamless side-by-side mesh diffing.

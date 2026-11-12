@@ -412,9 +412,17 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           cam.up.set(0, 1, 0);
           cam.position.set(target.x, target.y, target.z + dist);
           break;
+        case 'back':
+          cam.up.set(0, 1, 0);
+          cam.position.set(target.x, target.y, target.z - dist);
+          break;
         case 'top':
           cam.up.set(0, 0, -1);
           cam.position.set(target.x, target.y + dist, target.z + 0.0001);
+          break;
+        case 'bottom':
+          cam.up.set(0, 0, 1);
+          cam.position.set(target.x, target.y - dist, target.z - 0.0001);
           break;
         case 'side':
         case 'left':

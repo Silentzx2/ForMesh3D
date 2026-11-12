@@ -330,7 +330,7 @@ flowchart TB
 | **App Router** | `app/` | Next.js 16 App Router with server components, layouts, and API proxy routes |
 | **Workspace Shell** | `features/workspace/WorkspaceShell.tsx` | Main workspace UI with tabbed panels, persistent asset store, and model viewport |
 | **API Client** | `services/apiClient.ts` | Unified axios client for all FastAPI backend REST/SSE communication |
-| **3D Canvas** | `features/workspace/Viewport/MeshViewer.tsx` | High-performance Three.js WebGL viewport with zero-allocation shading switcher, event-driven reflection capture, TransformControls 3D manipulator, axial camera presets, and HUD background job capsule |
+| **3D Canvas** | `features/workspace/Viewport/MeshViewer.tsx` | High-performance Three.js WebGL viewport with zero-allocation shading switcher, event-driven reflection capture, TransformControls 3D manipulator, six-axis camera orientation gizmo, axial camera presets, and HUD background job capsule |
 | **Telemetry HUD** | `components/Header.tsx` | Real-time vertical-pipe hardware gauges (VRAM/RAM/CPU) with saturated load colors and outside-click auto-dismissal |
 | **Asset Persistence** | `stores/useAppStore.ts` | Durable image & mesh reference tracking backed by `/api/v1/file-upload/` persistent storage endpoints |
 | **State Stores** | `stores/` | Zustand stores for global client state (`useAppStore`, `useViewerStore`, `useAnimationStore`, `useRiggingStore`, `useUIStore`) |
@@ -929,6 +929,10 @@ The Next.js 16 Presentation Layer unifies all creation, editing, retopology, rig
 - **Axial Camera Alignment Presets (`ViewportToolOverlay.tsx`)**:
   - Floating `ViewportToolOverlay` exposes standard axial camera angles: `Perspective`, `Front`, `Side`, and `Top`.
   - Snaps the camera smoothly along cardinal axes with bounding-sphere recentering and distance normalization, providing CAD-grade orthographic-style inspection.
+- **Reference-Matched XYZ Orientation Gizmo (`ViewportToolOverlay.tsx`, `MeshViewer.tsx`)**:
+  - Loads the image-backed orientation control from `/assets/xyz-orientation-gizmo.png`; the viewport UI supplies six independent, accessible hit areas without creating a second Three.js scene or renderer.
+  - Camera presets map `right/left` to positive/negative X, `top/bottom` to positive/negative Y, and `front/back` to positive/negative Z. All six views preserve the orbit target and camera distance.
+  - Explicit `back` and `bottom` cases prevent those negative-axis actions from falling through to the isometric default; the vertical-axis presets set a matching camera-up vector to keep the view upright.
 - **Streamlined Single-Scene Viewport (Decommissioned MeshDiffViewer)**:
   - Previously, dual-scene comparison was mounted in `MeshDiffViewer.tsx`. As part of the November 7, 2026 workspace cleanup and Studio modernization, `MeshDiffViewer.tsx` and `ImagePointCloud.ts` were decommissioned to eliminate multi-context WebGL overhead and keep the viewport lightweight, memory-efficient, and single-canvas focused.
 
