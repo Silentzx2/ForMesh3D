@@ -1,9 +1,19 @@
 # ForMesh3D — Active Engineering Tasks & Implementation Specifications
 
 **Document Status:** Active Engineering Roadmap & Implementation Plan  
-**Updated:** 2026-11-11
+**Updated:** 2026-11-12
 
 ---
+
+## ✅ COMPLETE — VIEW-XYZ: Reference-Matched Floating Camera Orientation Gizmo
+
+**Priority:** Medium | **Area:** Studio Viewport / Camera Navigation / Documentation | **Status:** DONE
+
+- Replaced the previous small circular six-button XYZ overlay in `features/workspace/Viewport/ViewportToolOverlay.tsx` with the supplied reference artwork at `public/assets/xyz-orientation-gizmo.png`.
+- Kept all six camera directions interactive: `+X/right`, `−X/left`, `+Y/top`, `−Y/bottom`, `+Z/front`, and `−Z/back`. Reverse-axis hit areas expose their labels on hover/focus.
+- Corrected the `back` and `bottom` camera cases in `features/workspace/Viewport/MeshViewer.tsx`; those directions previously fell through to the isometric default.
+- No new dependency or additional Three.js scene/renderer was introduced.
+- **Verification limit:** The source changes were reviewed through GitHub. TypeScript, lint, build, and live browser checks remain pending because this session has no connected repository runner.
 
 ## ✅ COMPLETE — TEX-4: Stable Fast 3D (SF3D) Adapter — Single Image → Textured Mesh
 

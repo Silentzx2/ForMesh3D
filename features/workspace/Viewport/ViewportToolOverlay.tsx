@@ -435,62 +435,50 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
         </div>
       </div>
 
-      {/* XYZ Gizmo — 64×64 glass disc; taps snap the camera, drags pass through to orbit */}
-      <div className="pointer-events-none absolute top-12 right-3 z-20 w-16 h-16 rounded-full bg-black/30 backdrop-blur-sm border border-white/10 flex items-center justify-center">
-        <button
-          type="button"
-          onClick={() => snapGizmo('right')}
-          className="pointer-events-auto absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-red-500 ring-1 ring-white/20 text-[9px] font-mono text-white font-bold shadow-md hover:scale-110 active:scale-90 transition-transform"
-          aria-label="Snap to Right view (+X)"
-          title="+X"
-        >
-          +X
-        </button>
-        <button
-          type="button"
-          onClick={() => snapGizmo('left')}
-          className="pointer-events-auto absolute left-1 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-red-500 ring-1 ring-white/20 text-[9px] font-mono text-white font-bold shadow-md hover:scale-110 active:scale-90 transition-transform"
-          aria-label="Snap to Left view (-X)"
-          title="-X"
-        >
-          -X
-        </button>
-        <button
-          type="button"
-          onClick={() => snapGizmo('top')}
-          className="pointer-events-auto absolute top-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-emerald-500 ring-1 ring-white/20 text-[9px] font-mono text-white font-bold shadow-md hover:scale-110 active:scale-90 transition-transform"
-          aria-label="Snap to Top view (+Y)"
-          title="+Y"
-        >
-          +Y
-        </button>
-        <button
-          type="button"
-          onClick={() => snapGizmo('bottom')}
-          className="pointer-events-auto absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-emerald-500 ring-1 ring-white/20 text-[9px] font-mono text-white font-bold shadow-md hover:scale-110 active:scale-90 transition-transform"
-          aria-label="Snap to Bottom view (-Y)"
-          title="-Y"
-        >
-          -Y
-        </button>
-        <button
-          type="button"
-          onClick={() => snapGizmo('front')}
-          className="pointer-events-auto absolute top-1 right-1 -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-blue-500 ring-1 ring-white/20 text-[9px] font-mono text-white font-bold shadow-md hover:scale-110 active:scale-90 transition-transform"
-          aria-label="Snap to Front view (+Z)"
-          title="+Z"
-        >
-          +Z
-        </button>
-        <button
-          type="button"
-          onClick={() => snapGizmo('back')}
-          className="pointer-events-auto absolute bottom-1 left-1 -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-blue-500 ring-1 ring-white/20 text-[9px] font-mono text-white font-bold shadow-md hover:scale-110 active:scale-90 transition-transform"
-          aria-label="Snap to Back view (-Z)"
-          title="-Z"
-        >
-          -Z
-        </button>
+      {/* Floating XYZ Orientation Gizmo — reference artwork with six camera-snap hit targets */}
+      <div
+        id="viewport-xyz-gizmo"
+        role="group"
+        aria-label="3D camera orientation"
+        className="pointer-events-none absolute bottom-4 right-3 z-20 aspect-[190/169] w-[clamp(128px,16vw,176px)] select-none"
+      >
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-contain bg-center bg-no-repeat mix-blend-screen"
+          style={{ backgroundImage: "url('/assets/xyz-orientation-gizmo.png')" }}
+        />
+        {[
+          { preset: 'top' as const, label: 'Snap camera to positive Y axis', title: '+Y', left: '31%', top: '0%', width: '27%', height: '20%' },
+          { preset: 'right' as const, label: 'Snap camera to positive X axis', title: '+X', left: '78%', top: '53%', width: '22%', height: '25%' },
+          { preset: 'front' as const, label: 'Snap camera to positive Z axis', title: '+Z', left: '0%', top: '77%', width: '23%', height: '23%' },
+          { preset: 'left' as const, label: 'Snap camera to negative X axis', title: '−X', hint: '−X', left: '0%', top: '42%', width: '20%', height: '25%' },
+          { preset: 'bottom' as const, label: 'Snap camera to negative Y axis', title: '−Y', hint: '−Y', left: '37%', top: '81%', width: '26%', height: '19%' },
+          { preset: 'back' as const, label: 'Snap camera to negative Z axis', title: '−Z', hint: '−Z', left: '70%', top: '16%', width: '22%', height: '25%' },
+        ].map((direction) => (
+          <button
+            key={direction.preset}
+            type="button"
+            onClick={() => snapGizmo(direction.preset)}
+            aria-label={direction.label}
+            title={direction.title}
+            style={{
+              left: direction.left,
+              top: direction.top,
+              width: direction.width,
+              height: direction.height,
+            }}
+            className="group pointer-events-auto absolute rounded-md bg-transparent transition-colors hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 motion-reduce:transition-none"
+          >
+            {'hint' in direction && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 grid place-items-center rounded-md border border-white/20 bg-black/85 font-mono text-[10px] font-bold text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 motion-reduce:transition-none"
+              >
+                {direction.hint}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
       {/* Bottom Floating Material & Shader Spheres Dock (Tripo 3D style) */}

@@ -1,5 +1,13 @@
 # ForMesh3D — Audited Project State
 
+## 2026-11-12 — Reference-Matched Floating XYZ Camera Orientation Gizmo
+
+- Replaced the old 64px circular six-button overlay in `ViewportToolOverlay.tsx` with the supplied reference artwork, served from `public/assets/xyz-orientation-gizmo.png`. The black image canvas blends into the dark viewport; the component itself remains pointer-transparent except for its six camera-snap hit areas.
+- The visible positive X/Y/Z labels snap to `right`, `top`, and `front`. Reverse-axis targets snap to `left`, `bottom`, and `back`; negative labels appear on hover or keyboard focus.
+- Added explicit `back` (−Z) and `bottom` (−Y) camera cases in `MeshViewer.tsx`. Both keep the current orbit target and distance; the bottom view uses the corresponding +Z camera-up vector.
+- Updated `Docs/DESIGN.md`, `Docs/ARCHITECTURE.md`, `Docs/SYSTEM-BLUEPRINT.md`, `Docs/TASKS.md`, `Docs/CHANGELOG.md`, and this audited-state record, plus the README overview.
+- **Verification boundary:** GitHub source and patch review only. Local TypeScript, lint, production build, and browser interaction/visual checks were not available in this remote repository-editing session.
+
 ## 2026-11-10 — Auto-load Mesh on Route Hydration, Deduplicated Single-Thumbnail Assets & TripoSG Thumbnail Generation
 
 - **Viewport Auto-Load & Route Hydration (`WorkspaceContext.tsx`):**

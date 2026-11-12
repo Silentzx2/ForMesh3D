@@ -426,6 +426,7 @@ The Next.js 16 Presentation Layer runs a persistent, non-destructive 3D workspac
 - **Event-Driven Reflection Peek**: Replaced 1-second continuous polling with OrbitControls `'end'` event listener debounced at 250ms, eliminating idle GPU load and revoking stale object URLs cleanly.
 - **Interactive TransformControls**: Embedded 3D translate/rotate/scale gizmo in Edit mode, synchronized with OrbitControls mutual exclusion to prevent camera rotation while dragging.
 - **Axial Camera View Presets**: Perspective, Front, Side, and Top alignment presets smoothly snapping camera position to cardinal coordinate axes.
+- **Floating XYZ Orientation Gizmo**: A responsive, image-backed viewport control uses the reference artwork at `public/assets/xyz-orientation-gizmo.png`. Six separate hit targets dispatch the existing camera-preset event for `±X`, `±Y`, and `±Z`; the `back` and `bottom` presets are handled explicitly in `MeshViewer` rather than falling back to the isometric view.
 - **Decoupled MeshDiffViewer RAF Loop**: Replaced stateful React animation frame re-render loop with a direct `requestAnimationFrame` render loop with `cancelAnimationFrame` cleanup, eliminating 60–120fps component re-render overhead.
 
 ### Postprocessing Pipeline Hardening

@@ -1,5 +1,14 @@
 # ForMesh3D Changelog
 
+## 2026-11-12 — Reference-Matched Floating XYZ Orientation Gizmo
+
+- **Viewport artwork:** Replaced the old 64×64 circular button cluster with the supplied XYZ sphere artwork at `public/assets/xyz-orientation-gizmo.png`. The image is cropped to the artwork bounds and blends into the dark viewport.
+- **Six-axis interaction:** The visible X/Y/Z labels snap to positive X/Y/Z views; reverse-axis hit targets snap to negative X/Y/Z and reveal their labels on hover or keyboard focus.
+- **Camera correctness:** Added explicit `back` (−Z) and `bottom` (−Y) cases in `MeshViewer.tsx`; both now snap to their intended cardinal view instead of the isometric fallback.
+- **Documentation:** Updated the design, architecture, system blueprint, task tracker, audited memory, and README references.
+
+---
+
 ## 2026-11-11 — Workspace Routing, Friendly Job URLs & Recent Jobs Chip
 
 - **Routing:** Bare `/workspace` now redirects to `/workspace/generate`; `/workspace/overview` and `/workspace/system` routes removed from the workspace UI (`WorkspaceShell.tsx`, `workspaceRouteContract.ts`, `WorkspaceContext.tsx`). Dashboard/assets/jobs route map simplified; `navigateToMain` points dashboard/workspace to `/workspace/generate`.
