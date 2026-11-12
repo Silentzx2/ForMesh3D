@@ -16,7 +16,7 @@ formatters:
 
 filters:
   job_context:
-    () -> backend.core.logging_filters.JobContextFilter
+    '()': core.logging_filters.JobContextFilter
 
 handlers:
   master_file:
