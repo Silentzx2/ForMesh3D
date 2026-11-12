@@ -119,7 +119,7 @@ VERIFY_ONLY=false
 FORCE_DOWNLOAD=false
 
 # Available models
-AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "fastmesh" "triposg" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
+AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "fastmesh" "triposg" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
 
 show_help() {
     cat << EOF
@@ -149,6 +149,7 @@ Available models:
     triposg            - TripoSG and RMBG models
     ardy               - ARDY motion generation models
     unique3d           - Unique3D high-fidelity single-image to 3D model
+    hunyuan3d_v20_paint       - Hunyuan3D-2 (v2.0) Paint model (texture weights only)
     pixal3d            - Pixal3D pixel-aligned image to 3D generation model
     taoflowforge       - TaoFlowForge progressive native mesh generation model (Alibaba)
     misc               - Miscellaneous utility models (RealESRGAN, DINOv2)
@@ -430,7 +431,48 @@ download_hunyuan3d_paint_v21() {
     if [ ! -f "$thirdparty_realesrgan_path" ] || [ "$FORCE_DOWNLOAD" = true ]; then
         cp "$realesrgan_path" "$thirdparty_realesrgan_path"
     fi
-    print_success "Hunyuan3D-Paint-v2-1 models and RealESRGAN dependency are ready"
+}
+
+# Function to download Hunyuan3D 2.0 Paint models (texture-only, no mesh weights)
+download_hunyuan3d_v20_paint() {
+    print_info "=========================================="
+    print_info "Downloading Hunyuan3D-2 (v2.0) Paint Models"
+    print_info "=========================================="
+
+    # Paint uses the same Hunyuan3D-2 root checkpoint as shape.
+    local model_dir="$PRETRAINED_DIR/tencent/Hunyuan3D-2"
+
+    if [ "$FORCE_DOWNLOAD" = false ] && \
+       verify_directory "$model_dir/hunyuan3d-paintpbr-v2-0" 3; then
+        print_info "Hunyuan3D-2 (v2.0) Paint models already exist and verified"
+    else
+        mkdir -p "$model_dir" 2>/dev/null || true
+        ensure_writable_model_dir "$model_dir" || return 1
+        print_info "Downloading Hunyuan3D-2 (v2.0) paint models (texture weights only)..."
+        if hf_download tencent/Hunyuan3D-2 \
+            --include "hunyuan3d-paintpbr-v2-0/*" \
+            --local-dir "$model_dir"; then
+            print_success "Hunyuan3D-2 (v2.0) Paint models downloaded successfully"
+        else
+            print_error "Failed to download Hunyuan3D-2 (v2.0) Paint models"
+            return 1
+        fi
+    fi
+
+    # RealESRGAN dependency for paint pipeline
+    local realesrgan_path="$PRETRAINED_DIR/misc/RealESRGAN_x4plus.pth"
+    if [ "$FORCE_DOWNLOAD" = false ] && verify_file "$realesrgan_path" 50000000; then
+        print_info "RealESRGAN_x4plus already exists and verified"
+    else
+        print_info "Downloading RealESRGAN_x4plus.pth..."
+        mkdir -p "$PRETRAINED_DIR/misc"
+        download_with_verify \
+            "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth" \
+            "$realesrgan_path" \
+            "RealESRGAN_x4plus model"
+    fi
+
+    print_success "Hunyuan3D-2 (v2.0) Paint models and RealESRGAN dependency are ready"
 }
 
 # Function to download Hunyuan3D-DiT-v2-mini-Turbo models
@@ -1146,6 +1188,9 @@ for model in "${MODELS_ARRAY[@]}"; do
         "hunyuan3d_paint_v21")
             download_hunyuan3d_paint_v21
             ;;
+        "hunyuan3d_v20_paint")
+            download_hunyuan3d_v20_paint
+            ;;
         "hunyuan3d_dit_v2_mini_turbo")
             download_hunyuan3d_dit_v2_mini_turbo
             ;;
@@ -1191,6 +1236,7 @@ for model in "${MODELS_ARRAY[@]}"; do
         "all")
             download_hunyuan21
             download_hunyuan3d_paint_v21
+            download_hunyuan3d_v20_paint
             download_hunyuan2mini
             download_trellis
             download_trellis_text

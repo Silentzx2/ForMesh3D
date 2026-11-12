@@ -253,6 +253,23 @@ export const CANONICAL_MODELS: ModelDefinition[] = [
     status: 'available',
     description: '2B PBR texture checkpoint for multi-view texture generation with native rendering/baking path.',
   },
+  {
+    id: 'hunyuan3d_v20_paint_image_mesh_painting',
+    name: 'Hunyuan3D-2 (v2.0) — Paint',
+    category: 'texture_painting',
+    feature: 'image_mesh_painting',
+    featureLabel: 'Image Mesh Painting',
+    vramMb: 11264,
+    lowVramSupported: true,
+    lowVramMb: 8192,
+    supportsTexture: true,
+    supportedInputs: ['mesh', 'image'],
+    supportedOutputs: ['glb', 'obj'],
+    modelPath: 'backend/pretrained/tencent/Hunyuan3D-2',
+    enabled: true,
+    status: 'available',
+    description: 'Lightweight PBR texture painting model (~11 GB VRAM), ideal for T4/16 GB cards. Single-image reference texturing on existing meshes.',
+  },
   // ── RETOPOLOGY / REMESH ──────────────────────────────────────────────────
   {
     id: 'fastmesh_v1k_retopology',

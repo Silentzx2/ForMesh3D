@@ -573,6 +573,27 @@ image_mesh_painting:
     max_workers: 1
 
 
+  hunyuan3d_v20_paint_image_mesh_painting:
+    model_name: "Hunyuan3D-2 (v2.0) — Image Mesh Painting"
+    upstream_repository: "https://github.com/Tencent-Hunyuan/Hunyuan3D-2"
+    upstream_ref: null # Pin to a reviewed commit/tag only after adapter compatibility is verified
+    checkpoint_license: "unverified"
+    capabilities:
+      native_topology: false
+      output_resolution: null
+      texture_generation: true
+      texture_refine: true
+      multiview: false
+      multi_gpu: true
+      multi_gpu_strategy: accelerate_component_dispatch
+      cpu_offload: true
+    vram_requirement: 11000  # MB — combined shape + paint, fits on 16 GB consumer cards
+    supported_inputs: ["mesh", "text", "image"]
+    supported_outputs: ["glb", "obj"]
+    model_path: "backend/pretrained/tencent/Hunyuan3D-2"
+    enabled: true
+    max_workers: 1
+
 # mesh segmentation (no active adapter is configured)
 mesh_segmentation: {}
 

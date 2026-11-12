@@ -30,10 +30,12 @@ _ADAPTER_MAP: dict[str, str] = {
     # ── legacy textured-mesh aliases ───────────────────────────────────
     "trellis_image_to_textured_mesh": "backend.adapters.trellis_adapter",
     "trellis2_image_to_textured_mesh": "backend.adapters.trellis2_adapter",
+    "stable_fast_3d_image_to_textured_mesh": "backend.adapters.stable_fast_3d_adapter",
     # ── image-mesh-painting ────────────────────────────────────────────
     "trellis_image_mesh_painting": "backend.adapters.trellis_adapter",
     "trellis2_image_mesh_painting": "backend.adapters.trellis2_adapter",
-    "hunyuan3d_paint_v21_image_mesh_painting": "backend.adapters.hunyuan3d_paint_v21",
+    "hunyuan3d_paint_v21_image_mesh_painting": "backend.adapters.hunyuan3d_adapter_v21",
+    "hunyuan3d_v20_paint_image_mesh_painting": "backend.adapters.hunyuan3d_v20_paint_adapter",
     # ── mesh-retopology ────────────────────────────────────────────────
     "fastmesh_v1k_retopology": "backend.adapters.fastmesh_adapter",
     # ── uv-unwrapping ──────────────────────────────────────────────────

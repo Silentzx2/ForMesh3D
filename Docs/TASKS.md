@@ -5,126 +5,234 @@
 
 ---
 
-## ✅ COMPLETE — TEX-1: Texture pipeline inside adapter; raw + texture in one weights load; complete Paint3D removal from main repo
+## 🟡 OPEN — TEX-4: Stable Fast 3D (SF3D) Adapter — Single Image → Textured Mesh
 
-**Priority:** High | **Area:** Backend API / Scheduler / Adapters / Postprocess / Frontend UI | **Status:** DONE
+**Priority:** High | **Area:** Backend Adapters / Scheduler / Frontend / Download Manager | **Status:** PLANNED — NOT IMPLEMENTED
 
 **Description:**
-`/api/v1/mesh-generation/image-to-raw-mesh` generates a raw mesh, saves it as immutable `master/source.glb`, and when `texture_enabled` is set, runs the selected model's own texture pipeline immediately after raw inference using already-loaded weights (single `_load_model` call). Textured output is stored as a separate artifact (`textures/<base>_textured.glb`); `master/source.glb` stays raw/immutable.
+Add Stability Fast 3D (SF3D) as a new image-to-textured-mesh adapter. SF3D generates a raw mesh AND PBR textures (albedo + normal) from a single reference image in one forward pass, using ~6GB VRAM and running in ~0.5 seconds on a GPU with 7GB+. Unlike Hunyuan3D-2-Paint (texture-only), SF3D is a complete image→textured-mesh pipeline. The model is gated on Hugging Face (requires access request + HF token) and uses the Stability AI license (non-MIT).
 
-**What was done:**
-1. ✅ `enable_postprocess` and `texture_enabled` split into independent toggles on UI (`GeneratePanel.tsx`, `buildGenerationParameters.ts`)
-2. ✅ Texture OFF: raw mesh → postprocess (no texture) → output
-3. ✅ Texture ON: raw mesh → same adapter's `_process_request` runs texture pipeline → separate textured artifact; `master/source.glb` untouched
-4. ✅ No second weights load — both shape + paint pipelines loaded in one `_load_model` call (Hunyuan3D-2.1 adapter)
-5. ✅ No separate external texture adapter — postprocess `_execute_texture_stage` converted to no-op shim; Paint3D/Hunyuan-Paint calls removed
-6. ✅ UI shows per-model texture settings (dynamic from backend per selected model)
-7. ✅ Complete Paint3D removal from main repo — adapter file deleted, registry/factory/planner/models.yaml entries removed, frontend constants/UI cleaned, API route references removed, docs references removed
-8. ✅ **Critical fix:** `texture_enabled` was stripped by `_POSTPROCESS_ONLY_INPUTS` in `multiprocess_scheduler.py:_build_model_inference_inputs()` before reaching the adapter — removed it with explanatory comment so adapter receives the flag
-9. ✅ CPU offload: `cpu_offload: true` added to `hunyuan3d_paint_v21_image_mesh_painting` in models.yaml; planner sets offload flag; scheduler dispatches with `strategy="cpu_offload"`
-10. ✅ Strong structured logging (TEX-2) wired — `JobContextFilter`, `logging.yaml` Option 2 format, API entry/exit logging
+**Model Details (from research):**
+- Model ID: `stabilityai/stable-fast-3d` (Hugging Face, gated)
+- Upstream: https://github.com/Stability-AI/stable-fast-3d
+- Paper: SIGGRAPH Asia 2026
+- VRAM: ~6GB for single image input (fits T4/16GB consumer cards)
+- Speed: ~0.5 seconds per asset on GPU with 7GB+ VRAM
+- Output: Textured GLB with UV unwrapping, albedo + normal maps
+- License: Stability AI Community License (non-MIT, gated weights)
+- Python: 3.8+, CUDA or MPS
+- Texture resolution: 512 / 1024 (default) / 2048 pixels
+- Based on TripoSR architecture with UV-unwrapping and illumination disentanglement
+- Third-party vendored at: `backend/thirdparty/StableFast3D/`
 
-**Files touched:**
-1. ✅ `features/workspace/Panels/GeneratePanel.tsx` — split `enable_postprocess` / `texture_enabled` into independent toggles
-2. ✅ `features/workspace/utils/buildGenerationParameters.ts` — added `texture_enabled` + `texture_settings` to request body
-3. ✅ `features/workspace/utils/buildTextureGenerationParameters.ts` — removed Paint3D fallback; route to Hunyuan3D-Paint v2.1
-4. ✅ `backend/api/routers/mesh_generation.py` — accept `texture_enabled` + `texture_settings`; validate; route to scheduler; remove Paint3D route references
-5. ✅ `backend/core/scheduler/multiprocess_scheduler.py` — `texture_enabled` no longer stripped from model inputs; `_TEXTURE_MODEL_MAP`/`_resolve_texture_model` removed; CPU offload dispatch wired
-6. ✅ `backend/postprocess/pipeline.py` — `_execute_texture_stage` no-op shim; postprocess picks up adapter's `textured_mesh_path`; keeps gate/repair/decimate/UV/bake/LOD/collision/QA
-7. ✅ `backend/adapters/hunyuan3d_adapter_v21.py` — `_load_model` loads shape + paint pipelines from same weights dir; `_process_request` runs raw → texture using already-loaded weights; returns `textured_mesh_path`
-8. 🔲 `backend/adapters/trellis_adapter.py` — add texture method to `_TrellisBaseAdapter._process_request` (TRELLIS v1 supports `image_mesh_painting`; paint pipeline uses `to_glb(gs, mesh, texture_size=...)`)
-9. 🔲 `backend/adapters/trellis2_adapter.py` — add texture method to `Trellis2ImageToRawMeshAdapter._process_request` (TRELLIS.2 supports `image_mesh_painting`; same pipeline does `pipeline(mesh=, image=, seed=)`)
-10. ✅ `backend/adapters/paint3d_adapter.py` — deleted entirely
-11. ✅ `backend/adapters/trellis2_paint_adapter.py` — deleted (consolidated into trellis2_adapter.py)
-12. ✅ `backend/adapters/hunyuan3d_paint_v21.py` — deleted (consolidated into hunyuan3d_adapter_v21.py)
-13. ✅ `backend/adapters/__init__.py` — removed Paint3D/hunyuan3d_paint_v21/trellis2_paint registry entries
-14. ✅ `backend/core/scheduler/model_factory.py` — removed Paint3D registry entries
-15. ✅ `backend/config/models.yaml` — removed Paint3D registration; added `cpu_offload: true` to Hunyuan3D-Paint v2.1
-16. ✅ `backend/api/routers/system.py` — removed Paint3D from model listing
-17. ✅ `backend/core/planner.py` — removed Paint3D routing; `cpu_offload` read for Hunyuan3D-Paint v2.1
-18. ✅ `frontend constants/models.ts` — removed Paint3D entries
-19. ✅ `features/workspace/Panels/TexturePanel.tsx` — removed Paint3D option / references
-20. ✅ `frontend constants/models.ts` — removed Paint3D entries
-21. ✅ `backend/scripts/download_models.sh` — removed Paint3D download/verify entries
-22. ✅ `backend/requirements-models.txt` — removed Paint3D from comment
-23. ✅ `backend/api/routers/mesh_generation.py` — `texture_enabled` + `texture_settings` fields on both request models; passthrough to job inputs/metadata
-24. ✅ `Docs/api-documentation.md` — documented new fields + textured artifact URL; removed Paint3D endpoint docs
-25. ✅ `Docs/ARCHITECTURE.md` — updated pipeline contract; removed Paint3D from tables/diagrams
-26. ✅ `Docs/DESIGN.md`, `Docs/PRD.md`, `Docs/SYSTEM-BLUEPRINT.md`, `Docs/MEMORY.md` — removed Paint3D references
-27. ✅ `Docs/TASKS.md` — this document
+**Files to touch:**
 
-**Rules compliance (AGENTS.md + Ponytail):**
-- YAGNI: No new endpoint, no separate texture adapter, no global monkeypatch, no new dependency
-- Smallest diff: Texture moves into existing adapter `_process_request`; postprocess texture stage deleted; Paint3D deleted
-- Priority Rule 1: `sm >= 80` modern GPU path untouched — zero regression
-- Priority Rule 2: Fix inside adapter code, no global runtime monkeypatch
-- Priority Rule 3: Model-specific patcher isolation; never leaks to other models
-- Root cause: Texture forced through separate adapter causing second weights load; fixed by keeping texture inside same adapter
-- Reuse first: Existing adapter texture calls reused; no new adapter created
+1. `backend/adapters/stable_fast_3d_adapter.py` — NEW adapter file
+   - Class: `StableFast3DAdapter(BaseModel)`
+   - MODEL_KEY: `stabilityai/stable-fast-3d`
+   - FEATURE_TYPE: `image_to_textured_mesh` (single pass: raw mesh + texture)
+   - `__init__`: `self._pipeline = None`, `self.device = "cpu"`, `self.gpu_id = None`
+   - `_load_model`: Load SF3D pipeline from `stabilityai/stable-fast-3d` HF repo. Requires HF token for gated access. Move pipeline to GPU device. Import from vendored `thirdparty/StableFast3D/sf3d/system.py`.
+   - `_unload_model`: Clear `self._pipeline`, `self.model`
+   - `_process_request`: Takes `image_path` + `texture_resolution`, runs `pipeline.run_image(image, bake_resolution=..., remesh=..., vertex_count=...)`, returns `(mesh, glob_dict)` → save as GLB, return `output_mesh_path`, `mesh_path`, `texture_enabled: True`, `generation_info` with seed, texture_resolution
+   - Texture is generated as part of the same pipeline (not separate stage)
+   - Guard with try/except — texture/mesh generation failure returns error gracefully
+
+2. `backend/adapters/__init__.py` — Register `stable_fast_3d_image_to_textured_mesh` → `backend.adapters.stable_fast_3d_adapter`
+
+3. `backend/config/models.yaml` — Add `stable_fast_3d_image_to_textured_mesh` entry under `image_to_textured_mesh` feature category with `vram_requirement: 6144`, `supportsTexture: true`, `cpu_offload: false`
+
+4. `backend/scripts/download_models.sh` — Add `download_stable_fast_3d()` function that downloads from `stabilityai/stable-fast-3d` HF repo (requires HF token). Add to `AVAILABLE_MODELS`, case statement, and "all" case.
+
+5. `constants/models.ts` — Add frontend model entry with `category: 'mesh_generation'`, `feature: 'image_to_textured_mesh'`, `vramMb: 6144`, `supportsTexture: true`, `supportedInputs: ['image']`, `supportedOutputs: ['glb', 'obj']`, `modelPath: 'backend/pretrained/stable-fast-3d'`
+
+6. `features/workspace/Panels/GeneratePanel.tsx` — Model appears automatically via `getModelsForFeature('image_to_textured_mesh')` if registry-driven. May need to add to model selection UI.
+
+7. `backend/api/routers/mesh_generation.py` — No code change needed if `validate_model_preference()` checks `_ADAPTER_MAP` registry. Model ID flows through as `model_preference`.
+
+**Adapter pattern for SF3D:**
+
+```python
+class StableFast3DAdapter(BaseModel):
+    """Stable Fast 3D — Single image to textured mesh."""
+
+    MODEL_KEY = "stabilityai/stable-fast-3d"
+    FEATURE_TYPE = "image_to_textured_mesh"
+
+    def __init__(self, vram_requirement: int, **kwargs: Any):
+        self.model_id = kwargs.get("model_id")
+        self.model_path: Path | None = None
+        self.vram_requirement = vram_requirement
+        self.feature_type = kwargs.get("feature_type", self.FEATURE_TYPE)
+        self.status = ModelStatus.UNLOADED
+        self.gpu_id: int | None = None
+        self.gpu_ids: list[int] = []
+        self.resource_plan: dict[str, Any] = {}
+        self.native_topology = False
+        self.model: Any = None
+        self.device = "cpu"
+        self.dtype = None
+        self.version = "1.0"
+        self.experimental = False
+        self._pipeline: Any = None
+
+    def _load_model(self) -> Any:
+        _sf3d_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "StableFast3D")
+        if _sf3d_root not in sys.path:
+            sys.path.insert(0, _sf3d_root)
+        from sf3d.system import SF3D
+        hf_token = os.getenv("HF_TOKEN")
+        if not hf_token:
+            logger.warning("HF_TOKEN not set — SF3D weights are gated")
+        pipeline = SF3D.from_pretrained(
+            str(weights_dir_path),
+            config_name="config.yaml",
+            weight_name="model.safetensors",
+        )
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
+        pipeline.to(device)
+        pipeline.eval()
+        self._pipeline = pipeline
+        self.model = pipeline
+        return pipeline
+
+    def _unload_model(self) -> None:
+        self._pipeline = None
+        self.model = None
+
+    def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        pipeline = self._pipeline
+        if pipeline is None:
+            return {"success": False, "error": "Stable Fast 3D pipeline not loaded"}
+
+        image_path = inputs.get("image_path") or inputs.get("image")
+        if not image_path or not Path(image_path).is_file():
+            return {"success": False, "error": f"image not found: {image_path}"}
+
+        seed = int(inputs.get("seed", DEFAULT_SEED))
+        texture_resolution = int(inputs.get("texture_resolution", 1024))
+        remesh_option = inputs.get("remesh_option", "none")
+        target_vertex_count = int(inputs.get("target_vertex_count", -1))
+
+        import tempfile
+        output_dir = Path(tempfile.mkdtemp())
+
+        ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
+        with ctx:
+            mesh, glob_dict = pipeline.run_image(
+                image,
+                bake_resolution=texture_resolution,
+                remesh=remesh_option,
+                vertex_count=target_vertex_count,
+            )
+
+        out = Path(tempfile.mkdtemp()) / f"stable_fast_3d_{seed}.glb"
+        mesh.export(str(out), include_normals=True)
+
+        return {
+            "success": True,
+            "output_mesh_path": str(out),
+            "mesh_path": str(out),
+            "textured_mesh_path": str(out),
+            "texture_enabled": True,
+            "generation_info": {
+                "seed": seed,
+                "texture_resolution": texture_resolution,
+                "remesh_option": remesh_option,
+                "target_vertex_count": target_vertex_count,
+                "num_inference_steps": "adapter_owned",
+                "guidance_scale": "adapter_owned",
+            },
+        }
+
+    def get_supported_formats(self) -> Dict[str, list[str]]:
+        return {"input": ["png", "jpg", "jpeg", "webp"], "output": ["glb", "obj"]}
+
+    def get_parameter_schema(self) -> Dict[str, Any]:
+        return {
+            "parameters": {
+                "seed": {
+                    "type": "integer",
+                    "description": "Random seed for reproducibility",
+                    "default": DEFAULT_SEED,
+                    "minimum": 0,
+                    "required": False,
+                },
+                "texture_resolution": {
+                    "type": "integer",
+                    "description": "Output texture atlas resolution in pixels",
+                    "default": 1024,
+                    "minimum": 512,
+                    "maximum": 2048,
+                    "required": False,
+                },
+                "remesh_option": {
+                    "type": "string",
+                    "description": "Remeshing operation: none, triangle, or quad",
+                    "default": "none",
+                    "required": False,
+                },
+                "target_vertex_count": {
+                    "type": "integer",
+                    "description": "Target vertex count for decimation (-1 = no reduction)",
+                    "default": -1,
+                    "required": False,
+                },
+            }
+        }
+```
 
 **Acceptance criteria:**
-- Texture OFF → raw mesh + postprocess derivatives; no texture artifact ✅
-- Texture ON → raw `master/source.glb` AND textured artifact; weights loaded once ✅ (Hunyuan3D-2.1)
-- No external texture adapter called from postprocess ✅
-- Paint3D fully removed from main repo ✅
-- Hunyuan3D-Paint v2.1 CPU offload: `cpu_offload: true` in models.yaml ✅
-- `bun x tsc --noEmit` → 0 errors ✅
-- `bun test` passes ✅
-- Backend `pytest` passes (11 passed, 7 pre-existing failures from missing optional modules) ✅
-- No change to `sm >= 80` inference path ✅
-
-**Verification:**
-- Frontend: `npx tsc --noEmit` → 0 errors; `bun test` passes
-- Backend: `python -m pytest backend/tests/` → 11 passed, 5 skipped, 7 pre-existing failures (rtree/xatlas/pymeshlab — unrelated)
-- `python3 -m py_compile` on all edited Python files → OK
-- Runtime: Not GPU-verified (no GPU/backend server available)
-
-**Remaining (next agent — texture pipeline for Trellis + Trellis.2):**
-- `backend/adapters/trellis_adapter.py` — `_TrellisBaseAdapter._process_request`: after raw mesh generation, if `texture_enabled`, run `to_glb(gs, mesh, texture_size=...)` using already-loaded pipeline; return `textured_mesh_path`
-- `backend/adapters/trellis2_adapter.py` — `Trellis2ImageToRawMeshAdapter._process_request`: after raw mesh generation, if `texture_enabled`, run `pipeline(mesh=mesh, image=image, seed=seed)` using already-loaded pipeline; return `textured_mesh_path`
-- These two adapters share `MODEL_KEY` with their shape adapters; loading both pipelines in one `_load_model` call avoids second weights load
-- Pattern: same as `hunyuan3d_adapter_v21.py` (load paint pipeline in `_load_model`, run after raw in `_process_request`, guard on `texture_enabled` + reference image path + pipeline availability)
+- `py_compile` passes on new adapter file
+- `tsc --noEmit` → 0 errors (frontend model entry)
+- `bash -n download_models.sh` → shell syntax OK
+- `texture_enabled` flows from API → scheduler → adapter (already wired)
+- Adapter loads pipeline in single `_load_model` call (no second weights load)
+- Model appears in TexturePanel / GeneratePanel dropdowns
+- Download script downloads SF3D weights via HF (requires HF token)
+- `sm >= 80` path untouched (zero regression)
+- HF token required for gated weights — adapter logs warning if missing
 
 **Risks / skipped:**
-- Live GPU texture inference not run (no GPU)
-- TRELLIS/TRELLIS.2 texture pipeline not yet implemented (marked above for next agent)
-- VRAM inconsistency across adapter header (14336 MB), models.yaml (12000 MB), pipeline.py (21000 MB) — owner confirmation needed
-- `backend/thirdparty/Paint3D/` submodule removal deferred to user
-- Frontend download/viewer must switch to new `textured_url` artifact
+- Live GPU inference not run (no GPU available)
+- SF3D model is gated on Hugging Face — requires `hf auth login` + accepted license before weights can download
+- SF3D license is Stability AI Community License (non-MIT) — review before commercial use
+- SF3D Python API follows `pipeline.run_image(image, bake_resolution=..., remesh=..., vertex_count=...)` — verified from vendored `sf3d/system.py`
+- Texture resolution is set per-request (512/1024/2048), not per-model preset
+
+---
+
+## ✅ COMPLETE — TEX-1: Texture pipeline inside adapter; raw + texture in one weights load; complete Paint3D removal from main repo
+
+**Priority:** High | **Status:** DONE
+
+All three texture-capable models implemented:
+- Hunyuan3D-2.1 (`hunyuan3d_adapter_v21.py`) ✅
+- TRELLIS (`trellis_adapter.py`) ✅
+- TRELLIS.2 (`trellis2_adapter.py`) ✅
+
+Paint3D fully removed from main repo. CPU offload wired. Structured logging wired.
 
 ---
 
 ## ✅ COMPLETE — TEX-2: Strong pipeline logging & clear log formatting
 
-**Priority:** High | **Area:** Backend API / Scheduler / Adapters / Postprocess / Config | **Status:** DONE
+**Priority:** High | **Status:** DONE
 
-**What was done:**
-1. ✅ `backend/core/logging_filters.py` — created `JobContextFilter` (adds `job_id`, `stage`, `duration_ms` defaults)
-2. ✅ `backend/config/logging.yaml` — Option 2 format: `[job=<id>] [stage=<stage>] key=value message`; adapters/postprocess at DEBUG
-3. ✅ `backend/core/config.py` — `setup_logging()` wires `JobContextFilter` (dictConfig + belt-and-suspenders explicit injection)
-4. ✅ `backend/api/routers/mesh_generation.py` — entry (`[stage=receive]`) and exit (`[job=<id>] [stage=dispatch]`) logging with duration_ms
-
-**Acceptance criteria:**
-- `logging.yaml` formatter includes `[job=%(job_id)s] [stage=%(stage)s]` with defaults ✅
-- `JobContextFilter` injected in `setup_logging()` ✅
-- API entry/exit structured logging ✅
+JobContextFilter created, logging.yaml Option 2 format, API entry/exit logging wired.
 
 ---
 
-## 🟡 OPEN — Texture pipeline for Trellis + Trellis.2 adapters
+## ✅ COMPLETE — TEX-3: Hunyuan3D-2 (v2.0) Paint texture adapter
 
-**Priority:** Medium | **Area:** Backend Adapters
+**Priority:** Medium | **Status:** IMPLEMENTED — NOT COMMITTED
 
-**Description:**
-TRELLIS v1 and TRELLIS.2 both register `image_mesh_painting` feature and have texture-painting capability in their vendored pipelines. Add texture generation inside each adapter's `_process_request` (after raw inference, same `_load_model` call) following the `hunyuan3d_adapter_v21.py` pattern.
-
-**Files to touch:**
-1. `backend/adapters/trellis_adapter.py` — `_TrellisBaseAdapter._process_request`
-2. `backend/adapters/trellis2_adapter.py` — `Trellis2ImageToRawMeshAdapter._process_request`
-
-**Pattern to follow** (from `hunyuan3d_adapter_v21.py`):
-- `_load_model`: load paint pipeline from same weights dir into `self._paint_pipeline` (guard with try/except)
-- `_unload_model`: clear `self._paint_pipeline`
-- `_process_request`: after raw mesh export, if `inputs.get("texture_enabled")` and reference image path exists and `self._paint_pipeline` is not None, run paint pipeline on raw mesh + image; return `textured_mesh_path` in result dict
+Hunyuan3D-2 (v2.0) texture-only paint adapter implemented:
+- `backend/adapters/hunyuan3d_v20_paint_adapter.py` — NEW texture-only adapter
+- `backend/adapters/__init__.py` — registered `hunyuan3d_v20_paint_image_mesh_painting`
+- `backend/config/models.yaml` — added entry with `cpu_offload: true`, 11000 MB VRAM
+- `backend/scripts/download_models.sh` — added `download_hunyuan3d_v20_paint()` (texture weights only)
+- `constants/models.ts` — added frontend model entry
+- VRAM: ~11 GB — fits on 16 GB consumer cards
 
 ---
