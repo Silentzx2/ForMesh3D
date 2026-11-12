@@ -49,6 +49,8 @@ DEFAULT_ADAPTER_CLASS_MAP = {
     "partuv_uv_unwrapping": "PartUVUnwrappingAdapter",
     # Motion
     "ardy_motion_generation": "ArdyMotionGenerationAdapter",
+    # Hunyuan3D-2 (v2.0) Paint (image mesh painting)
+    "hunyuan3d_v20_paint_image_mesh_painting": "Hunyuan3DV20PaintImageMeshPaintingAdapter",
 }
 
 # Legacy alias mapping for raw geometry routing

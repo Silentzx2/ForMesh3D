@@ -174,6 +174,11 @@ class ModelFactory:
             "module": "adapters.stable_fast_3d_adapter",
             "class": "StableFast3DAdapter",
         },
+        # Hunyuan3D-2 (v2.0) Paint (image mesh painting)
+        "hunyuan3d_v20_paint_image_mesh_painting": {
+            "module": "adapters.hunyuan3d_v20_paint_adapter",
+            "class": "Hunyuan3DV20PaintImageMeshPaintingAdapter",
+        },
     }
 
     LEGACY_IMAGE_TO_RAW_ALIASES = {
