@@ -141,11 +141,9 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
   const rawFileSizeMb = Number(raw.file_size_mb);
   const fileSize = typeof raw.fileSize === 'string' && raw.fileSize.trim()
     ? raw.fileSize.trim()
-    : typeof raw.fileSize === 'number' && Number.isFinite(raw.fileSize) && raw.fileSize >= 0
-      ? `${raw.fileSize.toFixed(1)} MB`
-      : raw.file_size_mb !== undefined && raw.file_size_mb !== null && Number.isFinite(rawFileSizeMb) && rawFileSizeMb >= 0
-        ? `${rawFileSizeMb.toFixed(1)} MB`
-        : undefined;
+    : raw.file_size_mb !== undefined && raw.file_size_mb !== null && Number.isFinite(rawFileSizeMb) && rawFileSizeMb >= 0
+      ? `${rawFileSizeMb.toFixed(1)} MB`
+      : undefined;
 
   const rawArtifacts = (raw.artifacts || {}) as Record<string, any>;
   const collisionUrl =

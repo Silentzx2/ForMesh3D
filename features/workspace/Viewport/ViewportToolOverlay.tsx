@@ -18,6 +18,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import type { LightTone } from './MeshViewer';
 import type { ShadingMode } from '../types';
+import { useViewerStore } from '@/stores/useViewerStore';
 
 interface ViewportToolOverlayProps {
   isRightPanelOpen?: boolean;
@@ -42,6 +43,8 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
   } = useWorkspace();
 
   const isRightPanelOpen = propRightPanelOpen ?? contextRightPanelOpen ?? false;
+  const modelStats = useViewerStore((state) => state.modelStats);
+  const [isMeshDetailsExpanded, setIsMeshDetailsExpanded] = useState(true);
   const compareBeforeUrl = currentAsset?.artifacts?.source;
   const compareAfterUrl = currentAsset?.source?.viewUrl || currentAsset?.source?.localUrl || currentAsset?.artifacts?.gameReady;
   const canCompare = Boolean(compareBeforeUrl && compareAfterUrl && compareBeforeUrl !== compareAfterUrl);
