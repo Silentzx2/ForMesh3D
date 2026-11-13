@@ -76,22 +76,29 @@ class JobRequest:
         timeout_seconds: int = 3600,
         metadata: Optional[Dict[str, Any]] = None,
         user_id: Optional[str] = None,
+        explicit_job_id: Optional[str] = None,
     ):
-        # Build a human-readable job_id: <name>_<6-char-hash>
-        raw_name = (
-            inputs.get("asset_name")
-            or inputs.get("image_name")
-            or inputs.get("name")
-            or feature
-            or "job"
-        )
-        # Clean: strip extension, special chars, limit length
-        clean_name = str(raw_name).rsplit(".", 1)[0]
-        clean_name = re.sub(r"[^a-zA-Z0-9_-]", "_", clean_name).strip("_")[:40] or "job"
-        # Stable hash from name + timestamp + random for uniqueness
-        hash_input = f"{clean_name}:{time.time_ns()}:{uuid.uuid4().hex}"
-        short_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:6]
-        self.job_id = f"{clean_name}_{short_hash}"
+        # Idempotent job id reuse: if an explicit id is supplied (retry of a
+        # failed generation for the same image+model) it is used as-is so the
+        # caller can resume the same job instead of spinning up a duplicate.
+        if explicit_job_id:
+            self.job_id = explicit_job_id
+        else:
+            # Build a human-readable job_id: <name>_<6-char-hash>
+            raw_name = (
+                inputs.get("asset_name")
+                or inputs.get("image_name")
+                or inputs.get("name")
+                or feature
+                or "job"
+            )
+            # Clean: strip extension, special chars, limit length
+            clean_name = str(raw_name).rsplit(".", 1)[0]
+            clean_name = re.sub(r"[^a-zA-Z0-9_-]", "_", clean_name).strip("_")[:40] or "job"
+            # Stable hash from name + timestamp + random for uniqueness
+            hash_input = f"{clean_name}:{time.time_ns()}:{uuid.uuid4().hex}"
+            short_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:6]
+            self.job_id = f"{clean_name}_{short_hash}"
         self.feature = feature
         self.inputs = inputs
         self.model_preference = model_preference
@@ -473,6 +480,54 @@ class JobQueue:
             logger.info(
                 f"Re-enqueued job {job.job_id} to front of queue for feature {job.feature}"
             )
+
+    async def existing_job_for_source(
+        self,
+        feature: str,
+        image_file_id: Optional[str],
+        model_preference: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Return an existing job id for idempotent reuse.
+
+        Reuses the most recent terminal failure/cancellation job for the
+        requested (feature, image_file_id, model_preference) so that a retry
+        after failure resumes the same job id instead of creating a duplicate.
+        QUEUED/PROCESSING jobs are not reused (an in-flight generation must not
+        be duplicated under the same id), and a previously completed generation
+        is not reused either — a fresh job is created instead. Returns None when
+        there is nothing to reuse.
+        """
+        if not image_file_id:
+            return None
+        async with self._cache_lock:
+            # Check in-memory caches first, most recent first.
+            candidates = [
+                *(reversed(list(self._queue_cache))),
+                *(reversed(list(self._processing_cache.values()))),
+                *(reversed(list(self._completed_cache.values()))),
+            ]
+            for job in candidates:
+                if job.feature != feature:
+                    continue
+                if job.inputs.get("image_file_id") != image_file_id:
+                    continue
+                if model_preference is not None and job.model_preference != model_preference:
+                    continue
+                # Only reuse terminal failure/cancellation states: retry-after-failure
+                # semantics. Never reuse QUEUED/PROCESSING (in-flight) or COMPLETED.
+                if job.status not in (JobStatus.FAILED, JobStatus.CANCELLED):
+                    continue
+                return job.job_id
+
+        # Fall back to the database for jobs not resident in memory.
+        if self.db_manager:
+            row = await asyncio.to_thread(
+                self.db_manager.find_job_by_source, feature, image_file_id, model_preference
+            )
+            if row:
+                return row.job_id
+        return None
 
     async def requeue_job(self, job_id: str, front: bool = True):
         """Move a job from processing back to the queue."""

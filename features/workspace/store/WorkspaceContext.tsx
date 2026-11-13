@@ -1204,10 +1204,14 @@ function dataURLtoFile(dataURL: string, filename: string): File {
 
   // Poll all active jobs in jobsById from backend so each queued/running job updates in real time
   useEffect(() => {
-    const activeJobEntries = Object.entries(jobsById).filter(([id, task]) => {
+    // Poll backend job status so every generation reaches a terminal state
+    // (completed / failed / interrupted) instead of leaving the UI stuck on
+    // the progress bar. Jobs live in jobsById under their local task id key
+    // (e.g. slug-hash or queue_*), while task.backendJobId holds the real
+    // backend UUID to query against /api/v1/system/jobs/{id}.
+    const activeJobEntries = Object.entries(jobsById).filter(([_, task]) => {
       const isTerminal = task.status === 'completed' || task.status === 'failed' || task.status === 'interrupted';
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-      return !isTerminal && isUuid && !task.isLocal;
+      return !isTerminal && !!task.backendJobId && !task.isLocal;
     });
 
     if (activeJobEntries.length === 0) {
@@ -1223,7 +1227,8 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         await Promise.all(
           activeJobEntries.map(async ([jobId, task]) => {
             try {
-              const res = await fetch(`/api/v1/system/jobs/${encodeURIComponent(jobId)}`);
+              const backendJobId = task.backendJobId || jobId;
+              const res = await fetch(`/api/v1/system/jobs/${encodeURIComponent(backendJobId)}`);
               if (!res.ok) return;
               const payload = await res.json();
               const raw = payload?.data ?? payload;

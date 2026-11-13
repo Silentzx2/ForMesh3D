@@ -1455,6 +1455,31 @@ class MultiprocessModelScheduler:
                 f"No models available for feature: {job_request.feature}. Available features: {list(self.model_features.keys())}"
             )
 
+        # Idempotent reuse: a failed/interrupted generation for the same
+        # image+model resumes under its existing job id; a fresh successful
+        # job (completed) or a different image/model gets a brand-new id.
+        image_file_id = job_request.inputs.get("image_file_id")
+        existing_job_id = await self.job_queue.existing_job_for_source(
+            job_request.feature, image_file_id, job_request.model_preference
+        )
+        if existing_job_id:
+            logger.info(
+                "Reusing existing job id %s for feature=%s image_file_id=%s",
+                existing_job_id,
+                job_request.feature,
+                image_file_id,
+            )
+            job_request = JobRequest(
+                feature=job_request.feature,
+                inputs=job_request.inputs,
+                model_preference=job_request.model_preference,
+                priority=job_request.priority,
+                timeout_seconds=job_request.timeout_seconds,
+                metadata=job_request.metadata,
+                user_id=job_request.user_id,
+                explicit_job_id=existing_job_id,
+            )
+
         try:
             job_id = await self.job_queue.enqueue(job_request)
         except Exception:

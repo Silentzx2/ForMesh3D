@@ -187,6 +187,56 @@ class DatabaseManager:
             logger.error(f"Unexpected error saving job {job_request.job_id}: {e}")
             return False
 
+    def find_job_by_source(
+        self,
+        feature: str,
+        image_file_id: str,
+        model_preference: Optional[str] = None,
+    ) -> Optional[JobModel]:
+        """
+        Find the most recent job for a given source (image + feature + model).
+
+        Used for idempotent job-id reuse: a failed/interrupted generation for the
+        same image+model should resume under its existing job id, while a
+        previously completed generation gets a fresh id. image_file_id lives
+        inside the inputs JSON column, so candidates are matched in Python for
+        DB portability.
+
+        Returns the most recent failed/cancelled job if one exists, else None.
+        QUEUED/PROCESSING (in-flight) and COMPLETED jobs are not reused.
+        """
+        if not image_file_id:
+            return None
+        try:
+            with self.get_session() as session:
+                rows = (
+                    session.query(JobModel)
+                    .filter_by(feature=feature)
+                    .order_by(JobModel.created_at.desc())
+                    .all()
+                )
+                for row in rows:
+                    inputs = row.inputs
+                    if isinstance(inputs, str):
+                        try:
+                            inputs = json.loads(inputs or "{}")
+                        except Exception:
+                            inputs = {}
+                    if not isinstance(inputs, dict) or inputs.get("image_file_id") != image_file_id:
+                        continue
+                    if model_preference is not None and row.model_preference != model_preference:
+                        continue
+                    # Only reuse terminal failure/cancellation states so a retry
+                    # after failure resumes the same id; never reuse in-flight or
+                    # completed jobs.
+                    if row.status not in (JobStatus.FAILED.value, JobStatus.CANCELLED.value):
+                        continue
+                    return row
+                return None
+        except SQLAlchemyError as e:
+            logger.warning(f"find_job_by_source failed for feature={feature}: {e}")
+            return None
+
     def get_job(self, job_id: str) -> Optional[JobModel]:
         """
         Get a job from the database by ID.
