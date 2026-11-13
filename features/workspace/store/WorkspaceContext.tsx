@@ -1429,8 +1429,12 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       const rawName = asset?.name || id.replace(/^(?:local_|upload_|hist_|job-)+/, '');
       const cleanName = rawName
         .replace(/\.[^/.]+$/, '')
-        .replace(/[^a-zA-Z0-9_-]/g, '_')
-        .slice(0, 24) || 'asset';
+        .replace(/[^a-zA-Z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .split('_')
+        .filter(Boolean)
+        .slice(0, 2)
+        .join('_') || 'asset';
       const shortHash = id.replace(/^(?:local_|upload_|hist_|job-)+/, '').slice(0, 6);
       window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
     }
@@ -1642,7 +1646,15 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       // and after generation completes the mesh loads on that same URL.
       if (!inputImageName) {
         const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-        const cleanName = title.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 24) || 'job';
+        const rawName = title || 'job';
+        const cleanName = rawName
+          .replace(/\.[^/.]+$/, '')
+          .replace(/[^a-zA-Z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .split('_')
+          .filter(Boolean)
+          .slice(0, 2)
+          .join('_') || 'job';
         const shortHash = crypto.randomUUID().slice(0, 6);
         window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
       }
@@ -1654,10 +1666,18 @@ function dataURLtoFile(dataURL: string, filename: string): File {
   const bindBackendJob = useCallback((localTaskId: string, jobId: string, updates: Partial<ActiveTask> = {}) => {
     if (typeof window !== 'undefined') {
       const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-      // Consistent URL: <name>_<hash> — strip ALL known prefixes, convert dashes to underscores
-      const friendlyId = localTaskId.replace(/^(?:local_|upload_|hist_|job-)+/, '').replace(/-/g, '_');
+      // Consistent URL: <2words>_<hash> — strip ALL known prefixes, convert dashes to underscores
+      const friendlyId = localTaskId.replace(/^(?:local_|upload_|hist_|job-)+/, '');
+      const cleanName = friendlyId
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[^a-zA-Z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .split('_')
+        .filter(Boolean)
+        .slice(0, 2)
+        .join('_') || 'job';
       const shortHash = crypto.randomUUID().slice(0, 6);
-      window.history.replaceState(null, '', `${toolRoute}/${friendlyId}_${shortHash}`);
+      window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
       // Persist friendly ID -> backend UUID mapping for post-refresh hydration
       localStorage.setItem(`fm3d:job:${localTaskId}`, jobId);
     }
@@ -1877,7 +1897,14 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       if (typeof window !== 'undefined') {
         const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
         const cleanName = generationSettings.imageName
-          ? generationSettings.imageName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 24)
+          ? generationSettings.imageName
+              .replace(/\.[^/.]+$/, '')
+              .replace(/[^a-zA-Z0-9]+/g, '_')
+              .replace(/^_+|_+$/g, '')
+              .split('_')
+              .filter(Boolean)
+              .slice(0, 2)
+              .join('_') || 'asset'
           : 'asset';
         const shortHash = jobId.slice(0, 6);
         window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
