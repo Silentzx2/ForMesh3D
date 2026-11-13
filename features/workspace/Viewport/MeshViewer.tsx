@@ -1245,7 +1245,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
       {/* Execution Progress Bar — bottom center */}
       {isExecuting && (
-        <div className="absolute bottom-1/2 left-1/2 -translate-x-1/2 translate-y-1/2 z-20 pointer-events-none">
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
           <div className="w-64 h-1.5 rounded-full bg-white/10 border border-white/5">
             <div
               className="h-full rounded-full transition-all duration-300 bg-white"

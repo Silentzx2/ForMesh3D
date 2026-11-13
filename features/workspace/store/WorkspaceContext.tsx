@@ -454,7 +454,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const data = await res.json();
       const files = Array.isArray(data) ? data : (data?.files || []);
       return files
-        .filter((m: any) => m.file_id && !String(m.file_id).startsWith('job-'))
+        .filter((m: any) => m.file_id && !String(m.file_id).startsWith('job-') && m.file_type !== 'image')
         .map((m: any) => {
         const cleanName = m.filename?.replace(/\.[^.]+$/, '') || '3D Model';
         const formattedName = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);

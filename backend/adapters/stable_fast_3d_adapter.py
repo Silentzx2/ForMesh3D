@@ -86,6 +86,10 @@ class StableFast3DAdapter(BaseModel):
         _sf3d_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "StableFast3D")
         if _sf3d_root not in sys.path:
             sys.path.insert(0, _sf3d_root)
+        # Make the vendored uv_unwrapper source importable (needed by sf3d.models.mesh)
+        _uv_root = str(Path(_sf3d_root) / "uv_unwrapper")
+        if _uv_root not in sys.path:
+            sys.path.insert(0, _uv_root)
 
         from sf3d.system import SF3D
 
