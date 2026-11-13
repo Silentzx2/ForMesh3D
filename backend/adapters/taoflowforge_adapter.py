@@ -164,8 +164,6 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
 
         # Upstream official schedule: Stage 0 (50), Stage 1 (30), Stage 2 (50).
         # Fast testing schedule (e.g. 5 steps) is opt-in via TAOFLOWFORGE_FAST_STEPS=1 or per-stage env vars.
-        # Upstream official schedule: Stage 0 (50), Stage 1 (30), Stage 2 (50).
-        # Fast testing schedule (e.g. 5 steps) is opt-in via TAOFLOWFORGE_FAST_STEPS=1 or per-stage env vars.
         use_fast_steps = (
             os.environ.get("TAOFLOWFORGE_FAST_STEPS", "").lower() in ("1", "true")
             or os.environ.get("TAOFLOWFORGE_USE_OFFICIAL_STEPS", "1").lower() in ("0", "false")

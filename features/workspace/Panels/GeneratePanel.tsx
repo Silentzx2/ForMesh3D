@@ -264,7 +264,6 @@ export const GeneratePanel: React.FC = () => {
     generate3DModel,
     generationSettings,
     setGenerationSettings,
-    postprocessingEnabled,
   } = useWorkspace();
 
   const [isGeneralSettingsOpen, setIsGeneralSettingsOpen] = useState(false);
@@ -358,7 +357,6 @@ export const GeneratePanel: React.FC = () => {
   // Geometry & Texture flyout settings matching Tripo reference
   const [isGeomTextureOpen, setIsGeomTextureOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [enablePostprocess, setEnablePostprocess] = useState(postprocessingEnabled);
   const [enableTexture, setEnableTexture] = useState(true);
   const [textureQuality, setTextureQuality] = useState<'2K' | '4K'>('4K');
   const [removeLighting, setRemoveLighting] = useState(true);
@@ -405,7 +403,6 @@ export const GeneratePanel: React.FC = () => {
       ...prev,
       aiModel: prev.aiModel || selectedModel,
       intent: prev.intent || intent,
-      enablePostprocess: prev.enablePostprocess ?? enablePostprocess,
       generateTexture: prev.generateTexture ?? enableTexture,
       texture_enabled: prev.texture_enabled ?? enableTexture,
       textureEnabled: prev.textureEnabled ?? enableTexture,
@@ -1042,8 +1039,100 @@ export const GeneratePanel: React.FC = () => {
             />
           </button>
 
-          {/* Dynamic Flying Side Geometry & Texture Settings Panel */}
-          {mounted && isGeomTextureOpen && typeof document !== 'undefined' && createPortal(
+          {/* Texture Settings (Main Panel) */}
+          <div className="space-y-2 pt-1 border-t border-white/[0.08] pt-2">
+            <div className="flex items-center justify-between py-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-zinc-200 font-medium">Texture Generation</span>
+                <span title="Generate PBR textures with the model's texture pipeline" className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                  <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={enableTexture}
+                onClick={() => {
+                  const next = !enableTexture;
+                  setEnableTexture(next);
+                  setGenerationSettings((prev) => ({ ...prev, generateTexture: next, texture_enabled: next, textureEnabled: next }));
+                }}
+                className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer ${enableTexture ? 'bg-[#6366F1]' : 'bg-white/15'}`}
+              >
+                <div className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${enableTexture ? 'translate-x-3.5' : 'translate-x-0'}`} />
+              </button>
+            </div>
+            {textureSupport !== 'none' && (
+              <div className="space-y-1 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-zinc-300 font-medium">Atlas Resolution</span>
+                  <span className="text-[9px] font-mono text-[#F9CF00] font-bold">{textureQuality}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTextureQuality('2K');
+                      setGenerationSettings((prev) => ({ ...prev, textureResolution: '2K', texture_resolution: '2K', textureQuality: 'medium' }));
+                    }}
+                    className={`h-6 rounded-lg text-xs font-bold transition-all ${textureQuality === '2K' ? 'bg-[#3b3577] text-white border border-[#6366F1]' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'}`}
+                  >2K</button>
+                  {textureSupport === '4k' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTextureQuality('4K');
+                        setGenerationSettings((prev) => ({ ...prev, textureResolution: '4K', texture_resolution: '4K', textureQuality: 'high' }));
+                      }}
+                      className={`h-6 rounded-lg text-xs font-bold transition-all ${textureQuality === '4K' ? 'bg-[#3b3577] text-white border border-[#6366F1]' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'}`}
+                    >4K</button>
+                  )}
+                </div>
+              </div>
+            )}
+            {textureSupport === 'none' && (
+              <div className="p-1 rounded-xl bg-black/30 border border-white/[0.06]">
+                <span className="text-[9px] text-zinc-500 font-medium">Texture not supported for this model</span>
+              </div>
+            )}
+          </div>
+
+          {/* Polycount Slider (Main Panel) */}
+          <div className="space-y-1 pt-1 border-t border-white/[0.08] pt-1">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-zinc-300 font-medium">Polycount (Target)</span>
+                <span className="text-[9px] font-mono text-[#F9CF00] font-bold">{polycount.toLocaleString()}</span>
+              </div>
+            </div>
+            <input
+              type="range"
+              min="500"
+              max="600000"
+              step="2500"
+              value={polycount}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                setPolycount(val);
+                setGenerationSettings((prev) => ({
+                  ...prev,
+                  polycount: val,
+                  targetPolycount: val,
+                  target_polycount: val,
+                  autoOptimizeSettings: { ...prev.autoOptimizeSettings, targetPolycount: val },
+                }));
+              }}
+              className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#6366F1]"
+            />
+            <div className="flex items-center justify-between text-[9px] font-mono text-zinc-500">
+              <span>500</span>
+              <span>600,000 (Max 600K)</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Dynamic Flying Side Geometry & Texture Settings Panel */}
+        {mounted && isGeomTextureOpen && typeof document !== 'undefined' && createPortal(
             <div
               ref={geomTextureFlyoutRef}
               id="geometry-texture-flyout"
@@ -1064,39 +1153,6 @@ export const GeneratePanel: React.FC = () => {
                 aria-label="Close Geometry & Texture settings"
               >
                 <HugeiconsIcon icon={Cancel} size={13} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
-              </button>
-            </div>
-
-            {/* Post-Processing controls omitted entirely when disabled (default).
-              When enabled they are rendered fully — no disabled/read-only state. */}
-            {postprocessingEnabled && (
-            <>
-                {/* Toggle 1: Post-Processing */}
-                <div className="flex items-center justify-between py-0.5">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs text-zinc-200 font-medium">Post-Processing</span>
-                <span title="Automatic mesh cleanup, manifold healing, smoothing and feature edge preservation" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                  <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
-                </span>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={enablePostprocess}
-                onClick={() => {
-                  const next = !enablePostprocess;
-                  setEnablePostprocess(next);
-                  setGenerationSettings((prev) => ({ ...prev, enablePostprocess: next }));
-                }}
-                className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer ${
-                  enablePostprocess ? 'bg-[#6366F1]' : 'bg-white/15'
-                }`}
-              >
-                <div
-                  className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
-                    enablePostprocess ? 'translate-x-3.5' : 'translate-x-0'
-                  }`}
-                />
               </button>
             </div>
 
@@ -1159,7 +1215,7 @@ export const GeneratePanel: React.FC = () => {
             </div>
 
             {/* Topology Mode: Quad / Triangle (Controlled by Post-Processing) */}
-            <div className={`space-y-1 pt-0.5 transition-all duration-200 ${!enablePostprocess ? 'opacity-35 pointer-events-none select-none cursor-not-allowed' : ''}`}>
+            <div className={`space-y-1 pt-0.5 transition-all duration-200`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[11px] text-zinc-300 font-medium">Topology</span>
@@ -1167,21 +1223,14 @@ export const GeneratePanel: React.FC = () => {
                     <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
                   </span>
                 </div>
-                {!enablePostprocess && (
-                  <span className="text-[9px] font-semibold text-zinc-500 uppercase tracking-wider">Off</span>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
+                <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
                 <button
                   type="button"
-                  disabled={!enablePostprocess}
                   onClick={() => {
                     setTopologyMode('Quad');
                     setGenerationSettings((prev) => ({ ...prev, quadTopology: true, topologyMode: 'quad' }));
                   }}
-                  className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
-                    !enablePostprocess ? 'cursor-not-allowed' : 'cursor-pointer'
-                  } ${
+                  className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                     topologyMode === 'Quad'
                       ? 'bg-[#3b3577] text-white border border-[#6366F1] shadow-sm'
                       : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
@@ -1192,14 +1241,11 @@ export const GeneratePanel: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  disabled={!enablePostprocess}
                   onClick={() => {
                     setTopologyMode('Triangle');
                     setGenerationSettings((prev) => ({ ...prev, quadTopology: false, topologyMode: 'triangle' }));
                   }}
-                  className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
-                    !enablePostprocess ? 'cursor-not-allowed' : 'cursor-pointer'
-                  } ${
+                  className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                     topologyMode === 'Triangle'
                       ? 'bg-[#3b3577] text-white border border-[#6366F1] shadow-sm'
                       : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
@@ -1208,53 +1254,12 @@ export const GeneratePanel: React.FC = () => {
                   <span className="text-[11px]">△</span>
                   <span>Triangle</span>
                 </button>
-              </div>
-            </div>
-
-            {/* Polycount Slider (Controlled by Post-Processing, Max 600K) */}
-            <div className={`space-y-1 pt-1 border-t border-white/[0.08] transition-all duration-200 ${!enablePostprocess ? 'opacity-35 pointer-events-none select-none cursor-not-allowed' : ''}`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-zinc-300 font-medium">Polycount (Target)</span>
-                  {!enablePostprocess && (
-                    <span className="text-[9px] font-semibold text-zinc-500 uppercase tracking-wider">Off</span>
-                  )}
                 </div>
-                <span className="text-[11px] font-mono text-[#F9CF00] font-bold">
-                  {polycount.toLocaleString()}
-                </span>
-              </div>
-              <input
-                type="range"
-                disabled={!enablePostprocess}
-                min="500"
-                max="600000"
-                step="2500"
-                value={polycount}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value, 10);
-                  setPolycount(val);
-                  setGenerationSettings((prev) => ({
-                    ...prev,
-                    polycount: val,
-                    targetPolycount: val,
-                    target_polycount: val,
-                    autoOptimizeSettings: { ...prev.autoOptimizeSettings, targetPolycount: val },
-                  }));
-                }}
-                className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#6366F1] disabled:cursor-not-allowed"
-              />
-              <div className="flex items-center justify-between text-[9px] font-mono text-zinc-500">
-                <span>500</span>
-                <span>600,000 (Max 600K)</span>
               </div>
             </div>
-            </>
-            )}
           </div>,
           document.body
         )}
-      </div>
 
       {/* 4. AI Model Section */}
       <div className="border-t border-[hsl(var(--border))] pt-2 space-y-1" ref={modelDropdownRef}>

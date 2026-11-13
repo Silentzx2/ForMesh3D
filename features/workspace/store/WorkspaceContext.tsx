@@ -22,6 +22,8 @@ import { apiClient } from '../lib/api';
 import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
 import { useAppStore } from '@/stores/useAppStore';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
+import { useTaskManager } from '@/hooks/useTaskManager';
+import { useTaskPolling } from '@/hooks/useTaskPolling';
 import { prefetchGLB } from '../lib/glbCache';
 import { shadingModeToPreset, presetToShadingMode } from '@/lib/storeAdapter';
 import { diagnoseJobError } from '@/lib/jobDiagnostics';
@@ -49,11 +51,16 @@ interface ComparisonGroup {
   selectedModelId: string | null;
 }
 
+export type WorkspaceExecutionStatus = 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'interrupted';
+export type ComparisonMode = 'off' | 'split_screen';
+
 interface WorkspaceContextType {
   activeTool: ToolType;
   setActiveTool: (tool: ToolType) => void;
   isComparing: boolean;
+  comparisonMode?: ComparisonMode;
   setIsComparing: (open: boolean) => void;
+  setComparisonMode?: (mode: ComparisonMode) => void;
   mainNav: MainNavRoute;
   setMainNav: (nav: MainNavRoute) => void;
   assets: ModelAsset[];
@@ -114,6 +121,7 @@ interface WorkspaceContextType {
   jobsById: Record<string, ActiveTask>;
   dismissActiveTask: () => void;
   isExecuting: boolean;
+  executionStatus?: WorkspaceExecutionStatus;
   executionProgress: number;
   executionStep: string;
   cancelExecution: () => Promise<void>;
@@ -348,7 +356,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const pathname = usePathname();
 
   const [activeTool, setActiveToolState] = useState<ToolType>('model');
-  const [isComparing, setIsComparing] = useState(false);
+  const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('off');
+  const [isComparing, setIsComparingState] = useState(false);
+  const setIsComparing = useCallback((open: boolean) => {
+    setIsComparingState(open);
+    setComparisonMode(open ? 'split_screen' : 'off');
+  }, []);
   const [mainNav, setMainNavState] = useState<MainNavRoute>('workspace');
   const [activeRightTab, setActiveRightTab] = useState<'assets' | 'property' | 'properties' | 'prompt'>('properties');
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
@@ -632,7 +645,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
-  const [isExecuting, setIsExecuting] = useState(false);
+  const [executionStatus, setExecutionStatus] = useState<WorkspaceExecutionStatus>('idle');
+  const [isExecuting, setIsExecutingState] = useState(false);
+  const setIsExecuting = useCallback((executing: boolean) => {
+    setIsExecutingState(executing);
+    setExecutionStatus(executing ? 'running' : 'idle');
+  }, []);
   const [executionProgress, setExecutionProgress] = useState(0);
   const [executionStep, setExecutionStep] = useState('');
   const [activeTask, setActiveTask] = useState<ActiveTask | null>(null);
@@ -645,6 +663,17 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const activeTaskRef = useRef<ActiveTask | null>(activeTask);
   activeTaskRef.current = activeTask;
   const activeAbortControllerRef = useRef<AbortController | null>(null);
+
+  // F5: mount the background task manager so reconnect-to-running + the
+  // polling loop actually run for the whole workspace session. It self-stops
+  // when no running/queued backend jobs exist, so it is a no-op until a job
+  // is registered via bindBackendJob.
+  const { registerTask, completeTask, startPolling } = useTaskManager();
+
+  // F5: cadenced per-task poller via apiClient.getJobStatus() (5s cadence);
+  // terminal states update useAppStore.tasks. Runs alongside useTaskManager's
+  // reconnect/backoff loop; local placeholder ids are skipped inside the hook.
+  useTaskPolling({ pollingInterval: 5000, enabled: true });
 
   const dismissActiveTask = useCallback(() => setActiveTask(null), []);
 
@@ -1025,6 +1054,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setExecutionProgress(100);
       setExecutionStep('Completed');
       setActiveTask(prev => prev ? { ...prev, status: 'completed', progress: 100, currentStep: 'Completed' } : prev);
+      const backendJobId = activeTaskRef.current?.backendJobId;
+      if (backendJobId) completeTask(backendJobId, 'completed');
       toast.success('Process completed successfully', {
         description: activeTaskRef.current?.title || '3D Asset Generation finished',
       });
@@ -1035,6 +1066,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setExecutionProgress(0);
       setExecutionStep(d.exception_message || d.message || 'Error');
       setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: d.exception_message || 'Error' } : prev);
+      const backendJobId = activeTaskRef.current?.backendJobId;
+      if (backendJobId) completeTask(backendJobId, 'failed');
       toast.error('Process failed', {
         description: d.exception_message || d.message || 'An error occurred during execution',
       });
@@ -1520,6 +1553,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       (!jobId.startsWith('local_') ? jobId : undefined);
 
     if (backendJobId) {
+      completeTask(backendJobId, 'cancelled');
       try {
         const data = await getApiClient().cancelGenerationJob(backendJobId);
         if (data?.cancelled || data?.status === 'cancelled') {
@@ -1630,6 +1664,23 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       const task = prev[localTaskId] || activeTaskRef.current;
       if (!task) return prev;
       const next: ActiveTask = { ...task, ...updates, id: localTaskId, backendJobId: jobId, isLocal: false };
+      // Register the backend job in the background task registry (F5) so the
+      // polling loop can track it to a terminal state. Local placeholder ids
+      // (slugs/queue_*) are deliberately not registered: they would 404 forever
+      // under /api/v1/system/jobs/{id}.
+      registerTask({
+        id: jobId,
+        type: 'generation',
+        status: next.status === 'interrupted' ? 'cancelled' : next.status,
+        progress: next.progress,
+        label: task.title,
+        createdAt: task.startedAt,
+        updatedAt: Date.now(),
+        metadata: { localTaskId },
+      });
+      // (Re)start the F5 polling loop so the newly tracked job is checked
+      // against the backend without waiting for the next mount cycle.
+      startPolling();
       const copy = { ...prev };
       delete copy[localTaskId];
       copy[localTaskId] = next;
@@ -2991,7 +3042,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     viewportResetTrigger, resetCamera, fitToScreen]);
 
   const toolValue = useMemo(() => ({
-    activeTool, setActiveTool, isComparing, setIsComparing, mainNav, setMainNav,
+    activeTool, setActiveTool, isComparing, comparisonMode, setIsComparing, setComparisonMode, mainNav, setMainNav,
     activeRightTab, setActiveRightTab,
     rightPanelMode: activeRightTab, setRightPanelMode: setActiveRightTab,
     isLeftPanelOpen, setIsLeftPanelOpen,
@@ -3001,7 +3052,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     isRightPanelOpen, setIsRightPanelOpen,
     rightPanelOpen: isRightPanelOpen, setRightPanelOpen: setIsRightPanelOpen,
     navigateToTool, navigateToMain, navigateToMainNav: navigateToMain,
-  }), [activeTool, setActiveTool, isComparing, setIsComparing, mainNav, setMainNav,
+  }), [activeTool, setActiveTool, isComparing, comparisonMode, setIsComparing, setComparisonMode, mainNav, setMainNav,
     activeRightTab, setActiveRightTab,
     isLeftPanelOpen, setIsLeftPanelOpen,
     leftPanelWidth, setLeftPanelWidth,
@@ -3032,11 +3083,11 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   const executionValue = useMemo(() => ({
     activeTask, jobsById, dismissActiveTask,
     hoveredPartId, setHoveredPartId,
-    isExecuting, executionProgress, executionStep, cancelExecution,
+    isExecuting, executionStatus, executionProgress, executionStep, cancelExecution,
     dismissJob, selectJobToView, queueGenerationJob,
   }), [activeTask, jobsById, dismissActiveTask,
     hoveredPartId, setHoveredPartId,
-    isExecuting, executionProgress, executionStep, cancelExecution,
+    isExecuting, executionStatus, executionProgress, executionStep, cancelExecution,
     dismissJob, selectJobToView, queueGenerationJob]);
 
   const generationSettingsValue = useMemo(() => ({

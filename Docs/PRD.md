@@ -414,7 +414,7 @@ Five built-in intent presets (`game_ready`, `cinematic`, `animation`, `3d_print`
 
 ### Studio 3D Tool Suite & Canonical Panels
 The Studio 3D workspace provides dedicated, production-grade tool panels for all 7 primary workflows:
-- **Model Generation (`GeneratePanel.tsx`)**: Dual image/prompt intake, AI model selector with hardware readiness, polycount budget slider (up to 600K), quad/tri topology selector, and seed randomizer.
+- **Model Generation (`GeneratePanel.tsx`)**: Dual image/prompt intake, AI model selector with hardware readiness, direct polycount budget slider (500–600K) and model-aware texture generation controls, seed randomizer, and dynamic flyout for secondary refinements (remove lighting, PBR maps, quad/tri topology); post-processing master toggle completely removed in favor of direct native mesh output.
 - **PBR Texturing (`TexturePanel.tsx`)**: PBR map generation with resolution (1K/2K/4K) and lighting presets.
 - **Retopology & Remeshing (`RemeshPanel.tsx`)**: Quad/triangle remeshing with 120fps smooth budget slider (5K–200K) and quick presets.
 - **Smart UV Unwrap (`UVPanel.tsx`)**: Single-line pill selectors (Organic vs Hard-Surface, 1K–4K, Island Margins).

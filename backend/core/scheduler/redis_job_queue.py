@@ -197,6 +197,7 @@ class RedisJobQueue:
             "inputs": json.dumps(job_request.inputs),
             "model_preference": job_request.model_preference or "",
             "priority": job_request.priority,
+            "retry_count": job_request.retry_count,
             "status": _status_to_str(JobStatus.QUEUED),
             "created_at": job_request.created_at.isoformat(),
             "metadata": json.dumps(job_request.metadata),
@@ -375,16 +376,61 @@ class RedisJobQueue:
         return True
 
     async def fail_job(self, job_id: str, error: str):
-        """Mark job as failed"""
+        """Mark job as failed, re-queueing while retries remain (retry_count < max_retries)."""
         if not self.redis:
             raise RuntimeError("Redis not connected")
 
         logger.error(f"[JOB FAILED] job_id={job_id} error={error}")
 
-        # Remove from processing
+        # A retried job leaves the processing set and re-enters the pending
+        # queue; a terminal job simply leaves it.
         await self.redis.srem(self.processing_set_key, job_id)
-        
-        # Update job status
+
+        job_request = await self._load_job_request_for_persistence(job_id)
+        if job_request is not None and job_request.retry_count < job_request.max_retries:
+            # Auto-retry: back into the pending queue, bounded by max_retries,
+            # instead of going terminal on the first failure.
+            job_request.retry_count += 1
+            job_request.last_retry_at = datetime.utcnow()
+            job_request.retry_reason = error
+            job_request.status = JobStatus.QUEUED
+            job_request.metadata.update(
+                {
+                    "stage": "retrying",
+                    "message": (
+                        f"Retry {job_request.retry_count}/{job_request.max_retries} "
+                        f"after failure: {error}"
+                    ),
+                }
+            )
+            if not await asyncio.to_thread(self.db_manager.save_job, job_request):
+                logger.error(f"Failed to persist retry for job {job_id}")
+                return
+            job_data_str = await self.redis.hget(self.jobs_hash_key, job_id)
+            priority = 0
+            if job_data_str:
+                job_data = json.loads(job_data_str)
+                priority = int(job_data.get("priority", 0) or 0)
+                job_data["status"] = _status_to_str(JobStatus.QUEUED)
+                job_data["retry_count"] = job_request.retry_count
+                job_data["started_at"] = ""
+                job_data["progress"] = 0.0
+                job_data["stage"] = "retrying"
+                job_data["message"] = job_request.metadata["message"]
+                job_data["error"] = error
+                job_data["error_code"] = classify_job_error(error)
+                job_data.pop("failed_at", None)
+                await self.redis.hset(self.jobs_hash_key, job_id, json.dumps(job_data))
+            score = _priority_score(priority, datetime.utcnow())
+            await self.redis.zadd(self.pending_queue_key, {job_id: score})
+            logger.info(
+                f"Job {job_id} failed ({error}); requeued for retry "
+                f"{job_request.retry_count}/{job_request.max_retries}"
+            )
+            return
+
+        # Terminal FAILED
+        failed_at = datetime.utcnow()
         job_data_str = await self.redis.hget(self.jobs_hash_key, job_id)
         if job_data_str:
             job_data = json.loads(job_data_str)
@@ -402,14 +448,14 @@ class RedisJobQueue:
             await self.redis.hset(self.stage_hash_key, job_id, "failed")
             await self.redis.hset(self.message_hash_key, job_id, error)
             await self.redis.zadd(self.completed_index_key, {job_id: failed_at.timestamp()})
-            job_request = await self._load_job_request_for_persistence(job_id)
-            if job_request is not None:
-                job_request.status = JobStatus.FAILED
-                job_request.progress = progress
-                job_request.error = error
-                job_request.completed_at = failed_at
-                job_request.metadata.update({"stage": "failed", "message": error, "error_code": job_data["error_code"]})
-                await asyncio.to_thread(self.db_manager.save_job, job_request)
+        job_request = await self._load_job_request_for_persistence(job_id)
+        if job_request is not None:
+            job_request.status = JobStatus.FAILED
+            job_request.progress = float((job_data_str and json.loads(job_data_str).get("progress", 0.0)) or 0.0)
+            job_request.error = error
+            job_request.completed_at = failed_at
+            job_request.metadata.update({"stage": "failed", "message": error, "error_code": classify_job_error(error)})
+            await asyncio.to_thread(self.db_manager.save_job, job_request)
 
     async def _load_job_request_for_persistence(self, job_id: str) -> Optional[JobRequest]:
         job_data_str = await self.redis.hget(self.jobs_hash_key, job_id)
@@ -430,6 +476,7 @@ class RedisJobQueue:
         job.result = data.get("result")
         job.error = data.get("error")
         job.progress = float(data.get("progress", 0.0) or 0.0)
+        job.retry_count = int(data.get("retry_count", 0) or 0)
         raw_status = data.get("status")
         if raw_status:
             if raw_status == "running":
@@ -476,6 +523,13 @@ class RedisJobQueue:
         
         job_data = await self.get_job(job_id)
         if not job_data or not job_data.get("result", {}).get("asset_root"):
+            return None
+        # Only terminal jobs may be retried: a QUEUED/PROCESSING job may have
+        # an active worker whose derived artifacts we would clobber.
+        if job_data.get("status") not in {
+            JobStatus.COMPLETED.value,
+            JobStatus.FAILED.value,
+        }:
             return None
             
         # Reconstruct JobRequest

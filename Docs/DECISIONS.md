@@ -174,3 +174,22 @@
   - Eliminates 9,660+ lines of unmaintained third-party code and complex CUDA dependencies.
   - Saves 8GB disk space on full setup and eliminates 14GB VRAM consumption during refinement.
   - Single-stage generative workflows remain standard with zero breaking changes to existing production generation pipelines.
+
+---
+
+## ADR-105: UI Restructuring for Direct Generation Controls & 59 State Machines Baseline (2026-11-13)
+
+- **Status:** Accepted / Implemented
+- **Date:** 2026-11-13
+- **Context:**
+  Post-processing was previously decoupled into an explicit YAML opt-in (`postprocessing.enabled: false`) to ensure model-extracted meshes are delivered directly. However, the UI still had nested flyouts where generation-critical parameters (Polycount Target and Texture Settings) were tucked away or mixed with secondary post-processing toggles. Furthermore, implicit state machines across the codebase required formal auditing and verification.
+- **Decision:**
+  1. Restructure `GeneratePanel.tsx`: Move the Polycount Target slider (500–600K) and Model-Aware Texture Settings directly into the main panel body.
+  2. Confine secondary refinement controls (Remove Lighting, PBR maps, Quad/Triangle topology) inside the dynamic floating portal (`#geometry-texture-flyout`).
+  3. Completely eliminate the Post-Processing Master Toggle from UI state and layout, removing the redundant `enablePostprocess` state in the panel.
+  4. Formally catalog and baseline all 59 state machines (40 frontend F1–F40, 19 backend B1–B19) in `Docs/TASKS.md` with complete states, transitions, triggers, and file+line references.
+- **Consequences:**
+  - Streamlines user workflow so generation-critical parameters require zero clicks into secondary modals or flyouts.
+  - Eliminates UI state overlap (F11 implicit state machine simplification).
+  - Guarantees zero regression on `sm >= 80` native models and verified clean compilation across frontend and backend.
+

@@ -69,7 +69,9 @@ export function QueueTab() {
         setActiveJob(rawJobs.find((j: any) => j.status === 'processing') || null);
         setQueuedJobs(rawJobs.filter((j: any) => j.status === 'queued'));
       }
-    } catch { /* ignore */ }
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load queue status');
+    }
     setLoading(false);
   }, []);
 

@@ -1129,3 +1129,16 @@ Backend `job_id` changed from UUID (`380fbba4-e122-4a78-818d-3418dbb0ee46`) to `
 - Right panel (`--surface-2`): 11.5% → 14% (slightly brighter for readable secondary content)
 - TASKS.md F67.
 
+## 2026-11-13 — Full 59 State Machines Baseline & Generation UI Restructuring
+
+### Complete 59 State Machine Inventory (F1–F40, B1–B19)
+The application state architecture is cataloged in `Docs/TASKS.md` §2–§3:
+- **Frontend State Machines (F1–F40):** Encompassing workspace generation lifecycle, batch generation queues, 3D viewport model loading, file/mesh upload lifecycle, task polling and background management, SSE streaming, model comparison, panel/modal visibility, viewport display modes, dynamic floating settings, camera presets, rigging/animation studio lifecycles, and tiered GLB caching with in-flight deduplication.
+- **Backend State Machines (B1–B19):** Encompassing multiprocess scheduler worker lifecycle, dynamic model adapter instantiation, GPU resource memory gates with pre-Ampere isolation (`sm >= 80` native preservation), SSE mesh tools streaming, candidate selection lineage, log streaming cursors, and parameter tri-state resolution contracts.
+
+### Direct Generation Controls & Flyout Restructuring (`GeneratePanel.tsx`)
+- **Main Panel Direct Controls:** Primary generation targets (`target_polycount` / `native_target_polycount` slider up to 600K faces, and model-aware texture generation with 2K/4K resolution pills) are located directly within the main generate panel for immediate accessibility.
+- **Dynamic Floating Geometry & Texture Settings:** Secondary refinement toggles (delighting/remove lighting, PBR map baking, quad/triangle topology) are rendered via React portal into `#geometry-texture-flyout`, isolating advanced parameters without cluttering primary workflows.
+- **Post-Processing UI Removal:** In alignment with the default native mesh extraction model (`postprocessing.enabled: false`), the post-processing master toggle is completely removed from the UI, ensuring direct model-native fidelity without unnecessary intermediate state.
+
+

@@ -189,8 +189,15 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
     if (!el || interactivesRef.current.length === 0) return;
     const rect = el.getBoundingClientRect();
     const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+    // Mirror the camera position used in the render loop so raycasting matches the view
+    let camX = 0, camY = 0.4, camZ = 3.2;
+    if (orbitYaw !== undefined) {
+      const rad = (orbitYaw * Math.PI) / 180;
+      camX = Math.sin(rad) * 3.2; camZ = Math.cos(rad) * 3.2;
+    } else if (viewAngle === 'front') { camX = 0; camY = 0; camZ = 3.2; }
+    else if (viewAngle === 'side') { camX = 3.2; camY = 0.2; camZ = 0; }
     const camera = new THREE.PerspectiveCamera(40, rect.width / rect.height, 0.1, 50);
-    camera.position.set(0, 0.4, 3.2);
+    camera.position.set(camX, camY, camZ);
     const ray = new THREE.Raycaster();
     ray.setFromCamera(mouse, camera);
     const hits = ray.intersectObjects(interactivesRef.current.map((i) => i.obj), true);

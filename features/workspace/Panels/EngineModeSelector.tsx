@@ -33,8 +33,8 @@ export const EngineModeSelector: React.FC<EngineModeSelectorProps> = ({
     (systemStats?.gpu && systemStats.gpu !== 'None' && systemStats.gpu !== 'CPU' && systemStats.gpu !== '')
   );
 
-  const isAiDisabled = Boolean(aiDisabled ?? (tool === 'segment'));
-  const disabledReason = aiDisabledReason || (tool === 'segment' ? 'No AI model registered on server' : 'AI mode unavailable');
+  const isAiDisabled = aiDisabled || tool === 'segment' || !hasGpu;
+  const disabledReason = aiDisabledReason || (tool === 'segment' ? 'No AI model registered on server' : !hasGpu ? 'No GPU available' : 'AI mode unavailable');
 
   return (
     <div className={`space-y-1 ${className}`}>

@@ -481,7 +481,11 @@ export const useAppStore = create<AppState>()(
         set((s) => {
           const cleaned: AppState['tasks'] = {};
           for (const [id, task] of Object.entries(s.tasks)) {
-            if (task.status !== 'completed' && task.status !== 'cancelled') {
+            if (
+              task.status !== 'completed' &&
+              task.status !== 'failed' &&
+              task.status !== 'cancelled'
+            ) {
               cleaned[id] = task;
             }
           }

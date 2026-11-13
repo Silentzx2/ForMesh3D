@@ -212,6 +212,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
   const loadedModelUrl = useViewerStore((state) => state.loadedModelUrl);
 
+  const [modelLoadStatus, setModelLoadStatus] = useState<'empty' | 'loading' | 'loaded' | 'error'>('empty');
   const [hasModel, setHasModel] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isComparisonLoading, setIsComparisonLoading] = useState(false);
@@ -939,12 +940,14 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
   useEffect(() => {
     if (!modelUrl || !modelGroupRef.current) {
+      setModelLoadStatus('empty');
       setHasModel(false);
       useViewerStore.getState().setModelStats(null);
       return;
     }
 
     let isCancelled = false;
+    setModelLoadStatus('loading');
     setLoadError(null);
 
     // Clear previous model from scene
@@ -1016,7 +1019,16 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       group.add(object);
       useViewerStore.getState().setActiveModelObject(object);
       fitCameraToModel(object);
+      setModelLoadStatus('loaded');
       setHasModel(true);
+    };
+
+    const handleLoadFailure = (msg: string) => {
+      if (!isCancelled) {
+        setModelLoadStatus('error');
+        setHasModel(false);
+        setLoadError(msg);
+      }
     };
 
     // Load by format
@@ -1025,27 +1037,21 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         modelUrl,
         (gltf) => handleObjectLoaded(gltf.scene, gltf.animations),
         undefined,
-        (err: unknown) => {
-          if (!isCancelled) setLoadError(`Failed to load 3D model: ${(err as any)?.message || 'Network error'}`);
-        }
+        (err: unknown) => handleLoadFailure(`Failed to load 3D model: ${(err as any)?.message || 'Network error'}`)
       );
     } else if (format === 'obj') {
       sharedOBJLoader.load(
         modelUrl,
         (obj) => handleObjectLoaded(obj),
         undefined,
-        (err: unknown) => {
-          if (!isCancelled) setLoadError(`Failed to load OBJ: ${(err as any)?.message || 'Error'}`);
-        }
+        (err: unknown) => handleLoadFailure(`Failed to load OBJ: ${(err as any)?.message || 'Error'}`)
       );
     } else if (format === 'fbx') {
       sharedFBXLoader.load(
         modelUrl,
         (fbx) => handleObjectLoaded(fbx, fbx.animations),
         undefined,
-        (err: unknown) => {
-          if (!isCancelled) setLoadError(`Failed to load FBX: ${(err as any)?.message || 'Error'}`);
-        }
+        (err: unknown) => handleLoadFailure(`Failed to load FBX: ${(err as any)?.message || 'Error'}`)
       );
     } else if (format === 'stl') {
       sharedSTLLoader.load(
@@ -1057,9 +1063,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           handleObjectLoaded(mesh);
         },
         undefined,
-        (err: unknown) => {
-          if (!isCancelled) setLoadError(`Failed to load STL: ${(err as any)?.message || 'Error'}`);
-        }
+        (err: unknown) => handleLoadFailure(`Failed to load STL: ${(err as any)?.message || 'Error'}`)
       );
     } else if (format === 'ply') {
       sharedPLYLoader.load(
@@ -1071,9 +1075,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           handleObjectLoaded(mesh);
         },
         undefined,
-        (err: unknown) => {
-          if (!isCancelled) setLoadError(`Failed to load PLY: ${(err as any)?.message || 'Error'}`);
-        }
+        (err: unknown) => handleLoadFailure(`Failed to load PLY: ${(err as any)?.message || 'Error'}`)
       );
     }
 

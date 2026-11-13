@@ -10,11 +10,14 @@ export interface FeatureAvailability {
   };
 }
 
+export type FeatureAvailabilityStatus = 'idle' | 'loading' | 'loaded' | 'error';
+
 export interface UseFeatureAvailabilityReturn {
   features: FeatureAvailability;
   modelDetails: Record<string, ModelRuntimeDetails>;
   weightsStatus: Record<string, boolean>;
   loading: boolean;
+  status: FeatureAvailabilityStatus;
   error: string | null;
   checkFeature: (featureName: string) => boolean;
   getModelsForFeature: (featureName: string) => string[];
@@ -44,12 +47,13 @@ export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
   const [features, setFeatures] = useState<FeatureAvailability>({});
   const [modelDetails, setModelDetails] = useState<Record<string, ModelRuntimeDetails>>({});
   const [weightsStatus, setWeightsStatus] = useState<Record<string, boolean>>({});
-  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<FeatureAvailabilityStatus>('loading');
+  const loading = status === 'loading';
   const [error, setError] = useState<string | null>(null);
 
   const fetchFeatureAvailability = useCallback(async () => {
     try {
-      setLoading(true);
+      setStatus('loading');
       setError(null);
 
       const apiClient = getApiClient();
@@ -116,11 +120,13 @@ export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
       setFeatures(featureAvailability);
       setModelDetails(modelsResponse.model_details || {});
       setWeightsStatus(modelsResponse.weights_status || {});
+      setStatus('loaded');
       console.log('[FeatureAvailability] Loaded features:', featureAvailability);
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to check feature availability';
       setError(errorMessage);
+      setStatus('error');
       console.error('[FeatureAvailability] Error:', err);
       
       // Set all features as unavailable with error
@@ -134,7 +140,7 @@ export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
       });
       setFeatures(errorFeatures);
     } finally {
-      setLoading(false);
+      // loading is derived from status (=== 'loading'); no separate setter exists.
     }
   }, []);
 
@@ -165,6 +171,7 @@ export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
     modelDetails,
     weightsStatus,
     loading,
+    status,
     error,
     checkFeature,
     getModelsForFeature,

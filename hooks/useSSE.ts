@@ -2,9 +2,12 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 
+export type SSEConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+
 export function useSSE<T>(url: string, fallbackPollMs = 30000) {
   const [data, setData] = useState<T | null>(null);
-  const [connected, setConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<SSEConnectionStatus>('connecting');
+  const connected = connectionStatus === 'connected';
   const esRef = useRef<EventSource | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const reconnectAttemptsRef = useRef(0);
@@ -17,18 +20,19 @@ export function useSSE<T>(url: string, fallbackPollMs = 30000) {
       esRef.current = null;
     }
 
+    setConnectionStatus(reconnectAttemptsRef.current > 0 ? 'reconnecting' : 'connecting');
     const es = new EventSource(url);
     esRef.current = es;
 
     es.onopen = () => {
-      setConnected(true);
+      setConnectionStatus('connected');
       reconnectAttemptsRef.current = 0;
     };
     es.onmessage = (e) => {
       try { setData(JSON.parse(e.data)); } catch { /* ignore parse errors */ }
     };
     es.onerror = () => {
-      setConnected(false);
+      setConnectionStatus('reconnecting');
       es.close();
       esRef.current = null;
       // Exponential backoff: 1s, 2s, 4s, 8s, max 30s
@@ -48,6 +52,7 @@ export function useSSE<T>(url: string, fallbackPollMs = 30000) {
         esRef.current.close();
         esRef.current = null;
       }
+      setConnectionStatus('disconnected');
     };
   }, [connect]);
 
@@ -68,5 +73,5 @@ export function useSSE<T>(url: string, fallbackPollMs = 30000) {
     return () => { active = false; clearInterval(poll); };
   }, [connected, url, fallbackPollMs]);
 
-  return { data, connected };
+  return { data, connected, connectionStatus };
 }

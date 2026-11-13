@@ -8,6 +8,10 @@ export interface UseTaskPollingOptions {
   enabled?: boolean;
 }
 
+// Skip local placeholder ids (slugs like 'generate-abc123'): they have no
+// backend job under /api/v1/system/jobs/{id} and would 404 on every poll.
+const BACKEND_JOB_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const BACKEND_STATUS: Record<JobStatus, 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'> = {
   queued: 'queued',
   processing: 'running',
@@ -15,6 +19,8 @@ const BACKEND_STATUS: Record<JobStatus, 'queued' | 'running' | 'completed' | 'fa
   failed: 'failed',
   cancelled: 'cancelled',
 };
+
+export type PollingLifecycleStatus = 'idle' | 'polling' | 'stopped';
 
 export const useTaskPolling = (options: UseTaskPollingOptions = {}) => {
   const {
@@ -25,7 +31,8 @@ export const useTaskPolling = (options: UseTaskPollingOptions = {}) => {
   const tasks = useAppStore((state) => state.tasks);
   const setTask = useAppStore((state) => state.setTask);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [isPolling, setIsPolling] = useState(false);
+  const [pollingStatus, setPollingStatus] = useState<PollingLifecycleStatus>('idle');
+  const isPolling = pollingStatus === 'polling';
   const isPollingRef = useRef(false);
 
   const pollTaskStatus = useCallback(async (task: (typeof tasks)[string]) => {
@@ -120,14 +127,18 @@ export const useTaskPolling = (options: UseTaskPollingOptions = {}) => {
     }
 
     isPollingRef.current = true;
-    setIsPolling(true);
+    setPollingStatus('polling');
 
     try {
       const activeTasks = Object.values(tasks).filter(
-        (task) => task.id && (task.status === 'queued' || task.status === 'running'),
+        (task) =>
+          task.id &&
+          BACKEND_JOB_ID_RE.test(task.id) &&
+          (task.status === 'queued' || task.status === 'running'),
       );
 
       if (activeTasks.length === 0) {
+        setPollingStatus('idle');
         return;
       }
 
@@ -136,7 +147,7 @@ export const useTaskPolling = (options: UseTaskPollingOptions = {}) => {
       console.error('[TaskPolling] Error during polling cycle:', error);
     } finally {
       isPollingRef.current = false;
-      setIsPolling(false);
+      setPollingStatus('idle');
     }
   }, [tasks, pollTaskStatus]);
 
@@ -162,6 +173,7 @@ export const useTaskPolling = (options: UseTaskPollingOptions = {}) => {
 
   return {
     isPolling,
+    pollingStatus,
     pollTask: pollTaskStatus,
     pollAllTasks: pollAllActiveTasks,
   };

@@ -752,3 +752,15 @@ Workspace Settings → AI Inference → Generation Output Recipes is a native di
 - The viewport rail exposes one Before / After tool, disabled until the selected asset supplies distinct source and processed model artifacts.
 - Comparison is opt-in and overlays the existing MeshViewer canvas with a draggable, keyboard-accessible wipe divider. Both halves share the same scene, camera, lighting, renderer and render loop; only the source model is loaded on demand, and it is disposed when comparison closes.
 - Texture and PBR are two routes of the same TexturePanel. The PBR tab navigates through the existing /workspace/texture-pbr route using the workspace's replace-state tool navigation, so the left panel and WebGL viewport do not remount. PBR map options reuse the existing controls rather than duplicating a second form.
+
+## Dynamic Flyout & Main Generate Panel Layout Architecture — 2026-11-13
+
+- **Main Panel Direct Controls:** Generation-critical settings reside directly in `GeneratePanel.tsx`:
+  - **Polycount Target Slider:** Range 500 to 600,000 faces, controlling native extraction resolution (`native_target_polycount`) even when post-processing is disabled.
+  - **Model-Aware Texture Settings:** Integrated switch for texture generation and atlas resolution pills (2K / 4K) conditionally rendered based on the selected model's pipeline capability (`none`, `2k`, `4k`).
+- **Dynamic Floating Geometry & Texture Settings:** Secondary refinement controls are ported to `#geometry-texture-flyout` via `createPortal`:
+  - **Remove Lighting Switch:** De-lights albedo textures to extract true material colors.
+  - **PBR Maps Switch:** Enables physically-based roughness, metallic, and normal map generation.
+  - **Topology Mode Pills:** Quad vs Triangle topology selection.
+- **Post-Processing Master Toggle Elimination:** Removed entirely from both main panel and dynamic flyout, preserving direct raw-mesh extraction as the sole default user mental model.
+

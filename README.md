@@ -582,16 +582,19 @@ ForMesh3D exports standard **GLB / glTF 2.0**, **OBJ**, **STL**, and **FBX** (vi
 
 ## 15. State Machines and Implicit State Machine Audit
 
-ForMesh3D's studio and scheduler are driven by dozens of scattered booleans, enums, and flags that act as **implicit state machines** — none centralized in a state-chart library. The full inventory, with verified file paths and line numbers, lives in **[Docs/TASKS.md](Docs/TASKS.md)** §14 ("Implicit State Machine Audit"), a read-only multi-agent audit.
+ForMesh3D's studio and scheduler are driven by dozens of scattered booleans, enums, and flags that act as **implicit state machines** — none centralized in a state-chart library. The full inventory, with verified file paths and line numbers, lives in **[Docs/TASKS.md](Docs/TASKS.md)** §2–§3 and its per-machine verification status sections, a read-only multi-agent audit.
 
 ### Post-processing default state machine
 Post-processing is **disabled by default** through `postprocessing.enabled: false` in `backend/config/system.yaml`. When disabled, the scheduler forces `postprocess_mode = "none"` and `enable_postprocess = False` at `backend/core/scheduler/multiprocess_scheduler.py:2386-2388`, bypassing `run_postprocess_job` entirely. The raw model-extracted mesh is returned directly. Setting `postprocessing.enabled: true` restores the existing post-processing path.
 
-### Frontend machines (F1–F11)
+### Frontend machines (F1–F40)
 Generation/execution FSM, batch queue, viewport model load, image/mesh upload, task polling, SSE connection, feature availability, comparison, panel open/close, viewport shading/display, texture settings.
 
-### Backend machines (B1–B4)
+### Backend machines (B1–B19)
 Job lifecycle and queue residency, worker lifecycle and busy bookkeeping, model load states, texture pipeline state.
+
+### Generation UI Restructuring
+In `GeneratePanel.tsx`, target polycount (500–600K slider passing `native_target_polycount` to adapters) and model-aware texture generation (2K/4K) are placed directly in the main panel. Secondary controls (Remove Lighting, PBR maps, Quad/Triangle topology) reside inside the dynamic portal flyout (`#geometry-texture-flyout`). The post-processing master toggle is completely removed from the UI.
 
 ### Audit methodology
 On every task, scan the codebase for scattered booleans/flags acting as implicit state machines — UI toggles, loading/idle/error flows, compare modes, shading modes, presets, turntable, wireframe, snapshot, settings popover, mesh upload lifecycle, job status transitions, texture pipeline states, abort/controller flows, panel open/close, camera presets, lighting tone, exposure slider, model loader states, scheduler/worker states, job queue states, adapter registry states. For each machine report: name, states, transitions, triggers, file + line, and explicit vs implicit. Resolve overlaps, delete dead machines with zero callers, and fix shared transition logic once rather than per caller.

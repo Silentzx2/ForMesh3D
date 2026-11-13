@@ -188,19 +188,10 @@ export const LiveExecutionPanel: React.FC = () => {
     : -1;
 
   if (currentStageIndex === -1) {
-    if (isCompleted || progress >= 100) {
-      currentStageIndex = pipelineStages.length - 1;
-    } else if (progress >= 95) {
-      currentStageIndex = Math.min(pipelineStages.length - 1, 8);
-    } else if (progress >= 85) {
-      currentStageIndex = Math.min(pipelineStages.length - 1, 7);
-    } else if (progress >= 80) {
-      currentStageIndex = Math.min(pipelineStages.length - 1, 6);
-    } else if (progress >= 75) {
-      currentStageIndex = Math.min(pipelineStages.length - 1, 1);
-    } else {
-      currentStageIndex = 0;
-    }
+    // Backend stage name unmapped: fall back to a linear progress-based stage
+    // index so the active step always advances monotonically with progress.
+    const last = pipelineStages.length - 1;
+    currentStageIndex = isCompleted || progress >= 100 ? last : Math.min(last, Math.floor((progress / 100) * last));
   }
 
   const completedStageCount = pipelineStages.filter((stage, index) => {

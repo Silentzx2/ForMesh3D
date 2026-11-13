@@ -178,17 +178,19 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
         throw new Error('Mesh file buffer is required for Python/Blender script execution.');
       }
 
-      const endpoint =
-        tool === 'remesh'
-          ? '/api/v1/mesh-tools/auto-retopo'
-          : tool === 'uv'
-          ? '/api/v1/mesh-tools/auto-uv'
-          : '/api/v1/mesh-tools/segment';
+      const scriptDef = scriptId ? SCRIPT_REGISTRY.get(scriptId) : undefined;
+      const endpoint = scriptDef?.endpoint ?? (tool === 'remesh'
+        ? '/api/v1/mesh-tools/auto-retopo'
+        : tool === 'uv'
+        ? '/api/v1/mesh-tools/auto-uv'
+        : '/api/v1/mesh-tools/segment');
 
-      // Format options payload according to backend schema
-      let scriptOptions: Record<string, any> = {};
+      // Format options payload according to backend schema.
+      // Start from the registered script's defaults (algorithm sub-state), then let
+      // explicit panel params override. Falls back to {} when no scriptId is given.
+      let scriptOptions: Record<string, any> = { ...(scriptDef?.defaultParams ?? {}) };
       if (tool === 'remesh') {
-        scriptOptions = {
+        scriptOptions = { ...scriptOptions,
           target_faces: Number(params.targetPolycount ?? params.target_faces ?? 50000),
           quads: params.polyType === 'quad' || params.quads === true,
           watertight: params.watertight === true,
@@ -199,14 +201,14 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
           preserve_features: params.preserveEdges !== false,
         };
       } else if (tool === 'uv') {
-        scriptOptions = {
+        scriptOptions = { ...scriptOptions,
           resolution: Number(params.atlasResolution || params.resolution || 2048),
           padding_texels: Number(params.islandMargin || params.padding_texels || 4),
           method: params.packMethod === 'blender' ? 'auto' : 'xatlas',
           max_cone_deg: params.unwrapStrategy === 'organic' ? 60.0 : 45.0,
         };
       } else if (tool === 'segment') {
-        scriptOptions = {
+        scriptOptions = { ...scriptOptions,
           num_parts: Number(params.numParts ?? params.num_parts ?? 8),
           ...(params.proxyFaces !== undefined || params.proxy_faces !== undefined
             ? { proxy_faces: Number(params.proxyFaces ?? params.proxy_faces) }

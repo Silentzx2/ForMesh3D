@@ -54,7 +54,7 @@ export function JobsTab() {
         mode: j.feature,
         provider: j.model_preference,
       })));
-      setError(data.jobs.length === 0 ? 'No jobs found' : null);
+      setError(null);
     } catch (e: any) {
       setError(e?.message || 'Failed to load jobs');
     } finally {

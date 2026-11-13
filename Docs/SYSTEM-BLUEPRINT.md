@@ -435,3 +435,17 @@ The Next.js 16 Presentation Layer runs a persistent, non-destructive 3D workspac
 - **Headless Blender Execution**: `blender_worker_argv` and `blender_expr_argv` prefer `BLENDER_EXECUTABLE` on `PATH` with automatic fallback to `sys.executable` via the embedded `bpy` Python wheel.
 - **Dynamic Canonical Storage**: `get_storage_base_dir()` dynamically resolves `STORAGE_LOCAL_PATH` relative to project root or defaults to `backend/storage`, preventing directory nesting bugs.
 - **Watertight 3D Print Preservation**: AutoRetopo shell reconstruction respects existing watertightness without voxel-rounding distortion, and `3d_print` presets set `target_polycount: 0` for 100% native resolution passthrough.
+
+## Direct Native Generation & 59 State Machines Baseline — 2026-11-13
+
+### State Machine Catalog & Verification
+The system coordinates 59 identified state machines (40 Frontend F1–F40, 19 Backend B1–B19) detailed in `Docs/TASKS.md`:
+- Frontend machines govern execution lifecycles, batch polling, Three.js loaders, SSE streaming, multi-tier GLB LRU caching (F40), dynamic inspectors, and UI overlays.
+- Backend machines govern SQLite/Redis job queues (B1), BaseModel lifecycle (B2), multiprocess worker pooling (B3), GPU hardware isolation with `_is_pre_ampere` guards (B6), candidate promotion (B9), and adapter parameter precedence (B19).
+
+### UI Generation Panel Streamlining
+`GeneratePanel.tsx` is restructured to align with native mesh output:
+- **Primary Panel Body:** Hosts direct inputs for target polycount (500–600K slider passing `native_target_polycount` to adapters) and model-aware texture resolution (2K/4K).
+- **Dynamic Portal Flyout (`#geometry-texture-flyout`):** Houses secondary refinement controls (Remove Lighting, PBR maps, Quad/Triangle topology).
+- **Post-Processing Bypass:** The post-processing master toggle is completely removed from the UI, delivering extracted raw meshes directly without unnecessary pipeline stages.
+

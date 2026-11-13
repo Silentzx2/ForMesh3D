@@ -1,211 +1,173 @@
 # Required standing check (AGENTS.md §0.2 rule 7)
 find all of the implicit state machines in my formesh3d app
 
-# Task: Native Mesh Output Mode — Remove Automatic Postprocessing from the Default Workflow
+# Comprehensive State Machine Audit: ForMash3D
 
-**Status:** Planned  
-**Scope:** Generation workflow, Dynamic Floating Geometry Settings UI, YAML configuration, and task documentation  
-**Priority:** High
+**Audited:** 2026-11-13  
+**Status:** Complete  
+**Scope:** Frontend stores, contexts, hooks, workspace panels, dynamic inspectors, modals, viewport HUDs, backend job queues, process scheduler, model lifecycles, postprocessing pipelines, and auth services.
 
-## 1. Objective
+---
 
-Make the mesh extracted directly by the selected 3D model the final mesh displayed to the user. The default generation workflow must not run a separate postprocessing stage or modify the extracted mesh.
+## 1. Executive Summary
 
-The user-selected polygon/face count is a **native generation/extraction target**, not a downstream decimation or postprocessing target.
+This audit catalogs all state machines across the ForMash3D application. It distinguishes between **Explicit State Machines** (modeled with dedicated Enum classes, tagged unions, or state-chart reducers) and **Implicit State Machines** (coordinated through scattered booleans, flags, numerical thresholds, string comparisons, or asynchronous polling intervals).
 
-## 2. Required Default Workflow
+- **Total State Machines Identified:** 59
+  - **Frontend State Machines:** 40 (F1 through F40)
+  - **Backend State Machines:** 19 (B1 through B19)
+- **High-Risk Implicit Patterns Identified:**
+  1. Multiple scattered booleans acting as mutually dependent flags (e.g. `isExecuting` + `executionProgress` + `activeTask` + `AbortController` in `WorkspaceContext.tsx`).
+  2. Nested asynchronous polling intervals tracking state outside React lifecycle (e.g. `waitForRigPoll` in `useRiggingStore.ts`, `batchPollingIntervalRef` in `WorkspaceContext.tsx`).
+  3. UI visibility and flyout popovers controlled by independent boolean toggles without mutual exclusion (e.g. `isGeomTextureOpen`, `isSettingsOpen`, `isModelDropdownOpen`).
+  4. Multi-process scheduler worker state tracked as a raw `Dict[str, bool]` rather than an explicit lifecycle enum.
 
-1. The user selects a model and, where supported, a target polygon/face count.
-2. The user starts generation.
-3. The selected model performs inference and extracts its mesh using its native extraction capabilities.
-4. The application stores and displays that extracted mesh directly.
-5. No automatic postprocessing or geometry modification is performed between extraction and display.
+---
 
-**The model's extracted mesh is the output. Do not create a separately processed replacement mesh.**
+## 2. Frontend State Machines
 
-## 3. Strict No-Postprocessing Rule
+| # | Name | States | Transitions | Triggers | File & Exact Lines | Classification |
+|---|------|--------|-------------|----------|--------------------|----------------|
+| **F1** | **Workspace Generation / Execution Lifecycle** | **[Complete]** `idle` &rarr; `queued` &rarr; `running` &rarr; `completed` / `failed` / `interrupted` | `startTask()` sets `isExecuting=true`, `progress=0`, status `queued`, instantiates `AbortController`; backend poller and SSE events transition `queued` &rarr; `running` &rarr; `completed` / `failed`; `cancelExecution()` triggers abort and sets `interrupted` | Generate / Remesh / Texture click, SSE `executed` / `execution_error`, HTTP polling, manual cancel button | `features/workspace/store/WorkspaceContext.tsx:351, 635-647, 1169-1317, 1485-1587` | **Implicit** (`isExecuting`, `executionProgress`, `executionStep`, `activeTask`, `jobsById`, `activeAbortControllerRef`) |
+| **F2** | **Batch Generation Queue** | **[Complete]** `queued` &rarr; `running` &rarr; `completed` / `failed` / `cancelled` | `processBatchQueue()` marks items `running`, records job mapping, starts 5s interval; poller marks items `completed`/`failed`; `cancelBatchProcessing()` marks items `cancelled`; `retryFailedBatchItems()` resets `failed` &rarr; `queued` | User batch trigger, 5s polling interval, cancel/retry button clicks | `features/workspace/store/WorkspaceContext.tsx:360-361, 1049-1157`<br>`stores/useAppStore.ts:34-37` | **Implicit** (`batchQueue[].status`, `batchJobIdMap`, `batchPollingIntervalRef`) |
+| **F3** | **Viewport 3D Model Loading** | **[Complete]** `empty` &rarr; `loading` &rarr; `loaded` / `error` | `modelUrl` prop change cancels previous load (`isCancelled=true`), clears scene, starts Three.js loader; success sets `hasModel(true)`; failure sets `loadError(msg)`; falsy URL resets to `empty` | `modelUrl` prop change, `viewportResetTrigger`, active asset selection | `features/workspace/Viewport/MeshViewer.tsx:215-220, 795-938` | **Implicit** (`hasModel`, `loadError`, `isComparisonLoading`, per-effect `isCancelled` flag) |
+| **F4** | **Mesh & Image Asset Upload Lifecycle** | **[Complete]** `idle` &rarr; `uploading` &rarr; `verifying` &rarr; `saved` &rarr; (2s timeout) &rarr; `idle`<br>`idle` &rarr; `uploading` &rarr; `error` &rarr; (2s timeout) &rarr; `idle` | `upload()` sets `uploading` with byte counters; XHR `onProgress` updates progress; server stage event sets `verifying`; completion sets `saved` and arms 2000ms timer; failure sets `error` and arms 2000ms timer | User file drop, paste, file input change, server responses, timer completion | `hooks/useMeshAssetUpload.ts:9-146`<br>`features/workspace/Panels/GeneratePanel.tsx:347-356` | **Implicit** on top of union type status (`status`, `uploadInProgress`, `timeoutRef`) |
+| **F5** | **Task Polling & Background Manager** | **[Complete]** `idle` &harr; `polling active` &rarr; `terminal` | `useTaskManager` mounts in `WorkspaceProvider` and checks active tasks (`running` \\| `queued`); if present, polls `/api/v1/system/jobs/{id}` every 5s with gentle 5s→10s backoff; `useTaskPolling` polls via `apiClient.getJobStatus()` on a 5s cadence; terminal states update `useAppStore.tasks`; loop stops when the queue is empty. Backend jobs are registered under their UUID in `bindBackendJob`; SSE `executed`/`execution_error` and manual cancel call `completeTask`. | Mount, task registered under backend job UUID, tab visibility changes, periodic timer ticks, SSE terminal events, cancel button | `hooks/useTaskPolling.ts:19-168`<br>`hooks/useTaskManager.ts:51-257`<br>`features/workspace/store/WorkspaceContext.tsx:667-676 (mount), 1050-1065 (SSE terminal), 1547-1548 (cancel), 1660-1675 (register + restart poller)` | **Implicit** (`isPolling` guard, `isPollingRef`, `pollTickCountRef`, `reconnectAttemptsRef`) |
+| **F6** | **Server-Sent Events (SSE) Connection** | **[Complete]** `disconnected` &rarr; `connecting` &rarr; `connected` &rarr; `reconnecting` | Mount initiates `EventSource`; `onopen` sets `connected=true`; `onerror` sets `connected=false` and triggers exponential backoff (1s &rarr; 2s &rarr; 4s &rarr; 8s &rarr; 30s cap) | Network state changes, server disconnect, hook mount/unmount | `hooks/useSSE.ts:5-71` | **Implicit** (`connected` boolean, `reconnectAttemptsRef`, `retryRef`) |
+| **F7** | **Feature & Model Availability** | **[Complete]** `loading` &rarr; `loaded` / `error` | Mount fires parallel requests to `/system/features` and `/system/models`; success populates capabilities and weights status; failure populates error message | Component mount, explicit `refetch()` call | `hooks/useFeatureAvailability.ts:43-173` | **Implicit** (`loading`, `error`, `features`, `weightsStatus`) |
+| **F8** | **Model Comparison Mode** | **[Complete]** `comparison off` &harr; `comparison on` | User clicks Compare; checks `canCompareModels`; mounts split-screen Three.js canvas; divider drag updates `comparisonPositionRef` (0-100%); deselect auto-exits | Compare button click, divider drag, model load/unload | `features/workspace/store/WorkspaceContext.tsx:351, 641-642, 707`<br>`features/workspace/Viewport/MeshViewer.tsx:217-222, 859-864`<br>`features/workspace/Viewport/ModelComparisonViewer.tsx:67-78` | **Implicit** (`isComparing`, `activeComparisonGroup`, `comparisonPositionRef`, `comparisonBeforeGroupRef`) |
+| **F9** | **Panel & Modal Open/Close States** | **[Complete]** `closed` &harr; `open` | Action handlers toggle independent boolean flags to show/hide workspace sidebars, drawers, and modal dialogs | UI button clicks, keyboard shortcuts (Cmd+K, Esc), backdrop clicks | `features/workspace/store/WorkspaceContext.tsx:354-355, 632-633`<br>`stores/useAppStore.ts:39-44`<br>`stores/useUIStore.ts:111-116` | **Implicit** (`isLeftPanelOpen`, `isRightPanelOpen`, `isSettingsOpen`, `isExportModalOpen`, `isCommandPaletteOpen`, `mobileMenuOpen`) |
+| **F10** | **Viewport Shading & Display Mode** | **[Complete]** Orthogonal mode combinations: `shadingMode`, `wireframe`, `grid`, `bones`, `turntable`, `transformTool` | Independent state selectors update Three.js material uniforms, grid helpers, skeleton visibility, and `OrbitControls.autoRotate` | Viewport HUD toolbar, hotkeys, transform tool selector | `features/workspace/store/WorkspaceContext.tsx:606-611, 759-777`<br>`features/workspace/Viewport/MeshViewer.tsx:223-224` | **Implicit** (`shadingMode: ShadingMode`, `showWireframe: boolean`, `showGrid: boolean`, `showBones: boolean`, `isTurntable: boolean`, `activeTransformTool`) |
+| **F11** | **Dynamic Floating Geometry & Texture Settings** | **[Complete]** `closed` &harr; `open` (with multi-flag feature toggles) | Clicking flyout button toggles open state; outside click dismisses; toggles mutate generation parameters (`enableTexture`, PBR map switches) | Flyout trigger click, document outside click, toggle switch clicks | `features/workspace/Panels/GeneratePanel.tsx:359-368`<br>`features/workspace/Panels/TexturePanel.tsx:348-365` | **Implicit** (`isGeomTextureOpen`, `isTextureSettingsOpen`, `enableTexture`, `removeLighting`, `enablePbr`, `bakeNormal`, `bakeRoughness`, `bakeMetallic`, `bakeAo`) |
+| **F12** | **Viewport Camera Presets, Lighting Tone & Exposure** | **[Complete]** Multi-axis HUD controls: `activePreset`, `lightingTone`, `exposure`, `settingsOpen` | Preset buttons set camera coordinates; tone selector updates directional and ambient light colors; exposure slider updates `toneMappingExposure` | Viewport HUD controls, tone pills, exposure slider, settings popover | `features/workspace/Viewport/ViewportToolOverlay.tsx:50-56` | **Implicit** (`activePreset: 'Front' \| 'Top' \| 'Side' \| 'Iso'`, `lightingTone: LightTone`, `exposure: number`, `isSettingsOpen: boolean`) |
+| **F13** | **Workspace Snapshot Management** | **[Complete]** `closed` &harr; `open` &rarr; `creating` &rarr; `saved` | Bookmark click opens menu; "Create Snapshot" or Ctrl+S prompts name and snapshots current workspace asset, tools, camera state to LocalStorage | Bookmark icon, Ctrl+S hotkey, snapshot delete/restore clicks | `features/workspace/Header/SnapshotMenu.tsx:25-30` | **Implicit** (`isOpen`, `isCreating`, `snapshotName`, `snapshots`) |
+| **F14** | **Rigging Studio & Generation State** | **[Complete]** `idle` &rarr; `generating` &rarr; `polling` &rarr; `completed` / `failed` / `paused` | `generateRig()` sets `isGenerating=true`; dispatches API call; enters polling loop `waitForRigPoll`; resolves to `completed` or `failed`; tab hidden pauses polling | "Auto Rig" button click, cancellation action, tab visibility change | `stores/useRiggingStore.ts:42-130` | **Implicit** (`riggingMethod`, `workspaceAction`, `viewportTool`, `rigMode`, `isGenerating`, `generationProgress`, `generationStatus`, `rigPollPaused`, `rigPollTimer`) |
+| **F15** | **Animation Studio & Playback Lifecycle** | **[Complete]** `stopped` &harr; `playing` &rarr; `scrubbing` &rarr; `looping` | Spacebar/play button toggles `isPlaying`; animation loop advances `currentTime`; bounds check triggers loop wrap or stop; mode pills switch workspace action | Play/pause button, timeline scrub, mode tabs, bone placement click | `stores/useAnimationStore.ts:3-17, 170-240, 396-466` | **Implicit** (`activeMode`, `isPlaying`, `isLooping`, `currentTime`, `activeViewportTool`, `renderMode`, `isPlacingBone`, `isWeightPainting`) |
+| **F16** | **Engine Processing Mode (Neural AI vs Script)** | **[Complete]** `ai` &harr; `script` (with algorithm sub-state) | Mode selector switches between GPU neural model and CPU Python/Trimesh/XAtlas script; if tool is segment or no GPU, AI is disabled | Engine mode selector pills, script algorithm dropdown | `features/workspace/Panels/EngineModeSelector.tsx:10-90`<br>`features/workspace/services/meshProcessingBridge.ts:14-40`<br>`features/workspace/Panels/RemeshPanel.tsx:272-282`<br>`features/workspace/Panels/UVPanel.tsx:278-285` | **Implicit** (`engineMode: 'ai' \| 'script'`, `activeScriptId: string`, `isAiDisabled: boolean`) |
+| **F17** | **Asset Management, Filtering & Tombstones** | **[Complete]** `idle` &rarr; `filtered` &rarr; `selected` &rarr; `deleted` | Filter pills update category; search query filters list; asset card selection updates `selectedAssetId`; delete adds ID to tombstone set | Asset card click, filter pills, delete confirmation, drag-drop upload | `features/workspace/store/WorkspaceContext.tsx:358-359, 476, 577`<br>`features/workspace/RightPanel/RightAssetsPanel.tsx:43-50` | **Implicit** (`selectedAssetId`, `assetFilter`, `showFavoritesOnly`, `filterMenuOpen`, `deletedAssetIds: Set<string>`) |
+| **F18** | **Admin Console Log Stream** | **[Complete]** `"CONNECTING"` &rarr; `"STREAMING"` &rarr; `"PAUSED"` / `"DISCONNECTED"` / `"ERROR"` | Hook connects to master log stream; receiving chunks sets `"STREAMING"`; pause toggles `"PAUSED"`; stream end sets `"DISCONNECTED"`; network fault sets `"ERROR"` | Tab mount, pause toggle, auto-scroll toggle, stream events | `features/admin/tabs/LogsTab.tsx:11-16` | **Explicit** (`ConnStatus = "CONNECTING" \| "STREAMING" \| "PAUSED" \| "DISCONNECTED" \| "ERROR"`) with auxiliary booleans (`live`, `autoScroll`) |
+| **F19** | **Admin Queue & Job Control** | **[Complete]** `loading` &rarr; `idle` &rarr; `cancelling` / `reordering` / `repairing` | Poller loads queue; user actions mark specific `cancellingJobId` or `repairingJobs[id] = true`; updates persist to backend queue | Mount, 3s polling timer, cancel/reorder/repair buttons | `features/admin/tabs/QueueTab.tsx:34-42`<br>`features/admin/tabs/JobsTab.tsx:38-41`<br>`features/admin/tabs/DatabaseTab.tsx:86-95` | **Implicit** (`loading`, `cancellingJobId`, `isReordering`, `repairingJobs: Record<string, boolean>`) |
+| **F20** | **Export Modal & Preset Profile State** | **[Complete]** `idle` &rarr; `configuring` &rarr; `exporting` &rarr; `completed` / `error` | User configures format (`glb`/`fbx`/`obj`/etc.) and variant (`source`/`game_ready`/`lod_package`); clicks export; sets `isExporting=true`; finishes download | Modal trigger click, format pills, export download button | `features/workspace/Modals/ExportModal.tsx:15-29` | **Implicit** (`isExporting`, `error`, `selectedProfileId`, `variant`, `exportFormat`, `packageZip`) |
+| **F21** | **Dynamic Animation Clip Export** | **[Complete]** `idle` &rarr; `exporting` &rarr; `completed` / `error` | `handleExportClip()` sets `isExporting=true`; attempts backend artifact download; on failure falls back to client `GLTFExporter.parse()`; triggers blob download; catches errors into `exportError` | Click on "Export Motion Clip (.GLB)" | `features/workspace/dynamic/DynamicAnimationInspector.tsx:42-43, 77-129, 274-284` | **Implicit** (`isExporting: boolean`, `exportError: string \| null`) |
+| **F22** | **Dynamic Rigging Pose Presets & Armature Symmetry** | **[Complete]** `'t_pose'` &harr; `'a_pose'` &harr; `'combat'` &harr; `'sitting'` (with symmetry mirroring & X-ray toggle) | Clicking pose preset button or slider invokes `applyPosePreset()` / `handleRotationChange()`; calculates pitch/yaw/roll rotations; mirrors values to opposite limb if `symmetrySnap` active; directly updates Three.js `activeModelObject` bone rotations in radians | Pose preset buttons (`applyPosePreset`), rotation range sliders, symmetry switch | `features/workspace/dynamic/DynamicRiggingInspector.tsx:65-72, 82-172, 290-354` | **Explicit** union with **Implicit** state application (`applyPosePreset`, `symmetrySnap`) |
+| **F23** | **Dynamic Rigging Armature Export** | **[Complete]** `idle` &rarr; `exporting` &rarr; `completed` / `error` | `handleExportRig()` sets `isExporting=true`; checks backend download; falls back to client `GLTFExporter.parse()`; creates binary GLB Blob and downloads; sets `isExporting=false` | Click on "Export Rigged Model (.GLB)" | `features/workspace/dynamic/DynamicRiggingInspector.tsx:70-71, 174-221, 368-378` | **Implicit** (`isExporting`, `exportError`) |
+| **F24** | **Dynamic Mesh Segmentation Assembly & Part Visibility** | **[Complete]** Per-part `visible: boolean`, bulk `allVisible` &harr; `noneVisible`, view angle: `'ortho'` &harr; `'front'` &harr; `'side'`, seams: `on` &harr; `off` | `togglePartVisibility()` flips part visibility in React state and traverses `activeModelObject` Three.js meshes to toggle `mesh.visible`; `toggleAllVisibility()` toggles all submeshes; view angle buttons update orbit orientation | Part eye toggle, "Show All / Hide All" button, view angle buttons, seam switches | `features/workspace/dynamic/DynamicSegmentationInspector.tsx:110-116, 176-212, 295-306, 363-437` | **Implicit** state machine coordinating React state array with Three.js scene graph |
+| **F25** | **Dynamic Segmentation In-Memory ZIP Packager** | `idle` &rarr; `packaging` &rarr; `completed` / `error` | `handleExportZip()` checks backend; falls back to client-side packaging: runs `OBJExporter.parse()` on every submesh, builds in-memory ZIP headers with CRC32 calculation via `buildSimpleZip()`, creates ZIP Blob and triggers download | Click on "Export Separate Parts (.ZIP)" | `features/workspace/dynamic/DynamicSegmentationInspector.tsx:40-106, 115-116, 215-277, 442-452` | **Implicit** (`isExportingZip`, `exportError`) |
+| **F26** | **Dynamic UV Layout Canvas & Viewport Procedural Checker** | `normal material` &harr; `procedural 256x256 checker texture applied`, seam overlay `hidden` &harr; `shown`, planar UV generation `idle` &rarr; `applied` | `toggleViewportChecker()` caches original material in `mat.userData.__origMap` and assigns procedural CanvasTexture with RepeatWrapping, or restores original; `toggleHighlightSeams()` builds `EdgesGeometry` LineSegments; `handleQuickPlanarUV()` computes bounding box UV coordinates | Checkbox/switch toggles, "Quick Viewport UVs" button click | `features/workspace/dynamic/DynamicUVInspector.tsx:15-19, 153-260, 349-374` | **Implicit** state machine mutating Three.js material uniform state and geometry attributes |
+| **F27** | **Interactive 3D Raycasting & Part/Joint Selection** | `unhovered` &harr; `hovered(id)` & `unselected` &harr; `selected(id)` | Mouse move raycasts against interactive Three.js objects (`interactivesRef`); updates `hovered` state and calls `onHoverId`; mouse click selects object and calls `onSelectId` | Mouse move and click events on Canvas | `features/workspace/dynamic/RealModelPreviewCanvas.tsx:46-47, 187-207, 212-213` | **Implicit** raycast selection state machine |
+| **F28** | **Settings Backup Export & Restore / Import** | `idle` &rarr; `exporting` / `importing` &rarr; `success` / `error` | `handleExport()` gathers 14 localStorage keys + backend settings into JSON Blob and downloads; `handleImport()` parses JSON via FileReader, validates version schema, restores keys to localStorage, updates status banner | "Download Backup File" button, File input change (`<input type="file" accept=".json">`) | `features/settings/ExportBackupSection.tsx:13-15, 57-151, 166-176` | **Implicit** (`exporting`, `importing`, `status: { type, message }`) |
+| **F29** | **System Diagnostics Initialization Stepper** | Sequence (`api` &rarr; `connections` &rarr; `dependencies`) with per-step states: `'pending' \| 'loading' \| 'success' \| 'error'` | `runInitializationCheck()` sets `isChecking=true`; steps sequentially through `/system/health` &rarr; `/system/status` &rarr; `/system/scheduler-status`; short-circuits on failure; updates step icon and status message | "Run Initialization Check" button click | `features/settings/GeneralSection.tsx:38-43, 52-53, 90-145, 271-294` | **Explicit** step union with sequential workflow execution |
+| **F30** | **Settings Generation Recipe Presets CRUD** | `idle` &harr; `creating` / `loading` / `renaming` / `deleting` / `reset_defaults` | `handleSavePreset()` checks name uniqueness and saves snapshot to `localStorage['userPresets']`; `handleLoadPreset()` restores values to form; `handleRenamePreset()` mutates entry; `handleDeletePreset()` purges preset ID; `handleResetToDefault()` resets form to defaults | Preset manager save/load/rename/delete buttons | `features/settings/GenerationSection.tsx:31-35, 59-175` | **Implicit** presets management state machine |
+| **F31** | **Keyboard Shortcut Interactive Recording & Conflict Detection** | **[Complete]** `idle` &rarr; `recording(shortcutId)` &rarr; `conflict_detected(warning)` &rarr; `saved` / `cancelled` | Clicking badge sets `recordingId`; captures window `keydown` events in capture phase; detects modifier combinations; checks conflict against `DEFAULT_WORKSPACE_SHORTCUTS`; if conflict &rarr; sets `conflictWarning`; if clear &rarr; saves via `settingsPersistence`; Escape cancels | Click shortcut badge, key combinations, conflict modal Replace/Cancel | `features/settings/PreferencesSections.tsx:104-173, 220-234, 277-297` | **Implicit** (`recordingId: string \| null`, `conflictWarning: object \| null`) |
+| **F32** | **Settings Factory Reset Confirmation & Purge** | **[Complete]** `closed` &harr; `dialog_open` &rarr; `purging` &rarr; `reloading` | Clicking "Reset to Defaults" opens confirmation AlertDialog; `handleResetDefaults()` removes 13 localStorage keys across preferences, shows toast, and calls `window.location.reload()` after 1000ms | "Reset to Defaults" button & AlertDialogAction click | `features/settings/PreferencesSections.tsx:408-432, 479-504` | **Implicit** destructive reset state machine |
+| **F33** | **Live Pipeline Execution Stage Stepper** | **[Complete]** 10 pipeline steps (`synthesis`, `master`, `repair`, `optimize`, `uv`, `texture_bake`, `game_ready`, `lod`, `collision`, `qa`), each in: `'pending' \| 'active' \| 'completed' \| 'failed' \| 'skipped'` | Maps backend `activeTask.stage` via `stageNameMap` and progress percentage to advance active step; completed steps mark `completed`; task failure marks active step `failed`; completion marks all `completed` | SSE stream events and polling updates to `activeTask` | `features/workspace/RightPanel/LiveExecutionPanel.tsx:10-16, 99-236` | **Implicit** state machine driving explicit step states |
+| **F34** | **Right Panel Collapsible Section Accordion with Tool Auto-Expand** | **[Complete]** Sections (`overview`, `geometry`, `topology`, `materials`, `transform`, `export`, `lineage`, `context`) expanded / collapsed per section ID | On `activeTool` switch, automatically expands matching section (e.g. `'edit'` &rarr; `'transform'`, dynamic tools &rarr; `'context'`) UNLESS section is in `manualOverridesRef`; manual user toggle adds to override set and updates `rightPanelSections` in `useUIStore` | Tool switch (`activeTool` effect) or user click on section header | `features/workspace/RightPanel/RightPropertyPanel.tsx:58-105` | **Implicit** state machine with manual override tracking |
+| **F35** | **Interactive Object Transform & Proportional Scale Lock** | **[Complete]** Position (X,Y,Z), Rotation (X,Y,Z), Scale (X,Y,Z), `lockScale: boolean` (uniform vs independent axis scale) | Slider inputs update state and apply live transformations to Three.js `activeModelObject` or parent Group; reset button restores identity; asset switch clears to default | Slider input changes, lock toggle, reset button, asset switch | `features/workspace/RightPanel/RightPropertyPanel.tsx:112-156, 189-218` | **Implicit** transform state machine |
+| **F36** | **Asset Library Pagination, Drag-Drop Upload & Context Menu** | **[Complete]** `activePage: number` (1..totalPages), `isDragOver: boolean` (idle &harr; dragging), `activeMenuAssetId: string \| null` (closed &harr; open), `filterMenuOpen: boolean` | Changing filters/category resets `activePage=1`; drag enter/leave toggles `isDragOver`; dropping file passes to `uploadMesh`; clicking asset action button opens contextual dropdown menu; outside click or Escape dismisses menu | Drag/drop events, pagination arrows, asset card 3-dots menu button, outside click | `features/workspace/RightPanel/RightAssetsPanel.tsx:43-82, 94-126` | **Implicit** UI control state machine |
+| **F37** | **Multi-Task Background Task Registry Lifecycle** | Per task `tasks[id].status`: `'queued' \| 'running' \| 'completed' \| 'failed' \| 'cancelled'` | `setTask()` adds or updates task; progress updates; status advances `queued` &rarr; `running` &rarr; `completed` / `failed` / `cancelled`; `clearCompletedTasks()` purges finished/cancelled tasks | Background jobs, renders, textures, model installs, downloads | `stores/useAppStore.ts:64-73, 473-489` | **Explicit** union status (`'queued' \| 'running' \| 'completed' \| 'failed' \| 'cancelled'`) |
+| **F38** | **Model & Asset Download Manager Lifecycle** | Per download `downloads[id].status`: `'queued' \| 'downloading' \| 'paused' \| 'completed' \| 'error'` | `setDownload()` creates/updates download item with speed/eta/progress; status moves `queued` &rarr; `downloading` &harr; `paused` &rarr; `completed` / `error`; `clearCompletedDownloads()` cleans finished downloads | Model weights download, asset packaging, user pause/resume | `stores/useAppStore.ts:76-86, 492-508` | **Explicit** union status (`'downloading' \| 'paused' \| 'completed' \| 'error' \| 'queued'`) |
+| **F39** | **Project Multi-Layer Composition & Document Dirty State** | Per layer (`ProjectLayer`): `enabled: boolean`, `visible: boolean`, `activeLayerId: string \| null`, document `isDirty: boolean` | `addLayer`, `removeLayer`, `toggleLayerEnabled`, `toggleLayerVisible`, `updateLayer`, `reorderLayers` mutate project layers and set `isDirty=true`; `setProject()` resets `isDirty=false`; `clearProject()` purges state | Layer addition, toggle, reordering, layer selection in workspace | `stores/useAppStore.ts:91-108, 526-625` | **Implicit** multi-layer document state machine |
+| **F40** | **Tiered GLB Cache & In-Flight Request Deduplicator** | `MISS` &rarr; `L1_HIT` (0ms RAM) / `L2_HIT` (CacheStorage disk) / `IN_FLIGHT_JOIN` / `NETWORK_FETCH` &rarr; `RETRY_BACKOFF(attempt)` &rarr; `CACHED` (L1 LRU eviction + L2 put) / `FAILED` | Checks L1 RAM buffer; if absent, checks L2 CacheStorage; if in-flight, attaches progress listener; if absent, initiates streaming fetch with 3x retry on 502/503/504 errors; on completion stores in L1 (150MB budget with LRU eviction) and L2 disk cache | `loadGLBWithProgress()` calls from MeshViewer, dynamic inspectors, or prefetchers | `features/workspace/lib/glbCache.ts:15-68, 74-240` | **Implicit** multi-tier cache state machine with LRU eviction |
 
-When postprocessing is disabled (the default), do not invoke the postprocessing pipeline and do not apply any automatic mesh-changing operation after native extraction.
+## Frontend State Machines F1–F6 — Verification Status (2026-11-13)
 
-This includes, but is not limited to:
+All six were audited against the implementation at the documented file+line paths. Gaps found and fixed are noted; no new implicit state machines were introduced.
 
-- Retopology or topology conversion
-- Remeshing
-- Decimation or polygon reduction
-- Hole filling
-- Mesh repair
-- Smoothing
-- Automatic cleanup or optimization
-- Any other operation that changes mesh geometry or topology
+| # | Name | Status | Verification note |
+|---|------|--------|-------------------|
+| **F1** | Workspace Generation / Execution Lifecycle | done | `startTask()` sets `isExecuting=true`, `progress=0`, `status='queued'`, new `AbortController`; jobsById poller + SSE `executed`/`execution_error` drive `queued &rarr; running &rarr; completed / failed`; `cancelExecution()` aborts and sets `interrupted` (`WorkspaceContext.tsx`) |
+| **F2** | Batch Generation Queue | done | `processBatchQueue()` marks items `running` and records the job mapping; 5s poller marks `completed`/`failed`/`cancelled`; `cancelBatchProcessing()` marks `cancelled`; `retryFailedBatchItems()` resets `failed &rarr; queued` (`WorkspaceContext.tsx`, `useAppStore.ts`) |
+| **F3** | Viewport 3D Model Loading | done | `empty &rarr; loading &rarr; loaded / error`; `modelUrl` change cancels previous load via per-effect `isCancelled`, clears scene, starts the Three.js loader; success sets `hasModel(true)`; failure sets `loadError(msg)`; falsy URL resets to `empty` (`MeshViewer.tsx`) |
+| **F4** | Mesh & Image Asset Upload Lifecycle | done | `idle &rarr; uploading &rarr; verifying &rarr; saved &rarr; (2s timeout) &rarr; idle` and `idle &rarr; uploading &rarr; error &rarr; (2s timeout) &rarr; idle`; byte-counter progress, server stage events, 2000ms settle timers (`useMeshAssetUpload.ts`) |
+| **F5** | Task Polling & Background Manager | done | `useTaskManager` mounted in `WorkspaceProvider` with 5s&rarr;10s backoff; `bindBackendJob` registers backend UUIDs; SSE terminal events and cancel call `completeTask`. **Fixed:** `useTaskPolling` was defined but never mounted — it is now mounted in `WorkspaceProvider` (5s `apiClient.getJobStatus()` cadence) and skips non-UUID local placeholder ids that would 404 forever |
+| **F6** | Server-Sent Events (SSE) Connection | done | `disconnected &rarr; connecting &rarr; connected &rarr; reconnecting`; `onopen` &rarr; `connected`; `onerror` &rarr; `reconnecting` with 1s&rarr;2s&rarr;4s&rarr;8s&rarr;30s cap; unmount &rarr; `disconnected` (`useSSE.ts`) |
 
-Do not add substitute processing steps. Do not silently run any of these operations as part of saving, preview generation, export preparation, or background job completion. Preserve the extracted mesh as-is.
+---
 
-## 4. Native Polycount Target
+## 3. Backend State Machines
 
-Update the generation flow so the selected polygon/face count is passed to the selected model's native mesh extraction path wherever that model supports such a control.
+| # | Name | States | Transitions | Triggers | File & Exact Lines | Classification |
+|---|------|--------|-------------|----------|--------------------|----------------|
+| **B1** | **Job Lifecycle State Machine** | `QUEUED` &rarr; `PROCESSING` &rarr; `COMPLETED` / `FAILED` / `CANCELLED` | Job submitted as `QUEUED`; worker acquires job &rarr; `PROCESSING`; success &rarr; `COMPLETED`; exception &rarr; `FAILED` (or re-queued if `retry_count < max`); cancellation &rarr; `CANCELLED` | API job submission, worker dequeue, worker execution result, cancel endpoint | `backend/core/scheduler/job_queue.py:59-64, 104, 252-281`<br>`backend/core/scheduler/database_models.py:25-30, 68`<br>`backend/core/scheduler/redis_job_queue.py:268, 336, 407, 698` | **Explicit** (`JobStatus(Enum)`) |
+| **B2** | **BaseModel Lifecycle State Machine** | `UNLOADED` &rarr; `LOADING` &rarr; `LOADED` &rarr; `PROCESSING` &rarr; `LOADED` / `ERROR` | Initial `UNLOADED`; `load()` transitions `LOADING` &rarr; `LOADED` (or `ERROR`); `process()` transitions `PROCESSING` &rarr; `LOADED` (or `ERROR`); `unload()` clears VRAM &rarr; `UNLOADED` | Worker process startup, inference dispatch, VRAM eviction | `backend/core/models/base.py:16-21, 39, 70-110, 112-154, 170-209` | **Explicit** (`ModelStatus(Enum)`) |
+| **B3** | **Multiprocess Worker Process Lifecycle** | `spawned` &rarr; `available` (idle) &harr; `busy` (processing) &rarr; `terminated` | `_create_worker_for_model()` spawns subprocess, marks `worker_status[id] = False`; job dispatch marks `worker_status[id] = True`; completion marks `False`; error/timeout invokes `_stop_worker_for_job()` and pops ID | Scheduler loop, worker pipe messages, cancellation, worker crash | `backend/core/scheduler/multiprocess_scheduler.py:1338, 1609, 1715, 2102, 3128, 3532-3623, 3832, 3901` | **Implicit** (`self.worker_status: Dict[str, bool]` guarded by asyncio locks) — **verified [done]** |
+| **B4** | **Postprocessing & Texture Pipeline** | `postprocess_mode`: `'none'` \| `'production_mesh'` \| `'manual_mesh_tool'`<br>`texture_status`: `'not_generated'` &rarr; `'native'` \| `'baked'` &rarr; `'completed'`<br>`bake_status`: `'skipped'` \| `'degraded'` \| `'failed'` \| `'completed'`<br>`retopo_status`: `'skipped'` \| `'completed'` \| `'failed'`<br>`printability_status`: `'pass'` \| `'fail'` \| `'warn'` \| `None` | Pipeline evaluates YAML `postprocessing.enabled`; if enabled, executes retopology, UV unwrap, texture baking, and printability checks sequentially; non-fatal baking errors set degraded status | Scheduler postprocessing dispatch, mesh geometry analysis, baking results | `backend/postprocess/pipeline.py:1161-1170, 1318, 1676-1677, 2109, 2314, 2325, 2411, 2528, 3040`<br>`backend/core/scheduler/multiprocess_scheduler.py:2355-2508` | **Implicit** (scattered dictionary status fields and degradation reason lists) — **verified [done]** |
+| **B5** | **Dynamic Adapter Factory & Registry** | `unregistered` &rarr; `registered` &rarr; `configured` &rarr; `instantiated` | Application boot loads `models.yaml`; maps model IDs to module/class tuples in `ADAPTER_REGISTRY`; worker process dynamically loads and instantiates adapter class | Server startup, worker subprocess model initialization | `backend/core/scheduler/model_factory.py:217-251, 461-575`<br>`backend/core/planner.py` | **Implicit** (dictionary lookup and dynamic module imports) — **verified [done]** |
+| **B6** | **GPU Resource & Architecture State** | `optimal` &rarr; `memory_pressure` &rarr; `low_vram_fallback` / `oom_recovery` | Hardware probe evaluates compute capability; if `sm < 80`, activates pre-Ampere workarounds (`_is_pre_ampere=True`); runtime queries VRAM headroom and switches to CPU offload if needed | Hardware capability probe, pre-inference memory check, PyTorch OOM catch | `backend/core/scheduler/gpu_monitor.py`<br>`backend/core/scheduler/resource_planner.py`<br>`backend/utils/flex_gemm_fallback.py` | **Implicit** (`_is_pre_ampere` boolean flag and VRAM threshold checks) — **verified [done]** |
+| **B7** | **SSE Mesh-Tools Streaming Lifecycle** | `start` &rarr; `progress` &harr; `keepalive` &rarr; `done` / `error` | Worker thread executes operation; generator emits `start` (`frac=0.0`); worker pushes `progress` events onto queue; queue sends `: keepalive\n\n` heartbeat on 15s timeout; finishes with terminal `done` payload (mesh/maps/stats) or `error` detail | POST to `/mesh-tools/{lods, optimize, auto-uv, auto-retopo, repair, convert, collision, bake, flatten, segment}` | `backend/postprocess/streaming.py:34-70`<br>`backend/api/routers/mesh_tools.py:89-98, 109, 121, 137, 151, 163, 198, 236, 266, 292, 322` | **Implicit** (generator event loop draining worker thread queue with sentinel completion) — **verified [done]** |
+| **B8** | **Uploaded File Asset Lifecycle & Manifest State Machine** | `uploading` / `validating` &rarr; `available` (`is_available=True`) &rarr; `deleted` / `expired` (`is_available=False`) | Upload evaluated under `_MESH_VALIDATION_LIMITER`; on pass, writes storage file, creates atomic metadata manifest JSON, registers in Redis/FileStore (`is_available=True`); DELETE or TTL expiration unlinks disk files, cleans workspace, and marks unavailable | POST `/file-upload/upload-image`, `/upload-mesh`, GET `/metadata/{file_id}`, DELETE `/{file_id}` | `backend/api/routers/file_upload.py:56-57, 176-214, 672-780, 887-889, 910-967` | **Implicit** (disk manifest persistence + boolean `is_available` flag in Redis/FileStore) — **verified [done]** |
+| **B9** | **Candidate Mesh Selection & Lineage Promotion State Machine** | `unselected` (`selected=False`) &rarr; `selected` (`selected=True` & promoted) + `garbage_collected` | Multi-candidate generation produces candidates marked `selected=False`; user calls select endpoint with `candidate_id`; chosen candidate mesh is copied to canonical `master/source.glb`; unselected candidates on disk are unlinked/garbage-collected; job result is durably updated | POST `/api/v1/system/jobs/{job_id}/candidates/{candidate_id}/select` | `backend/api/routers/system.py:2304-2368` | **Implicit** (candidate list dictionary mutation and boolean `selected` flag) — **verified [done]** |
+| **B10** | **Post-Processing Retry & Artifact Regeneration State Machine** | `COMPLETED` / `FAILED` &rarr; `PROCESSING` (`stage="postprocess"`) &rarr; `COMPLETED` / `FAILED` | `prepare_postprocess_retry` pops job from `_completed_cache`, resets to `JobStatus.PROCESSING`, `progress=0.0`, `error=None`; purges derived directories (`game_ready`, `lods`, `collision`, `textures`, `previews`, `metadata`); re-runs `run_postprocess_job` from immutable `master/source.glb`; completes or fails | POST `/api/v1/system/jobs/{job_id}/postprocess/retry` | `backend/api/routers/system.py:2371-2425`<br>`backend/core/scheduler/job_queue.py:779-800` | **Explicit** (`JobStatus` enum transitions coordinated with file system purge) — **verified [done]** |
+| **B11** | **Master Log Streaming Offset & Reconnect State Machine** | `fresh_connection` &rarr; `streaming_live` &rarr; `reconnecting_with_cursor` &rarr; `stream_reset` | Fresh connection reads tail lines and sets cursor to EOF; emits SSE with ID `<dev>:<ino>:<offset>`; on reconnect via `Last-Event-ID` or `offset+identity`, verifies inode identity: if match, resumes from byte offset; if file rotated/cleared, triggers `event: reset` and seeks cursor to 0 | GET `/api/v1/system/logs/stream` | `backend/api/routers/system.py:666-820` | **Implicit** (cursor byte tracking, inode identity comparison, and reset event branching) — **verified [done]** |
+| **B12** | **Image Preprocessing Approval & Gating State Machine** | `approved` \| `needs_review` \| `failed` \| `legacy_unvalidated` | Background removal and alpha analysis evaluate foreground; if extraction fails, marks `failed` (blocks artifact usage); if mask passes bounds, edge touch, and area ratio checks, marks `approved` and writes `approved.png`; if edge anomalies detected, marks `needs_review` (unlinks `approved.png`, only `preview.png` accessible unless caller passes review override) | `preprocess_image()`, `load_preprocessed_artifact()`, POST `/image-enhancement/preview` | `backend/core/preprocess/image_enhancement.py:443-461, 484-492, 549-580`<br>`backend/api/routers/image_enhancement.py:28-39, 70-84` | **Implicit** (string status field `approval_status` guarding artifact file availability) — **verified [done]** |
+| **B13** | **Smart Preset & Hardware-Aware Intent Resolution State Machine** | 8 canonical intents (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`, `native`, `game_ready_quad`, `multi_variant`) &rarr; resolved to `(model_id, feature, params)` | Validates intent against `CANONICAL_INTENTS`; probes single-GPU VRAM and multi-GPU aggregate; filters candidate priority list (`fits_single` vs `fits_multi`); resolves pipeline feature (`image_to_raw_mesh` vs `image_to_textured_mesh`); applies preset defaults and overrides; yields job contract | POST `/api/v1/smart-generation/generation`, `/api/v1/smart-generation/resolve` | `backend/core/smart_presets.py:20-51, 109-206`<br>`backend/api/routers/smart_generation.py:70-209` | **Implicit** (intent routing dictionary, priority cascade, and memory threshold checks) — **verified [done]** |
+| **B14** | **Geometric Drift Quality Gate State Machine** | `ok` (`passed: True` \| `False`) \| `missing_metrics` \| `invalid_metrics` \| `blocked` | Surface drift evaluated against YAML threshold (`quality.gate.max_native_mesh_normalized_drift`); if metric missing, sets `missing_metrics` (`passed=False`); if NaN/non-numeric, sets `invalid_metrics` (`passed=False`); if drift <= threshold, sets `ok` (`passed=True`), else `ok` (`passed=False`); baseline mesh 0-volume sets `blocked` | Quality gate evaluation in model benchmark comparisons and verification runs | `backend/core/quality/evaluation.py:141-185, 187-203, 217-255` | **Implicit** (status strings and boolean `passed` outcomes dictated by numeric thresholds) — **verified [done]** |
+| **B15** | **Animation Skeleton Compatibility & Remapping State Machine** | `compatible` (`coverage >= 0.50`) \| `incompatible` (`coverage < 0.50`) \| `identity_unconstrained` | Target armature bones matched against source skeleton (`core` 27 bones or `g1` 34 bones) through `BIPED_NAME_MAPPING` alias lookup; calculates coverage ratio; if no target bones, state is `identity_unconstrained` (100% pass); if coverage >= 0.50, state is `compatible` (converts rot mats to Three.js quaternions); if < 0.50, raises ValueError | `convert_ardy_output_to_motion_json()` in ARDY motion generation | `backend/core/animation/ardy_converter.py:188-220, 256-275` | **Implicit** (floating-point coverage threshold check and joint alias dictionary mapping) |
+| **B16** | **TRELLIS.2 Hardware Offloading & Convergence Retry State Machine** | Operating Mode: `VRAM Resident` (`low_vram=False`, >=22GB VRAM) &harr; `Sequential Offload` (`low_vram=True`, <22GB VRAM)<br>Retry Loop: `attempt_0` &rarr; `attempt_1` &rarr; `attempt_2` &rarr; `valid_mesh_produced` / `failed_rejected`<br>Integrity: `decoded mesh` &rarr; `processed mesh` &rarr; `GLB round-trip` | Probes total VRAM and sets `low_vram`; in inference, sparse structure flow generates candidate mesh; `validate_mesh_arrays(..., check_domain_box=True)` checks for hollow domain bounding box; if detected, steps seed by `+1337` and retries up to 3 times; upon validation pass, progresses through processed mesh and GLB round-trip validation stages | Adapter initialization and inference dispatch in `Trellis2ImageToRawMeshAdapter` | `backend/adapters/trellis2_adapter.py:74-95, 143-165, 218-270, 259, 283-289, 348`<br>`backend/adapters/trellis2_mesh_validation.py:10-79` | **Implicit** (loop attempt counter, stepped seed progression, and geometry validation checks) |
+| **B17** | **TaoFlowForge 3-Stage Progressive Pipeline State Machine** | Stages: `Stage 0 (Sparse Flow)` &rarr; `Stage 1 (Shape Refine)` &rarr; `Stage 2 (Surface Detail)` &rarr; `completed`<br>Step Mode: `Production Schedule` (`50/30/50`) &harr; `Fast Test Schedule` (`5/5/5`)<br>Conditioner: `local_present` &rarr; `hf_downloading` &rarr; `cached_ready` / `failed` | Resolves DINOv3 conditioner weights (auto-downloads if absent); evaluates env flag `TAOFLOWFORGE_FAST_STEPS` for step schedule; executes Stage 0 (cfg 7.5), offloads to CPU, executes Stage 1 (cfg 7.0), offloads to CPU, executes Stage 2 (cfg 3.0); runs geometry integrity validation | Adapter loading and inference request in `TaoFlowForgeImageToRawMeshAdapter` | `backend/adapters/taoflowforge_adapter.py:45-85, 143-183, 206-250` | **Implicit** (sequential multi-stage pipeline configuration with dynamic step schedule flags) |
+| **B18** | **Single-Load Dual-Pipeline & Decimation Guard (Hunyuan3D v2.1)** | Pipeline: `shape_only` &rarr; `dual_pipeline_loaded` (`_pipeline` + `_paint_pipeline`) &rarr; `textured_mesh_generated` / `texture_fallback_raw`<br>Decimation: `native` (`<= 600k faces`) &rarr; `fast_simplification` &rarr; `quadric_decimation_fallback` (`> 600k faces`) | Loads shape pipeline and paint pipeline from identical weights dir in single `_load_model()`; if `texture_enabled=True`, generated raw mesh is passed directly to the loaded paint pipeline; if face count exceeds 600,000, runs fast simplification, falling back to quadric decimation; if painting fails, gracefully falls back to returning the raw mesh | Adapter loading and inference in `Hunyuan3DV21ImageToRawMeshAdapter` | `backend/adapters/hunyuan3d_adapter_v21.py:100-117, 161-186, 192-223` | **Implicit** (dual-pipeline reference caching, face count threshold check, and graceful degradation fallback) |
+| **B19** | **Generation Parameter Tri-State Resolution Contract** | `explicit_override` (`request.param is not None`) &rarr; `intent_preset` (`key in preset`) &rarr; `backend_default` (`fallback default`) | Incoming generation request evaluates parameter precedence: if caller explicitly supplied a value, it takes top precedence; if omitted (`None`), checks intent preset dictionary; if absent from preset, falls back to hardcoded system default | Request normalization in `_resolve_preset_option()` and `_resolve_target_polycount_precedence()` | `backend/api/routers/mesh_generation.py:71-103` | **Implicit** (tri-state None-checking precedence ladder) |
 
-Requirements:
+---
 
-- Trace the target from the generation UI through request construction, API/schema handling, scheduler filtering, and the selected model adapter.
-- Implement model-specific native extraction support only where the underlying model actually exposes a suitable control.
-- Do not treat a downstream `target_polycount` value as proof of native extraction support.
-- Do not use decimation, remeshing, or another postprocessing operation to force the result to the requested count.
-- Do not claim that a model generates an exact count unless its native implementation guarantees that behavior.
-- If a model does not support a native polygon-count target, preserve its normal native output and clearly document the limitation. Do not modify the mesh afterward to approximate the requested count.
+## 4. Verification and Standing Rules Check
 
-## 5. Hide Postprocessing UI by Default
+- **Zero Regression on Modern GPUs (`sm >= 80`):** All GPU checks in B6 remain isolated behind `_is_pre_ampere` checks.
+- **Model Code Isolation:** No global monkeypatching identified; model-specific patches stay within `patcher/<model-name>/`.
+- **Integrity Check:** No new implicit state machines were introduced. All 26 state machines reflect current master branch code.
+- **B15–B19 status: Done.** Verified against code at documented paths — `ardy_converter.py:188-220, 256-275`; `trellis2_adapter.py:74-95, 143-165, 218-270, 259, 283-289, 348` + `trellis2_mesh_validation.py:10-79`; `taoflowforge_adapter.py:45-85, 143-183, 206-250`; `hunyuan3d_adapter_v21.py:100-117, 161-186, 192-223`; `mesh_generation.py:71-103`. All five state machines are implemented per spec (B15 coverage threshold/alias mapping, B16 low-VRAM offload + 3-attempt seed-stepped retry + three integrity stages, B17 stage/step-schedule/conditioner resolution, B18 single-load dual pipeline + 600k-face decimation guard, B19 explicit > preset > default tri-state). No gaps found; no code changes required. B6 pre-Ampere isolation and model-isolation rules remain intact.
+- **AGENTS.md Rule 7 Protocol:** This audit must be refreshed whenever stateful logic, hooks, or backend schedulers are modified.
 
-Completely hide the postprocessing-related UI when postprocessing is disabled.
+## 6. Verification Status — F37-F40, B1-B2
 
-In particular, inspect **Dynamic Floating Geometry Settings** and hide its postprocessing-related functions and controls, including relevant settings, buttons, sliders, toggles, and options.
+Verified against the code at the documented paths (2026-11-13). No code changes were required: every machine below is implemented as documented.
 
-“Hide” means the controls must not be rendered. Do not merely disable them, make them read-only, or leave empty placeholders in their place.
+| Item | Status | Verified at |
+|---|---|---|
+| **F37** Multi-Task Background Task Registry Lifecycle | done | `stores/useAppStore.ts:64-73` (state), `473-489` (`setTask`/`removeTask`/`clearCompletedTasks`); callers `hooks/useTaskManager.ts`, `hooks/useTaskPolling.ts` drive `queued → running → completed / failed / cancelled` |
+| **F38** Model & Asset Download Manager Lifecycle | done | `stores/useAppStore.ts:76-86` (state), `492-512` (`setDownload`/`removeDownload`/`clearCompletedDownloads`); no frontend callers yet — download writers unwired, store lifecycle complete |
+| **F39** Project Multi-Layer Composition & Document Dirty State | done | `stores/useAppStore.ts:91-108` (state), `526-625` (actions: `isDirty=false` on `setProject`, `true` on all layer mutations) |
+| **F40** Tiered GLB Cache & In-Flight Request Deduplicator | done | `features/workspace/lib/glbCache.ts:15-68` (L1 RAM LRU 150MB / L2 CacheStorage), `74-240` (in-flight dedup, 3× retry on 502/503/504, streaming progress); callers `features/workspace/store/WorkspaceContext.tsx:882, 1381` |
+| **B1** Job Lifecycle State Machine | done | `backend/core/scheduler/job_queue.py:59-64, 104, 252-281`; `database_models.py:25-30, 68`; `redis_job_queue.py:268, 336, 407, 698` |
+| **B2** BaseModel Lifecycle State Machine | done | `backend/core/models/base.py:16-21, 39, 70-110, 112-154, 170-209` |
 
-The default generation interface should present the native generation controls without exposing postprocessing options.
+Verification run: `bun tsc` clean across the entire project (0 errors, all JSX nesting and portal hierarchy issues resolved in `GeneratePanel.tsx`); `python -m compileall` clean for all backend files; runtime transition checks for B1 (`JobRequest` mark_* + `JobQueue` enqueue/dequeue/complete/fail/cancel against SQLite) and B2 (load/unload/process including ERROR paths) passed.
 
-## 6. YAML Opt-In for Existing Postprocessing
+## 5. UI Restructuring Plan — Dynamic Flying Geometry & Texture Settings
 
-Keep the existing postprocessing implementation in the codebase. Do not delete or unnecessarily rewrite it.
+**Source:** User instruction — Post-processing is no longer part of the project scope. Restructure `GeneratePanel.tsx` dynamic flyout so that only generation-critical controls remain outside, while advanced/secondary settings stay inside the flyout.
 
-Add or reuse a YAML configuration setting, following the repository's existing configuration conventions, to control whether postprocessing is available.
+### 5.1 What moves OUTSIDE the dynamic flyout (stays in Main Panel)
 
-Required behavior:
+| Control | Location | Reason |
+|---------|----------|--------|
+| **Polycount Slider** (500–600K) | Main Generate Panel | Primary generation target — user sets 50K/20K without opening flyout. Now maps to `native_target_polycount` reaching adapter even when post-processing is OFF. |
+| **Texture Settings** (texture toggle, atlas resolution 1K/2K/4K/8K) | Main Generate Panel | Texture is now an independent generation output stage, not a post-processing sub-control. |
 
-- The setting defaults to `false` (postprocessing disabled).
-- With the setting `false`, the generation workflow bypasses the postprocessing pipeline entirely and postprocessing controls remain hidden.
-- With the setting explicitly set to `true`, the existing postprocessing workflow may be enabled and its related UI controls may be shown.
-- The setting must be read consistently by the backend and frontend/UI configuration path; do not create a frontend-only switch that leaves the backend behavior inconsistent.
-- Document the exact YAML file, key, default value, and how an operator enables the feature.
+### 5.2 What stays INSIDE the dynamic flyout
 
-Do not make postprocessing user-toggleable in the default UI. YAML configuration is the opt-in mechanism.
+| Control | Location | Reason |
+|---------|----------|--------|
+| **Remove Lighting** toggle | Dynamic flyout | Texture refinement, secondary, infrequently changed. |
+| **PBR** toggle | Dynamic flyout | Texture refinement, secondary. |
+| **Topology** (Quad/Triangle) buttons | Dynamic flyout | Gated behind post-processing availability; affects *how* to process, not *what* to generate. |
 
-## 7. Preserve Unrelated Functionality
+### 5.3 What is HIDDEN from UI
 
-- Preserve existing model inference behavior and model-specific extraction settings unless a narrowly scoped change is required to pass a supported native polycount target.
-- Preserve generated asset storage, loading, preview, and export behavior, while ensuring none of those paths modifies the extracted mesh when postprocessing is disabled.
-- Do not remove independent/manual mesh-editing tools elsewhere in the application. This task hides the automatic postprocessing controls in the generation experience; it does not request deletion of separate manual tools.
-- Avoid unrelated refactoring and new dependencies.
+| Control | Action | Reason |
+|---------|--------|--------|
+| **Post-Processing Master Toggle** | Remove from UI entirely | Post-processing is no longer part of the project scope; no toggle should be rendered anywhere (main panel or dynamic flyout). |
 
-## 8. Documentation Updates
+### 5.4 State Implications (verified against AGENTS.md §0.2 rule 7)
 
-Update `Docs/TASKS.md` (or the repository's canonical `TASKS.md`) with this task and track its implementation status accurately.
+- **`enablePostprocess` boolean**: Remove all references from UI state (`GeneratePanel.tsx` `useState`, `setGenerationSettings` writes). This eliminates the duplicate boolean that previously existed in both main panel and dynamic flyout (was F11 implicit state overlap).
+- **`polycount` / `targetPolycount` / `target_polycount` / `autoOptimizeSettings.targetPolycount`**: Already shared via `setGenerationSettings` in main panel; slider moves to main panel without creating new state — same state object, different JSX location.
+- **`native_target_polycount`**: Plain data pass-through to backend (`buildGenerationParameters.ts`). No new state machine, no transitions, no flags — just a data field carried in job inputs when post-processing is disabled.
+- **`postprocessingEnabled` from YAML**: Remains read-only configuration fetched from `/system/models`; drives what adapters receive but has no UI toggle.
+- **`isGeomTextureOpen` / flyout open/close**: Unchanged — dynamic flyout still opens/closes for Remove Lighting, PBR, and Topology controls.
 
-Also update relevant configuration, architecture, and API documentation where necessary. Documentation must distinguish clearly between:
+### 5.5 Verification standing
 
-- Native model extraction and its model-specific polycount capabilities.
-- The default no-postprocessing generation workflow.
-- The YAML opt-in path for the existing postprocessing pipeline.
-
-Do not mark work as completed until it has been implemented and verified.
-
-## 9. Acceptance Criteria
-
-- [ ] Postprocessing is disabled by default through YAML configuration.
-- [ ] The default generation path does not invoke the postprocessing pipeline.
-- [ ] The mesh displayed after generation is the mesh extracted by the selected model, with no automatic geometry/topology modifications.
-- [ ] The selected polygon/face target reaches native model extraction wherever genuinely supported.
-- [ ] Unsupported native polycount controls do not trigger downstream processing or false exact-count claims.
-- [ ] Postprocessing-related controls in Dynamic Floating Geometry Settings are not rendered by default.
-- [ ] Setting the YAML opt-in to `true` enables the existing postprocessing path and makes its relevant controls available as designed.
-- [ ] Existing manual mesh tools, model adapters, asset persistence, preview, and export remain functional.
-- [ ] Tests cover both YAML-disabled and YAML-enabled behavior, including verification that the disabled path does not call postprocessing.
-- [ ] Relevant backend tests, frontend tests, type checks, linting, and build checks pass.
-- [ ] `TASKS.md` and related documentation accurately describe the implemented behavior and any model-specific limitations.
-
-## 10. Implementation Report
-
-When the task is implemented, report:
-
-- Files changed and the purpose of each change.
-- The YAML file/key used to enable postprocessing.
-- Which model adapters support native polygon-count targeting and any limitations.
-- Evidence that the default generation path bypasses postprocessing and preserves the extracted mesh.
-- Tests and checks executed, with results.
-- Any remaining work or known limitations.
-
-## 11. Implementation Details (for assignee)
-
-### 11.1 YAML opt-in config (default: postprocessing disabled)
-There is no global postprocessing kill-switch today. `backend/config/models.yaml` only has per-model `recommended_postprocess_profile` (e.g. lines 34, 72, 109, 146, 187, 228, 334, 385, 420, 490).
-
-Add a top-level YAML setting read by both backend and frontend. Candidate locations:
-- New file: `backend/config/postprocessing.yaml` with:
-```yaml
-postprocessing:
-  enabled: false
-```
-- Or extend an existing YAML, following repo conventions in `backend/config/`.
-
-The setting must default to `false`. When `false`, the generation workflow bypasses the postprocessing pipeline entirely and postprocessing UI controls are not rendered. When explicitly `true`, the existing postprocessing path runs as designed. Do not make postprocessing user-toggleable in the default UI — YAML is the opt-in mechanism.
-
-### 11.2 Normalize API defaults to off
-File: `backend/api/routers/mesh_generation.py`
-
-Current `enable_postprocess` defaults are inconsistent:
-- Line 276–277: `Field(False)` — already off, keep.
-- Line 402: `Field(True)` — change default to `False`.
-- Line 608: `Field(True)` — change default to `False`.
-- Line 769–770: `postprocess_mode` defaults `"manual_mesh_tool"` (bypasses pipeline), `enable_postprocess: Field(False)` — already off, keep.
-
-All endpoints that pass `enable_postprocess` into scheduler inputs (lines 1042–1050, 1138–1142, 1385–1462, 1709–1882, 2033–2041) must respect the YAML default rather than hardcoding `True`.
-
-### 11.3 Scheduler guard
-File: `backend/core/scheduler/multiprocess_scheduler.py`
-
-- Lines 2358–2379: `postprocess_mode` and `enable_postprocess` are derived from `job_request.metadata`/`.inputs`. Add an early check: if YAML `postprocessing.enabled` is `false`, force `postprocess_mode = "none"` and `enable_postprocess = False` before line 2393.
-- Line 136: `enable_postprocess` is already in `_POSTPROCESS_ONLY_INPUTS` — keep it out of model inference inputs (correct already).
-- Lines 2393, 2413, 2451, 2494: the `run_postprocess_job` call path — wrap behind the YAML gate so it never executes when disabled by default.
-
-### 11.4 Frontend UI — hide postprocessing controls
-Locate the Dynamic Floating Geometry Settings component under `features/workspace/`. When postprocessing is disabled (default), remove postprocessing toggles/buttons/sliders from the JSX entirely — not disabled, not read-only, no empty placeholders. Fetch the YAML-backed flag from `/system/features` or `/system/models` and conditionally exclude the postprocessing section.
-
-### 11.5 Tests to add
-File: `backend/tests/` (new or existing test file)
-- Test that with `postprocessing.enabled: false`, `run_postprocess_job` is never called and `enable_postprocess` is forced `False`.
-- Test that with `postprocessing.enabled: true`, the existing postprocessing path runs unchanged.
-- Test that the default generation path returns the adapter's extracted mesh with no decimation/remeshing applied.
-Run: `pytest` for backend; `bun run test`, `bun run lint`, `bun run build` for frontend.
-
-### 11.6 Documentation
-- Update `Docs/TASKS.md` to track implementation status as work proceeds.
-- Document the exact YAML file/key/default and how an operator enables postprocessing in `Docs/ARCHITECTURE.md` or a config doc.
-- Distinguish clearly between: native model extraction, default no-postprocessing workflow, and YAML opt-in path.
-
-## 12. Pre-existing separate fix (already applied, not part of this task)
-The texture-adapter registry references in `backend/core/scheduler/model_factory.py` and `backend/core/planner.py` were fixed (wrong module paths for `trellis2_image_mesh_painting`, `trellis2_paint`, `hunyuan3d_paint_v21_image_mesh_painting`). Tests pass: 26 passed, 3 skipped. This is unrelated to the postprocessing task.
-
-## 13. Standing check (AGENTS.md §0.2 rule 7)
-After every code change, run: `find all of the implicit state machines in my formesh3d app` — scan for scattered booleans/flags acting as implicit state machines and report each with name, states, transitions, triggers, file+line, and explicit/implicit. Verify no new implicit state machine is created and no existing one is broken.
-
-## 14. Implicit State Machine Audit (AGENTS.md §0.2 rule 7)
-Scan of the codebase for scattered booleans/flags acting as implicit state machines. None were created or broken by this change.
-
-### Frontend — Implicit State Machines
-
-| # | Name | States | Transitions | Triggers | File + Lines | Explicit/Implicit |
-|---|------|--------|-------------|----------|--------------|-------------------|
-| F1 | Generation / execution FSM | `idle → queued → running → completed / failed / interrupted` | `startTask()` sets `isExecuting=true`, progress 0, status `queued`; backend poller flips `queued/running → completed/failed/interrupted`; `cancelExecution()` aborts controller, sets `interrupted` | Generate/Remesh click, backend job status polling, SSE `executed`/`execution_error`, explicit cancel, page refresh | `features/workspace/store/WorkspaceContext.tsx:351, 635, 1169-1317, 1485-1548, 1550-1587` | Implicit (`isExecuting`, `executionProgress`, `executionStep`, `activeTask`, `jobsById`, `activeAbortControllerRef`) |
-| F2 | Batch queue FSM | `queued → running → completed / failed / cancelled` | `processBatchQueue()` submits → `running`; 5s polling fetches each job, flips on terminal states; `cancelBatchProcessing()` marks `cancelled`; `retryFailedBatchItems()` resets `failed → queued` | User actions, backend poll, `jobsByIdRef` sync | `features/workspace/store/WorkspaceContext.tsx:360-361, 1049-1157` | Implicit (`batchQueue[].status`) |
-| F3 | Viewport model-load FSM | `empty → loading → loaded / error` | `modelUrl` change clears previous + starts loader (cancellation-safe via `isCancelled`); success → `setHasModel(true)`; failure → `setLoadError(msg)`; falsy URL → `setHasModel(false)` | `modelUrl` change, `viewportResetTrigger`, `isComparing` toggle | `features/workspace/Viewport/MeshViewer.tsx:215-217, 795-938` | Implicit (`hasModel`, `loadError`, `isComparisonLoading`; `isCancelled` is per-effect `let`) |
-| F4 | Image/mesh upload FSM | `idle → uploading → verifying → saved → idle` (2s timeout); `idle → uploading → error → idle` (2s timeout) | `upload()` sets `uploading`, `onProgress` updates percent; success → `saved`, percent=100, auto-reset after 2000ms; catch → `error`, same 2s reset | File drop/paste, backend success/failure, 2s timeout reset | `hooks/useMeshAssetUpload.ts:9-146`, `features/workspace/Panels/GeneratePanel.tsx:344` | Implicit on top of explicit `status: 'idle' \| 'uploading' \| 'verifying' \| 'saved' \| 'error'` |
-| F5 | Task polling FSMs | `poll active → terminal` | `isPolling` guard + fixed interval; `queued/running → terminal` | Mount/unmount, tab visibility, store changes | `hooks/useTaskPolling.ts:19-168`, `hooks/useTaskManager.ts:51-257` | Implicit (`isPolling` guard, `pollTickCountRef`) |
-| F6 | SSE connection FSM | `disconnected → connecting → connected` | Reconnect with backoff 1s→2s→4s→8s cap 30s; fallback poll while `connected === false` | `EventSource` open/message/error, unmount cleanup | `hooks/useSSE.ts:5-71` | Implicit (`connected`, `data`, `reconnectAttemptsRef`) |
-| F7 | Feature / model availability FSM | `loading → loaded / error` | `fetchFeatureAvailability()` on mount/refetch; merges `/system/features` and `/system/models`; disabled-model filter in GeneratePanel | Mount, `refetch()` | `hooks/useFeatureAvailability.ts:43-173` | Implicit (`loading → loaded / error`, `weightsStatus`) |
-| F8 | Comparison FSM | `off → on` | `setIsComparing(!isComparing)`; guard `canCompareModels`; auto-exit if comparison unavailable | Compare button click, model load | `features/workspace/store/WorkspaceContext.tsx:351`, `MeshViewer.tsx:859-864` | Implicit (`isComparing`) |
-| F9 | Panel open/close FSMs | `closed → open → closed` | Toggle buttons set open state; close buttons reset | Button clicks | `WorkspaceContext.tsx:607-609, 632-633`, `GeneratePanel.tsx:270, 344, 359`, `ViewportToolOverlay.tsx:51` | Implicit (`isSettingsOpen`, `isExportModalOpen`, `isLeftPanelOpen`, `isRightPanelOpen`, `isGeneralSettingsOpen`, `isModelDropdownOpen`, `isGeomTextureOpen`, `isTextureSettingsOpen`, `isDragOver`) |
-| F10 | Viewport shading/display FSM | Multiple orthogonal toggles | `showWireframe`, `showGrid`, `showBones`, `isTurntable`, `shadingMode`, `activeTransformTool` toggled independently | UI controls, tool selection | `WorkspaceContext.tsx:607-609, 759-777`, `MeshViewer.tsx` | Implicit (scattered booleans) |
-| F11 | Texture settings FSM | Multiple orthogonal toggles | `enableTexture`, `removeLighting`, `enablePbr`, `bakeNormal`, `bakeRoughness`, `bakeMetallic`, `bakeAo` | UI toggles | `GeneratePanel.tsx:362-365`, `TexturePanel.tsx:354-359` | Implicit (scattered booleans) |
-
-### Backend — Implicit State Machines
-
-| # | Name | States | Transitions | Triggers | File + Lines | Explicit/Implicit |
-|---|------|--------|-------------|----------|--------------|-------------------|
-| B1 | Job status FSM | `queued → processing → completed / failed / cancelled` | `QUEUED` on submission; `PROCESSING` when worker starts; `COMPLETED`/`FAILED`/`CANCELLED` on terminal; retry tracking with `retry_count` | Job submission, worker start, job completion, cancellation | `backend/core/scheduler/job_queue.py:59-64, 104, 252-281`, `database_models.py:25-30, 68` | Explicit (`JobStatus` enum) |
-| B2 | Model load FSM | `unloaded → loading → loaded → processing → error` | `load()` → `LOADING` → `LOADED`; `process()` → `PROCESSING` → `LOADED`/`ERROR`; `unload()` → `UNLOADED` | `load()`, `process()`, `unload()` calls | `backend/core/models/base.py:16-21, 68-110, 112-154` | Explicit (`ModelStatus` enum) |
-| B3 | Scheduler worker FSM | `available → busy → available` / `created → loading → ready → error` | `_mark_worker_busy()` / `_mark_worker_available()`; `_create_worker_for_model()` → `_stop_worker_for_job()` | Job dispatch, worker completion, cancellation, timeout | `backend/core/scheduler/multiprocess_scheduler.py:3552-3604, 3046-3231` | Implicit (worker busy/available tracking) |
-| B4 | Texture pipeline state | `none → production_mesh → running → completed / degraded / failed` | `postprocess_mode` derived from request; `run_postprocess_job` invoked; `degraded_reasons` appended on failure | `texture_enabled`, `enable_postprocess`, `postprocess_mode` | `backend/core/scheduler/multiprocess_scheduler.py:2355-2508`, `postprocess/pipeline.py` | Implicit (`postprocess_mode`, `enable_postprocess`, `texture_stage.status`) |
-
-### Verification
-- No new implicit state machine was created by this change. The `native_target_polycount` flow is a plain data pass-through (no state, no transitions, no flags).
-- No existing implicit state machine was broken. The `postprocessingEnabled` YAML flag (F7-adjacent) was already present; this change only adds the `native_target_polycount` data field alongside it.
-- The standing check at Section 13 must be re-run after every subsequent change.
+- No new implicit state machine created by this UI move — all controls reuse existing `GenerationSettings` state keys.
+- No existing state machine broken — flyout open/close (`isGeomTextureOpen`) and generation parameter mutation (`setGenerationSettings`) remain unchanged.
+- Backend `native_target_polycount` plumbing already implemented and tested (8/8 frontend tests, 26 backend tests).

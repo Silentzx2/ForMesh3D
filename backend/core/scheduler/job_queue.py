@@ -601,7 +601,7 @@ class JobQueue:
                 logger.info(f"Completed job {job_id}")
 
     async def fail_job(self, job_id: str, error: str):
-        """Mark job as failed"""
+        """Mark job as failed, re-queueing while retries remain (retry_count < max_retries)."""
         async with self._cache_lock:
             job = self._processing_cache.get(job_id)
             queue_index: Optional[int] = None
@@ -617,6 +617,39 @@ class JobQueue:
 
             job.mark_failed(error)
             job.metadata["error_code"] = classify_job_error(error)
+
+            # Auto-retry: re-queue while retries remain so a transient failure
+            # gets another worker attempt instead of going terminal immediately.
+            # Bounded by max_retries; terminal FAILED after the last attempt.
+            if job.retry_count < job.max_retries:
+                job.retry_count += 1
+                job.last_retry_at = datetime.utcnow()
+                job.retry_reason = error
+                job.status = JobStatus.QUEUED
+                job.started_at = None
+                job.completed_at = None
+                job.assigned_model = None
+                job.progress = 0.0
+                job.metadata["stage"] = "retrying"
+                job.metadata["message"] = (
+                    f"Retry {job.retry_count}/{job.max_retries} after failure: {error}"
+                )
+                job._append_log("retrying", job.metadata["message"])
+                if not await asyncio.to_thread(self.db_manager.save_job, job):
+                    logger.error(f"Failed to persist retry for job {job_id}")
+                    return
+                if queue_index is not None:
+                    # Already resident in the queue cache; the status flip above
+                    # is all that is needed.
+                    pass
+                else:
+                    self._processing_cache.pop(job_id, None)
+                    self._queue_cache.append(job)
+                logger.info(
+                    f"Job {job_id} failed ({error}); requeued for retry "
+                    f"{job.retry_count}/{job.max_retries}"
+                )
+                return
 
             # Persist once with complete state before moving containers so a
             # failed save leaves every container unchanged (no drift).
@@ -784,6 +817,10 @@ class JobQueue:
                 job_model = await asyncio.to_thread(self.db_manager.get_job, job_id)
                 job = JobRequest.from_job_model(job_model) if job_model else None
             if job is None or not (job.result or {}).get("asset_root"):
+                return None
+            # Only terminal jobs may be retried: a QUEUED/PROCESSING job may
+            # have an active worker whose derived artifacts we would clobber.
+            if job.status not in (JobStatus.COMPLETED, JobStatus.FAILED):
                 return None
             job.status = JobStatus.PROCESSING
             job.progress = 0.0
