@@ -1,39 +1,26 @@
 """
-=============================================================================
-MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
-=============================================================================
-Model ID          : stable_fast_3d_image_to_textured_mesh
-Model Name        : Stable Fast 3D (SF3D) — Image to Textured Mesh
-Feature Target    : image_to_textured_mesh
-Status            : ACTIVE
-Upstream Repo     : https://github.com/Stability-AI/stable-fast-3d
-Upstream Pipeline : sf3d.system.SF3D
-Checkpoint / Path : stabilityai/stable-fast-3d (Hugging Face, gated)
-Hardware / VRAM   : ~6GB for single image (fits T4/16GB consumer cards)
-Speed             : ~0.5 seconds per asset on GPU with 7GB+ VRAM
------------------------------------------------------------------------------
-AGENT GOVERNANCE RULES:
-1. DO NOT MODIFY, REFACTOR, OR RE-TUNE THIS FILE OR ITS UPSTREAM PIPELINE
-   CODE UNLESS EXPLICITLY INSTRUCTED BY THE USER OR FIXING A VERIFIED DEFECT.
-2. Single-image to textured-mesh adapter. Generates raw mesh + PBR texture
-   (albedo + normal) in one forward pass. No separate texture stage needed.
-3. Model weights are gated on Hugging Face — requires HF_TOKEN and accepted
-   license before download/inference.
-=============================================================================
+Stable Fast 3D adapter for single-image textured mesh generation.
+
+The adapter deliberately follows the upstream SF3D preprocessing and inference
+contract. Native texture_baker and uv_unwrapper extensions are required; a
+degraded UV fallback is not used because it can silently damage texture quality.
 """
-# Status - ACTIVE
 from __future__ import annotations
 
 import contextlib
+import importlib
 import logging
 import os
+import shutil
 import sys
+import tempfile
+import uuid
 from pathlib import Path
 from typing import Any, Dict
 
 try:
     import torch
-except ImportError:  # pragma: no cover - torch optional in CPU-only environments
+except ImportError:  # pragma: no cover - SF3D itself requires torch
     torch = None
 
 from backend.core.models.base import BaseModel, ModelStatus
@@ -41,23 +28,20 @@ from backend.loader import get_model_weights_dir
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SEED = 42891  # matches quality.yaml seeds.base_seed / scheduler auto-seed base
+DEFAULT_SEED = 42891
+DEFAULT_FOREGROUND_RATIO = 0.85
+MIN_TEXTURE_RESOLUTION = 512
+MAX_TEXTURE_RESOLUTION = 2048
+SUPPORTED_REMESH_OPTIONS = {"none", "triangle", "quad"}
 
 
 class StableFast3DAdapter(BaseModel):
-    """Stable Fast 3D — Image to Textured Mesh.
+    """Stable Fast 3D — image to UV-unwrapped, PBR-textured GLB."""
 
-    Single-image to textured-mesh adapter. Generates a UV-unwrapped mesh with
-    PBR textures (albedo + normal maps) from a single reference image in one
-    forward pass. No separate texture stage needed — mesh and texture are
-    produced together by the SF3D pipeline.
-
-    Does NOT generate raw mesh without texture — use
-    hunyuan3d_shape_v21_image_to_raw_mesh for raw-only generation.
-    """
-
-    MODEL_KEY = "stabilityai/stable-fast-3d"
+    # This key must match models.yaml and download_models.sh.
+    MODEL_KEY = "stable-fast-3d"
     FEATURE_TYPE = "image_to_textured_mesh"
+    supports_seed_variants = False
 
     def __init__(self, vram_requirement: int, **kwargs: Any):
         self.model_id = kwargs.get("model_id")
@@ -75,149 +59,145 @@ class StableFast3DAdapter(BaseModel):
         self.version = "1.0"
         self.experimental = False
         self._pipeline: Any = None
+        self._rembg_session: Any = None
+        self._remove_background: Any = None
+        self._resize_foreground: Any = None
 
     def _load_model(self) -> Any:
-        """Load the SF3D pipeline from Hugging Face Hub.
+        """Load the third-party SF3D source and local Hugging Face weights."""
+        sf3d_root = (
+            Path(__file__).resolve().parents[1] / "thirdparty" / "StableFast3D"
+        ).resolve()
+        if not (sf3d_root / "sf3d" / "system.py").is_file():
+            raise FileNotFoundError(
+                "Stable Fast 3D source is missing. Initialize the third-party "
+                "submodule with: git submodule update --init --recursive backend/thirdparty"
+            )
+        if str(sf3d_root) not in sys.path:
+            sys.path.insert(0, str(sf3d_root))
 
-        The model is gated — requires HF_TOKEN with accepted license on
-        stabilityai/stable-fast-3d before weights can be downloaded.
-        """
-        # Make the vendored sf3d source importable in the worker process
-        _sf3d_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "StableFast3D")
-        if _sf3d_root not in sys.path:
-            sys.path.insert(0, _sf3d_root)
-
-        # StableFast3D vendors texture_baker as a nested package. Adding only
-        # its repository root exposes an empty namespace package that masks it.
-        import importlib
-
+        # Both native packages live one directory above their import packages.
+        texture_baker_root = sf3d_root / "texture_baker"
+        if str(texture_baker_root) not in sys.path:
+            sys.path.insert(0, str(texture_baker_root))
         try:
-            _texture_baker = importlib.import_module("texture_baker")
+            texture_baker = importlib.import_module("texture_baker")
         except ImportError:
-            _texture_baker = None
-        if not callable(getattr(_texture_baker, "TextureBaker", None)):
+            texture_baker = None
+        if not callable(getattr(texture_baker, "TextureBaker", None)) or not hasattr(
+            texture_baker, "_C"
+        ):
             sys.modules.pop("texture_baker", None)
-            _texture_baker_root = str(Path(_sf3d_root) / "texture_baker")
-            if _texture_baker_root not in sys.path:
-                sys.path.insert(0, _texture_baker_root)
             try:
-                _texture_baker = importlib.import_module("texture_baker")
-            except ImportError as e:
+                texture_baker = importlib.import_module("texture_baker")
+            except ImportError as exc:
                 raise RuntimeError(
-                    "Stable Fast 3D texture_baker could not be imported from its "
-                    "installed or vendored package path; its compiled _C extension "
-                    "must be available in this worker."
-                ) from e
-            if not callable(getattr(_texture_baker, "TextureBaker", None)):
-                raise RuntimeError(
-                    "Stable Fast 3D texture_baker module is incomplete: "
-                    "TextureBaker is not exported."
-                )
-        logger.info(
-            "Stable Fast 3D texture baker loaded from %s",
-            getattr(_texture_baker, "__file__", "namespace package"),
-        )
+                    "Stable Fast 3D texture_baker native extension is unavailable. "
+                    "Run backend/scripts/install.sh --gpu to build the SF3D extensions."
+                ) from exc
+        if not callable(getattr(texture_baker, "TextureBaker", None)) or not hasattr(
+            texture_baker, "_C"
+        ):
+            raise RuntimeError(
+                "Stable Fast 3D texture_baker package is incomplete; its compiled _C extension is required."
+            )
 
-        # Pre-inject uv_unwrapper before sf3d imports it.
-        # We must replace a stale or partially-installed module, not only skip the import
-        # when the module is already present but missing the expected Unwrapper export.
+        uv_unwrapper_root = sf3d_root / "uv_unwrapper"
+        if str(uv_unwrapper_root) not in sys.path:
+            sys.path.insert(0, str(uv_unwrapper_root))
         try:
-            import uv_unwrapper as _uv  # noqa: F401 — installed package, no sys.path games
+            uv_unwrapper = importlib.import_module("uv_unwrapper")
         except ImportError:
-            _uv = None
-        if _uv is None or not hasattr(_uv, "Unwrapper"):
-            import importlib.util
-            import types
-
-            _uv_py = (
-                Path(__file__).resolve().parents[1]
-                / "thirdparty"
-                / "StableFast3D"
-                / "uv_unwrapper"
-                / "uv_unwrapper"
-                / "unwrap.py"
-            )
-            _spec = importlib.util.spec_from_file_location(
-                "_uv_unwrap_impl", str(_uv_py)
-            )
-            if _spec is None or _spec.loader is None:
-                raise RuntimeError(f"Unable to load uv_unwrapper source from {_uv_py}")
-            _unwrap_mod = importlib.util.module_from_spec(_spec)
-            _spec.loader.exec_module(_unwrap_mod)
-            _BaseUnwrapper = getattr(_unwrap_mod, "Unwrapper", None)
-            if _BaseUnwrapper is None:
-                raise RuntimeError(
-                    f"uv_unwrapper source at {_uv_py} does not export Unwrapper"
-                )
-
-            class _FallbackUnwrapper(_BaseUnwrapper):
-                def _assign_faces_uv_to_atlas_index(
-                    self, vertex_positions, triangle_idxs, face_uv, face_index
-                ):
-                    # ponytail: returns face_index (0-5 cube faces) directly instead of calling
-                    # torch.ops.UVUnwrapper (registered by a missing _C extension). This is a
-                    # compatibility fallback for the app-layer import path while the native package
-                    # is installed/compiled in the target GPU environment.
-                    return face_index
-
-            _pkg = types.ModuleType("uv_unwrapper")
-            _pkg.Unwrapper = _FallbackUnwrapper
+            uv_unwrapper = None
+        if not callable(getattr(uv_unwrapper, "Unwrapper", None)) or not hasattr(
+            uv_unwrapper, "_C"
+        ):
             sys.modules.pop("uv_unwrapper", None)
-            sys.modules["uv_unwrapper"] = _pkg
-            logger.warning(
-                "uv_unwrapper not installed or incomplete — using pure-PyTorch fallback "
-                "(UV overlap detection disabled). Run: "
-                "pip install ./backend/thirdparty/StableFast3D/uv_unwrapper --no-build-isolation"
+            try:
+                uv_unwrapper = importlib.import_module("uv_unwrapper")
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Stable Fast 3D uv_unwrapper native extension is unavailable. "
+                    "Run backend/scripts/install.sh --gpu to build the SF3D extensions."
+                ) from exc
+        if not callable(getattr(uv_unwrapper, "Unwrapper", None)) or not hasattr(
+            uv_unwrapper, "_C"
+        ):
+            raise RuntimeError(
+                "Stable Fast 3D uv_unwrapper package is incomplete; its compiled _C extension is required."
             )
 
         try:
             from sf3d.system import SF3D
-        except ImportError as e:
-            if "texture_baker" in str(e):
-                raise RuntimeError(
-                    "Stable Fast 3D could not initialize texture_baker; "
-                    "verify its compiled _C extension is available in this worker."
-                ) from e
+            from sf3d.utils import remove_background, resize_foreground
+            import rembg
+        except ImportError as exc:
             raise RuntimeError(
-                f"Stable Fast 3D dependencies not available: {e}. "
-                "Check that sf3d thirdparty source is present and all Python deps are installed."
-            ) from e
-
-        hf_token = os.getenv("HF_TOKEN")
-        if not hf_token:
-            logger.warning(
-                "HF_TOKEN not set — stabilityai/stable-fast-3d weights are gated. "
-                "Run 'huggingface-cli login' and accept the license on HF first."
-            )
+                f"Stable Fast 3D Python dependencies are incomplete: {exc}. "
+                "Install backend/requirements-models.txt and the SF3D native extensions."
+            ) from exc
 
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
-        logger.info("Loading Stable Fast 3D pipeline from %s", weights_dir)
         weights_dir_path = Path(weights_dir)
+        required_files = (
+            weights_dir_path / "config.yaml",
+            weights_dir_path / "model.safetensors",
+        )
+        missing = [str(path) for path in required_files if not path.is_file()]
+        if missing:
+            raise FileNotFoundError(
+                "Stable Fast 3D checkpoint is incomplete; missing: "
+                + ", ".join(missing)
+                + ". Accept the gated Hugging Face model license and run "
+                "backend/scripts/download_models.sh."
+            )
 
+        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
+        logger.info("Loading Stable Fast 3D from %s on %s", weights_dir_path, device)
         pipeline = SF3D.from_pretrained(
             str(weights_dir_path),
             config_name="config.yaml",
             weight_name="model.safetensors",
         )
-
-        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
         pipeline.to(device)
         pipeline.eval()
+
+        try:
+            rembg_session = rembg.new_session()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not initialize SF3D background-removal session: {exc}"
+            ) from exc
+
+        self.model_path = weights_dir_path
+        self.device = device
+        self._pipeline = pipeline
+        self._rembg_session = rembg_session
+        self._remove_background = remove_background
+        self._resize_foreground = resize_foreground
+        self.model = pipeline
+
         pipeline_cfg = getattr(pipeline, "cfg", None)
         logger.info(
-            "Stable Fast 3D loaded on %s: conditioning_size=%s, isosurface_resolution=%s, isosurface_threshold=%s",
+            "Stable Fast 3D loaded on %s: conditioning_size=%s, "
+            "isosurface_resolution=%s, isosurface_threshold=%s",
             device,
             getattr(pipeline_cfg, "cond_image_size", "unknown"),
             getattr(pipeline_cfg, "isosurface_resolution", "unknown"),
             getattr(pipeline_cfg, "isosurface_threshold", "unknown"),
         )
-
-        self._pipeline = pipeline
-        self.model = pipeline
+        logger.info(
+            "Stable Fast 3D native extensions loaded: texture_baker=%s uv_unwrapper=%s",
+            getattr(texture_baker, "__file__", "unknown"),
+            getattr(uv_unwrapper, "__file__", "unknown"),
+        )
         return pipeline
 
     def _unload_model(self) -> None:
         self._pipeline = None
+        self._rembg_session = None
+        self._remove_background = None
+        self._resize_foreground = None
         self.model = None
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
@@ -225,76 +205,166 @@ class StableFast3DAdapter(BaseModel):
         if pipeline is None:
             return {"success": False, "error": "Stable Fast 3D pipeline not loaded"}
 
-        image_path = inputs.get("image_path") or inputs.get("image")
-        if not image_path or not Path(image_path).is_file():
-            return {"success": False, "error": f"image not found: {image_path}"}
+        image_value = inputs.get("image_path") or inputs.get("image")
+        if not image_value:
+            return {"success": False, "error": "SF3D requires an image_path"}
+        image_path = Path(image_value).expanduser()
+        if not image_path.is_file():
+            return {"success": False, "error": f"SF3D input image not found: {image_path}"}
 
-        seed = int(inputs.get("seed", DEFAULT_SEED))
-        texture_resolution = int(inputs.get("texture_resolution", 1024))
-        remesh_option = inputs.get("remesh_option", "none")
-        target_vertex_count = int(inputs.get("target_vertex_count", -1))
+        try:
+            seed = int(inputs.get("seed", DEFAULT_SEED))
+            texture_resolution = int(inputs.get("texture_resolution", 1024))
+            target_vertex_count = int(inputs.get("target_vertex_count", -1))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "SF3D seed, texture_resolution and target_vertex_count must be integers"
+            ) from exc
 
-        import tempfile
+        remesh_option = str(inputs.get("remesh_option", "none") or "none").strip().lower()
+        if seed < 0:
+            raise ValueError("SF3D seed must be >= 0")
+        if not MIN_TEXTURE_RESOLUTION <= texture_resolution <= MAX_TEXTURE_RESOLUTION:
+            raise ValueError(
+                f"SF3D texture_resolution must be between "
+                f"{MIN_TEXTURE_RESOLUTION} and {MAX_TEXTURE_RESOLUTION}"
+            )
+        if remesh_option not in SUPPORTED_REMESH_OPTIONS:
+            raise ValueError(
+                f"Invalid SF3D remesh_option {remesh_option!r}; "
+                f"expected one of {sorted(SUPPORTED_REMESH_OPTIONS)}"
+            )
+        if target_vertex_count == 0 or target_vertex_count < -1:
+            raise ValueError("SF3D target_vertex_count must be -1 or a positive integer")
+
+        if self._remove_background is None or self._resize_foreground is None:
+            raise RuntimeError("SF3D image preprocessing helpers are not initialized")
+        if self._rembg_session is None:
+            raise RuntimeError("SF3D background-removal session is not initialized")
+        if torch is None:
+            raise RuntimeError("PyTorch is required to run Stable Fast 3D")
 
         logger.info(
-            "Stable Fast 3D inference started: seed=%d (metadata only; upstream has no seed/steps/guidance sampler controls), device=%s, texture_resolution=%d, remesh=%s, target_vertex_count=%d",
-            seed,
+            "Stable Fast 3D inference started: device=%s texture_resolution=%d "
+            "remesh=%s target_vertex_count=%d seed_metadata=%d",
             getattr(pipeline, "device", self.device),
             texture_resolution,
             remesh_option,
             target_vertex_count,
+            seed,
         )
         if remesh_option == "none" and target_vertex_count > 0:
             logger.warning(
-                "Stable Fast 3D ignores target_vertex_count=%d when remesh_option='none'",
+                "SF3D ignores target_vertex_count=%d when remesh_option='none'",
                 target_vertex_count,
             )
 
-        output_dir = Path(tempfile.mkdtemp())
+        try:
+            from PIL import Image
 
-        ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
-        with ctx:
-            mesh, glob_dict = pipeline.run_image(
-                image_path,
+            with Image.open(image_path) as source_image:
+                image = source_image.convert("RGBA")
+        except Exception as exc:
+            raise ValueError(f"Could not decode SF3D input image {image_path}: {exc}") from exc
+
+        try:
+            # Match the official SF3D CLI preprocessing: remove background,
+            # then fit the foreground to the expected 0.85 canvas ratio.
+            image = self._remove_background(image, self._rembg_session)
+            image = self._resize_foreground(image, DEFAULT_FOREGROUND_RATIO)
+            if image is None or getattr(image, "mode", None) != "RGBA":
+                raise ValueError("SF3D preprocessing must return a valid RGBA image")
+        except Exception as exc:
+            raise ValueError(f"SF3D image preprocessing failed: {exc}") from exc
+
+        device_value = getattr(pipeline, "device", self.device)
+        device_type = getattr(device_value, "type", str(device_value).split(":", 1)[0])
+        autocast_context = contextlib.nullcontext()
+        if device_type == "cuda":
+            # BF16 is preferred where supported; FP16 keeps T4-class GPUs working.
+            autocast_dtype = torch.float16
+            try:
+                if torch.cuda.is_bf16_supported():
+                    autocast_dtype = torch.bfloat16
+            except Exception:
+                pass
+            autocast_context = torch.autocast(
+                device_type="cuda", dtype=autocast_dtype
+            )
+
+        with torch.no_grad(), autocast_context:
+            mesh, _global_info = pipeline.run_image(
+                image,
                 bake_resolution=texture_resolution,
                 remesh=remesh_option,
                 vertex_count=target_vertex_count,
             )
 
-        # SF3D exports mesh with embedded textures. Save as GLB.
-        out = Path(tempfile.mkdtemp()) / f"stable_fast_3d_{seed}.glb"
-        mesh.export(str(out), include_normals=True)
-        logger.info(
-            "Stable Fast 3D inference complete: vertices=%d, faces=%d, output_format=glb",
-            len(mesh.vertices),
-            len(mesh.faces),
-        )
+        if isinstance(mesh, (list, tuple)):
+            if len(mesh) != 1:
+                raise RuntimeError(
+                    f"SF3D single-image inference returned {len(mesh)} meshes; expected exactly one"
+                )
+            mesh = mesh[0]
+        vertices = getattr(mesh, "vertices", None)
+        faces = getattr(mesh, "faces", None)
+        if vertices is None or faces is None or len(vertices) == 0 or len(faces) == 0:
+            raise RuntimeError("SF3D produced an empty mesh; no GLB artifact was created")
 
+        output_dir: Path | None = None
+        try:
+            output_dir = Path(tempfile.mkdtemp(prefix="sf3d_"))
+            output_path = output_dir / f"stable_fast_3d_{uuid.uuid4().hex[:12]}.glb"
+            mesh.export(str(output_path), include_normals=True)
+            if not output_path.is_file() or output_path.stat().st_size < 12:
+                raise RuntimeError("SF3D GLB export produced an empty or missing file")
+            with output_path.open("rb") as exported_file:
+                if exported_file.read(4) != b"glTF":
+                    raise RuntimeError("SF3D output is not a valid binary GLB file")
+        except Exception:
+            if output_dir is not None:
+                shutil.rmtree(output_dir, ignore_errors=True)
+            raise
+
+        logger.info(
+            "Stable Fast 3D inference complete: vertices=%d faces=%d "
+            "texture_resolution=%d output=%s",
+            len(vertices),
+            len(faces),
+            texture_resolution,
+            output_path,
+        )
         return {
             "success": True,
-            "output_mesh_path": str(out),
-            "mesh_path": str(out),
-            "textured_mesh_path": str(out),
+            "output_mesh_path": str(output_path),
+            "mesh_path": str(output_path),
+            "textured_mesh_path": str(output_path),
             "texture_enabled": True,
+            # Upstream run_image has no seed argument. Preserve the requested
+            # seed as provenance, but never claim it was applied.
             "generation_info": {
                 "seed": seed,
+                "seed_applied": False,
                 "texture_resolution": texture_resolution,
                 "remesh_option": remesh_option,
                 "target_vertex_count": target_vertex_count,
-                "num_inference_steps": "adapter_owned",
-                "guidance_scale": "adapter_owned",
+                "input_preprocessing": "sf3d_remove_background_resize_foreground",
             },
+            # The scheduler removes this private temp directory after durable copy.
+            "_temporary_output_dir": str(output_dir),
         }
 
     def get_supported_formats(self) -> Dict[str, list[str]]:
-        return {"input": ["png", "jpg", "jpeg", "webp"], "output": ["glb", "obj"]}
+        return {"input": ["png", "jpg", "jpeg", "webp"], "output": ["glb"]}
 
     def get_parameter_schema(self) -> Dict[str, Any]:
         return {
             "parameters": {
                 "seed": {
                     "type": "integer",
-                    "description": "Random seed for reproducibility",
+                    "description": (
+                        "Provenance value only; upstream SF3D run_image has no seed control"
+                    ),
                     "default": DEFAULT_SEED,
                     "minimum": 0,
                     "required": False,
@@ -303,20 +373,22 @@ class StableFast3DAdapter(BaseModel):
                     "type": "integer",
                     "description": "Output texture atlas resolution in pixels",
                     "default": 1024,
-                    "minimum": 512,
-                    "maximum": 2048,
+                    "minimum": MIN_TEXTURE_RESOLUTION,
+                    "maximum": MAX_TEXTURE_RESOLUTION,
                     "required": False,
                 },
                 "remesh_option": {
                     "type": "string",
-                    "description": "Remeshing operation: none, triangle, or quad",
+                    "description": "Upstream remeshing operation",
                     "default": "none",
+                    "enum": sorted(SUPPORTED_REMESH_OPTIONS),
                     "required": False,
                 },
                 "target_vertex_count": {
                     "type": "integer",
-                    "description": "Target vertex count for decimation (-1 = no reduction)",
+                    "description": "Approximate remesh target; -1 disables vertex-count targeting",
                     "default": -1,
+                    "minimum": -1,
                     "required": False,
                 },
             }

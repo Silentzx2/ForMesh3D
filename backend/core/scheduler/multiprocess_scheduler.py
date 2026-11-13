@@ -927,6 +927,24 @@ def _process_job_in_worker(
         if "seed" not in model_inputs or model_inputs["seed"] is None:
             model_inputs["seed"] = base_seed
 
+        # Some upstream pipelines (including SF3D run_image) expose no seed
+        # control. Do not waste GPU time generating duplicate "seed" candidates.
+        if getattr(loaded_model, "supports_seed_variants", True) is False and total_seeds_to_run > 1:
+            seed_schedule = seed_schedule[:1] or [base_seed]
+            seed_plan = {
+                **seed_plan,
+                "candidate_count": 1,
+                "planned_candidate_count": 1,
+                "auto_seeds_enabled": False,
+                "auto_candidates": False,
+                "seed_schedule": seed_schedule,
+            }
+            total_seeds_to_run = 1
+            logger.info(
+                "[SEED PLAN] model=%s does not support seed variants; running one candidate",
+                model_id,
+            )
+
         runtime_log = {
             "model": model_id,
             "model_version": getattr(loaded_model, "version", "1.0"),
@@ -2340,6 +2358,7 @@ class MultiprocessModelScheduler:
         """Handle job result asynchronously without blocking the main processing loop"""
         job_id = job_request.job_id
         keep_inputs_for_postprocess = False
+        result = None
         try:
             result = await asyncio.wait_for(result_future, timeout=3600.0)
 
@@ -2376,6 +2395,9 @@ class MultiprocessModelScheduler:
                             shutil.copy2(str(_src), str(_dst))
                         final_result["output_mesh_path"] = str(_dst)
                         final_result["mesh_path"] = str(_dst)
+                # The adapter output has now been copied to durable storage.
+                # Remove its private temp directory before persisting the job result.
+                self._cleanup_adapter_temporary_output(final_result, nested=False)
                 if job_request.feature in ("image_mesh_painting", "text_mesh_painting"):
                     postprocess_mode = "manual_mesh_tool"
                     enable_postprocess = False
@@ -2708,8 +2730,40 @@ class MultiprocessModelScheduler:
             except Exception as e2:
                 logger.error(f"Failed to mark job {job_id} as failed: {e2}")
         finally:
+            self._cleanup_adapter_temporary_output(result, nested=True)
             if not keep_inputs_for_postprocess:
                 self._cleanup_temporary_inputs(job_request)
+
+    def _cleanup_adapter_temporary_output(
+        self, result: Any, *, nested: bool = True
+    ) -> None:
+        """Remove an adapter-owned temporary output directory after persistence."""
+        if not isinstance(result, dict):
+            return
+        payload = result.get("result") if nested else result
+        if not isinstance(payload, dict):
+            return
+        directory_value = payload.pop("_temporary_output_dir", None)
+        if not directory_value:
+            return
+        try:
+            temp_root = Path(tempfile.gettempdir()).resolve()
+            output_dir = Path(directory_value).resolve(strict=True)
+            if output_dir.parent != temp_root or not output_dir.name.startswith("sf3d_"):
+                logger.warning(
+                    "Refusing to clean untrusted SF3D temporary output directory: %s",
+                    directory_value,
+                )
+                return
+            shutil.rmtree(output_dir)
+        except FileNotFoundError:
+            return
+        except Exception:
+            logger.warning(
+                "Could not clean SF3D temporary output directory %s",
+                directory_value,
+                exc_info=True,
+            )
 
     def _register_managed_input_dir(self, directory: Path) -> None:
         """Register an app-managed temporary input directory for safe cleanup."""

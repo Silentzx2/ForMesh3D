@@ -138,6 +138,64 @@ install_local_wheel() {
     return 1
 }
 
+# Build SF3D's two native extensions against the exact PyTorch installed above.
+# The upstream requirements file is intentionally not installed wholesale:
+# it pins older transformers/huggingface-hub/numpy versions that conflict with
+# ForMesh3D's shared model environment.
+install_sf3d_native_extensions() {
+    local sf3d_root="$THIRDPARTY_DIR/StableFast3D"
+    local texture_baker_dir="$sf3d_root/texture_baker"
+    local uv_unwrapper_dir="$sf3d_root/uv_unwrapper"
+
+    if [[ ! -f "$texture_baker_dir/setup.py" || ! -f "$uv_unwrapper_dir/setup.py" ]]; then
+        if command -v git >/dev/null 2>&1 && git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            echo "[INFO] Initializing backend/thirdparty submodule..."
+            git -C "$PROJECT_ROOT" submodule update --init --recursive backend/thirdparty || return 1
+        fi
+    fi
+
+    if [[ ! -f "$texture_baker_dir/setup.py" || ! -f "$uv_unwrapper_dir/setup.py" ]]; then
+        echo "[ERROR] StableFast3D native sources are missing. Initialize backend/thirdparty before installing SF3D."
+        return 1
+    fi
+
+    if ! python -c 'from torch.utils.cpp_extension import CUDA_HOME; raise SystemExit(0 if CUDA_HOME else 1)'; then
+        echo "[ERROR] CUDA toolkit/nvcc was not found. SF3D texture_baker requires a CUDA extension for GPU inference."
+        echo "[ERROR] Install a CUDA toolkit matching the installed PyTorch CUDA build, then rerun this installer."
+        return 1
+    fi
+
+    echo "[INFO] Building SF3D texture_baker CUDA extension..."
+    USE_CUDA=1 $UV_PIP install --reinstall --no-build-isolation "$texture_baker_dir" || {
+        echo "[ERROR] SF3D texture_baker CUDA extension build failed."
+        return 1
+    }
+
+    echo "[INFO] Building SF3D uv_unwrapper native extension..."
+    $UV_PIP install --reinstall --no-build-isolation "$uv_unwrapper_dir" || {
+        echo "[ERROR] SF3D uv_unwrapper native extension build failed."
+        return 1
+    }
+
+    python - <<'PY'
+import torch
+import texture_baker
+import texture_baker._C
+import uv_unwrapper
+import uv_unwrapper._C
+
+if not callable(getattr(texture_baker, "TextureBaker", None)):
+    raise SystemExit("texture_baker.TextureBaker is not available")
+if not callable(getattr(uv_unwrapper, "Unwrapper", None)):
+    raise SystemExit("uv_unwrapper.Unwrapper is not available")
+for operation in ("rasterize", "interpolate"):
+    dispatch_name = f"texture_baker_cpp::{operation}"
+    if not torch._C._dispatch_has_kernel_for_dispatch_key(dispatch_name, "CUDA"):
+        raise SystemExit(f"{dispatch_name} has no CUDA kernel; rebuild texture_baker with CUDA enabled")
+print("SF3D native extensions verified: texture_baker CUDA kernels and uv_unwrapper")
+PY
+}
+
 # Ensure release wheels are available in WHEEL_DIR
 ensure_release_wheels() {
     mkdir -p "$WHEEL_DIR"
@@ -502,6 +560,8 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
         $UV_PIP install --find-links="$WHEEL_DIR" -r "$PROJECT_ROOT/backend/requirements-models.txt" --index-strategy unsafe-best-match || { echo "[ERROR] Model requirements install failed"; exit 1; }
         echo "[SUCCESS] Model requirements installed."
     fi
+
+    install_sf3d_native_extensions || exit 1
 
     echo ""
     echo "========================================"
