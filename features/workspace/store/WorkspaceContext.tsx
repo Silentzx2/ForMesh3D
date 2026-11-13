@@ -350,14 +350,21 @@ function normalizeBackendJob(raw: BackendJobPayload) {
 // Deterministic short id for a route so the URL stably addresses the same
 // asset/job instead of minting a fresh random hash on every click. Known
 // id prefixes (local_/upload_/hist_/job-) are stripped so they never leak
-// into the visible route hash.
+// into the visible route hash, and the visible part is a short hash of the
+// source name so routes stay short (e.g. /workspace/generate/name_abc123).
 export function routeShortId(source: string | undefined): string {
   const raw = (source || '')
     .replace(/^(?:local_|upload_|hist_|job-)+/, '')
     .replace(/[^a-zA-Z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
     .toLowerCase() || 'asset';
-  return raw.slice(0, 24) || 'asset';
+  // Deterministic string hash -> short 6-char hex-like suffix
+  let h = 0;
+  for (let i = 0; i < raw.length; i++) {
+    h = ((h << 5) - h + raw.charCodeAt(i)) | 0;
+  }
+  const shortHash = Math.abs(h).toString(36).slice(0, 6);
+  return `${raw.slice(0, 16)}_${shortHash}` || 'asset';
 }
 
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -895,7 +902,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     );
 
     if (resolvedModelUrl) {
-      const modelUrl = (preferredGenerationPreviewUrl(result) as string) || resolvedModelUrl;
+      // Ensure the preview URL is same-origin proxied so MeshViewer can always
+      // reach generated assets (raw output_mesh_path/download URLs otherwise
+      // break MeshViewer loading).
+      const proxiedModelUrl = toProxyUrl(resolvedModelUrl);
+      const modelUrl =
+        preferredGenerationPreviewUrl(result) ??
+        proxiedModelUrl ??
+        `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=glb`;
       const previewStats = preferredPreviewStats(result);
       const cleanName = promptTitle && promptTitle !== 'generate' && promptTitle !== 'asset' ? promptTitle : `Model_${jobId.slice(0, 6)}`;
       void prefetchGLB(modelUrl);
