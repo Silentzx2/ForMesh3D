@@ -347,6 +347,13 @@ function normalizeBackendJob(raw: BackendJobPayload) {
   };
 }
 
+// Deterministic short id for a route so the URL stably addresses the same
+// asset/job instead of minting a fresh random hash on every click.
+export function routeShortId(source: string | undefined): string {
+  const raw = (source || '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'asset';
+  return raw.slice(0, 24) || 'asset';
+}
+
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const queryClient = useQueryClient();
   const appStore = useAppStore();
@@ -1429,7 +1436,9 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       // Must use the live activeTool (ref) — a stale closure here would rewrite
       // the URL to the wrong tool route and bounce the user to the Generate panel.
       const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-      // Consistent URL: <name>_<hash> — strip ALL known prefixes (local_/upload_/hist_/job-), no raw UUID
+      // Consistent URL: <name>_<hash> — strip known prefixes, deterministic hash
+      // derived from the asset id/name so re-selecting the same asset keeps the
+      // same route (no fresh random hash on every click).
       const asset = assets.find(a => a.id === id);
       const rawName = asset?.name || id.replace(/^(?:local_|upload_|hist_|job-)+/, '');
       const cleanName = rawName
@@ -1440,7 +1449,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         .filter(Boolean)
         .slice(0, 2)
         .join('_') || 'asset';
-      const shortHash = crypto.randomUUID().slice(0, 6);
+      const shortHash = routeShortId(id);
       window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
     }
 
@@ -1662,7 +1671,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
           .filter(Boolean)
           .slice(0, 2)
           .join('_') || 'job';
-        const shortHash = crypto.randomUUID().slice(0, 6);
+        const shortHash = routeShortId(rawName);
         window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
       }
     }
@@ -1683,7 +1692,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         .filter(Boolean)
         .slice(0, 2)
         .join('_') || 'job';
-      const shortHash = crypto.randomUUID().slice(0, 6);
+      const shortHash = routeShortId(localTaskId);
       window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
       // Persist friendly ID -> backend UUID mapping for post-refresh hydration
       localStorage.setItem(`fm3d:job:${localTaskId}`, jobId);
@@ -1913,7 +1922,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
               .slice(0, 2)
               .join('_') || 'asset'
           : 'asset';
-        const shortHash = crypto.randomUUID().slice(0, 6);
+        const shortHash = routeShortId(generationSettings.imageName || 'asset');
         window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
       }
       setExecutionStep('Generation queued on backend');
@@ -2132,9 +2141,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   }, [remeshSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId, addAsset, selectAsset, setViewportResetTrigger]);
 
   const runTextureGeneration = useCallback(async () => {
-    const modelPreference = textureSettings.resolution === '4K' || textureSettings.resolution === '8K'
-      ? 'hunyuan3d_paint_v21_image_mesh_painting'
-      : 'hunyuan3d_paint_v21_image_mesh_painting';
+    // Honor the user's texture model pick (e.g. v2.0 vs v2.1); fall back to v2.1.
+    const modelPreference = textureSettings.modelId || 'hunyuan3d_paint_v21_image_mesh_painting';
 
     const localTaskId = startTask('texture', 'Texture generation', undefined, modelPreference, undefined, undefined, comparisonGroupId ?? undefined, comparisonSourceUrl(currentAsset));
     const signal = activeAbortControllerRef.current?.signal;
