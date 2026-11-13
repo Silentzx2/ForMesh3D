@@ -223,7 +223,7 @@ Universal motion specifications compatible with `motion/react`:
 
 ### Texture Studio & Generation Panel Components
 - `TexturePanel.tsx`: Atlas resolution presets (1K, 2K, 4K, 8K), automatic engine routing to Hunyuan3D-Paint v2.1, reference image binding/upload, PBR map inspection. RealESRGAN runs as part of Hunyuan Paint; there is no separate UI toggle.
-- `GeneratePanel.tsx`: Simplified Studio Interface with single Target Polycount / Output Preset card (six canonical preset chips derived from the backend catalogue), locked model inference profiles, single postprocessing master switch, and clean Advanced production drawer. Universal Textured Generation toggle for all image-to-3D geometry models, atlas resolution preset selector, VRAM warning for 4K/8K.
+- `GeneratePanel.tsx`: Simplified Studio Interface with single Target Polycount / Output Preset card (six canonical preset chips derived from the backend catalogue), locked model inference profiles, and clean Advanced production drawer. Universal Textured Generation toggle for all image-to-3D geometry models, atlas resolution preset selector, VRAM warning for 4K/8K.
 - Source-generation controls output raw geometry; texturing runs as a separate, optional, non-destructive stage preserving `master/source.glb`.
 - `systemStats`: Real-time GPU/VRAM telemetry in texture panel
 - Spot-mask mode draws to a separate UV mask canvas; localized inference remains visibly unavailable until supported by Hunyuan adapter calls.
@@ -249,7 +249,7 @@ The Generate studio interface is organized into a clean beginner-friendly flow a
   - Each chip's summary line is derived from the backend preset data (for example `50K · 1K PBR · LOD · Col`), not hardcoded in the UI.
   - Smooth polycount slider (5K–200K tris) for fine-tuning the budget; moving the slider clears the active preset. Chips other than `Native` are blocked while post-processing is OFF.
   - Preset clicks fill recommended defaults non-destructively and **never** trigger automatic generation submission.
-- **Generate Button**: Shimmer action button with a live step label and progress bar, plus a `Queue Next` action that submits the job to the background queue. Missing or unapproved inputs are surfaced as an inline notice rather than a disabled control.
+- **Generate Button**: Fixed-position button that toggles state inline — yellow "Generate Model" when idle (disabled without an image), red "Cancel Generation" while executing with an inline progress bar above it (gray track, white fill growing with progress, percentage count below). Returns to "Generate Model" on completion or cancel.
 
 #### 2. Advanced Production Drawer (Genuine Production Controls Only)
 - **Candidate Variations (Pick-Best-of-N)**: Multi-variation selector (1 to 4 seeds) with deterministic stepping (`base_seed + i × seed_step`) and composite quality scoring (`_score_and_select`) promoting the highest-scoring candidate to `master/source.glb`; the completed-asset card also allows manual promotion of any variation.

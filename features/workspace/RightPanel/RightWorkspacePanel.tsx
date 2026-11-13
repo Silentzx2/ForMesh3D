@@ -8,19 +8,14 @@ import { FolderOpenIcon, SlidersHorizontalIcon } from '@hugeicons/core-free-icon
 // Import panels
 import { RightPropertyPanel } from './RightPropertyPanel';
 import { RightAssetsPanel } from './RightAssetsPanel';
-import { LiveExecutionPanel } from './LiveExecutionPanel';
 
 export const RightWorkspacePanel: React.FC = () => {
   const {
     rightPanelMode,
     setRightPanelMode,
-    isExecuting,
-    activeTask,
     activeTool,
     currentAsset,
   } = useWorkspace();
-
-  const isRunning = isExecuting || activeTask?.status === 'running' || activeTask?.status === 'queued';
 
   // Context-aware auto-switching:
   // When Smart UV tool is selected -> automatically load properties inspector
@@ -32,34 +27,7 @@ export const RightWorkspacePanel: React.FC = () => {
     prevActiveTool.current = activeTool;
   }, [activeTool, setRightPanelMode]);
 
-  // Context-aware auto-switching:
-  // When generation starts running -> switch to live execution
-  const prevIsRunning = React.useRef(isRunning);
-  useEffect(() => {
-    if (isRunning && !prevIsRunning.current) {
-      setRightPanelMode('prompt');
-    }
-    prevIsRunning.current = isRunning;
-  }, [isRunning, setRightPanelMode]);
-
-  // When task completes and currentAsset is loaded -> smoothly transition to properties inspector without blank flashing
-  const prevCompletedTaskId = React.useRef<string | null>(null);
-  useEffect(() => {
-    if (activeTask?.status === 'completed' && activeTask.id !== prevCompletedTaskId.current && currentAsset) {
-      prevCompletedTaskId.current = activeTask.id;
-      const timer = setTimeout(() => {
-        setRightPanelMode('properties');
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [activeTask?.status, activeTask?.id, currentAsset, setRightPanelMode]);
-
-  const currentActiveTab =
-    rightPanelMode === 'prompt'
-      ? 'prompt'
-      : rightPanelMode === 'assets'
-      ? 'assets'
-      : 'properties';
+  const currentActiveTab = rightPanelMode === 'assets' ? 'assets' : 'properties';
 
   return (
     <div id="right-workspace-panel" className="flex flex-col h-full w-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
@@ -88,31 +56,13 @@ export const RightWorkspacePanel: React.FC = () => {
                 </button>
               );
             })}
-            {(isRunning || activeTask?.status === 'completed') && (
-              <button
-                type="button"
-                onClick={() => setRightPanelMode('prompt')}
-                className={`relative flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold transition-colors cursor-pointer ${
-                  rightPanelMode === 'prompt'
-                    ? isRunning
-                      ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/40'
-                      : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                    : 'text-zinc-400 hover:text-emerald-300'
-                }`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-emerald-400'}`} />
-                <span>{isRunning ? 'Running' : 'Pipeline'}</span>
-              </button>
-            )}
           </div>
         </div>
       </div>
 
       {/* Main Panel Content */}
       <div className="flex-1 overflow-hidden bg-transparent">
-        {rightPanelMode === 'prompt' ? (
-          <LiveExecutionPanel />
-        ) : rightPanelMode === 'assets' ? (
+        {rightPanelMode === 'assets' ? (
           <RightAssetsPanel />
         ) : (
           <RightPropertyPanel />

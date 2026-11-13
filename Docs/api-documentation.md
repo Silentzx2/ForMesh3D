@@ -363,7 +363,7 @@ GET /api/v1/file-upload/download/{file_id}
 GET /api/v1/file-upload/thumbnail/{file_id}
 ```
 
-**Response (200):** Direct binary stream of the persistent 256x256 thumbnail preview for the uploaded image or asset. If a dedicated thumbnail does not yet exist, generates or falls back to the original source image stream.
+**Response (200):** Direct binary stream of the persistent 256x256 thumbnail preview for the uploaded image or mesh asset. For images, the original uploaded image stream is returned when no generated thumbnail exists. For meshes, generates or falls back to a mesh thumbnail on-demand.
 
 ### List Uploaded Files
 

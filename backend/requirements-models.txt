@@ -93,4 +93,9 @@ seaborn                     # [PARTUV]
 # ── TaoFlowForge extra deps (from requirements.txt) ───────────
 plotly==6.8.0               # [TAOFLOWFORGE] requirements.txt
 
+# ── Stable Fast 3D (SF3D) extra deps (from thirdparty/StableFast3D/requirements.txt) ──
+gpytoolbox==0.2.0           # [SF3D] sf3d/models/mesh.py — Marching Tetrahedra isosurface
+open_clip_torch==2.24.0     # [SF3D] image-text encoding
+pynanoinstantmeshes==0.0.3  # [SF3D] instant meshes remeshing
+
 # ── FastMesh removed (thirdparty/FastMesh deleted from main repo) ───────────

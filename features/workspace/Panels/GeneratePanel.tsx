@@ -264,7 +264,6 @@ export const GeneratePanel: React.FC = () => {
     generate3DModel,
     generationSettings,
     setGenerationSettings,
-    addAsset,
   } = useWorkspace();
 
   const [isGeneralSettingsOpen, setIsGeneralSettingsOpen] = useState(false);
@@ -572,31 +571,6 @@ export const GeneratePanel: React.FC = () => {
       }));
       setImageUploadProgress({ ...imageUploadProgress, percent: 100, uploading: false });
       toast.success(`Image uploaded: ${file.name}`);
-
-      // Register uploaded image as an asset so it appears in the right-side assets panel
-      addAsset({
-        id: `upload_${res.file_id}`,
-        name: file.name,
-        category: 'texture',
-        format: 'IMAGE',
-        thumbnail: `/api/v1/file-upload/download/${res.file_id}`,
-        source: {
-          filename: file.name,
-          subfolder: 'uploads',
-          type: 'upload',
-          fileId: res.file_id,
-          viewUrl: `/api/v1/file-upload/download/${res.file_id}`,
-        },
-        meshType: 'custom',
-        faces: 0,
-        vertices: 0,
-        triangles: 0,
-        statsAvailable: false,
-        topology: 'Triangle',
-        dateCreated: new Date().toISOString().split('T')[0],
-        tags: ['Uploaded Image'],
-        materials: [],
-      });
     } catch (err: any) {
       setImageUploadProgress({ ...imageUploadProgress, uploading: false, error: err?.message || 'Image upload failed' });
       toast.error(`Image upload failed: ${err?.message || 'Unknown error'}`);
@@ -1445,7 +1419,8 @@ export const GeneratePanel: React.FC = () => {
 
       {/* 5. Bottom Action CTA Button & Execution Progress (Pinned, Never Clipped) */}
       <div className="p-2.5 pt-2 border-t border-white/[0.06] bg-[hsl(var(--surface-1))] flex-shrink-0 space-y-2">
-        {isExecuting ? (
+        {/* Progress bar (only when executing) */}
+        {isExecuting && (
           <div className="p-3 rounded-2xl bg-[#141524] border border-[#F9CF00]/30 shadow-xl space-y-2.5 animate-in fade-in">
             {/* Live Progress Header */}
             <div className="flex items-center justify-between text-xs">
@@ -1467,28 +1442,32 @@ export const GeneratePanel: React.FC = () => {
                 style={{ width: `${Math.max(4, Math.min(100, Math.round(executionProgress)))}%` }}
               />
             </div>
-
-            {/* Cancel Button */}
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="w-full py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 hover:text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-[0.98]"
-            >
-              <HugeiconsIcon icon={Cancel} size={14} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
-              <span>Cancel Generation</span>
-            </button>
           </div>
-        ) : (
-          <button
-            type="button"
-            onClick={handleGenerate}
-            disabled={!generationSettings.image && !imagePreview || isExecuting}
-            className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Sparkles className="w-4 h-4 text-black" />
-            <span>Generate Model</span>
-          </button>
         )}
+
+        {/* Generate / Cancel Button — always in same position, state clearly changes */}
+        <button
+          type="button"
+          onClick={isExecuting ? handleCancel : handleGenerate}
+          disabled={!generationSettings.image && !imagePreview}
+          className={`w-full h-8 rounded-full font-semibold text-xs flex items-center justify-center gap-2 shadow-lg active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+            isExecuting
+              ? 'bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300'
+              : 'bg-[#F9CF00] hover:bg-[#ffdb29] text-black shadow-[#F9CF00]/15'
+          }`}
+        >
+          {isExecuting ? (
+            <>
+              <HugeiconsIcon icon={Cancel} size={14} className="text-[#F9CF00]" />
+              <span>Cancel Generation</span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-4 h-4 text-black" />
+              <span>Generate Model</span>
+            </>
+          )}
+        </button>
       </div>
     </div>
   );

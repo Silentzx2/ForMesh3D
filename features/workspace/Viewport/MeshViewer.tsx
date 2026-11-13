@@ -1243,20 +1243,20 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         </div>
       )}
 
-      {/* Execution Progress Overlay */}
-      {viewportStatus === 'executing' && (
-        <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center z-20 bg-black/40 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-3 p-6 rounded-2xl bg-[#1A1A1E]/95 border border-white/[0.08] shadow-2xl">
-            <div className="w-8 h-8 rounded-full border-2 border-[#F9CF00] border-t-transparent animate-spin" />
-            <div className="text-center">
-              <p className="text-xs font-bold text-white uppercase tracking-wider">
-                {executionStep || 'Processing 3D Stage...'}
-              </p>
-              {typeof executionProgress === 'number' && (
-                <p className="text-[11px] text-[#F9CF00] font-mono mt-0.5">{Math.round(executionProgress)}%</p>
-              )}
-            </div>
+      {/* Execution Progress Bar — bottom center */}
+      {isExecuting && (
+        <div className="absolute bottom-1/2 left-1/2 -translate-x-1/2 translate-y-1/2 z-20 pointer-events-none">
+          <div className="w-64 h-1.5 rounded-full bg-white/10 border border-white/5">
+            <div
+              className="h-full rounded-full transition-all duration-300 bg-white"
+              style={{
+                width: `${Math.max(0, Math.min(100, Math.round(executionProgress)))}%`,
+              }}
+            />
           </div>
+          <p className="text-[10px] text-white font-mono mt-1 text-center">
+            {Math.round(executionProgress)}%
+          </p>
         </div>
       )}
 

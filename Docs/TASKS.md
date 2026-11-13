@@ -17,8 +17,11 @@ This audit catalogs all state machines across the ForMash3D application. It dist
   - **Frontend State Machines:** 40 (F1 through F40)
   - **Backend State Machines:** 19 (B1 through B19)
 - **High-Risk Implicit Patterns Identified:**
-  1. Multiple scattered booleans acting as mutually dependent flags (e.g. `isExecuting` + `executionProgress` + `activeTask` + `AbortController` in `WorkspaceContext.tsx`).
-  2. Nested asynchronous polling intervals tracking state outside React lifecycle (e.g. `waitForRigPoll` in `useRiggingStore.ts`, `batchPollingIntervalRef` in `WorkspaceContext.tsx`).
+- **2026-11-13 Updates:**
+  - **F1 Workspace Generation / Execution Lifecycle:** `startTask()` now appends `crypto.randomUUID()` 6-char hash to route URL after cropped name (`.slice(0, 24)`). Generate button toggles inline between "Generate Model" (yellow, disabled without image) and "Cancel Generation" (red) during execution; bottom-center viewport progress bar (gray track, white fill) replaces center-card overlay.
+  - **ProgressOverlay & LiveExecutionPanel:** Both deleted from `features/workspace/Notifications/` and `features/workspace/RightPanel/`. Right panel stays on Assets/Property tab during generation — no auto-switch to live execution view.
+- 1. Multiple scattered booleans acting as mutually dependent flags (e.g. `isExecuting` + `executionProgress` + `activeTask` + `AbortController` in `WorkspaceContext.tsx`).
+- 2. Nested asynchronous polling intervals tracking state outside React lifecycle (e.g. `waitForRigPoll` in `useRiggingStore.ts`, `batchPollingIntervalRef` in `WorkspaceContext.tsx`).
   3. UI visibility and flyout popovers controlled by independent boolean toggles without mutual exclusion (e.g. `isGeomTextureOpen`, `isSettingsOpen`, `isModelDropdownOpen`).
   4. Multi-process scheduler worker state tracked as a raw `Dict[str, bool]` rather than an explicit lifecycle enum.
 

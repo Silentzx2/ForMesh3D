@@ -87,10 +87,10 @@ interface WorkspaceContextType {
   viewportResetTrigger: number;
   resetCamera: () => void;
   fitToScreen: () => void;
-  activeRightTab: 'assets' | 'property' | 'properties' | 'prompt';
-  setActiveRightTab: (tab: 'assets' | 'property' | 'properties' | 'prompt') => void;
-  rightPanelMode: 'assets' | 'property' | 'properties' | 'prompt';
-  setRightPanelMode: (mode: 'assets' | 'property' | 'properties' | 'prompt') => void;
+  activeRightTab: 'assets' | 'property' | 'properties';
+  setActiveRightTab: (tab: 'assets' | 'property' | 'properties') => void;
+  rightPanelMode: 'assets' | 'property' | 'properties';
+  setRightPanelMode: (mode: 'assets' | 'property' | 'properties') => void;
   isLeftPanelOpen: boolean;
   setIsLeftPanelOpen: (open: boolean) => void;
   toolPanelOpen: boolean;
@@ -363,7 +363,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setComparisonMode(open ? 'split_screen' : 'off');
   }, []);
   const [mainNav, setMainNavState] = useState<MainNavRoute>('workspace');
-  const [activeRightTab, setActiveRightTab] = useState<'assets' | 'property' | 'properties' | 'prompt'>('properties');
+  const [activeRightTab, setActiveRightTab] = useState<'assets' | 'property' | 'properties'>('properties');
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [leftPanelWidth, setLeftPanelWidth] = useState(320);
@@ -1430,7 +1430,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       const cleanName = rawName
         .replace(/\.[^/.]+$/, '')
         .replace(/[^a-zA-Z0-9_-]/g, '_')
-        .slice(0, 40) || 'asset';
+        .slice(0, 24) || 'asset';
       const shortHash = id.replace(/^(?:local_|upload_|hist_|job-)+/, '').slice(0, 6);
       window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
     }
@@ -1656,7 +1656,8 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
       // Consistent URL: <name>_<hash> — strip ALL known prefixes, convert dashes to underscores
       const friendlyId = localTaskId.replace(/^(?:local_|upload_|hist_|job-)+/, '').replace(/-/g, '_');
-      window.history.replaceState(null, '', `${toolRoute}/${friendlyId}`);
+      const shortHash = crypto.randomUUID().slice(0, 6);
+      window.history.replaceState(null, '', `${toolRoute}/${friendlyId}_${shortHash}`);
       // Persist friendly ID -> backend UUID mapping for post-refresh hydration
       localStorage.setItem(`fm3d:job:${localTaskId}`, jobId);
     }

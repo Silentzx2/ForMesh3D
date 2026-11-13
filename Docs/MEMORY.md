@@ -1,6 +1,17 @@
 # ForMesh3D — Audited Project State
 
-## 2026-11-13 — Full 59 State Machines Audit, UI Restructuring & TypeScript Clean Run
+## 2026-11-13 — Generate Panel Button State, Viewport Progress Bar & SF3D Adapter Fix
+
+- **Generate Button State (`features/workspace/Panels/GeneratePanel.tsx`):** Generate and Cancel buttons share one fixed position — clicking Generate swaps to red "Cancel Generation" with inline progress bar above; returns to yellow "Generate Model" on completion/cancel. Disabled without an image.
+- **Viewport Progress Bar (`features/workspace/Viewport/MeshViewer.tsx`):** Bottom-center thin progress bar replaces center-card overlay: gray `bg-white/10` track, white fill growing with `executionProgress`, percentage count below. Only visible during execution.
+- **Deleted Files:** `features/workspace/Notifications/ProgressOverlay.tsx` and `features/workspace/RightPanel/LiveExecutionPanel.tsx` removed; `ProgressOverlay` export removed from `features/workspace/index.ts`.
+- **Right Panel (`features/workspace/RightPanel/RightWorkspacePanel.tsx`):** Removed `LiveExecutionPanel` rendering, Running/Pipeline toggle button, and auto-switch effect — right panel stays on Assets/Property tab during generation.
+- **Route URL Hash (`features/workspace/store/WorkspaceContext.tsx`):** All route URL settings append a `crypto.randomUUID()` 6-char hash after cropped name (`.slice(0, 24)`), preventing long-image-name collisions.
+- **SF3D Adapter Path (`backend/adapters/stable_fast_3d_adapter.py`):** Fixed vendored `sf3d` import path `stable-fast-3d` → `StableFast3D`, resolving `ModuleNotFoundError: No module named 'sf3d'`.
+- **Thumbnail for Images (`backend/api/routers/file_upload.py`):** Thumbnail endpoint serves uploaded images directly; `thumbnail_url` set for `mesh` and `image` types — fixes 404 on image thumbnails.
+- **SF3D Model Deps (`backend/requirements-models.txt`):** Added `[SF3D]` section: `gpytoolbox==0.2.0`, `open_clip_torch==2.24.0`, `pynanoinstantmeshes==0.0.3`.
+
+---\n\n## 2026-11-13 — Full 59 State Machines Audit, UI Restructuring & TypeScript Clean Run
 
 - **59 State Machines Audit:** Complete inventory of 59 state machines cataloged in `Docs/TASKS.md` (40 Frontend F1–F40, 19 Backend B1–B19) with complete states, transitions, triggers, and exact file+line references. Verified F1–F6, F37–F40, B1–B2, B15–B19 with zero regressions.
 - **UI Restructuring (`GeneratePanel.tsx`):**
