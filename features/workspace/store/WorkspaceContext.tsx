@@ -119,6 +119,8 @@ interface WorkspaceContextType {
   cancelExecution: () => Promise<void>;
   generationSettings: GenerationSettings;
   setGenerationSettings: React.Dispatch<React.SetStateAction<GenerationSettings>>;
+  postprocessingEnabled: boolean;
+  setPostprocessingEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   remeshSettings: RemeshSettings;
   setRemeshSettings: React.Dispatch<React.SetStateAction<RemeshSettings>>;
   textureSettings: TextureSettings;
@@ -755,12 +757,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   });
 
    const [modelDetails, setModelDetails] = useState<Record<string, any>>({});
+   const [postprocessingEnabled, setPostprocessingEnabled] = useState(false);
 
   useEffect(() => {
     getApiClient().getAvailableModels().then(data => {
       if ((data as any)?.model_details) {
         setModelDetails((data as any).model_details);
       }
+      setPostprocessingEnabled(Boolean((data as any)?.postprocessing?.enabled));
     }).catch(err => {
       console.warn('Failed to load model details:', err);
     });
@@ -3037,12 +3041,14 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
   const generationSettingsValue = useMemo(() => ({
     generationSettings, setGenerationSettings,
+    postprocessingEnabled, setPostprocessingEnabled,
     remeshSettings, setRemeshSettings,
     textureSettings, setTextureSettings,
     sculptSettings, setSculptSettings,
     paintBrushSettings, setPaintBrushSettings,
     environmentSettings, setEnvironmentSettings,
   }), [generationSettings, setGenerationSettings,
+    postprocessingEnabled, setPostprocessingEnabled,
     remeshSettings, setRemeshSettings,
     textureSettings, setTextureSettings,
     sculptSettings, setSculptSettings,

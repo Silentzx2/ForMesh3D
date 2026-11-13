@@ -422,7 +422,12 @@ Documentation indexes are aligned to files present in the checked-in tree. Only 
 - No model inference, GPU, Blender, or visual mesh-quality run was performed.
 
 
-### Batch 1 mesh-quality completion (2026-11-10)
+## 2026-11-12 — Native Polycount Targeting + Post-Processing YAML Opt-In (Docs/TASKS.md task)
+
+- **Native polycount targeting:** User-set polycount (e.g. 50K/20K) now reaches the model adapter's native extraction path even when post-processing is disabled. Frontend `buildGenerationParameters.ts` sends `native_target_polycount` when `enablePostprocess` is `false`, clamped to 500–600K. Backend `mesh_generation.py` preserves it as `native_target_polycount` in job inputs instead of zeroing `target_polycount`. Adapters read it: TripoSG maps it to the upstream `faces` parameter; Hunyuan3D-Shape, TRELLIS, TRELLIS.2, TaoFlowForge, Pixal3D, Unique3D, Hunyuan3D-Mini-Turbo log it and preserve native output without decimation. Tests: 3 new cases in `buildGenerationParameters.test.ts` (8/8 pass).
+- **Post-processing YAML opt-in:** `postprocessing.enabled: false` added to `backend/config/system.yaml`. `PostProcessingConfig` added to `backend/core/config.py`. Exposed via `GET /api/v1/system/models` (`backend/api/routers/system.py:424`). Scheduler gate at `multiprocess_scheduler.py:2386-2388` forces no post-processing when YAML is `false`. API defaults `enable_postprocess: False`. Frontend reads flag from `/system/models` and hides post-processing UI controls when disabled (`GeneratePanel.tsx:1072`).
+- **Verification:** `npx tsc --noEmit` 0 errors; `bun test` 8/8 pass (buildGenerationParameters); backend `pytest` 26 passed, 3 skipped; all modified Python files compile clean; `bun run lint` 0 errors.
+- **State machine audit:** Full implicit state machine inventory documented in `Docs/TASKS.md` §14 (11 frontend F1–F11, 4 backend B1–B4). No new implicit state machine created; `native_target_polycount` is a plain data pass-through.
 
 - FastMesh is now V1K-only across the workspace registry, selector, bridge defaults, and request model ID. AI mode presents the fixed checkpoint output rather than a misleading 50K target slider; Script mode retains the face-budget and topology controls.
 - Vendored FastMesh upstream inference was inspected at ThirdParty submodule commit 48ca8dc20ad97bb7f011e4cadb4de9e3ecd32ee9. Its inference entry point exports the normalized model output directly; no inverse transform was added. Adapter metadata reports the actual output vertex count.

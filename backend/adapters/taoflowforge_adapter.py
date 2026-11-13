@@ -211,6 +211,14 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
 
+        # Native polycount target: passed through from the generation request.
+        # TaoFlowForge does not expose a direct face-count parameter in its upstream
+        # pipeline, so the value is logged and preserved in generation_info
+        # without downstream decimation.
+        native_target_polycount = int(inputs.get("native_target_polycount", 0) or 0)
+        if native_target_polycount:
+            logger.info("TaoFlowForge received native_target_polycount=%d (upstream pipeline has no direct face-count control; preserved native output)", native_target_polycount)
+
         request_workdir = Path(tempfile.mkdtemp(prefix=f"taoflowforge_{seed}_"))
         request_workdir.mkdir(parents=True, exist_ok=True)
 
@@ -283,6 +291,7 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
                 "num_inference_steps": "adapter_owned",
                 "guidance_scale": "adapter_owned",
                 "octree_resolution": "adapter_owned",
+                "native_target_polycount": native_target_polycount or None,
             },
         }
 

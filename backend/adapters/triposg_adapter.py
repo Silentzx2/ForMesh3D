@@ -115,6 +115,12 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
         steps = int(inputs.get("num_inference_steps", 50))
         guidance = float(inputs.get("guidance_scale", 7.0))
         faces = int(inputs.get("faces", -1))
+        # Native polycount target: TripoSG exposes a direct face-count parameter
+        # in its upstream pipeline, so native_target_polycount is mapped to faces.
+        native_target_polycount = int(inputs.get("native_target_polycount", 0) or 0)
+        if native_target_polycount > 0:
+            faces = native_target_polycount
+            logger.info("TripoSG received native_target_polycount=%d, mapped to faces parameter", native_target_polycount)
 
         from scripts.inference_triposg import run_triposg
 
@@ -174,6 +180,7 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
                 "num_inference_steps": steps,
                 "guidance_scale": guidance,
                 "faces": faces,
+                "native_target_polycount": native_target_polycount or None,
             },
         }
 

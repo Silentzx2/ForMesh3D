@@ -421,6 +421,7 @@ async def list_models(
         "available_models": available_models,
         "weights_status": weights_status,
         "model_details": model_details,
+        "postprocessing": {"enabled": bool(settings.postprocessing.enabled)},
         "total_features": len(available_models),
         "total_models": sum(len(models) for models in available_models.values()),
     }

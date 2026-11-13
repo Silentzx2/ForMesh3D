@@ -491,7 +491,8 @@ Content-Type: application/json
 | `candidate_count` | integer | `1` | Candidate variations to generate (1 to 4). Seeds step deterministically |
 | `model_parameters` | object | `null` | Model-specific parameters. Only `seed` is forwarded to the adapter |
 | `target_polycount` | integer | `null` | Target triangle budget. See the precedence rules below for `> 0`, `0` and `-1` |
-| `enable_postprocess` | boolean | `true` | Run the production post-processing pipeline. `false` bypasses it and yields the raw/native output |
+| `enable_postprocess` | boolean | `false` | Run the production post-processing pipeline. `false` bypasses it and yields the raw/native output. Controlled by `postprocessing.enabled` in `backend/config/system.yaml` (defaults to `false`) — when `false`, post-processing is always bypassed regardless of request flags. |
+| `native_target_polycount` | integer | `null` | Native extraction polycount target. When `enable_postprocess` is `false`, this value is carried as `native_target_polycount` and reaches the model adapter's native extraction path directly (bypassing downstream decimation). Clamped to 500–600,000. When `enable_postprocess` is `true`, use `target_polycount` instead. |
 | `texture_enabled` / `generate_texture` | boolean | `null` | Run the post-processing texture stage on the generated master |
 | `texture_resolution` | integer | `null` | Texture atlas size (1024/2048/4096/8192). The named presets `1K`/`2K`/`4K`/`8K` are normalized to those sizes |
 | `bake_normal_maps` | boolean | `true` | Bake high-frequency detail normal maps from the master source |

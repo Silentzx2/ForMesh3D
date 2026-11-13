@@ -20,7 +20,12 @@
 
 ---
 
-## 2026-11-12 — Upload Error State, Single Viewport UI Status, Single Job Status Source
+## 2026-11-12 — Native Polycount Targeting + Post-Processing YAML Opt-In
+
+- **Native polycount targeting:** User-set polycount (50K/20K) now reaches model adapter native extraction even when post-processing is disabled. Frontend sends `native_target_polycount`; backend preserves it in job inputs; TripoSG maps to native `faces` param; other adapters log and preserve native output. 3 new test cases added (8/8 pass).
+- **Post-processing YAML opt-in:** `postprocessing.enabled: false` added to `backend/config/system.yaml`; `PostProcessingConfig` in `backend/core/config.py`; exposed via `GET /api/v1/system/models`; scheduler gate forces no post-processing when YAML is `false`; API defaults `enable_postprocess: False`; UI hides post-processing controls when disabled.
+- **Verification:** `tsc --noEmit` 0 errors; `bun test` 8/8 pass; backend `pytest` 26 passed, 3 skipped; all Python files compile; `bun run lint` 0 errors.
+- **State machine audit:** Full implicit state machine inventory in `Docs/TASKS.md` §14 (11 frontend + 4 backend machines). No new implicit state machine created.
 
 - **Upload:** `useMeshAssetUpload` catch now emits `status: 'error'` with the failure message instead of degrading to `saved` with `error: null`, so the `MeshUploadStatus` error branch is reachable and backend failures no longer look like success.
 - **Viewport UI:** `MeshViewer` renders one mutually exclusive `viewportStatus` enum (`idle | empty | executing | comparing | error`) instead of overlapping JSX conditions.

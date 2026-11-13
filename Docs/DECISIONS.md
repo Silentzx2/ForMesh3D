@@ -142,6 +142,23 @@
 
 ---
 
+## ADR-104: Native Polycount Targeting and Post-Processing YAML Opt-In (2026-11-12)
+
+**Context:** The `target_polycount` field was zeroed out whenever post-processing was disabled (the default), so a user-requested polycount (e.g. 50K/20K) never reached the model's native extraction path. Post-processing was also not governed by a global kill-switch — `enable_postprocess` defaults were inconsistent across API endpoints and could be overridden per-request.
+
+**Decision:**
+1. **Native polycount target always reaches the adapter:** `buildGenerationParameters.ts` sends `native_target_polycount` when `enablePostprocess` is `false` (clamped 500–600K). Backend `mesh_generation.py` preserves it in job inputs instead of zeroing. Adapters read and log it; TripoSG maps it to its native `faces` parameter. No decimation is applied when post-processing is disabled, preserving the model-native mesh as the final output.
+2. **YAML opt-in for post-processing:** `postprocessing.enabled` in `backend/config/system.yaml` defaults to `false`. The scheduler forces `postprocess_mode = "none"` and `enable_postprocess = False` when disabled, regardless of request flags. API defaults normalized to `False`. UI controls are hidden (not disabled) when post-processing is off.
+3. **Not user-toggleable in UI:** YAML is the sole opt-in mechanism; no frontend toggle is exposed for post-processing.
+
+**Consequences:**
+- Users setting 50K/20K polycount get that value passed to the model's native extraction even in default (no-postprocess) mode.
+- Models without a native face-count control (most) log the target and return unmodified native output.
+- TripoSG natively honors the requested face count via its `faces` parameter.
+- No new implicit state machine created — `native_target_polycount` is a plain data pass-through.
+
+---
+
 ## ADR-015: Decommissioning of Hi3D Geometry Refinement
 
 - **Status:** Accepted / Implemented

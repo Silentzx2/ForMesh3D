@@ -72,11 +72,11 @@ class ModelFactory:
             "class": "Trellis2ImageToRawMeshAdapter",
         },
         "trellis2_image_mesh_painting": {
-            "module": "adapters.trellis2_paint_adapter",
+            "module": "adapters.trellis2_adapter",
             "class": "Trellis2ImageMeshPaintingAdapter",
         },
         "trellis2_paint": {
-            "module": "adapters.trellis2_paint_adapter",
+            "module": "adapters.trellis2_adapter",
             "class": "Trellis2ImageMeshPaintingAdapter",
         },
         # Hunyuan3D adapters
@@ -93,8 +93,8 @@ class ModelFactory:
             "class": "Hunyuan3DShapeV21ImageToRawMeshAdapter",
         },
         "hunyuan3d_paint_v21_image_mesh_painting": {
-            "module": "adapters.hunyuan3d_paint_v21",
-            "class": "Hunyuan3DPaintV21ImageMeshPaintingAdapter",
+            "module": "adapters.hunyuan3d_adapter_v21",
+            "class": "Hunyuan3DV21ImageMeshPaintingAdapter",
         },
         "hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh": {
             "module": "adapters.hunyuan3d_dit_v2_mini_turbo",

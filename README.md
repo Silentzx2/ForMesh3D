@@ -582,16 +582,19 @@ ForMesh3D exports standard **GLB / glTF 2.0**, **OBJ**, **STL**, and **FBX** (vi
 
 ## 15. State Machines and Implicit State Machine Audit
 
-ForMesh3D's studio and scheduler are driven by dozens of scattered booleans, enums, and flags that act as **implicit state machines** — none centralized in a state-chart library. The full inventory, with verified file paths and line numbers, lives in **[Docs/TASKS.md](Docs/TASKS.md)** ("ForMash3D — Implicit State Machine Inventory"), a read-only multi-agent audit.
+ForMesh3D's studio and scheduler are driven by dozens of scattered booleans, enums, and flags that act as **implicit state machines** — none centralized in a state-chart library. The full inventory, with verified file paths and line numbers, lives in **[Docs/TASKS.md](Docs/TASKS.md)** §14 ("Implicit State Machine Audit"), a read-only multi-agent audit.
 
-### Frontend machines (F1–F62)
-Generation/execution FSM, batch queue, viewport model load, image/mesh upload, task polling, SSE connection, feature availability, navigation/tool, hover/part highlight, turntable, animation mixer, viewport UI shell, settings popover, job polls, job status lifecycle, wireframe toggle, shading-mode cycle, camera preset, lighting tone/exposure, snapshot, export modal, comparison divider, animation playback, viewer store, upload lifecycle, dynamic inspectors, panels, and app-store machines (downloads, tasks, current job, install progress, history, sidebars, command palette, recent jobs).
+### Post-processing default state machine
+Post-processing is **disabled by default** through `postprocessing.enabled: false` in `backend/config/system.yaml`. When disabled, the scheduler forces `postprocess_mode = "none"` and `enable_postprocess = False` at `backend/core/scheduler/multiprocess_scheduler.py:2386-2388`, bypassing `run_postprocess_job` entirely. The raw model-extracted mesh is returned directly. Setting `postprocessing.enabled: true` restores the existing post-processing path.
 
-### Backend machines (B1–B38)
-Job lifecycle and queue residency, worker lifecycle and busy bookkeeping, admission/placement outcomes, model load states, VRAM tracking, rate limiter, deployment mode, SSE log stream, app lifespan, scheduler start/stop, job-queue persistence, Redis hooks, single-worker lifespan, postprocess stage axis, job timeouts, queue-age staleness, Redis cancel signaling, worker creation handshake, model residency TTL/eviction, batch concurrency slots, settings lazy init, model download lifecycle, service/menu lifecycle.
+### Frontend machines (F1–F11)
+Generation/execution FSM, batch queue, viewport model load, image/mesh upload, task polling, SSE connection, feature availability, comparison, panel open/close, viewport shading/display, texture settings.
+
+### Backend machines (B1–B4)
+Job lifecycle and queue residency, worker lifecycle and busy bookkeeping, model load states, texture pipeline state.
 
 ### Audit methodology
-On every task, scan the codebase for scattered booleans/flags acting as implicit state machines — UI toggles, loading/idle/error flows, compare modes, shading modes, presets, turntable, wireframe, snapshot, settings popover, mesh upload lifecycle, job status transitions, texture pipeline states, abort/controller flows, panel open/close, camera presets, lighting tone, exposure slider, model loader states, scheduler/worker states, job queue states, adapter registry states. For each machine report: name, states, transitions, triggers, file + line, and explicit vs implicit. Resolve overlaps, delete dead machines with zero callers (e.g. `setRigStatus`), and fix shared transition logic once rather than per caller.
+On every task, scan the codebase for scattered booleans/flags acting as implicit state machines — UI toggles, loading/idle/error flows, compare modes, shading modes, presets, turntable, wireframe, snapshot, settings popover, mesh upload lifecycle, job status transitions, texture pipeline states, abort/controller flows, panel open/close, camera presets, lighting tone, exposure slider, model loader states, scheduler/worker states, job queue states, adapter registry states. For each machine report: name, states, transitions, triggers, file + line, and explicit vs implicit. Resolve overlaps, delete dead machines with zero callers, and fix shared transition logic once rather than per caller.
 
 Docs/TASKS.md is the source of truth for the inventory; update it when machines are added, promoted to explicit enums, or removed.
 

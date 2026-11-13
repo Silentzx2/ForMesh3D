@@ -399,7 +399,7 @@ class ImageToRawMeshRequest(BaseModel):
     physics_config: Optional[dict] = Field(None, description="Provider-neutral physics controller values")
     topology_mode: Optional[str] = Field("triangle", description="Topology mode: 'triangle' or 'quad'")
     quad_topology: bool = Field(False, description="Request quad-dominant topology")
-    enable_postprocess: bool = Field(True, description="Run production postprocessing pipeline after mesh generation. If False, postprocessing is bypassed.")
+    enable_postprocess: bool = Field(False, description="Run production postprocessing pipeline after mesh generation. If False, postprocessing is bypassed.")
     candidate_count: int = Field(1, ge=1, le=int(get_quality_config()["seeds"]["max_candidates"]), description="Candidate variations to generate (1-4, default 1)")
     part_count_range: Optional[str] = Field(None, description="Target part count range for segmentation: '1', '3-6', '6-15', '15+'")
     rig_type: Optional[str] = Field(None, description="Rig type: 'none', 'generic', 'humanoid', 'quadruped', 'bird', 'insect', 'custom'")
@@ -605,7 +605,7 @@ class ImageToTexturedMeshRequest(BaseModel):
     physics_config: Optional[dict] = Field(None, description="Provider-neutral physics controller values")
     topology_mode: Optional[str] = Field("triangle", description="Topology mode: 'triangle' or 'quad'")
     quad_topology: bool = Field(False, description="Request quad-dominant topology")
-    enable_postprocess: bool = Field(True, description="Run production postprocessing pipeline after mesh generation. If False, postprocessing is bypassed.")
+    enable_postprocess: bool = Field(False, description="Run production postprocessing pipeline after mesh generation. If False, postprocessing is bypassed.")
     candidate_count: int = Field(1, ge=1, le=int(get_quality_config()["seeds"]["max_candidates"]), description="Candidate variations to generate (1-4, default 1)")
     part_count_range: Optional[str] = Field(None, description="Target part count range for segmentation: '1', '3-6', '6-15', '15+'")
     rig_type: Optional[str] = Field(None, description="Rig type: 'none', 'generic', 'humanoid', 'quadruped', 'bird', 'insect', 'custom'")
@@ -1382,13 +1382,17 @@ async def image_to_raw_mesh(
             _resolve_preset_option(mesh_request.slicer_handoff, preset, "slicer_handoff", False)
         )
 
+        native_target_polycount = 0
         if not mesh_request.enable_postprocess:
             # When post-processing is disabled, decimation, LOD, and QA checks are skipped,
             # but texture options remain active if texture is enabled.
+            # A user-requested native polycount target is carried separately so it reaches
+            # the model's native extraction path instead of being zeroed out.
             lod_enabled = False
             enable_printability = False
             enable_auto_repair = False
             enable_auto_rig = False
+            native_target_polycount = target_polycount or 0
             target_polycount = 0
         elif mesh_request.intent == "native" or target_polycount == -1:
             if mesh_request.intent == "native":
@@ -1425,6 +1429,7 @@ async def image_to_raw_mesh(
                 "enhancement_enabled": mesh_request.enhancement_enabled,
                 "preprocessing_metadata": preprocessing_metadata,
                 "target_polycount": target_polycount,
+                "native_target_polycount": native_target_polycount,
                 "generateLOD": lod_enabled,
                 "lodPreset": lod_preset,
                 "lodCount": lod_count,
@@ -1481,6 +1486,7 @@ async def image_to_raw_mesh(
                 "preprocessing_review_override": mesh_request.preprocessing_review_override,
                 "enhancement_enabled": mesh_request.enhancement_enabled,
                 "target_polycount": target_polycount,
+                "native_target_polycount": native_target_polycount,
                 "generateLOD": lod_enabled,
                 "lodPreset": lod_preset,
                 "lodCount": lod_count,
@@ -1801,13 +1807,17 @@ async def image_to_textured_mesh(
         )
         physics_enabled = bool(_resolve_preset_option(mesh_request.physics_enabled, preset, "collision", False))
 
+        native_target_polycount = 0
         if not mesh_request.enable_postprocess:
             # When post-processing is disabled, decimation, LOD, and QA checks are skipped,
             # but texture options remain active if texture is enabled.
+            # A user-requested native polycount target is carried separately so it reaches
+            # the model's native extraction path instead of being zeroed out.
             lod_enabled = False
             enable_printability = False
             enable_auto_repair = False
             enable_auto_rig = False
+            native_target_polycount = target_polycount or 0
             target_polycount = 0
         elif mesh_request.intent == "native" or target_polycount == -1:
             if mesh_request.intent == "native":
@@ -1846,6 +1856,7 @@ async def image_to_textured_mesh(
                 "enhancement_enabled": mesh_request.enhancement_enabled,
                 "preprocessing_metadata": preprocessing_metadata,
                 "target_polycount": target_polycount,
+                "native_target_polycount": native_target_polycount,
                 "generateLOD": lod_enabled,
                 "lodPreset": lod_preset,
                 "lodCount": lod_count,
@@ -1901,6 +1912,7 @@ async def image_to_textured_mesh(
                 "preprocessing_review_override": mesh_request.preprocessing_review_override,
                 "enhancement_enabled": mesh_request.enhancement_enabled,
                 "target_polycount": target_polycount,
+                "native_target_polycount": native_target_polycount,
                 "generateLOD": lod_enabled,
                 "lodPreset": lod_preset,
                 "lodCount": lod_count,

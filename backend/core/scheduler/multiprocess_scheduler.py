@@ -2378,6 +2378,15 @@ class MultiprocessModelScheduler:
                 if not enable_postprocess and not texture_enabled and postprocess_mode == "production_mesh":
                     postprocess_mode = "none"
 
+                # YAML gate: postprocessing is disabled by default via
+                # backend/config/system.yaml postprocessing.enabled. When off,
+                # force no post-processing regardless of request flags.
+                from core.config import get_settings
+
+                if not get_settings().postprocessing.enabled:
+                    postprocess_mode = "none"
+                    enable_postprocess = False
+
                 if postprocess_mode == "manual_mesh_tool":
                     from postprocess.pipeline import persist_manual_mesh_result
 

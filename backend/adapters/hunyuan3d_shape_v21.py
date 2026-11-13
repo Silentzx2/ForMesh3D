@@ -141,6 +141,14 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
         gen_device = exec_device if exec_device is not None else (f"cuda:{self.gpu_id}" if self.gpu_id is not None and torch and torch.cuda.is_available() else "cpu")
         generator = torch.Generator(device=gen_device).manual_seed(seed) if torch is not None else None
 
+        # Native polycount target: passed through from the generation request.
+        # Hunyuan3D-2.1 Shape does not expose a direct face-count parameter in its
+        # upstream pipeline, so the value is logged and preserved in generation_info
+        # without downstream decimation (which would violate the no-postprocessing rule).
+        native_target_polycount = int(inputs.get("native_target_polycount", 0) or 0)
+        if native_target_polycount:
+            logger.info("Hunyuan3D Shape v2.1 received native_target_polycount=%d (upstream pipeline has no direct face-count control; preserved native output)", native_target_polycount)
+
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
             outputs = pipeline(
@@ -214,6 +222,7 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
                 "guidance_scale": 7.5,
                 "octree_resolution": 512,
                 "num_chunks": 8000,
+                "native_target_polycount": native_target_polycount or None,
             },
         }
 

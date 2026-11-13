@@ -65,6 +65,46 @@ describe('buildGenerationParameters', () => {
     assert.equal(result.body.quad_topology, true);
   });
 
+  it('passes native_target_polycount when enablePostprocess is false (native extraction path)', () => {
+    const settings: GenerationSettings = {
+      ...baseSettings,
+      enablePostprocess: false,
+      polycount: 50000,
+    };
+
+    const result = buildGenerationParameters(settings);
+
+    assert.equal(result.body.enable_postprocess, false);
+    assert.equal(result.body.target_polycount, 0);
+    assert.equal(result.body.native_target_polycount, 50000);
+  });
+
+  it('clamps native_target_polycount to 600K maximum', () => {
+    const settings: GenerationSettings = {
+      ...baseSettings,
+      enablePostprocess: false,
+      polycount: 2000000,
+    };
+
+    const result = buildGenerationParameters(settings);
+
+    assert.equal(result.body.native_target_polycount, 600000);
+  });
+
+  it('sets native_target_polycount to 0 when no polycount is requested', () => {
+    const settings: GenerationSettings = {
+      ...baseSettings,
+      enablePostprocess: false,
+      polycount: 0,
+    };
+
+    const result = buildGenerationParameters(settings);
+
+    assert.equal(result.body.enable_postprocess, false);
+    assert.equal(result.body.target_polycount, 0);
+    assert.equal(result.body.native_target_polycount, 0);
+  });
+
   it('matches model_preference with user selected AI model', () => {
     const models = [
       'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh',

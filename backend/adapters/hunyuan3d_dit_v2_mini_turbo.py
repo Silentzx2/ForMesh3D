@@ -129,6 +129,14 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
 
+        # Native polycount target: passed through from the generation request.
+        # Hunyuan3D Mini Turbo does not expose a direct face-count parameter in its
+        # upstream pipeline, so the value is logged and preserved in generation_info
+        # without downstream decimation.
+        native_target_polycount = int(inputs.get("native_target_polycount", 0) or 0)
+        if native_target_polycount:
+            logger.info("Hunyuan3D Mini Turbo received native_target_polycount=%d (upstream pipeline has no direct face-count control; preserved native output)", native_target_polycount)
+
         import gc
         import os
         import trimesh
@@ -180,6 +188,7 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
                 "guidance_scale": 5.0,
                 "octree_resolution": 380,
                 "num_chunks": 20000,
+                "native_target_polycount": native_target_polycount or None,
             },
         }
 

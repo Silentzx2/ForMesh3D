@@ -180,6 +180,14 @@ class _TrellisBaseAdapter(BaseModel):
 
         image = Image.open(image_path)
 
+        # Native polycount target: passed through from the generation request.
+        # TRELLIS does not expose a direct face-count parameter in its upstream
+        # pipeline, so the value is logged and preserved in generation_info
+        # without downstream decimation.
+        native_target_polycount = int(inputs.get("native_target_polycount", 0) or 0)
+        if native_target_polycount:
+            logger.info("TRELLIS received native_target_polycount=%d (upstream pipeline has no direct face-count control; preserved native output)", native_target_polycount)
+
         want_texture = bool(inputs.get("texture_enabled")) and self._paint_pipeline is not None
         formats = ["mesh", "gaussian"] if want_texture else ["mesh"]
 
@@ -283,6 +291,7 @@ class _TrellisBaseAdapter(BaseModel):
                 "num_inference_steps": "adapter_owned",
                 "guidance_scale": "adapter_owned",
                 "octree_resolution": "adapter_owned",
+                "native_target_polycount": native_target_polycount or None,
             },
         }
 

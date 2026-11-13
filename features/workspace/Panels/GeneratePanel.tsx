@@ -264,6 +264,7 @@ export const GeneratePanel: React.FC = () => {
     generate3DModel,
     generationSettings,
     setGenerationSettings,
+    postprocessingEnabled,
   } = useWorkspace();
 
   const [isGeneralSettingsOpen, setIsGeneralSettingsOpen] = useState(false);
@@ -357,7 +358,7 @@ export const GeneratePanel: React.FC = () => {
   // Geometry & Texture flyout settings matching Tripo reference
   const [isGeomTextureOpen, setIsGeomTextureOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [enablePostprocess, setEnablePostprocess] = useState(true);
+  const [enablePostprocess, setEnablePostprocess] = useState(postprocessingEnabled);
   const [enableTexture, setEnableTexture] = useState(true);
   const [textureQuality, setTextureQuality] = useState<'2K' | '4K'>('4K');
   const [removeLighting, setRemoveLighting] = useState(true);
@@ -1066,10 +1067,14 @@ export const GeneratePanel: React.FC = () => {
               </button>
             </div>
 
-            {/* Toggle 1: Post-Processing */}
-            <div className="flex items-center justify-between py-0.5">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-zinc-200 font-medium">Post-Processing</span>
+            {/* Post-Processing controls omitted entirely when disabled (default).
+              When enabled they are rendered fully — no disabled/read-only state. */}
+            {postprocessingEnabled && (
+            <>
+                {/* Toggle 1: Post-Processing */}
+                <div className="flex items-center justify-between py-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-zinc-200 font-medium">Post-Processing</span>
                 <span title="Automatic mesh cleanup, manifold healing, smoothing and feature edge preservation" className="text-zinc-500 hover:text-zinc-300 transition-colors">
                   <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
                 </span>
@@ -1244,6 +1249,8 @@ export const GeneratePanel: React.FC = () => {
                 <span>600,000 (Max 600K)</span>
               </div>
             </div>
+            </>
+            )}
           </div>,
           document.body
         )}

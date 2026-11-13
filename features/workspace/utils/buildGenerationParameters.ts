@@ -167,9 +167,15 @@ export function buildGenerationParameters(
     settings.autoOptimizeSettings?.targetPolycount;
 
   const parsedPolycount = Number(rawTargetPolycount);
-  const targetPolycount = enablePostprocess && Number.isFinite(parsedPolycount) && parsedPolycount > 0
+  const clampedPolycount = Number.isFinite(parsedPolycount) && parsedPolycount > 0
     ? Math.max(500, Math.min(600000, Math.round(parsedPolycount)))
     : 0;
+  // Native polycount target always reaches the model's native extraction path,
+  // independent of post-processing. When post-processing is disabled, the
+  // value is carried as native_target_polycount so adapters can apply it
+  // directly during mesh extraction rather than via downstream decimation.
+  const nativeTargetPolycount = enablePostprocess ? 0 : clampedPolycount;
+  const targetPolycount = enablePostprocess ? clampedPolycount : 0;
 
   const modelPreference = resolveGenerationModelChoice(settings.aiModel, undefined);
 
@@ -191,6 +197,7 @@ export function buildGenerationParameters(
     auto_rig_mode: autoRigMode,
     enable_postprocess: enablePostprocess,
     target_polycount: targetPolycount,
+    native_target_polycount: nativeTargetPolycount,
     generate_lod: lodEnabled,
     lod_preset: lodEnabled ? lodPreset : undefined,
     lod_count: lodEnabled ? lodCount : undefined,

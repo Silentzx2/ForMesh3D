@@ -381,7 +381,9 @@ uvicorn api.main_multiworker:app --workers 4 --port 7842
 
 ## Current Production Post-Processing Contract — 2026-09-29
 
-Generation requests enter production post-processing only when `enable_postprocess` is enabled. Native/Raw requests bypass production processing; enabled requests preserve the raw generation output in the immutable master workspace before derivatives are created.
+Post-processing is controlled by a YAML opt-in switch (`postprocessing.enabled` in `backend/config/system.yaml`) that defaults to **disabled**. Generation requests enter production post-processing only when `enable_postprocess` is enabled **and** `postprocessing.enabled` is `true`. Native/Raw requests bypass production processing; enabled requests preserve the raw generation output in the immutable master workspace before derivatives are created.
+
+When `postprocessing.enabled` is `false`, the scheduler forces `postprocess_mode = "none"` and `enable_postprocess = False` regardless of request flags. The mesh extracted by the selected model adapter is returned directly with no decimation, remeshing, repair, or smoothing.
 
 The canonical workspace contains master/, game_ready/, lods/, collision/, textures/, previews/, and metadata/. Only artifacts that actually succeed are written.
 

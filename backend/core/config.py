@@ -134,6 +134,15 @@ class SecurityConfig(BaseSettings):
     api_key: Optional[str] = Field(default=None, repr=False, exclude=True)
 
 
+class PostProcessingConfig(BaseSettings):
+    """Post-processing opt-in switch.
+
+    When enabled=false (default), the generation workflow bypasses the
+    post-processing pipeline entirely and returns the raw model-extracted mesh.
+    """
+    enabled: bool = False
+
+
 class ModelConfig(BaseSettings):
     """Configuration for a single model"""
     vram_requirement: int
@@ -221,6 +230,9 @@ class Settings(BaseSettings):
     # Environment
     environment: str = "development"
     debug: bool = False
+
+    # Post-processing opt-in
+    postprocessing: PostProcessingConfig = PostProcessingConfig()
 
     # Redis configuration (for multi-worker deployments)
     redis_url: str = "redis://localhost:6379"
@@ -310,6 +322,8 @@ def load_config_from_file(config_path: str) -> Settings:
             settings.environment = config_data["environment"]
         if "debug" in config_data:
             settings.debug = config_data["debug"]
+        if "postprocessing" in config_data:
+            settings.postprocessing = PostProcessingConfig(**config_data["postprocessing"])
 
         logger.info(f"Successfully loaded configuration from {config_path}")
         return settings

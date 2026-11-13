@@ -205,6 +205,14 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         elif image.mode != "RGB":
             image = image.convert("RGB")
 
+        # Native polycount target: passed through from the generation request.
+        # TRELLIS.2 does not expose a direct face-count parameter in its upstream
+        # pipeline, so the value is logged and preserved in generation_info
+        # without downstream decimation.
+        native_target_polycount = int(inputs.get("native_target_polycount", 0) or 0)
+        if native_target_polycount:
+            logger.info("TRELLIS.2 received native_target_polycount=%d (upstream pipeline has no direct face-count control; preserved native output)", native_target_polycount)
+
         # Retry on hollow-box output: the sparse-structure flow can under-converge
         # on some seeds, emitting a domain-cube instead of the input object.
         max_attempts = 3
@@ -368,6 +376,7 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
                 "pipeline_type": "1536_cascade",
                 "max_num_tokens": 49152,
                 "generate_texture": False,
+                "native_target_polycount": native_target_polycount or None,
             },
         }
 
