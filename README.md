@@ -252,6 +252,7 @@ The model registry is dynamically configured via `backend/config/models.yaml` an
 | **TRELLIS.2** | `trellis2_image_to_3d` / `trellis2_image_to_raw_mesh` | Raw Mesh | 23.5 GB | High-fidelity FlexiCubes geometry; FP32 attention on pre-Ampere prevents logit collapse; adaptive top-k percentile voxel fallback; rembg zero-alpha guard; texture generation via `pipeline(mesh=, image=, seed=)` — implemented, 4K atlas |
 | **TaoFlowForge** | `taoflowforge_image_to_raw_mesh` | Raw Mesh | 20 GB (10 GB low-VRAM) | Progressive native-mesh generation. Stage 1 query chunking SDPA (diff=0.0) eliminates 10.06 GiB OOM; stage offload enforced. |
 | **Pixal3D** | `pixal3d_image_to_raw_mesh` / `pixal3d_image_to_3d` | Raw Mesh | ~18 GB configured reservation | Pixel-aligned O-Voxel source; DinoV3 feature extractor condition models initialized. |
+| **Hunyuan3D-Paint-v2.0** | `hunyuan3d_v20_paint_image_mesh_painting` | PBR Texture | ~11 GB | Paint an existing mesh with PBR textures. |
 | **Hunyuan3D-Paint-v2.1** | `hunyuan3d_paint_v21_image_mesh_painting` | PBR Texture | ~12 GB configured reservation | 2B PBR texture checkpoint, internal RealESRGAN, exported 4K/8K atlas validation. |
 | **TripoSG** | `triposg_image_to_raw_mesh` | Image/Scribble to 3D | 8 GB | High-fidelity image and scribble guided 3D geometry; model-specific patcher in `patcher/triposg/`. |
 | **SkinTokens** | `skintokens_auto_rigging` | Auto-Rigging | 14 GB | Unified autoregressive armature and discrete skin token generation. |
@@ -269,7 +270,7 @@ Texture generation runs inside the selected model's adapter after raw mesh infer
 | **TRELLIS** (`trellis_image_to_raw_mesh`) | Texture via `to_glb(gs, mesh, texture_size=...)` | Done — implemented in `_TrellisBaseAdapter._process_request`, 2K atlas |
 | **TRELLIS.2** (`trellis2_image_to_raw_mesh`) | Texture via `pipeline(mesh=, image=, seed=)` | Done — implemented in `Trellis2ImageToRawMeshAdapter._process_request`, 4K atlas |
 
-Paint3D has been removed from the main repo. All texture resolutions now route to Hunyuan3D-Paint v2.1.
+Paint3D has been removed from the main repo. Texture Studio sends the selected paint model ID; atlas resolution does not override the selection. Hunyuan3D-Paint v2.1 uses internal RealESRGAN for 4K/8K targets.
 
 > **Registry source of truth:** the catalog above mirrors `backend/config/models.yaml`. Only entries with `enabled: true` are exposed by `GET /api/v1/system/models`. `backend/config/smart_presets.yaml` holds the intent presets (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`; `native` is a backend-only sentinel).
 
@@ -338,7 +339,7 @@ The ForMesh3D Studio UI integrates neural generation and mesh finishing into a c
 
 ### 🧰 Creative Workspace Modules:
 - **Generate Studio (`/workspace`)**: Image-to-3D generation with reference image intake, model selector, unified Target Polycount, and Output Presets (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`, `native`).
-- **Texture Studio (`/workspace/texture`)**: Multi-view PBR texture painting and PBR map inspection/export (Albedo, Normal, Roughness, Metallic, AO). Hunyuan3D-Paint v2.1 runs internal RealESRGAN enhancement for 4K/8K atlas targets.
+- **Texture Studio (`/workspace/texture`)**: Multi-view PBR texture painting and PBR map inspection/export (Albedo, Normal, Roughness, Metallic, AO), with explicit Hunyuan3D-Paint v2.0/v2.1 model selection. Hunyuan3D-Paint v2.1 runs internal RealESRGAN enhancement for 4K/8K atlas targets.
 - **Retopology & Remesh (`/workspace/remesh`)**: FastMesh quad-dominant retopology with V1K and V4K target presets.
 - **UV Unwrapping (`/workspace/uv`)**: Automated conformal seam placement and atlas chart packing.
 - **Mesh Segmentation (`/workspace/segment`)**: Semantic part decomposition interface.

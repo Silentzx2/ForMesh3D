@@ -222,7 +222,7 @@ Universal motion specifications compatible with `motion/react`:
 - `components/Providers.tsx`: Root providers (Theme, Toast, etc.).
 
 ### Texture Studio & Generation Panel Components
-- `TexturePanel.tsx`: Atlas resolution presets (1K, 2K, 4K, 8K), automatic engine routing to Hunyuan3D-Paint v2.1, reference image binding/upload, PBR map inspection. RealESRGAN runs as part of Hunyuan Paint; there is no separate UI toggle.
+- `TexturePanel.tsx`: Atlas resolution presets (1K, 2K, 4K, 8K), explicit selection between registered paint engines including Hunyuan3D-Paint v2.0 and v2.1, reference image binding/upload, PBR map inspection. RealESRGAN runs within the v2.1 adapter; there is no separate UI toggle.
 - `GeneratePanel.tsx`: Simplified Studio Interface with single Target Polycount / Output Preset card (six canonical preset chips derived from the backend catalogue), locked model inference profiles, and clean Advanced production drawer. Universal Textured Generation toggle for all image-to-3D geometry models, atlas resolution preset selector, VRAM warning for 4K/8K.
 - Source-generation controls output raw geometry; texturing runs as a separate, optional, non-destructive stage preserving `master/source.glb`.
 - `systemStats`: Real-time GPU/VRAM telemetry in texture panel
@@ -320,10 +320,8 @@ flowchart TD
     IN --> TEXTURE{"Textured Generation enabled?"}:::guard
     TEXTURE -->|No| RAW["Keep raw master<br/>No texture stage"]:::output
     TEXTURE -->|Yes| SIZE{"Requested atlas preset"}:::guard
-    SIZE -->|All resolutions| HUNYUAN["Hunyuan3D-Paint v2.1<br/>Texture generation with RealESRGAN"]:::process
-    SIZE -->|4K / 8K| HUNYUAN["Hunyuan3D-Paint v2.1<br/>RealESRGAN enabled internally"]:::process
-
-    HUNYUAN --> VERIFY
+    SIZE -->|Any atlas size| PAINT["Selected paint model: v2.0 or v2.1; v2.1 uses RealESRGAN at 4K / 8K"]:::process
+    PAINT --> VERIFY
     VERIFY -->|Verified| EXPORT["Export separate textured GLB<br/>Keep source.glb untouched"]:::output
     VERIFY -->|Missing / mismatch / failure| RAWFAIL["Preserve raw master<br/>Record texture-stage failure"]:::output
 ```mermaid
@@ -337,10 +335,8 @@ flowchart TD
     IN --> TEXTURE{"Textured Generation enabled?"}:::guard
     TEXTURE -->|No| RAW["Keep raw master<br/>No texture stage"]:::output
     TEXTURE -->|Yes| SIZE{"Requested atlas preset"}:::guard
-    SIZE -->|All resolutions| HUNYUAN["Hunyuan3D-Paint v2.1<br/>Texture generation with RealESRGAN"]:::process
-    SIZE -->|4K / 8K| HUNYUAN["Hunyuan3D-Paint v2.1<br/>RealESRGAN enabled internally"]:::process
-
-    HUNYUAN --> VERIFY
+    SIZE -->|Any atlas size| PAINT["Selected paint model: v2.0 or v2.1; v2.1 uses RealESRGAN at 4K / 8K"]:::process
+    PAINT --> VERIFY
     VERIFY -->|Verified| EXPORT["Export separate textured GLB<br/>Keep source.glb untouched"]:::output
     VERIFY -->|Missing / mismatch / failure| RAWFAIL["Preserve raw master<br/>Record texture-stage failure"]:::output
 ```

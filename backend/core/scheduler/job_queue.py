@@ -725,15 +725,22 @@ class JobQueue:
             # Check if job is in queue
             for i, job in enumerate(self._queue_cache):
                 if job.job_id == job_id:
-                    job.mark_cancelled()
+                    cancelled_job = copy.deepcopy(job)
+                    cancelled_job.mark_cancelled()
 
                     # Save to database
-                    if not await asyncio.to_thread(self.db_manager.save_job, job):
+                    if not await asyncio.to_thread(
+                        self.db_manager.save_job, cancelled_job
+                    ):
                         logger.error(
                             f"Failed to save cancelled job {job_id} to database"
                         )
+                        return False
 
                     # Move from queue to completed
+                    job.status = cancelled_job.status
+                    job.completed_at = cancelled_job.completed_at
+                    job.metadata = cancelled_job.metadata
                     del self._queue_cache[i]
                     self._completed_cache[job_id] = job
 
@@ -745,12 +752,18 @@ class JobQueue:
                     logger.warning("Cannot cancel job %s: already processing", job_id)
                     return False
                 job = self._processing_cache[job_id]
-                job.mark_cancelled()
+                cancelled_job = copy.deepcopy(job)
+                cancelled_job.mark_cancelled()
                 # Persist before moving containers so a failed save leaves the
                 # job in the processing cache rather than losing it.
-                if not await asyncio.to_thread(self.db_manager.save_job, job):
+                if not await asyncio.to_thread(
+                    self.db_manager.save_job, cancelled_job
+                ):
                     logger.error("Failed to save cancelled job %s", job_id)
                     return False
+                job.status = cancelled_job.status
+                job.completed_at = cancelled_job.completed_at
+                job.metadata = cancelled_job.metadata
                 del self._processing_cache[job_id]
                 self._completed_cache[job_id] = job
                 return True

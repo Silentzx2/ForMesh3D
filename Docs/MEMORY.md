@@ -1,7 +1,11 @@
 # ForMesh3D — Audited Project State
 
-## 2026-11-13 — Generate Panel Button State, Viewport Progress Bar & SF3D Adapter Fix
+## 2026-11-13 — Mesh Asset Loading, Model Selection, Job/Worker State & UI
 
+- **Mesh Asset Loading (`features/workspace/RightPanel/RightAssetsPanel.tsx`, `features/workspace/Viewport/MeshViewer.tsx`):** Selecting a mesh resolves its artifact URL or file ID to a backend download endpoint; viewport loading/error state is explicit, and stale geometry is cleared while a new mesh loads.
+- **Mesh Upload (`useMeshAssetUpload.ts`):** Local blob preview begins immediately; upload completion updates the selected asset only if the user has not selected another one.
+- **Texture Model Selection (`buildTextureGenerationParameters.ts`):** Texture Studio passes the selected Hunyuan3D-Paint v2.0/v2.1 model ID instead of overriding it with v2.1.
+- **Job/Worker State:** Redis retry/requeue/start/completion paths synchronize progress, stage, and message fields; cancellation is persisted before cache movement; worker startup errors retain their specific cause.
 - **Generate Button State (`features/workspace/Panels/GeneratePanel.tsx`):** Generate and Cancel buttons share one fixed position — clicking Generate swaps to red "Cancel Generation" with inline progress bar above; returns to yellow "Generate Model" on completion/cancel. Disabled without an image.
 - **Viewport Progress Bar (`features/workspace/Viewport/MeshViewer.tsx`):** Bottom-center thin progress bar replaces center-card overlay: gray `bg-white/10` track, white fill growing with `executionProgress`, percentage count below. Only visible during execution.
 - **Deleted Files:** `features/workspace/Notifications/ProgressOverlay.tsx` and `features/workspace/RightPanel/LiveExecutionPanel.tsx` removed; `ProgressOverlay` export removed from `features/workspace/index.ts`.
@@ -36,7 +40,7 @@
 ## 2026-11-12 — Upload Error State, Single Viewport UI Status, Single Job Status Source
 
 - `useMeshAssetUpload` catch now emits `status: 'error'` with the failure message so the `MeshUploadStatus` error branch is reachable and backend failures no longer look like success (TASKS.md F4/C1).
-- `MeshViewer` renders one mutually exclusive `viewportStatus` enum (`idle | empty | executing | comparing | error`) instead of overlapping JSX conditions (TASKS.md F12).
+- `MeshViewer` renders one mutually exclusive `viewportStatus` enum (`idle | empty | loading | executing | comparing | error`) instead of overlapping JSX conditions (TASKS.md F12).
 - `JobDetailView` derives a single `jobStatus` from `selectedJob.status`; scattered `isRunning`/`isCompleted`/`isFailed` booleans and the duplicate `selectedJobIsRunning` are removed (TASKS.md F15).
 - **Verification:** `npx tsc --noEmit` passed with 0 errors; `bun test` 11 pass / 0 fail across 3 files; all `generate_texture` contract failures fixed.
 

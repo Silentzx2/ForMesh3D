@@ -223,8 +223,10 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const comparisonHandleRef = useRef<HTMLDivElement | null>(null);
   const shadingModeRef = useRef(shadingMode);
   const showWireframeRef = useRef(showWireframe);
-  shadingModeRef.current = shadingMode;
-  showWireframeRef.current = showWireframe;
+  useEffect(() => {
+    shadingModeRef.current = shadingMode;
+    showWireframeRef.current = showWireframe;
+  }, [shadingMode, showWireframe]);
 
   // Three.js instances stored in refs to avoid React re-render overhead
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -847,10 +849,28 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   }, [viewportResetTrigger, fitCameraToModel]);
 
   // 4. Load 3D Model when URL changes
+  const assetFormat = currentAsset?.format?.toLowerCase();
+  const assetFileId = currentAsset?.source?.fileId || currentAsset?.fileId;
+  const assetFileUrl = assetFileId
+    ? assetFileId.startsWith('job-')
+      ? `/api/v1/system/jobs/${encodeURIComponent(assetFileId.slice(4))}/download?artifact_format=${assetFormat || 'glb'}`
+      : `/api/v1/file-upload/download/${encodeURIComponent(assetFileId)}`
+    : null;
+  const artifactUrl =
+    currentAsset?.artifacts?.gameReadyFormats?.[assetFormat || ''] ||
+    currentAsset?.artifacts?.gameReady ||
+    currentAsset?.artifacts?.source ||
+    currentAsset?.artifacts?.lods?.[0] ||
+    currentAsset?.artifacts?.rigged ||
+    (assetFormat === 'fbx' ? currentAsset?.artifacts?.riggedFbx : null) ||
+    currentAsset?.artifacts?.collision;
+  const isMeshAsset = currentAsset && currentAsset.category !== 'texture' &&
+    currentAsset.format !== 'IMAGE' && currentAsset.format !== 'FILE';
   const modelUrl =
     currentAsset?.source?.viewUrl ||
     currentAsset?.source?.localUrl ||
-    loadedModelUrl ||
+    (isMeshAsset ? artifactUrl || assetFileUrl : null) ||
+    (currentAsset ? null : loadedModelUrl) ||
     null;
   const comparisonBeforeUrl = currentAsset?.artifacts?.source || null;
   const comparisonAfterUrl = currentAsset?.source?.viewUrl || currentAsset?.source?.localUrl || currentAsset?.artifacts?.gameReady || null;
@@ -942,7 +962,21 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     if (!modelUrl || !modelGroupRef.current) {
       setModelLoadStatus('empty');
       setHasModel(false);
+      setLoadError(null);
+      const group = modelGroupRef.current;
+      if (group) {
+        while (group.children.length > 0) {
+          const child = group.children[0];
+          group.remove(child);
+          disposeObject3D(child);
+        }
+      }
+      useViewerStore.getState().setActiveModelObject(null);
       useViewerStore.getState().setModelStats(null);
+      if (mixerRef.current) {
+        mixerRef.current.stopAllAction();
+        mixerRef.current = null;
+      }
       return;
     }
 
@@ -965,7 +999,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     }
 
     const detectedExt = modelUrl.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase();
-    const assetFormat = currentAsset?.format?.toLowerCase();
     const knownFormats = ['glb', 'gltf', 'obj', 'fbx', 'stl', 'ply'];
     const format = (assetFormat && knownFormats.includes(assetFormat))
       ? assetFormat
@@ -999,7 +1032,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         if (child instanceof THREE.Mesh) {
           child.castShadow = true;
           child.receiveShadow = true;
-          applyShadingToMesh(child, shadingMode, Boolean(showWireframe));
+          applyShadingToMesh(child, shadingModeRef.current, Boolean(showWireframeRef.current));
         }
       });
 
@@ -1082,7 +1115,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     return () => {
       isCancelled = true;
     };
-  }, [modelUrl, fitCameraToModel, shadingMode, showWireframe, applyShadingToMesh]);
+  }, [modelUrl, assetFormat, fitCameraToModel, applyShadingToMesh]);
 
   // 6. Highlight hovered part in main viewer (top-level hook — never nested inside another hook)
   useEffect(() => {
@@ -1189,18 +1222,20 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   };
 
   // Single source of truth for the viewport UI shell: one mutually exclusive
-  // status replaces the previously overlapping JSX conditions (empty vs
-  // executing vs comparing vs error toast).
-  type ViewportUIStatus = 'idle' | 'empty' | 'executing' | 'comparing' | 'error';
+  // status replaces the previously overlapping JSX conditions (empty, loading,
+  // executing, comparing, or error).
+  type ViewportUIStatus = 'idle' | 'empty' | 'loading' | 'executing' | 'comparing' | 'error';
   const viewportStatus: ViewportUIStatus = loadError
     ? 'error'
     : isExecuting
       ? 'executing'
-      : !hasModel
-        ? 'empty'
-        : isComparing && canCompareModels
-          ? 'comparing'
-          : 'idle';
+      : modelLoadStatus === 'loading'
+        ? 'loading'
+        : !hasModel
+          ? 'empty'
+          : isComparing && canCompareModels
+            ? 'comparing'
+            : 'idle';
 
   return (
     <div
@@ -1239,6 +1274,14 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
             <p className="text-xs text-zinc-300 font-medium drop-shadow-[0_1px_4px_rgba(0,0,0,0.5)]">
               {emptyStateCopy.description}
             </p>
+          </div>
+        </div>
+      )}
+
+      {viewportStatus === 'loading' && (
+        <div role="status" aria-live="polite" className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
+          <div className="rounded-lg border border-white/10 bg-black/60 px-3 py-2 text-xs text-zinc-200">
+            Loading 3D model…
           </div>
         </div>
       )}

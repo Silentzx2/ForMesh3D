@@ -3226,9 +3226,13 @@ class MultiprocessModelScheduler:
 
                 await asyncio.sleep(0.2)
 
-            if not init_success and worker_process.is_alive():
-                # Use the captured worker error if available (e.g. ImportError from
-                # missing uv_unwrapper C extension) instead of a generic timeout.
+            if (
+                not init_success
+                and worker_process.is_alive()
+                and error_reason
+                == f"Worker {worker_id} terminated unexpectedly during model initialization"
+            ):
+                # Preserve a specific child error; only use the timeout for a missing response.
                 original_error = self.last_worker_error.get(model_id, "")
                 if original_error:
                     error_reason = f"Model '{model_id}' failed to load: {original_error}"
@@ -3258,6 +3262,7 @@ class MultiprocessModelScheduler:
 
         except Exception as e:
             logger.error(f"Error creating worker for model {model_id}: {e}")
+            self.last_worker_error[model_id] = str(e)
             if "worker_id" in locals():
                 self._remove_worker_tracking(
                     worker_id,

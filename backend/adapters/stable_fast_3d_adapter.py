@@ -88,43 +88,56 @@ class StableFast3DAdapter(BaseModel):
             sys.path.insert(0, _sf3d_root)
 
         # Pre-inject uv_unwrapper before sf3d imports it.
-        # Do NOT add the vendored uv_unwrapper/ source dir to sys.path — doing so
-        # causes a circular import because Python finds a nested package dir named
-        # 'uv_unwrapper' inside it, then fails importing _C from the wrong context.
-        # The package must be installed via `pip install ./uv_unwrapper --no-build-isolation`
-        # (upstream README requirement). If not installed, fall back to the pure-PyTorch
-        # Unwrapper in unwrap.py and stub the one _C-registered torch op.
-        if "uv_unwrapper" not in sys.modules:
-            try:
-                import uv_unwrapper as _uv  # noqa: F401 — installed package, no sys.path games
-            except ImportError:
-                import importlib.util, types
-                _uv_py = (
-                    Path(__file__).resolve().parents[1]
-                    / "thirdparty" / "StableFast3D" / "uv_unwrapper" / "uv_unwrapper" / "unwrap.py"
-                )
-                _spec = importlib.util.spec_from_file_location("_uv_unwrap_impl", str(_uv_py))
-                _unwrap_mod = importlib.util.module_from_spec(_spec)
-                _spec.loader.exec_module(_unwrap_mod)
-                _BaseUnwrapper = _unwrap_mod.Unwrapper
+        # We must replace a stale or partially-installed module, not only skip the import
+        # when the module is already present but missing the expected Unwrapper export.
+        try:
+            import uv_unwrapper as _uv  # noqa: F401 — installed package, no sys.path games
+        except ImportError:
+            _uv = None
+        if _uv is None or not hasattr(_uv, "Unwrapper"):
+            import importlib.util
+            import types
 
-                class _FallbackUnwrapper(_BaseUnwrapper):
-                    def _assign_faces_uv_to_atlas_index(self, vertex_positions, triangle_idxs, face_uv, face_index):
-                        # ponytail: returns face_index (0-5 cube faces) directly instead of calling
-                        # torch.ops.UVUnwrapper (registered by missing _C extension). Skips
-                        # overlap-aware atlas slot assignment; faces sharing a cube face may overlap
-                        # in UV. Fix: compile uv_unwrapper for the target Python ABI via
-                        # `pip install ./uv_unwrapper --no-build-isolation` on the GPU host.
-                        return face_index
-
-                _pkg = types.ModuleType("uv_unwrapper")
-                _pkg.Unwrapper = _FallbackUnwrapper
-                sys.modules["uv_unwrapper"] = _pkg
-                logger.warning(
-                    "uv_unwrapper not installed — using pure-PyTorch fallback "
-                    "(UV overlap detection disabled). Run: "
-                    "pip install ./backend/thirdparty/StableFast3D/uv_unwrapper --no-build-isolation"
+            _uv_py = (
+                Path(__file__).resolve().parents[1]
+                / "thirdparty"
+                / "StableFast3D"
+                / "uv_unwrapper"
+                / "uv_unwrapper"
+                / "unwrap.py"
+            )
+            _spec = importlib.util.spec_from_file_location(
+                "_uv_unwrap_impl", str(_uv_py)
+            )
+            if _spec is None or _spec.loader is None:
+                raise RuntimeError(f"Unable to load uv_unwrapper source from {_uv_py}")
+            _unwrap_mod = importlib.util.module_from_spec(_spec)
+            _spec.loader.exec_module(_unwrap_mod)
+            _BaseUnwrapper = getattr(_unwrap_mod, "Unwrapper", None)
+            if _BaseUnwrapper is None:
+                raise RuntimeError(
+                    f"uv_unwrapper source at {_uv_py} does not export Unwrapper"
                 )
+
+            class _FallbackUnwrapper(_BaseUnwrapper):
+                def _assign_faces_uv_to_atlas_index(
+                    self, vertex_positions, triangle_idxs, face_uv, face_index
+                ):
+                    # ponytail: returns face_index (0-5 cube faces) directly instead of calling
+                    # torch.ops.UVUnwrapper (registered by a missing _C extension). This is a
+                    # compatibility fallback for the app-layer import path while the native package
+                    # is installed/compiled in the target GPU environment.
+                    return face_index
+
+            _pkg = types.ModuleType("uv_unwrapper")
+            _pkg.Unwrapper = _FallbackUnwrapper
+            sys.modules.pop("uv_unwrapper", None)
+            sys.modules["uv_unwrapper"] = _pkg
+            logger.warning(
+                "uv_unwrapper not installed or incomplete — using pure-PyTorch fallback "
+                "(UV overlap detection disabled). Run: "
+                "pip install ./backend/thirdparty/StableFast3D/uv_unwrapper --no-build-isolation"
+            )
 
         try:
             from sf3d.system import SF3D

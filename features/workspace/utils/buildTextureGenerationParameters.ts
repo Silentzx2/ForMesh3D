@@ -3,6 +3,7 @@ import type { TextureSettings } from '../types';
 type TextureResolution = TextureSettings['resolution'];
 
 export interface TextureGenerationRequestInput {
+  modelId?: string | null;
   resolution?: TextureResolution;
   prompt?: string | null;
   referenceImage?: string | null;
@@ -46,7 +47,7 @@ export function buildTextureGenerationParameters(
   sourceReference?: { url?: string | null; fileId?: string | null },
 ): TextureGenerationRequest {
   const resolution = settings.resolution || '2K';
-  const modelPreference = 'hunyuan3d_paint_v21_image_mesh_painting';
+  const modelPreference = settings.modelId || 'hunyuan3d_paint_v21_image_mesh_painting';
   const referenceImage = settings.referenceImage || sourceReference?.url;
   const referenceFileId = settings.referenceImageFileId || sourceReference?.fileId;
 

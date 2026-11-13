@@ -35,9 +35,7 @@ Create a centralized, local AI 3D asset factory that takes a reference image and
 - **Central Source-Fidelity Firewall**: The scheduler removes production-only target, decimation, remesh, LOD, physics, and paint orchestration controls before model inference.
 
 ### 2. Centralized PBR Texture Pipeline & Texture Studio
-- **Centralized Texture Routing**: Automatic model selection based on user-visible output resolution preset:
-  - **1K / 2K / 4K / 8K**: Hunyuan3D-Paint v2.1 texture generation with RealESRGAN
-  - **4K / 8K**: Hunyuan3D-Paint-v2-1 with RealESRGAN x4+ enhancement
+- **Paint Model Selection**: Texture Studio sends the user's selected paint adapter (Hunyuan3D-Paint v2.0 or v2.1); atlas resolution remains an independent setting. Hunyuan3D-Paint v2.1 uses RealESRGAN for 4K/8K targets.
 - **Universal Texture Toggle**: Single Textured Generation toggle available across all image-to-3D geometry models.
 - **Durable Reference Image Preservation**: Passes the original reference image directly to the selected texture adapter along with the raw mesh.
 - **Non-Destructive Texture Export**: Raw master geometry is preserved untouched (`master/source.glb`); textured models are exported separately (`textures/<name>_textured.glb`), allowing independent texture retries.
@@ -97,7 +95,7 @@ Create a centralized, local AI 3D asset factory that takes a reference image and
 ## MVP
 
 - Image-to-3D shape generation (Hunyuan3D-Shape-v2-1, TRELLIS)
-- PBR texture painting (Hunyuan3D-Paint-v2-1)
+- PBR texture painting (Hunyuan3D-Paint v2.0 and v2.1)
 - Post-processing pipeline (decimation, UV, LOD, collision)
 - QA scoring (0–100)
 - Game-ready export (ZIP package)
@@ -263,6 +261,7 @@ flowchart TD
 | TRELLIS | 11.5 GB | High quality | ~60 seconds |
 | TRELLIS.2 | 23 GB | Highest quality | ~60 seconds |
 | Hunyuan3D-Shape-v2-1 | 10 GB (shape stage) | High quality | ~90 seconds |
+| Hunyuan3D-Paint-v2-0 | ~11 GB | PBR texture painting | Not benchmarked |
 | Hunyuan3D-Paint-v2-1 | 12 GB separately configured scheduler reservation (no verified hard minimum; actual peak can exceed it) | PBR texture with RealESRGAN x4+ | ~120 seconds |
 | Hunyuan3D-DiT-v2-mini-Turbo | ~6 GB | Low-resource shape | ~30 seconds |
 | TripoSG | 8 GB | High-fidelity image/scribble | ~10-20 seconds |

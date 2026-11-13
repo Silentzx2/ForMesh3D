@@ -65,7 +65,7 @@ Intent presets (`backend/config/smart_presets.yaml`, version 1) define the defau
 ### GPU Placement & Derived Artifact Contract
 - The scheduler combines tracked reservations with live per-device free memory. Aggregate VRAM is admitted only for adapters that actually shard model layers or place independent components on multiple GPUs.
 - FastMesh multi-GPU placement is not a verified current capability: the manifest exposes V1K only and the shared adapter is hard-coded to the V1K checkpoint key. Hunyuan3D-Paint's source-level placement logic still requires supported-host validation before treating its multi-GPU behavior as production-ready.
-- Texture generation runs inside the selected model's adapter after raw mesh inference, using already-loaded weights. Hunyuan3D-Paint v2.1 texture adapter operates in a dedicated worker process.
+- Texture generation runs inside the selected model's adapter after raw mesh inference, using already-loaded weights. Hunyuan3D-Paint v2.0/v2.1 adapters operate in dedicated worker processes.
 - Rigging stores native FBX plus a GLB viewport artifact. The viewer obeys canonical artifact-format query values, and rigged geometry invalidates the previous thumbnail.
 
 
@@ -170,7 +170,7 @@ The scheduler owns model workers and job state; `backend/postprocess/pipeline.py
 
 ---
 
-## 3. Paint-v2-1 Pipeline Flow
+## 3. Paint Pipeline Flow (v2.0/v2.1)
 
 ```mermaid
 flowchart TD
@@ -183,9 +183,8 @@ flowchart TD
     IN --> TEXTURE{"Textured Generation enabled?"}:::guard
     TEXTURE -->|No| RAW["Keep raw master<br/>No texture stage"]:::output
     TEXTURE -->|Yes| SIZE{"Requested atlas preset"}:::guard
-    SIZE -->|All resolutions| HUNYUAN["Hunyuan3D-Paint v2.1<br/>Texture generation with RealESRGAN"]:::process
-    SIZE -->|4K / 8K| HUNYUAN["Hunyuan3D-Paint v2.1<br/>RealESRGAN enabled internally"]:::process
-    HUNYUAN --> VERIFY
+    SIZE -->|Any atlas size| PAINT["Selected paint model: v2.0 or v2.1; v2.1 uses RealESRGAN at 4K / 8K"]:::process
+    PAINT --> VERIFY
     VERIFY -->|Verified| EXPORT["Export separate textured GLB<br/>Keep source.glb untouched"]:::output
     VERIFY -->|Missing / mismatch / failure| RAWFAIL["Preserve raw master<br/>Record texture-stage failure"]:::output
 ```mermaid
@@ -199,10 +198,8 @@ flowchart TD
     IN --> TEXTURE{"Textured Generation enabled?"}:::guard
     TEXTURE -->|No| RAW["Keep raw master<br/>No texture stage"]:::output
     TEXTURE -->|Yes| SIZE{"Requested atlas preset"}:::guard
-    SIZE -->|All resolutions| HUNYUAN[\"Hunyuan3D-Paint v2.1<br/>Texture generation with RealESRGAN\"]:::process
-    SIZE -->|4K / 8K| HUNYUAN["Hunyuan3D-Paint v2.1<br/>RealESRGAN enabled internally"]:::process
-
-    HUNYUAN --> VERIFY
+    SIZE -->|Any atlas size| PAINT["Selected paint model: v2.0 or v2.1; v2.1 uses RealESRGAN at 4K / 8K"]:::process
+    PAINT --> VERIFY
     VERIFY -->|Verified| EXPORT["Export separate textured GLB<br/>Keep source.glb untouched"]:::output
     VERIFY -->|Failed / mismatch| RAWFAIL["Preserve raw master<br/>Record texture-stage failure"]:::output
 ```

@@ -337,17 +337,20 @@ Content-Type: multipart/form-data
 **Response (200):**
 ```json
 {
-  "file_id": "mesh_abc123",
+  "file_id": "550e8400-e29b-41d4-a716-446655440000",
   "filename": "model.obj",
   "file_type": "mesh",
   "file_size_mb": 15.3,
   "upload_time": "2026-09-21T00:00:00Z",
   "expires_at": null,
-  "url": "/api/v1/file-upload/download/mesh_abc123"
+  "url": "/api/v1/file-upload/download/550e8400-e29b-41d4-a716-446655440000",
+  "thumbnail_url": "/api/v1/file-upload/thumbnail/550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
 Textual `.gltf` uploads must be self-contained single files: buffers use embedded data URIs, and images use embedded data URIs or valid buffer views. Relative/remote dependencies and missing sidecars are rejected; upload a self-contained GLB or embed the resources before uploading.
+
+Mesh upload returns `400` for an unsupported extension, invalid mesh, or size limit; `503` if metadata registration fails; and `500` for an unexpected storage failure. A failed upload is cleaned up rather than left as an unregistered mesh.
 
 ### Download File
 
@@ -355,7 +358,9 @@ Textual `.gltf` uploads must be self-contained single files: buffers use embedde
 GET /api/v1/file-upload/download/{file_id}
 ```
 
-**Response (200):** Direct binary stream of the uploaded file or registered output mesh asset.
+**Response (200):** Direct binary stream of an uploaded file or a registered output mesh (`file_id` in the `job-<job_id>` form) when its canonical job workspace manifest matches. This route serves the registered source file; select baked or other canonical job artifacts with `GET /api/v1/system/jobs/{job_id}/download?artifact_format=...`.
+
+**Response (404):** The ID is unknown, the file is unavailable, or the path is not a valid uploaded or registered job mesh inside backend storage.
 
 ### Get Thumbnail
 
@@ -638,7 +643,7 @@ Content-Type: application/json
 }
 ```
 
-`texture_resolution` selects the final atlas size (1024/2048/4096/8192); all resolutions route to Hunyuan3D-Paint v2.1. Adapter-owned inference keys such as `resolution` or `max_num_view` are stripped by the scheduler before the adapter runs.
+`model_preference` selects the paint adapter. Both `hunyuan3d_v20_paint_image_mesh_painting` and `hunyuan3d_paint_v21_image_mesh_painting` are supported; the legacy generic `trellis_image_mesh_painting` default resolves to v2.0. The Studio sends its selected model ID unchanged. `texture_resolution` is the requested atlas size (1024/2048/4096/8192); the selected adapter controls how that request is applied, and adapter-owned inference keys such as `resolution` or `max_num_view` are not forwarded as user inference overrides.
 
 ### Textured Generation Flow
 
@@ -699,6 +704,7 @@ GET /api/v1/system/models
     "image_mesh_painting": [
       "trellis_image_mesh_painting",
       "trellis2_image_mesh_painting",
+      "hunyuan3d_v20_paint_image_mesh_painting",
       "hunyuan3d_paint_v21_image_mesh_painting"
     ],
     "mesh_segmentation": [],

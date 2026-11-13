@@ -311,6 +311,22 @@ class RedisJobQueue:
                 # Put at the back of the queue using the current timestamp.
                 score = _priority_score(priority, datetime.utcnow())
             await self.redis.zadd(self.pending_queue_key, {job_id: score})
+            await self.redis.hset(self.progress_hash_key, job_id, "0.0")
+            await self.redis.hset(self.stage_hash_key, job_id, "recovering")
+            await self.redis.hset(
+                self.message_hash_key, job_id, job_data["message"]
+            )
+
+            job_request = await self._load_job_request_for_persistence(job_id)
+            if job_request is not None:
+                job_request.status = JobStatus.QUEUED
+                job_request.started_at = None
+                job_request.progress = 0.0
+                job_request.metadata.update(
+                    {"stage": "recovering", "message": job_data["message"]}
+                )
+                if not await asyncio.to_thread(self.db_manager.save_job, job_request):
+                    logger.error("Failed to persist requeued job %s", job_id)
 
     async def complete_job(self, job_id: str, result: Any):
         """Mark job as completed"""
@@ -331,6 +347,11 @@ class RedisJobQueue:
             job_data["message"] = "Production asset is ready."
             _append_log(job_data, "completed", 1.0, "Production asset is ready.")
             await self.redis.hset(self.jobs_hash_key, job_id, json.dumps(job_data))
+            await self.redis.hset(self.progress_hash_key, job_id, "1.0")
+            await self.redis.hset(self.stage_hash_key, job_id, "completed")
+            await self.redis.hset(
+                self.message_hash_key, job_id, "Production asset is ready."
+            )
         logger.info(f"[JOB COMPLETE] job_id={job_id} progress=100% status=completed")
         job_request = await self._load_job_request_for_persistence(job_id)
         if job_request is not None:
@@ -440,6 +461,11 @@ class RedisJobQueue:
                     job_data["error_code"] = classify_job_error(error)
                     job_data.pop("failed_at", None)
                     await self.redis.hset(self.jobs_hash_key, job_id, json.dumps(job_data))
+                    await self.redis.hset(self.progress_hash_key, job_id, "0.0")
+                    await self.redis.hset(self.stage_hash_key, job_id, "retrying")
+                    await self.redis.hset(
+                        self.message_hash_key, job_id, job_data["message"]
+                    )
                 score = _priority_score(priority, datetime.utcnow())
                 await self.redis.zadd(self.pending_queue_key, {job_id: score})
                 logger.info(
@@ -705,6 +731,11 @@ class RedisJobQueue:
             job_data["stage"] = "loading_model"
             job_data["message"] = f"Loading model {model_id} on GPU..."
             await self.redis.hset(self.jobs_hash_key, job_id, json.dumps(job_data))
+            await self.redis.hset(self.progress_hash_key, job_id, "0.25")
+            await self.redis.hset(self.stage_hash_key, job_id, "loading_model")
+            await self.redis.hset(
+                self.message_hash_key, job_id, job_data["message"]
+            )
 
     async def request_cancel(self, job_id: str) -> bool:
         """Request cancellation through the external scheduler service."""

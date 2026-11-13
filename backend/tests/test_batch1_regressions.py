@@ -17,6 +17,7 @@ from backend.postprocess.services.hole_repair import (
     repair_holes_targeted,
     triangulate_boundary_loop,
 )
+from core.scheduler.model_factory import ModelFactory
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -109,6 +110,27 @@ def test_mesh_limit_enforcement_unpacks_decimator_result_and_reads_shared_policy
     assert captured["target_faces"] == 2
     assert captured["crease_angle_deg"] == 42.0
     assert captured["max_ram_fraction"] == 0.80
+
+
+def test_model_factory_keeps_native_textured_model_on_textured_feature():
+    textured = ModelFactory.create_model_from_config(
+        {
+            "model_id": "stable_fast_3d_image_to_textured_mesh",
+            "feature_type": "image_to_textured_mesh",
+            "vram_requirement": 6144,
+        }
+    )
+    assert textured.feature_type == "image_to_textured_mesh"
+    assert textured.model_id == "stable_fast_3d_image_to_textured_mesh"
+
+    legacy = ModelFactory.create_model_from_config(
+        {
+            "model_id": "trellis_image_to_textured_mesh",
+            "feature_type": "image_to_textured_mesh",
+            "vram_requirement": 1024,
+        }
+    )
+    assert legacy.feature_type == "image_to_raw_mesh"
 
 
 def test_bake_config_keeps_scale_aware_cage_and_ray_autosizing_enabled():

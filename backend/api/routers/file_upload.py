@@ -511,13 +511,23 @@ def _find_job_workspace(job_id: str, raw_id: str, metadata: Optional[Dict]) -> O
             manifest_file = resolved_root / "metadata" / "job.json"
             if manifest_file.is_file():
                 manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
-                if manifest.get("job_id") in {job_id, raw_id}:
+                if isinstance(manifest, dict) and (
+                    manifest.get("job_id") == job_id
+                    or manifest.get("job_id") == raw_id
+                ):
                     matching_roots.append(resolved_root)
                     continue
             asset_manifest = resolved_root / "metadata" / "asset.json"
             if asset_manifest.is_file():
                 manifest = json.loads(asset_manifest.read_text(encoding="utf-8"))
-                if manifest.get("asset_id") in {job_id, raw_id} or manifest.get("file_id") in {job_id, raw_id}:
+                if isinstance(manifest, dict) and (
+                    manifest.get("asset_id") == job_id
+                    or manifest.get("asset_id") == raw_id
+                    or manifest.get("file_id") == job_id
+                    or manifest.get("file_id") == raw_id
+                    or manifest.get("job_id") == job_id
+                    or manifest.get("job_id") == raw_id
+                ):
                     matching_roots.append(resolved_root)
                     continue
         except (OSError, ValueError, json.JSONDecodeError):
@@ -1096,9 +1106,23 @@ async def download_file(
         raise HTTPException(status_code=404, detail="File not found")
 
     file_path = _storage_path(metadata.get("file_path", ""))
-    if not file_path or not _is_uploaded_source(
+    is_uploaded_source = file_path is not None and _is_uploaded_source(
         file_id, metadata.get("file_type", ""), file_path
+    )
+    is_registered_job_mesh = False
+    if (
+        file_path
+        and metadata.get("file_type") == "mesh"
+        and file_id.startswith("job-")
+        and file_path.suffix.lower() in SUPPORTED_MESH_FORMATS
     ):
+        job_id = file_id.removeprefix("job-")
+        if re.fullmatch(r"[A-Za-z0-9_-]{1,128}", job_id):
+            workspace = _find_job_workspace(job_id, file_id, metadata)
+            if workspace:
+                is_registered_job_mesh = file_path.is_relative_to(workspace)
+
+    if not file_path or not (is_uploaded_source or is_registered_job_mesh):
         raise HTTPException(status_code=404, detail="File not found on disk")
 
     return FileResponse(

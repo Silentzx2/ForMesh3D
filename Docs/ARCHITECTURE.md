@@ -405,7 +405,7 @@ Located at `backend/storage/`:
 - **Asset workspace**: `master/` (`source.glb` immutable master), `game_ready/` (engine-optimized final output), `lods/` (LOD0..3), `collision/` (CoACD convex decomposition derived from final `game_ready.glb`), `textures/`, `previews/`, and `metadata/` (`quality_report.json`, `asset.json`, `physics.json`). Directory creation is deferred until writing begins.
 - **ZIP delivery**: Generated on demand from the canonical workspace; no persistent `exports/` tree is required.
 
-Upload manifests restore file-ID resolution, listing, and counts after restart. Mesh uploads are limited to 200 MiB, 210,000 vertices, and 210,000 faces; geometry parsing runs in at most two AnyIO worker threads. `.gltf` uploads must contain buffers and images as data URIs; external dependencies are not fetched. Upload deletion owns only its source, manifest, and matching thumbnail, not generated job workspaces.
+Upload manifests restore file-ID resolution, listing, and counts after restart. Mesh uploads are limited to 200 MiB and geometry parsing is bounded by the configured vertex/face limits using at most two AnyIO worker threads. `.gltf` uploads must contain buffers and images as data URIs; external dependencies are not fetched. Upload deletion owns only its source, manifest, and matching thumbnail, not generated job workspaces. `GET /api/v1/file-upload/download/{file_id}` serves UUID uploads and registered `job-<job_id>` mesh sources only when the canonical workspace manifest identifies that job; baked and other derived artifacts use the system job download route.
 
 Image-to-3D preprocessing tests for real transparency rather than alpha-channel presence, preserves the foreground alpha through RealESRGAN or Pillow resizing, and records mask occupancy, crop bounds, border coverage, connected components, and resize survival. Only a validated foreground receives an approved artifact. Failed removal is blocked; suspicious or unvalidated previews require an explicit review override at the generation API, and the override is retained in job provenance. The original image remains unchanged.
 
@@ -603,7 +603,7 @@ The only retained project runtime log is the repository-root `logs/master.log`. 
 ### Mesh Generation & Processing
 - `POST /api/v1/mesh-generation/image-to-raw-mesh`: Primary image-to-3D route. It secures raw `master/source.glb` before optional post-processing texturing.
 - `POST /api/v1/mesh-generation/image-to-textured-mesh`: Backward-compatible endpoint; legacy textured geometry IDs map to their raw aliases, with optional centralized texturing controlled by the request.
-- Central texture routing: All resolutions → Hunyuan3D-Paint v2.1. Texture output is stored separately from the raw master; its exported atlas is validated against the requested square dimension.
+- Direct texture requests use the explicitly selected paint adapter; the generic legacy paint ID resolves to Hunyuan3D-Paint v2.0, while the Studio preserves an explicit v2.0 or v2.1 selection. Texture output is stored separately from the raw master.
 - `POST /api/v1/mesh-generation/image-mesh-painting`: Paint an existing mesh directly (Texture Studio/manual workflow).
 - `GET /api/v1/system/jobs/{job_id}`: Real-time generation job status.
 - `GET /api/v1/system/jobs/{job_id}/download?artifact_format=<format>`: Deliver canonical master, game-ready, LOD, collision, texture, preview, QA, or ZIP artifacts.
@@ -633,6 +633,7 @@ The active catalog is sourced from `backend/config/models.yaml`. Text-conditione
 | Model Family | Registered IDs | Category / Tasks | VRAM Budget |
 |---|---|---|---:|
 | Hunyuan3D-Shape-v2.1 | `hunyuan3d_shape_v21_image_to_raw_mesh` | Image → Raw Mesh | ~10 GB |
+| Hunyuan3D-Paint-v2.0 | `hunyuan3d_v20_paint_image_mesh_painting` | Image/mesh → PBR Paint | ~11 GB |
 | Hunyuan3D-Paint-v2.1 | `hunyuan3d_paint_v21_image_mesh_painting` | Image/mesh → PBR Paint | ~21 GB |
 | Hunyuan3D-DiT-v2-mini-Turbo | `hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh` | Image → Raw Mesh | ~6 GB |
 | TRELLIS | `trellis_image_to_3d`; `trellis_image_to_raw_mesh`; legacy `trellis_image_to_textured_mesh` alias; legacy standalone paint IDs remain API-compatible | Raw Geometry; legacy textured ID resolves to raw output | ~11.5 GB |
@@ -832,7 +833,7 @@ Segmentation results carry `segmentation_info` through normalized asset metadata
 
 ## Review Audit Hardening — Current Runtime Contracts
 
-The scheduler control plane keeps blocking SQLite work off the FastAPI event loop, treats job-status reads as side-effect-free, recovers processing jobs after restart, and terminates owning worker processes for timeout/cancellation before publishing terminal state.
+The scheduler control plane keeps blocking SQLite work off the FastAPI event loop, treats job-status reads as side-effect-free, recovers processing jobs after restart, and terminates owning worker processes for timeout/cancellation before publishing terminal state. Redis requeues reset the live progress/stage/message keys and persist the queued transition to SQLite; the SQLite queue moves a cancelled job between caches only after its terminal state is durable. Worker-creation exceptions are retained as job load errors rather than replaced with a generic startup message.
 
 Redis control state uses noeviction. Result payloads use dedicated per-job keys with native Redis TTLs. Resource-blocked jobs rotate to the back of the queue so a non-runnable large model does not globally block compatible work.
 

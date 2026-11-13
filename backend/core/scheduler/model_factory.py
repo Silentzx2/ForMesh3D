@@ -235,8 +235,12 @@ class ModelFactory:
             # Validate config structure early.
             cls.validate_config(config)
 
-            # Route legacy image_to_textured_mesh feature to raw geometry
-            if feature_type == "image_to_textured_mesh":
+            # Only legacy alias models are forced to raw geometry. Native textured models
+            # like stable_fast_3d_image_to_textured_mesh must retain their real feature.
+            if (
+                feature_type == "image_to_textured_mesh"
+                and model_id in cls.LEGACY_IMAGE_TO_RAW_ALIASES
+            ):
                 logger.info(
                     f"Legacy feature_type '{feature_type}' for model '{model_id}' "
                     "resolved to raw geometry ('image_to_raw_mesh')"

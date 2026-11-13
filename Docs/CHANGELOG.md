@@ -9,7 +9,11 @@
 - **Route URL Hash (`features/workspace/store/WorkspaceContext.tsx`):** All route URL settings (`startTask`, `bindBackendJob`, `generate3DModel`, `selectAsset`) now append a `crypto.randomUUID()` 6-char hash after the cropped name (`.slice(0, 24)`), preventing long-image-name collisions.
 - **SF3D Adapter Path (`backend/adapters/stable_fast_3d_adapter.py`):** Fixed vendored `sf3d` import path from `thirdparty/stable-fast-3d` to `thirdparty/StableFast3D`, resolving `ModuleNotFoundError: No module named 'sf3d'`.
 - **Thumbnail for Images (`backend/api/routers/file_upload.py`):** Thumbnail endpoint now serves uploaded images (returns image file directly); `thumbnail_url` set for both `mesh` and `image` file types in list response — fixes 404 on image thumbnails.
+- **Registered Mesh Downloads (`backend/api/routers/file_upload.py`):** `/file-upload/download/{file_id}` now resolves registered `job-<job_id>` mesh sources only when their canonical asset/job manifest matches the job, including manifests that identify the job through `job_id`.
 - **SF3D Model Deps (`backend/requirements-models.txt`):** Added `[SF3D]` section: `gpytoolbox==0.2.0`, `open_clip_torch==2.24.0`, `pynanoinstantmeshes==0.0.3` from `thirdparty/StableFast3D/requirements.txt`.
+- **Backend Job Transitions:** Redis requeues now reset hot progress/stage/message fields and persist the queued status to SQLite; SQLite cancellation leaves the queued/processing cache untouched if persisting the terminal status fails. Worker-creation exceptions are preserved for job failure reporting.
+- **Mesh Asset Loading (`MeshViewer.tsx`, `useMeshAssetUpload.ts`):** Mesh selection resolves artifact URLs or file IDs to download endpoints, exposes loading/error status, and clears stale viewport geometry; direct uploads preview immediately and late persistence responses do not replace a different selected asset.
+- **Texture Model Selection (`buildTextureGenerationParameters.ts`):** The image-mesh-painting request now carries the user's selected model ID instead of forcing Hunyuan3D-Paint v2.1.
 
 ## 2026-11-13 — Full 59 State Machines Audit, UI Restructuring & TypeScript Clean Run
 
