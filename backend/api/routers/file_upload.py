@@ -995,7 +995,7 @@ async def list_files(
         if isinstance(expires_at, str):
             expires_at = datetime.fromisoformat(expires_at)
         
-        thumb_url = f"/api/v1/file-upload/thumbnail/{metadata['file_id']}" if metadata.get("file_type") == "mesh" else None
+        thumb_url = f"/api/v1/file-upload/thumbnail/{metadata['file_id']}" if metadata.get("file_type") in ("mesh", "image") else None
 
         result.append(FileMetadataResponse(
             file_id=metadata["file_id"],
@@ -1036,12 +1036,22 @@ async def get_thumbnail(
         raise HTTPException(status_code=404, detail="File not found")
 
     file_path = _storage_path(metadata.get("file_path", ""))
-    if metadata.get("file_type") != "mesh" or not file_path or not _is_uploaded_source(
+    if metadata.get("file_type") not in ("mesh", "image") or not file_path or not _is_uploaded_source(
         file_id, metadata.get("file_type", ""), file_path
     ):
         raise HTTPException(status_code=404, detail="File not found on disk")
 
-    # Look for existing thumbnail
+    # For images, serve the image file itself as its thumbnail
+    if metadata.get("file_type") == "image":
+        if file_path.exists() and file_path.stat().st_size > 0:
+            return FileResponse(
+                path=str(file_path),
+                media_type="image/*",
+                filename=f"{file_id}_thumb",
+            )
+        raise HTTPException(status_code=404, detail="Image not available")
+
+    # Look for existing thumbnail (meshes)
     thumbnail_path = _THUMBNAIL_DIR / f"{file_id}.png"
     if thumbnail_path.exists() and thumbnail_path.stat().st_size > 0:
         return FileResponse(

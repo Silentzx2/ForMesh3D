@@ -264,6 +264,7 @@ export const GeneratePanel: React.FC = () => {
     generate3DModel,
     generationSettings,
     setGenerationSettings,
+    addAsset,
   } = useWorkspace();
 
   const [isGeneralSettingsOpen, setIsGeneralSettingsOpen] = useState(false);
@@ -571,6 +572,31 @@ export const GeneratePanel: React.FC = () => {
       }));
       setImageUploadProgress({ ...imageUploadProgress, percent: 100, uploading: false });
       toast.success(`Image uploaded: ${file.name}`);
+
+      // Register uploaded image as an asset so it appears in the right-side assets panel
+      addAsset({
+        id: `upload_${res.file_id}`,
+        name: file.name,
+        category: 'texture',
+        format: 'IMAGE',
+        thumbnail: `/api/v1/file-upload/download/${res.file_id}`,
+        source: {
+          filename: file.name,
+          subfolder: 'uploads',
+          type: 'upload',
+          fileId: res.file_id,
+          viewUrl: `/api/v1/file-upload/download/${res.file_id}`,
+        },
+        meshType: 'custom',
+        faces: 0,
+        vertices: 0,
+        triangles: 0,
+        statsAvailable: false,
+        topology: 'Triangle',
+        dateCreated: new Date().toISOString().split('T')[0],
+        tags: ['Uploaded Image'],
+        materials: [],
+      });
     } catch (err: any) {
       setImageUploadProgress({ ...imageUploadProgress, uploading: false, error: err?.message || 'Image upload failed' });
       toast.error(`Image upload failed: ${err?.message || 'Unknown error'}`);
@@ -1039,63 +1065,7 @@ export const GeneratePanel: React.FC = () => {
             />
           </button>
 
-          {/* Texture Settings (Main Panel) */}
-          <div className="space-y-2 pt-1 border-t border-white/[0.08] pt-2">
-            <div className="flex items-center justify-between py-0.5">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-zinc-200 font-medium">Texture Generation</span>
-                <span title="Generate PBR textures with the model's texture pipeline" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                  <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
-                </span>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={enableTexture}
-                onClick={() => {
-                  const next = !enableTexture;
-                  setEnableTexture(next);
-                  setGenerationSettings((prev) => ({ ...prev, generateTexture: next, texture_enabled: next, textureEnabled: next }));
-                }}
-                className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer ${enableTexture ? 'bg-[#6366F1]' : 'bg-white/15'}`}
-              >
-                <div className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${enableTexture ? 'translate-x-3.5' : 'translate-x-0'}`} />
-              </button>
-            </div>
-            {textureSupport !== 'none' && (
-              <div className="space-y-1 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
-                <div className="flex items-center justify-between text-[10px]">
-                  <span className="text-zinc-300 font-medium">Atlas Resolution</span>
-                  <span className="text-[9px] font-mono text-[#F9CF00] font-bold">{textureQuality}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTextureQuality('2K');
-                      setGenerationSettings((prev) => ({ ...prev, textureResolution: '2K', texture_resolution: '2K', textureQuality: 'medium' }));
-                    }}
-                    className={`h-6 rounded-lg text-xs font-bold transition-all ${textureQuality === '2K' ? 'bg-[#3b3577] text-white border border-[#6366F1]' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'}`}
-                  >2K</button>
-                  {textureSupport === '4k' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTextureQuality('4K');
-                        setGenerationSettings((prev) => ({ ...prev, textureResolution: '4K', texture_resolution: '4K', textureQuality: 'high' }));
-                      }}
-                      className={`h-6 rounded-lg text-xs font-bold transition-all ${textureQuality === '4K' ? 'bg-[#3b3577] text-white border border-[#6366F1]' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'}`}
-                    >4K</button>
-                  )}
-                </div>
-              </div>
-            )}
-            {textureSupport === 'none' && (
-              <div className="p-1 rounded-xl bg-black/30 border border-white/[0.06]">
-                <span className="text-[9px] text-zinc-500 font-medium">Texture not supported for this model</span>
-              </div>
-            )}
-          </div>
+
 
           {/* Polycount Slider (Main Panel) */}
           <div className="space-y-1 pt-1 border-t border-white/[0.08] pt-1">
@@ -1512,7 +1482,7 @@ export const GeneratePanel: React.FC = () => {
           <button
             type="button"
             onClick={handleGenerate}
-            disabled={!generationSettings.image && !imagePreview}
+            disabled={!generationSettings.image && !imagePreview || isExecuting}
             className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Sparkles className="w-4 h-4 text-black" />

@@ -1373,7 +1373,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     if (typeof window !== 'undefined') {
       const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
       // Consistent URL: <name>_<hash> — no raw UUID in route
-      const cleanName = (job.title || 'job').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
+      const cleanName = (job.title || 'job').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 24);
       const shortHash = jobId.slice(0, 6);
       window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
     }
@@ -1642,8 +1642,8 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       // and after generation completes the mesh loads on that same URL.
       if (!inputImageName) {
         const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-        const cleanName = title.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40) || 'job';
-        const shortHash = title.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6) || 'job';
+        const cleanName = title.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 24) || 'job';
+        const shortHash = crypto.randomUUID().slice(0, 6);
         window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
       }
     }
@@ -1876,7 +1876,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       if (typeof window !== 'undefined') {
         const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
         const cleanName = generationSettings.imageName
-          ? generationSettings.imageName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40)
+          ? generationSettings.imageName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 24)
           : 'asset';
         const shortHash = jobId.slice(0, 6);
         window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);

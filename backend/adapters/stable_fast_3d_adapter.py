@@ -83,7 +83,7 @@ class StableFast3DAdapter(BaseModel):
         stabilityai/stable-fast-3d before weights can be downloaded.
         """
         # Make the vendored sf3d source importable in the worker process
-        _sf3d_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "stable-fast-3d")
+        _sf3d_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "StableFast3D")
         if _sf3d_root not in sys.path:
             sys.path.insert(0, _sf3d_root)
 
