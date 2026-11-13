@@ -348,9 +348,15 @@ function normalizeBackendJob(raw: BackendJobPayload) {
 }
 
 // Deterministic short id for a route so the URL stably addresses the same
-// asset/job instead of minting a fresh random hash on every click.
+// asset/job instead of minting a fresh random hash on every click. Known
+// id prefixes (local_/upload_/hist_/job-) are stripped so they never leak
+// into the visible route hash.
 export function routeShortId(source: string | undefined): string {
-  const raw = (source || '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'asset';
+  const raw = (source || '')
+    .replace(/^(?:local_|upload_|hist_|job-)+/, '')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase() || 'asset';
   return raw.slice(0, 24) || 'asset';
 }
 
