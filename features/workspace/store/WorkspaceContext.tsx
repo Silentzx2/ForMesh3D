@@ -1435,7 +1435,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         .filter(Boolean)
         .slice(0, 2)
         .join('_') || 'asset';
-      const shortHash = id.replace(/^(?:local_|upload_|hist_|job-)+/, '').slice(0, 6);
+      const shortHash = crypto.randomUUID().slice(0, 6);
       window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
     }
 
@@ -1908,7 +1908,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
               .slice(0, 2)
               .join('_') || 'asset'
           : 'asset';
-        const shortHash = jobId.slice(0, 6);
+        const shortHash = crypto.randomUUID().slice(0, 6);
         window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
       }
       setExecutionStep('Generation queued on backend');
