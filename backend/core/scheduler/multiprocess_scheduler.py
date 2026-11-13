@@ -3202,10 +3202,16 @@ class MultiprocessModelScheduler:
                 await asyncio.sleep(0.2)
 
             if not init_success and worker_process.is_alive():
-                error_reason = (
-                    f"Worker {worker_id} timed out loading model '{model_id}' after {max_load_timeout:.0f}s. "
-                    "Model download or weights loading took longer than expected."
-                )
+                # Use the captured worker error if available (e.g. ImportError from
+                # missing uv_unwrapper C extension) instead of a generic timeout.
+                original_error = self.last_worker_error.get(model_id, "")
+                if original_error:
+                    error_reason = f"Model '{model_id}' failed to load: {original_error}"
+                else:
+                    error_reason = (
+                        f"Worker {worker_id} timed out loading model '{model_id}' after {max_load_timeout:.0f}s. "
+                        "Model download or weights loading took longer than expected."
+                    )
 
             if not init_success:
                 logger.error(

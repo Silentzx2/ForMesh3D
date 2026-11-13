@@ -1605,8 +1605,10 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     // reuse its ID instead of creating a new job_id/route. This keeps the
     // URL stable (/workspace/generate/rabbit_hash) across tool switches
     // and subsequent actions (texture, remesh, segmentation, etc.).
+    // Don't reuse terminal states (failed/interrupted) — a new generation
+    // needs a fresh task with isExecuting=true.
     const existing = activeTaskRef.current;
-    if (existing) {
+    if (existing && existing.status !== 'failed' && existing.status !== 'interrupted') {
       return existing.id;
     }
 

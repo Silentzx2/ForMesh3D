@@ -388,8 +388,9 @@ class RedisJobQueue:
 
         job_request = await self._load_job_request_for_persistence(job_id)
         if job_request is not None and job_request.retry_count < job_request.max_retries:
-            # Permanent failures (import errors, missing modules, input not found)
-            # should NOT be retried — they will never succeed on retry.
+            # Permanent failures (import errors, missing modules, input not found,
+            # model load failures) should NOT be retried — they will never succeed
+            # on retry.
             message = (error or "").lower()
             permanent_indicators = [
                 'modulenotfounderror',
@@ -399,6 +400,9 @@ class RedisJobQueue:
                 'uv_unwrapper not found',
                 'gpytoolbox',
                 'input_not_found',
+                'failed to load',
+                'stable fast 3d dependencies',
+                'dependencies not available',
             ]
             is_permanent = any(p in message for p in permanent_indicators)
             if not is_permanent:
