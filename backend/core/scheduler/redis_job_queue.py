@@ -403,6 +403,7 @@ class RedisJobQueue:
                 'failed to load',
                 'stable fast 3d dependencies',
                 'dependencies not available',
+                'timed out loading model',
             ]
             is_permanent = any(p in message for p in permanent_indicators)
             if not is_permanent:
