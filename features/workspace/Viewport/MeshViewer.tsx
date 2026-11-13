@@ -17,6 +17,7 @@ import { useViewerStore } from '@/stores/useViewerStore';
 import { useAnimationStore } from '@/stores/useAnimationStore';
 import { getApiClient } from '@/services/apiClient';
 import { collectMeshStats } from './meshStats';
+import { loadGLBWithProgress } from '../lib/glbCache';
 
 import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
@@ -1005,7 +1006,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       : (detectedExt && knownFormats.includes(detectedExt))
         ? detectedExt
         : 'glb';
-
     const handleObjectLoaded = (object: THREE.Object3D, animations?: THREE.AnimationClip[]) => {
       if (isCancelled || !modelGroupRef.current) {
         disposeObject3D(object);
@@ -1066,12 +1066,20 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
     // Load by format
     if (format === 'glb' || format === 'gltf') {
-      sharedGLTFLoader.load(
-        modelUrl,
-        (gltf) => handleObjectLoaded(gltf.scene, gltf.animations),
-        undefined,
-        (err: unknown) => handleLoadFailure(`Failed to load 3D model: ${(err as any)?.message || 'Network error'}`)
-      );
+      void loadGLBWithProgress(modelUrl).then((buffer) => {
+        if (isCancelled) return;
+        const basePath = modelUrl.startsWith('blob:') || modelUrl.startsWith('data:')
+          ? ''
+          : new URL('.', new URL(modelUrl, window.location.href)).href;
+        sharedGLTFLoader.parse(
+          buffer,
+          basePath,
+          (gltf) => handleObjectLoaded(gltf.scene, gltf.animations),
+          (err) => handleLoadFailure(`Failed to load 3D model: ${err instanceof Error ? err.message : 'Invalid model file'}`)
+        );
+      }).catch((err: unknown) => {
+        handleLoadFailure(`Failed to load 3D model: ${err instanceof Error ? err.message : 'Network error'}`);
+      });
     } else if (format === 'obj') {
       sharedOBJLoader.load(
         modelUrl,

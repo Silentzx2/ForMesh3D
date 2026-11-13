@@ -87,6 +87,37 @@ class StableFast3DAdapter(BaseModel):
         if _sf3d_root not in sys.path:
             sys.path.insert(0, _sf3d_root)
 
+        # StableFast3D vendors texture_baker as a nested package. Adding only
+        # its repository root exposes an empty namespace package that masks it.
+        import importlib
+
+        try:
+            _texture_baker = importlib.import_module("texture_baker")
+        except ImportError:
+            _texture_baker = None
+        if not callable(getattr(_texture_baker, "TextureBaker", None)):
+            sys.modules.pop("texture_baker", None)
+            _texture_baker_root = str(Path(_sf3d_root) / "texture_baker")
+            if _texture_baker_root not in sys.path:
+                sys.path.insert(0, _texture_baker_root)
+            try:
+                _texture_baker = importlib.import_module("texture_baker")
+            except ImportError as e:
+                raise RuntimeError(
+                    "Stable Fast 3D texture_baker could not be imported from its "
+                    "installed or vendored package path; its compiled _C extension "
+                    "must be available in this worker."
+                ) from e
+            if not callable(getattr(_texture_baker, "TextureBaker", None)):
+                raise RuntimeError(
+                    "Stable Fast 3D texture_baker module is incomplete: "
+                    "TextureBaker is not exported."
+                )
+        logger.info(
+            "Stable Fast 3D texture baker loaded from %s",
+            getattr(_texture_baker, "__file__", "namespace package"),
+        )
+
         # Pre-inject uv_unwrapper before sf3d imports it.
         # We must replace a stale or partially-installed module, not only skip the import
         # when the module is already present but missing the expected Unwrapper export.
@@ -142,6 +173,11 @@ class StableFast3DAdapter(BaseModel):
         try:
             from sf3d.system import SF3D
         except ImportError as e:
+            if "texture_baker" in str(e):
+                raise RuntimeError(
+                    "Stable Fast 3D could not initialize texture_baker; "
+                    "verify its compiled _C extension is available in this worker."
+                ) from e
             raise RuntimeError(
                 f"Stable Fast 3D dependencies not available: {e}. "
                 "Check that sf3d thirdparty source is present and all Python deps are installed."
@@ -167,6 +203,14 @@ class StableFast3DAdapter(BaseModel):
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
         pipeline.to(device)
         pipeline.eval()
+        pipeline_cfg = getattr(pipeline, "cfg", None)
+        logger.info(
+            "Stable Fast 3D loaded on %s: conditioning_size=%s, isosurface_resolution=%s, isosurface_threshold=%s",
+            device,
+            getattr(pipeline_cfg, "cond_image_size", "unknown"),
+            getattr(pipeline_cfg, "isosurface_resolution", "unknown"),
+            getattr(pipeline_cfg, "isosurface_threshold", "unknown"),
+        )
 
         self._pipeline = pipeline
         self.model = pipeline
@@ -192,6 +236,20 @@ class StableFast3DAdapter(BaseModel):
 
         import tempfile
 
+        logger.info(
+            "Stable Fast 3D inference started: seed=%d (metadata only; upstream has no seed/steps/guidance sampler controls), device=%s, texture_resolution=%d, remesh=%s, target_vertex_count=%d",
+            seed,
+            getattr(pipeline, "device", self.device),
+            texture_resolution,
+            remesh_option,
+            target_vertex_count,
+        )
+        if remesh_option == "none" and target_vertex_count > 0:
+            logger.warning(
+                "Stable Fast 3D ignores target_vertex_count=%d when remesh_option='none'",
+                target_vertex_count,
+            )
+
         output_dir = Path(tempfile.mkdtemp())
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
@@ -206,6 +264,11 @@ class StableFast3DAdapter(BaseModel):
         # SF3D exports mesh with embedded textures. Save as GLB.
         out = Path(tempfile.mkdtemp()) / f"stable_fast_3d_{seed}.glb"
         mesh.export(str(out), include_normals=True)
+        logger.info(
+            "Stable Fast 3D inference complete: vertices=%d, faces=%d, output_format=glb",
+            len(mesh.vertices),
+            len(mesh.faces),
+        )
 
         return {
             "success": True,
