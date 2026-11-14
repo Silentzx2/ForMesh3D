@@ -26,7 +26,6 @@ import {
 import { StudioToolTemplate } from './Panels/StudioToolTemplate';
 import { settingsPersistence } from '@/services/settingsPersistence';
 import { useUIStore } from '@/stores/useUIStore';
-import { useRiggingStore } from '@/stores/useRiggingStore';
 import { useAnimationStore } from '@/stores/useAnimationStore';
 import { toast } from 'sonner';
 // Dynamic imports for heavy 3D components and panels

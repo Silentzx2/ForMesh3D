@@ -543,49 +543,6 @@ export interface ApiConfig {
   retries?: number;
 }
 
-// Authentication Types
-export interface AuthStatus {
-  user_auth_enabled: boolean;
-  api_key_required: boolean;
-  mode: 'simple' | 'authenticated' | 'api_key';
-  description: string;
-  features: {
-    job_isolation: boolean;
-    user_management: boolean;
-    role_based_access: boolean;
-  };
-  timestamp: string;
-}
-
-export interface RegisterRequest {
-  username: string;
-  email: string;
-  password: string;
-}
-
-export interface LoginRequest {
-  username: string;
-  password: string;
-}
-
-export interface AuthResponse {
-  token: string;
-  user: {
-    user_id: string;
-    username: string;
-    email: string;
-    role: string;
-  };
-  message: string;
-}
-
-export interface UserInfo {
-  user_id: string;
-  username: string;
-  email: string;
-  role: string;
-}
-
 // Model Parameters Types
 export interface ParameterSchema {
   type: 'integer' | 'number' | 'boolean' | 'string';

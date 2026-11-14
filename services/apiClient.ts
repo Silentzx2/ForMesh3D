@@ -43,9 +43,6 @@ import {
   FileMetadata,
   SupportedFormats,
   ApiError,
-  RegisterRequest,
-  LoginRequest,
-  AuthResponse,
   ModelParametersResponse,
   TextMeshEditingRequest,
   ImageMeshEditingRequest,
@@ -207,36 +204,6 @@ class ApiClient {
         delete this.client.defaults.headers.common['Authorization'];
       }
     }
-  }
-
-  // Set authentication token for all requests
-  setAuthToken(token: string | null) {
-    if (token) {
-      this.client.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      this.config.apiKey = token;
-      console.log('[API Client] Auth token set');
-    } else {
-      delete this.client.defaults.headers.common['Authorization'];
-      this.config.apiKey = undefined;
-      console.log('[API Client] Auth token cleared');
-    }
-  }
-
-
-  async register(request: RegisterRequest): Promise<AuthResponse> {
-    const response = await this.client.post<AuthResponse>(
-      '/api/v1/users/register',
-      request
-    );
-    return response.data;
-  }
-
-  async login(request: LoginRequest): Promise<AuthResponse> {
-    const response = await this.client.post<AuthResponse>(
-      '/api/v1/users/login',
-      request
-    );
-    return response.data;
   }
 
   // System Management Endpoints
@@ -519,19 +486,6 @@ class ApiClient {
     const response = await this.retry(() => 
       this.client.get<FileMetadata>(`/api/v1/file-upload/metadata/${fileId}`)
     );
-    return response.data;
-  }
-
-  async previewImageEnhancement(request: {
-    image_path?: string;
-    image_base64?: string;
-    image_file_id?: string;
-    remove_background?: boolean;
-    auto_crop?: boolean;
-    upscale?: boolean;
-    sharpen?: boolean;
-  }): Promise<any> {
-    const response = await this.client.post('/api/v1/image-enhancement/preview', request);
     return response.data;
   }
 
