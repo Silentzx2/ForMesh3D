@@ -66,7 +66,8 @@ def test_process_request_passes_preprocessed_rgba_pil_image_to_upstream(tmp_path
     sf3d_utils.resize_foreground = resize_foreground
     monkeypatch.setitem(sys.modules, "sf3d", sf3d_package)
     monkeypatch.setitem(sys.modules, "sf3d.utils", sf3d_utils)
-    monkeypatch.setattr(adapter_module, "torch", None)
+    adapter._remove_background = remove_background
+    adapter._resize_foreground = resize_foreground
 
     result = adapter._process_request(
         {
