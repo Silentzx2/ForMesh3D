@@ -1195,6 +1195,8 @@ class DatabaseManager:
             # A repeated Keep is a read of the already-persisted asset, never a new version.
             with self.get_session() as session:
                 op_row = session.query(OperationModel).filter_by(operation_id=operation_id).first()
+                if not op_row:
+                    raise ValueError(f"Operation {operation_id} not found")
                 existing_asset = (
                     session.query(AssetModel)
                     .filter_by(operation_id=operation_id, is_retained=1)
@@ -1215,6 +1217,11 @@ class DatabaseManager:
                         f"Cannot keep operation in persistence state {op_row.persistence_status}"
                     )
                 if existing_asset:
+                    existing_mesh_path = (ws_dir / existing_asset.relative_path).resolve()
+                    if not existing_mesh_path.is_relative_to(ws_dir) or not existing_mesh_path.is_file():
+                        raise FileNotFoundError(
+                            f"Existing retained asset is missing or outside workspace: {existing_asset.relative_path}"
+                        )
                     existing_asset_id = existing_asset.asset_id
                     op_row.persistence_status = PersistenceStatus.SAVED
                     workspace = session.query(WorkspaceModel).filter_by(
