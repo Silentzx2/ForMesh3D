@@ -1072,3 +1072,8 @@ The application state architecture is cataloged in `Docs/TASKS.md` §2–§3:
 - Background polling accepts backend IDs in both UUID and workspace-slug formats; local task keys are not used as backend polling IDs.
 - Saved operation hydration restores `saved` persistence state and uses the retained asset ID when the backend reports one.
 - Regression coverage: `features/workspace/lib/workspaceRouteContract.test.ts`.
+
+
+## Workspace Preview Baseline — Batch 3A
+
+Each task captures a versioned, immutable UI baseline before execution starts. The baseline is attached to the frontend task record and therefore remains associated as backend job, workspace, and operation identities are bound. It contains the selected/active mesh identity, retained workspace versions, execution and persistence states, loaded viewer asset and statistics, shading/wireframe settings, camera target/position, and comparison selection. The snapshot module deep-copies JSON-shaped state and produces a detached restore plan only when the current workspace matches the snapshot workspace. Applying that plan is reserved for the Keep/Discard integration batch; SQLite remains authoritative for operation and retained-asset persistence.

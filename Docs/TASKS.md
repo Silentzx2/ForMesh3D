@@ -107,4 +107,13 @@ This document records the exact inventory of dead, orphaned, and obsolete non-fe
 - [x] Restore saved persistence state and retained asset identity when the backend reports a saved operation.
 - [x] Add route identity regression tests for workspace, legacy job, asset, and operation IDs.
 
-**Deferred to Batch 3:** preview baseline snapshots, exact Discard restoration, real Keep/Discard UI wiring, and Regenerate lineage.
+## Workspace Preview Baseline — Batch 3A
+- [x] Capture the workspace/viewer baseline before a task changes the active preview.
+- [x] Keep the snapshot attached to its frontend task so it survives backend job/workspace/operation identity binding.
+- [x] Capture workspace identity, selected asset, active mesh, retained versions, execution/persistence state, loaded model, viewer selection/statistics, shading, wireframe, camera, and comparison state.
+- [x] Deep-copy snapshot data so later UI mutations cannot modify the baseline.
+- [x] Build a detached restore plan and reject unsupported snapshot versions or cross-workspace restoration.
+- [x] Add regression tests for immutability, exact state capture, restore-plan isolation, schema validation, and workspace mismatch.
+
+**Deferred to Batch 3B:** applying the restore plan to live workspace/viewer state and Keep/Discard UI wiring.
+**Deferred to Batch 3C:** Regenerate operation lineage and end-to-end lifecycle regression tests.

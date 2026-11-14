@@ -1,4 +1,5 @@
 import type { JobDiagnostic } from '@/lib/jobDiagnostics';
+import type { WorkspacePreviewBaselineSnapshot } from './lib/workspacePreviewSnapshot';
 import { getApiClient } from '@/services/apiClient';
 import { validate3DFile } from './lib/fileValidation';
 import { requireUploadFileId } from './lib/uploadResponse';
@@ -38,6 +39,8 @@ export interface ActiveTask {
   workspaceId?: string;
   /** Canonical operation identity returned by the backend. */
   operationId?: string;
+  /** Immutable pre-operation viewer/workspace state used by Discard restoration. */
+  previewBaseline?: WorkspacePreviewBaselineSnapshot;
   isLocal?: boolean;
   type: 'image-to-3d' | 'segment' | 'remesh' | 'texture' | 'animation' | 'rigging' | 'uv' | 'edit' | 'refine';
   title: string;

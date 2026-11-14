@@ -23,6 +23,7 @@ import {
 import type { BatchQueueItem } from '@/types';
 import { apiClient } from '../lib/api';
 import { parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute } from '../lib/workspaceRouteContract';
+import { captureWorkspacePreviewBaseline } from '../lib/workspacePreviewSnapshot';
 import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
 import { useAppStore } from '@/stores/useAppStore';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
@@ -666,6 +667,13 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // Deep-link route segments identify workspaces, never selected mesh assets.
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const selectedAssetIdRef = useRef(selectedAssetId);
+  selectedAssetIdRef.current = selectedAssetId;
+  const activeMeshAssetIdRef = useRef(activeMeshAssetId);
+  activeMeshAssetIdRef.current = activeMeshAssetId;
+  const workspaceVersionsRef = useRef(workspaceVersions);
+  workspaceVersionsRef.current = workspaceVersions;
+  const assetsRef = useRef(assets);
+  assetsRef.current = assets;
   const mainNavRef = useRef(mainNav);
   const activeToolRef = useRef(activeTool);
 
@@ -1809,8 +1817,36 @@ function dataURLtoFile(dataURL: string, filename: string): File {
 
     const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'job';
     const taskId = `${slug}-${crypto.randomUUID().slice(0, 8)}`;
+    const viewerState = useViewerStore.getState();
+    const selectedAsset = assetsRef.current.find(asset => asset.id === selectedAssetIdRef.current) || null;
+    const previewBaseline = captureWorkspacePreviewBaseline({
+      workspaceId: workspaceIdRef.current,
+      selectedAssetId: selectedAssetIdRef.current,
+      selectedAsset,
+      activeMeshAssetId: activeMeshAssetIdRef.current,
+      workspaceVersions: workspaceVersionsRef.current,
+      executionState: viewerState.executionState,
+      persistenceState: viewerState.persistenceState,
+      viewer: {
+        loadedModelUrl: viewerState.loadedModelUrl,
+        loadedModelName: viewerState.loadedModelName,
+        selectedAsset: viewerState.selectedAsset,
+        modelStats: viewerState.modelStats,
+        shadingMode: viewerState.shadingMode,
+        wireframeOverlay: viewerState.wireframeOverlay,
+        activeContextTab: viewerState.activeContextTab,
+        viewport: viewerState.viewport,
+        compareMode: viewerState.compareMode,
+        compareSyncCamera: viewerState.compareSyncCamera,
+        compareLeftAssetId: viewerState.compareLeftAssetId,
+        compareRightAssetId: viewerState.compareRightAssetId,
+        workspaceId: viewerState.workspaceId,
+        activeMeshAssetId: viewerState.activeMeshAssetId,
+      },
+    });
     const task: ActiveTask = {
       id: taskId,
+      previewBaseline,
       isLocal: true,
       workspaceId: workspaceIdRef.current || undefined,
       type,
