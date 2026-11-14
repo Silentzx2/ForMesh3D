@@ -85,3 +85,13 @@ This document records the exact inventory of dead, orphaned, and obsolete non-fe
 - The shared transition is owned by `WorkspaceContext.navigateToTool`, so all LeftNavigation tool pages use the same behavior.
 - Clearing `loadedModelUrl` invokes the existing `MeshViewer` empty-model path; saved assets are not deleted and no generation job is cancelled.
 - Regression coverage: `features/workspace/lib/workspaceRouteContract.test.ts`.
+
+## Workspace Preview Persistence — Batch 1
+
+- [x] Keep accepts only a real, completed operation; synthetic client-side operation IDs no longer return fake success.
+- [x] Save publishes one retained mesh per operation and commits its asset row, active-mesh pointer, and `saved` state together.
+- [x] Repeated Keep returns the existing retained asset instead of creating another version.
+- [x] Save and Discard validate the exact operation temp directory under the storage temp root.
+- [x] Discard removes only the operation preview, preserves operation/workspace history, and uses `cleanup_pending` when filesystem cleanup fails.
+- [x] Mesh thumbnails are version-specific; partial publications are cleaned up on failure.
+- [x] Regression tests cover idempotent Keep/Discard and rejection of external temp paths.
