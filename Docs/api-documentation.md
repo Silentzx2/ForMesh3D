@@ -478,6 +478,43 @@ GET /api/v1/system/workspace/generate/{workspace_id}
 }
 ```
 
+### Workspace Operation Persistence
+
+Completed operation previews are persisted through the authoritative SQLite operation and asset records. Both routes retain their short aliases:
+
+```http
+POST /api/v1/system/workspace/operations/{operation_id}/keep
+POST /api/v1/system/workspace/operations/{operation_id}/discard
+```
+
+- **Keep** accepts only an existing completed operation. It publishes the operation's GLB/OBJ output under its workspace, registers one retained asset, updates `active_mesh_asset_id`, and marks persistence as `saved`. Repeating Keep returns the same asset; it does not create another version.
+- **Discard** removes only `storage/temp/{operation_id}/` and marks the preview `discarded`. The operation row, workspace, and retained assets remain intact. If cleanup fails, the operation remains `cleanup_pending` so the cleanup can be retried.
+- Both actions validate that the recorded temp directory resolves to that operation's own directory under the storage temp root. Paths outside that directory are rejected.
+- A missing operation returns `404`; an invalid lifecycle transition or unsafe path returns `409`; unexpected persistence or filesystem errors return `500`.
+- Mesh versions receive their own thumbnail filename so saving a later version does not overwrite an earlier asset's thumbnail.
+
+Keep response (200):
+```json
+{
+  "success": true,
+  "operation_id": "op_123456789abc",
+  "asset_id": "ast_123456789abc",
+  "relative_mesh_path": "retopology/model_retopology.glb",
+  "relative_thumbnail_path": "retopology/model_retopology_thumbnail.png",
+  "mesh_path": "/storage/model_abc123/retopology/model_retopology.glb",
+  "manifest_updated": true
+}
+```
+
+Discard response (200):
+```json
+{
+  "success": true,
+  "operation_id": "op_123456789abc",
+  "status": "discarded"
+}
+```
+
 ### Image-to-Raw Mesh
 
 Generate a 3D mesh from an uploaded image.
