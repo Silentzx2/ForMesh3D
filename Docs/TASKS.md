@@ -76,3 +76,12 @@ This document records the exact inventory of dead, orphaned, and obsolete non-fe
 - **Services:** `services/apiClient.ts` (active REST endpoints), `services/settingsPersistence.ts` (shortcuts/profiles), `services/taskPersistence.ts` (notification center/snapshots).
 - **Hooks:** `hooks/useMeshAssetUpload.ts` (shared dropzone across all 7 panels), `hooks/useFeatureAvailability.ts` (model readiness), `hooks/useTaskPolling.ts` & `hooks/useTaskManager.ts` (task lifecycle), `hooks/useBackendData.ts` & `hooks/useRealtime.ts` (telemetry).
 - **Lib:** `lib/motion.ts` (Framer motion tokens), `lib/utils.ts` (`cn`), `lib/jobDiagnostics.ts` (error mapping), `lib/requestDedup.ts` (GET deduping), `lib/storeAdapter.ts` (shading mode mapping).
+
+## Workspace Same-Tool Re-entry Reset
+
+- Navigation state is explicit: `base` or `workspace(workspaceId)`.
+- Selecting the already-active tool transitions either state to `base`, clears the selected asset/workspace identity and the viewer's loaded model URL, and returns to that tool's default route.
+- Selecting a different tool preserves the current workspace identity and deep-link route.
+- The shared transition is owned by `WorkspaceContext.navigateToTool`, so all LeftNavigation tool pages use the same behavior.
+- Clearing `loadedModelUrl` invokes the existing `MeshViewer` empty-model path; saved assets are not deleted and no generation job is cancelled.
+- Regression coverage: `features/workspace/lib/workspaceRouteContract.test.ts`.

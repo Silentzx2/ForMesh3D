@@ -22,6 +22,7 @@ import {
 } from '../types';
 import type { BatchQueueItem } from '@/types';
 import { apiClient } from '../lib/api';
+import { transitionWorkspaceToolRoute } from '../lib/workspaceRouteContract';
 import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
 import { useAppStore } from '@/stores/useAppStore';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
@@ -3025,26 +3026,20 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   }, []);
 
   const navigateToTool = useCallback((tool: ToolType) => {
+    const isSameTool = tool === activeToolRef.current;
     setActiveTool(tool);
+    activeToolRef.current = tool;
     setMainNav('workspace');
     mainNavRef.current = 'workspace';
     setIsLeftPanelOpen(true);
     const baseRoute = TOOL_TO_ROUTE[tool] || '/workspace/generate';
-    // Preserve current active model in the URL path across tool switches
-    // Format: /workspace/<tool>/<name>_<hash>  (e.g. /workspace/segmentation/rabbit_dfg983)
-    // Clicking the SAME tool that is already active clears the model hash
-    // so the route becomes the default base route (/workspace/generate) and
-    // the model unloads. Navigating back to a hash URL reloads the model.
-    let activeId: string | null = null;
-    const isSameTool = tool === activeToolRef.current;
 
-    // 1) Try selectedAssetIdRef.current first, strip ALL known prefixes
+    // Resolve the current workspace identity from the selected asset or deep-link.
+    let activeId: string | null = null;
     const refId = selectedAssetIdRef.current;
-    if (refId && !isSameTool) {
+    if (refId) {
       activeId = refId.replace(/^(?:local_|upload_|hist_|job-)+/, '');
     }
-
-    // 2) Fall back to reading from current URL pathname
     if (!activeId && typeof window !== 'undefined' && window.location.pathname.startsWith('/workspace/')) {
       const parts = window.location.pathname.replace('/workspace/', '').split('/');
       if (parts.length > 1 && parts[1]) {
@@ -3052,25 +3047,35 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       }
     }
 
-    // When clicking the same active tool, clear the model so the route
-    // becomes the default base route (/workspace/generate) and the model unloads.
-    if (isSameTool && !activeId) {
+    const currentRouteState = activeId
+      ? { status: 'workspace' as const, workspaceId: activeId }
+      : { status: 'base' as const };
+    const nextRouteState = transitionWorkspaceToolRoute(currentRouteState, {
+      type: isSameTool ? 'select-same-tool' : 'select-different-tool',
+    });
+    const nextWorkspaceId = nextRouteState.status === 'workspace' ? nextRouteState.workspaceId : null;
+
+    if (isSameTool) {
+      // Re-entering the active tool returns it to its empty/default workspace view.
+      selectedAssetIdRef.current = null;
       setSelectedAssetId(null);
+      setActiveMeshAssetId(null);
+      setWorkspaceId(null);
+      useViewerStore.getState().setLoadedModel(null, null, null);
     }
 
-    const route = activeId ? `${baseRoute}/${activeId}` : baseRoute;
+    const route = nextWorkspaceId ? `${baseRoute}/${nextWorkspaceId}` : baseRoute;
     if (!isWorkspaceShellActive(pathname)) {
       router.push(route);
       return;
     }
     if (pathname !== route) {
-      // Use replaceState instead of router.push to avoid full page remount.
-      // This keeps the MeshViewer and 3D WebGL context continuously mounted.
+      // Keep the shared WorkspaceShell and viewport mounted during tool navigation.
       if (typeof window !== 'undefined') {
         window.history.replaceState(null, '', route);
       }
     }
-  }, [pathname, router, setMainNav, setActiveTool, setIsLeftPanelOpen, isWorkspaceShellActive, setSelectedAssetId]);
+  }, [pathname, router, setMainNav, setActiveTool, setIsLeftPanelOpen, isWorkspaceShellActive, setSelectedAssetId, setActiveMeshAssetId, setWorkspaceId]);
 
   const navigateToMain = useCallback((nav: MainNavRoute) => {
     setMainNav(nav);

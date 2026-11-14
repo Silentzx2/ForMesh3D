@@ -1025,11 +1025,13 @@ All icons across `LeftNavigation.tsx` and `GeneratePanel.tsx`:
 Backend `job_id` changed from UUID (`380fbba4-e122-4a78-818d-3418dbb0ee46`) to `<name>_<hash>` format (`rabbit_380fbb`). SQLite `JobStatus` column `String(36)` → `String(64)`. UI shows `job_id=rabbit_<jobIdHash>` in JobDetailView, matching the UI route format.
 
 ### URL Route Management
-- Same-tool nav click clears the loaded model and reverts URL to base `/workspace`.
-- Switching tools preserves `<name>_<hash>` in the URL path.
+- Same-tool nav click transitions the workspace route to its tool-specific base route (for example, `/workspace/generate`), clears the selected asset/workspace identity, and sets the viewer's loaded model URL to `null`.
+- The existing `MeshViewer` empty-model branch unloads the displayed mesh; saved assets remain untouched.
+- Switching to a different tool preserves `<name>_<hash>` in the URL path.
+- The explicit route state machine is `base` | `workspace(workspaceId)`: selecting the same tool transitions to `base`; selecting a different tool preserves the current state.
 - `startTask()` task reuse checks existing task for same source before creating a new `job_id`.
 - Stacked prefixes (`local_upload_`, `upload_`, `hist_`, `job-`) stripped globally via `/^(?:local_|upload_|hist_|job-)+/`.
-- TASKS.md F65.
+- See `Docs/TASKS.md` — Workspace Same-Tool Re-entry Reset.
 
 ### Background Brightness
 - Viewport (`--surface-0`): 3.1% → 6% (brighter canvas for mesh detail)

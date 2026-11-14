@@ -29,3 +29,26 @@ export function isKnownWorkspaceRoute(segments: readonly string[]): boolean {
   if (rest.length !== 0) return false;
   return WORKSPACE_TOOL_SEGMENTS.has(first) || WORKSPACE_VIEW_SEGMENTS.has(first);
 }
+
+export type WorkspaceToolRouteState =
+  | { status: 'base' }
+  | { status: 'workspace'; workspaceId: string };
+
+export type WorkspaceToolRouteEvent =
+  | { type: 'select-same-tool' }
+  | { type: 'select-different-tool' };
+
+/** Same-tool re-entry resets to the tool's base route; switching tools preserves the workspace ID. */
+export function transitionWorkspaceToolRoute(
+  state: WorkspaceToolRouteState,
+  event: WorkspaceToolRouteEvent,
+): WorkspaceToolRouteState {
+  switch (event.type) {
+    case 'select-same-tool':
+      return { status: 'base' };
+    case 'select-different-tool':
+      return state;
+    default:
+      return { status: 'base' };
+  }
+}
