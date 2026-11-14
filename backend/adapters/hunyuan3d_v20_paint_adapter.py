@@ -83,14 +83,15 @@ class Hunyuan3DV20PaintImageMeshPaintingAdapter(BaseModel):
         logger.info("Loading Hunyuan3D-2 (v2.0) Paint pipeline from %s", weights_dir)
         weights_dir_path = Path(weights_dir)
         is_downloaded = (
-            (weights_dir_path / "hunyuan3d-paintpbr-v2-0").is_dir()
-            or (weights_dir_path / "hunyuan3d-dit-v2-0").is_dir()
+            (weights_dir_path / "hunyuan3d-paint-v2-0").is_dir()
+            or (weights_dir_path / "hunyuan3d-paint-v2-0-turbo").is_dir()
+            or (weights_dir_path / "hunyuan3d-delight-v2-0").is_dir()
             or (weights_dir_path / "config.json").is_file()
         )
         if not is_downloaded:
             weights_dir_path.mkdir(parents=True, exist_ok=True)
             logger.info(
-                "Hunyuan3D-2 (v2.0) Paint weights not found locally; downloading all checkpoints "
+                "Hunyuan3D-2 (v2.0) Paint weights not found locally; downloading paint and delight checkpoints "
                 "from HuggingFace Hub tencent/Hunyuan3D-2..."
             )
             from huggingface_hub import snapshot_download
@@ -98,6 +99,7 @@ class Hunyuan3DV20PaintImageMeshPaintingAdapter(BaseModel):
             snapshot_download(
                 repo_id="tencent/Hunyuan3D-2",
                 local_dir=str(weights_dir_path),
+                allow_patterns=["hunyuan3d-paint-v2-0/*", "hunyuan3d-paint-v2-0-turbo/*", "hunyuan3d-delight-v2-0/*"],
             )
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
         pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(weights_dir_path))

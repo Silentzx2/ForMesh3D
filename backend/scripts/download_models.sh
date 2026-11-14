@@ -444,14 +444,16 @@ download_hunyuan3d_v20_paint() {
     local model_dir="$PRETRAINED_DIR/tencent/Hunyuan3D-2"
 
     if [ "$FORCE_DOWNLOAD" = false ] && \
-       verify_directory "$model_dir/hunyuan3d-paint-v2-0" 3; then
+       verify_directory "$model_dir/hunyuan3d-paint-v2-0" 3 && \
+       verify_directory "$model_dir/hunyuan3d-delight-v2-0" 3; then
         print_info "Hunyuan3D-2 (v2.0) Paint models already exist and verified"
     else
         mkdir -p "$model_dir" 2>/dev/null || true
         ensure_writable_model_dir "$model_dir" || return 1
-        print_info "Downloading Hunyuan3D-2 (v2.0) paint models (texture weights only)..."
+        print_info "Downloading Hunyuan3D-2 (v2.0) paint models (texture + delight weights)..."
         if hf_download tencent/Hunyuan3D-2 \
             --include "hunyuan3d-paint-v2-0/*" \
+            --include "hunyuan3d-delight-v2-0/*" \
             --local-dir "$model_dir"; then
             print_success "Hunyuan3D-2 (v2.0) Paint models downloaded successfully"
         else
@@ -460,11 +462,9 @@ download_hunyuan3d_v20_paint() {
         fi
     fi
 
-    # Verify the paint texture files actually landed. hf CLI can exit 0 with
-    # 0 matched files when an --include filter finds nothing, which previously
-    # produced a false "SUCCESS" with an empty directory.
-    if ! verify_directory "$model_dir/hunyuan3d-paint-v2-0" 3; then
-        print_error "Hunyuan3D-2 (v2.0) Paint download did not produce expected texture files"
+    # Verify the paint texture and delight files actually landed.
+    if ! verify_directory "$model_dir/hunyuan3d-paint-v2-0" 3 || ! verify_directory "$model_dir/hunyuan3d-delight-v2-0" 3; then
+        print_error "Hunyuan3D-2 (v2.0) Paint download did not produce expected texture/delight files"
         return 1
     fi
 
@@ -1114,6 +1114,10 @@ verify_all_models() {
     
     print_info "Checking Hunyuan3D-Paint-v2-1..."
     verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2.1" 5 || all_verified=false
+    
+    print_info "Checking Hunyuan3D-Paint-v2-0..."
+    verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2/hunyuan3d-paint-v2-0" 3 || all_verified=false
+    verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2/hunyuan3d-delight-v2-0" 3 || all_verified=false
     
     print_info "Checking Hunyuan3D-DiT-v2-mini-Turbo..."
     verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2mini/hunyuan3d-dit-v2-mini-turbo" 3 || all_verified=false
