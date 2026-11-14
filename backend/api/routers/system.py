@@ -1528,39 +1528,25 @@ async def get_job_status(job_id: str, request: Request):
 
 @router.post("/workspace/operations/{operation_id}/keep", summary="Keep operation output in workspace")
 @router.post("/operations/{operation_id}/keep", summary="Keep operation output in workspace (alias)")
-async def keep_workspace_operation(operation_id: str, request: Request):
-    """
-    Publish operation preview to permanent workspace assets and update active mesh.
-    """
-    from core.scheduler.database_manager import DatabaseManager
-    from core.scheduler.database_manager import get_workspace_storage_manager
+async def keep_workspace_operation(operation_id: str):
+    """Persist a completed operation preview and select its retained asset."""
+    from core.scheduler.database_manager import DatabaseManager, get_workspace_storage_manager
 
     db = DatabaseManager()
-    ws_mgr = get_workspace_storage_manager()
-
-    try:
-        body = await request.json() if request.headers.get("content-type") == "application/json" else {}
-    except Exception:
-        body = {}
-
     op = db.get_operation(operation_id)
     if not op:
-        # Graceful fallback: if client generated a client-side op id, check workspace_id
-        workspace_id = body.get("workspace_id")
-        if workspace_id:
-            ws = db.get_workspace(workspace_id)
-            if ws:
-                return {
-                    "success": True,
-                    "operation_id": operation_id,
-                    "workspace_id": workspace_id,
-                    "active_mesh_asset_id": ws.active_mesh_asset_id,
-                }
         raise HTTPException(status_code=404, detail=f"Operation {operation_id} not found")
 
     try:
-        result = db.keep_operation_in_workspace(operation_id, storage_manager=ws_mgr)
+        result = db.keep_operation_in_workspace(
+            operation_id,
+            storage_manager=get_workspace_storage_manager(),
+        )
         return {"success": True, **result}
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except Exception as exc:
         logger.error("Failed to keep operation %s in workspace: %s", operation_id, exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
@@ -1568,23 +1554,26 @@ async def keep_workspace_operation(operation_id: str, request: Request):
 
 @router.post("/workspace/operations/{operation_id}/discard", summary="Discard operation preview")
 @router.post("/operations/{operation_id}/discard", summary="Discard operation preview (alias)")
-async def discard_workspace_operation(operation_id: str, request: Request):
-    """
-    Discard operation preview and clean up temporary preview files.
-    """
-    from core.scheduler.database_manager import DatabaseManager
-    from core.scheduler.database_manager import get_workspace_storage_manager
+async def discard_workspace_operation(operation_id: str):
+    """Discard an operation preview without deleting its operation or workspace history."""
+    from core.scheduler.database_manager import DatabaseManager, get_workspace_storage_manager
 
     db = DatabaseManager()
-    ws_mgr = get_workspace_storage_manager()
-
-    op = db.get_operation(operation_id)
-    if not op:
-        return {"success": True, "operation_id": operation_id, "status": "discarded"}
+    if not db.get_operation(operation_id):
+        raise HTTPException(status_code=404, detail=f"Operation {operation_id} not found")
 
     try:
-        db.discard_operation_preview(operation_id, storage_manager=ws_mgr)
+        discarded = db.discard_operation_preview(
+            operation_id,
+            storage_manager=get_workspace_storage_manager(),
+        )
+        if not discarded:
+            raise HTTPException(status_code=404, detail=f"Operation {operation_id} not found")
         return {"success": True, "operation_id": operation_id, "status": "discarded"}
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except Exception as exc:
         logger.error("Failed to discard operation %s: %s", operation_id, exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
