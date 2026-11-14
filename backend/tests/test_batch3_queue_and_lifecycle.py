@@ -275,6 +275,16 @@ def test_b3_t4_preview_keep_and_discard_lifecycle(batch3_env, sample_glb_bytes):
     assert keep_result["operation_id"] == op_keep_id
     assert Path(keep_result["mesh_path"]).exists()
 
+    # Repeated Keep returns the same retained asset without publishing a duplicate version.
+    keep_again = db.keep_operation_in_workspace(op_keep_id, storage_manager=ws_mgr)
+    assert keep_again["asset_id"] == keep_result["asset_id"]
+    assert keep_again["mesh_path"] == keep_result["mesh_path"]
+    retained_for_operation = [
+        asset for asset in db.list_workspace_assets(ws_id)
+        if asset.operation_id == op_keep_id and asset.is_retained
+    ]
+    assert len(retained_for_operation) == 1
+
     # Verified committed state
     op_post = db.get_operation(op_keep_id)
     assert op_post.persistence_status == PersistenceStatus.SAVED
@@ -302,6 +312,8 @@ def test_b3_t4_preview_keep_and_discard_lifecycle(batch3_env, sample_glb_bytes):
     db.update_operation_execution_status(op_discard_id, ExecutionStatus.COMPLETED)
 
     assert temp_dir_discard.exists()
+    assert db.discard_operation_preview(op_discard_id, storage_manager=ws_mgr) is True
+    # Repeated Discard remains successful and does not touch retained assets.
     assert db.discard_operation_preview(op_discard_id, storage_manager=ws_mgr) is True
 
     # Temp purged, status discarded, saved asset untouched
