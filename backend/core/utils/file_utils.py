@@ -914,29 +914,38 @@ class WorkspaceStorageManager:
         ext = temp_mesh_path.suffix.lower()
         final_mesh_path = self.get_version_mesh_path(workspace_id, operation_type, ext, dest_dir)
 
-        # Atomic publication: copy to staging path then replace
+        # Publish through unique staging paths; remove partial output on failure.
         staging_path = dest_dir / f".staging_{uuid.uuid4().hex}"
-        shutil.copy2(temp_mesh_path, staging_path)
-        staging_path.replace(final_mesh_path)
-
-        # Thumbnail publication
+        thumb_staging = None
         final_thumb_path = None
-        if temp_thumbnail_path and Path(temp_thumbnail_path).exists():
-            # Keep each retained mesh version paired with its own thumbnail.
-            final_thumb_path = dest_dir / f"{final_mesh_path.stem}_thumbnail.png"
-            thumb_staging = dest_dir / f".staging_thumb_{uuid.uuid4().hex}"
-            shutil.copy2(temp_thumbnail_path, thumb_staging)
-            thumb_staging.replace(final_thumb_path)
+        try:
+            shutil.copy2(temp_mesh_path, staging_path)
+            staging_path.replace(final_mesh_path)
 
-        relative_mesh_path = str(final_mesh_path.relative_to(ws_dir))
-        relative_thumb_path = str(final_thumb_path.relative_to(ws_dir)) if final_thumb_path else None
+            if temp_thumbnail_path and Path(temp_thumbnail_path).exists():
+                # Keep each retained mesh version paired with its own thumbnail.
+                final_thumb_path = dest_dir / f"{final_mesh_path.stem}_thumbnail.png"
+                thumb_staging = dest_dir / f".staging_thumb_{uuid.uuid4().hex}"
+                shutil.copy2(temp_thumbnail_path, thumb_staging)
+                thumb_staging.replace(final_thumb_path)
 
-        return {
-            "mesh_path": final_mesh_path,
-            "relative_mesh_path": relative_mesh_path,
-            "thumbnail_path": final_thumb_path,
-            "relative_thumbnail_path": relative_thumb_path,
-        }
+            relative_mesh_path = str(final_mesh_path.relative_to(ws_dir))
+            relative_thumb_path = str(final_thumb_path.relative_to(ws_dir)) if final_thumb_path else None
+
+            return {
+                "mesh_path": final_mesh_path,
+                "relative_mesh_path": relative_mesh_path,
+                "thumbnail_path": final_thumb_path,
+                "relative_thumbnail_path": relative_thumb_path,
+            }
+        except Exception:
+            for partial_path in (staging_path, thumb_staging, final_mesh_path, final_thumb_path):
+                if partial_path:
+                    try:
+                        Path(partial_path).unlink(missing_ok=True)
+                    except OSError as cleanup_exc:
+                        logger.warning("Could not remove partial publication %s: %s", partial_path, cleanup_exc)
+            raise
 
     def write_manifest(self, workspace_id: str, manifest_data: Dict[str, Any]) -> Path:
         """Atomic write of unified workspace metadata.json."""
