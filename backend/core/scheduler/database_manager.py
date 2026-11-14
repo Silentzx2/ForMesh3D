@@ -1415,7 +1415,10 @@ class DatabaseManager:
                 )
 
             if temp_dir.exists():
-                if op.persistence_status != PersistenceStatus.CLEANUP_PENDING:
+                if op.persistence_status not in (
+                    PersistenceStatus.CLEANUP_PENDING,
+                    PersistenceStatus.DISCARDED,
+                ):
                     self.update_operation_persistence_status(
                         operation_id, PersistenceStatus.CLEANUP_PENDING
                     )
