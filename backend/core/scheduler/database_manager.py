@@ -39,6 +39,13 @@ from .database_models import (
 
 logger = logging.getLogger(__name__)
 
+# DB paths already backed up / initialized in this process. The hot backup is
+# meant for schema-migration safety; SQLAlchemy create_all is idempotent, so
+# re-instantiating DatabaseManager per request must not re-copy the DB or
+# re-log initialization every time.
+_BACKED_UP_DBS: set = set()
+_INITIALIZED_DBS: set = set()
+
 
 class ProcessFileLock:
     """Cross-process file lock using fcntl.flock for atomic operation claiming."""
@@ -174,7 +181,9 @@ class DatabaseManager:
             self._init_db()
 
             self._initialized = True
-            logger.info(f"Database initialized successfully: {self.database_url}")
+            if self.database_url not in _INITIALIZED_DBS:
+                _INITIALIZED_DBS.add(self.database_url)
+                logger.info(f"Database initialized successfully: {self.database_url}")
 
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
@@ -183,6 +192,8 @@ class DatabaseManager:
     def _backup_database_if_exists(self):
         """Create an automated hot backup before schema alteration (Docs/TASKS.md §8.5)."""
         if not self.database_url or not self.database_url.startswith("sqlite:///"):
+            return
+        if self.database_url in _BACKED_UP_DBS:
             return
         db_path_str = self.database_url.replace("sqlite:///", "")
         db_path = Path(db_path_str)
@@ -195,10 +206,12 @@ class DatabaseManager:
                     src.backup(dst)
                 dst.close()
                 src.close()
+                _BACKED_UP_DBS.add(self.database_url)
                 logger.info(f"Automated SQLite hot backup created at {backup_path}")
             except Exception as e:
                 try:
                     shutil.copy2(str(db_path), str(backup_path))
+                    _BACKED_UP_DBS.add(self.database_url)
                     logger.info(f"Automated hot backup created via copy at {backup_path}")
                 except Exception as copy_err:
                     logger.warning(f"Failed to create hot backup for {db_path}: {copy_err}")
