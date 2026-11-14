@@ -81,13 +81,31 @@ class StableFast3DAdapter(BaseModel):
         if str(texture_baker_root) not in sys.path:
             sys.path.insert(0, str(texture_baker_root))
 
-        # texture_baker_root is already on sys.path (added above).
-        # _C.so lives inside texture_baker_root/texture_baker/ — do NOT add that
-        # inner dir to sys.path; doing so causes a circular import because Python
-        # would re-enter __init__.py while it is still being executed.
-        # Just import the top-level package once, cleanly.
+        # _C.so's PyInit() internally does `import texture_baker`, which hits the
+        # partially-initialized parent package → circular import.
+        # Fix: pre-load _C.so as a standalone module under the key "texture_baker._C"
+        # in sys.modules BEFORE importing the package. When __init__ does
+        # `from . import _C`, Python finds it already cached and skips PyInit.
+        import importlib.util as _iutil
+
+        pkg_dir = texture_baker_root / "texture_baker"
+        _c_so = next(pkg_dir.glob("_C*.so"), None) if pkg_dir.is_dir() else None
+        if _c_so is None:
+            _c_so = next(texture_baker_root.glob("build/*/texture_baker/_C*.so"), None)
+        if _c_so is None:
+            raise RuntimeError(
+                "Stable Fast 3D texture_baker native extension (_C.so) not found. "
+                "Run backend/scripts/install.sh --gpu to build the SF3D extensions."
+            )
+
+        # Clear stale partial state then pre-inject _C before the package import.
         sys.modules.pop("texture_baker", None)
         sys.modules.pop("texture_baker._C", None)
+        _spec = _iutil.spec_from_file_location("texture_baker._C", str(_c_so))
+        _c_mod = _iutil.module_from_spec(_spec)
+        sys.modules["texture_baker._C"] = _c_mod
+        _spec.loader.exec_module(_c_mod)
+
         try:
             texture_baker = importlib.import_module("texture_baker")
         except ImportError as exc:
@@ -95,34 +113,40 @@ class StableFast3DAdapter(BaseModel):
                 "Stable Fast 3D texture_baker native extension is unavailable. "
                 "Run backend/scripts/install.sh --gpu to build the SF3D extensions."
             ) from exc
-        if not callable(getattr(texture_baker, "TextureBaker", None)) or not hasattr(
-            texture_baker, "_C"
-        ):
+        if not callable(getattr(texture_baker, "TextureBaker", None)):
             raise RuntimeError(
-                "Stable Fast 3D texture_baker package is incomplete; its compiled _C extension is required."
+                "Stable Fast 3D texture_baker package is incomplete; TextureBaker is required."
             )
 
         uv_unwrapper_root = sf3d_root / "uv_unwrapper"
         if str(uv_unwrapper_root) not in sys.path:
             sys.path.insert(0, str(uv_unwrapper_root))
+
+        uv_pkg_dir = uv_unwrapper_root / "uv_unwrapper"
+        _uv_c_so = next(uv_pkg_dir.glob("_C*.so"), None) if uv_pkg_dir.is_dir() else None
+        if _uv_c_so is None:
+            _uv_c_so = next(uv_unwrapper_root.glob("build/*/uv_unwrapper/_C*.so"), None)
+        if _uv_c_so is None:
+            raise RuntimeError(
+                "Stable Fast 3D uv_unwrapper native extension (_C.so) not found. "
+                "Run backend/scripts/install.sh --gpu to build the SF3D extensions."
+            )
+
+        sys.modules.pop("uv_unwrapper", None)
+        sys.modules.pop("uv_unwrapper._C", None)
+        _uv_spec = _iutil.spec_from_file_location("uv_unwrapper._C", str(_uv_c_so))
+        _uv_c_mod = _iutil.module_from_spec(_uv_spec)
+        sys.modules["uv_unwrapper._C"] = _uv_c_mod
+        _uv_spec.loader.exec_module(_uv_c_mod)
+
         try:
             uv_unwrapper = importlib.import_module("uv_unwrapper")
-        except ImportError:
-            uv_unwrapper = None
-        if not callable(getattr(uv_unwrapper, "Unwrapper", None)) or not hasattr(
-            uv_unwrapper, "_C"
-        ):
-            sys.modules.pop("uv_unwrapper", None)
-            try:
-                uv_unwrapper = importlib.import_module("uv_unwrapper")
-            except ImportError as exc:
-                raise RuntimeError(
-                    "Stable Fast 3D uv_unwrapper native extension is unavailable. "
-                    "Run backend/scripts/install.sh --gpu to build the SF3D extensions."
-                ) from exc
-        if not callable(getattr(uv_unwrapper, "Unwrapper", None)) or not hasattr(
-            uv_unwrapper, "_C"
-        ):
+        except ImportError as exc:
+            raise RuntimeError(
+                "Stable Fast 3D uv_unwrapper native extension is unavailable. "
+                "Run backend/scripts/install.sh --gpu to build the SF3D extensions."
+            ) from exc
+        if not callable(getattr(uv_unwrapper, "Unwrapper", None)):
             raise RuntimeError(
                 "Stable Fast 3D uv_unwrapper package is incomplete; its compiled _C extension is required."
             )
