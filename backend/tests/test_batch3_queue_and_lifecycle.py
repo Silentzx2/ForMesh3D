@@ -323,6 +323,39 @@ def test_b3_t4_preview_keep_and_discard_lifecycle(batch3_env, sample_glb_bytes):
     assert Path(keep_result["mesh_path"]).exists(), "Discard must not alter saved assets"
 
 
+def test_b3_t4_rejects_temp_paths_outside_operation_directory(batch3_env, sample_glb_bytes):
+    db: DatabaseManager = batch3_env["db_manager"]
+    ws_mgr: WorkspaceStorageManager = batch3_env["ws_manager"]
+    ws_id = "ws_path_guard_test"
+    ws_mgr.create_workspace_tree(ws_id)
+    db.create_workspace(workspace_id=ws_id, name="Path Guard Test")
+
+    outside_dir = Path(batch3_env["temp_dir"]) / "outside_preview"
+    outside_dir.mkdir()
+    outside_mesh = outside_dir / "outside.glb"
+    outside_mesh.write_bytes(sample_glb_bytes)
+
+    for operation_id, action in (
+        ("op_external_keep_01", "keep"),
+        ("op_external_discard_02", "discard"),
+    ):
+        db.enqueue_operation(
+            operation_id=operation_id,
+            workspace_id=ws_id,
+            operation_type="retopology",
+            temp_dir=str(outside_dir),
+        )
+        db.update_operation_execution_status(operation_id, ExecutionStatus.PROCESSING)
+        db.update_operation_execution_status(operation_id, ExecutionStatus.COMPLETED)
+
+        with pytest.raises(ValueError, match="outside its assigned temp location"):
+            if action == "keep":
+                db.keep_operation_in_workspace(operation_id, storage_manager=ws_mgr)
+            else:
+                db.discard_operation_preview(operation_id, storage_manager=ws_mgr)
+        assert outside_mesh.is_file(), "A rejected external temp path must never be deleted"
+
+
 # ==============================================================================
 # B3-T5 Tests: Startup Recovery, Error Classification, TTL Cleanup
 # ==============================================================================
