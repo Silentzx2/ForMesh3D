@@ -922,7 +922,8 @@ class WorkspaceStorageManager:
         # Thumbnail publication
         final_thumb_path = None
         if temp_thumbnail_path and Path(temp_thumbnail_path).exists():
-            final_thumb_path = dest_dir / "thumbnail.png"
+            # Keep each retained mesh version paired with its own thumbnail.
+            final_thumb_path = dest_dir / f"{final_mesh_path.stem}_thumbnail.png"
             thumb_staging = dest_dir / f".staging_thumb_{uuid.uuid4().hex}"
             shutil.copy2(temp_thumbnail_path, thumb_staging)
             thumb_staging.replace(final_thumb_path)
