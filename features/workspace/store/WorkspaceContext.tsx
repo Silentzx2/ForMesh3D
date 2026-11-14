@@ -943,7 +943,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setViewportResetTrigger(prev => prev + 1);
   }, []);
 
-  const loadCompletedJobResult = useCallback((jobId: string, rawData: any, promptTitle?: string) => {
+  const loadCompletedJobResult = useCallback(async (jobId: string, rawData: any, promptTitle?: string) => {
     const data = normalizeBackendJob(rawData);
     const result = data.result || (rawData as any)?.result || {};
     const productionStatus = result.production_status || (result.postprocess_status === 'degraded' ? 'degraded' : 'ready');
@@ -977,12 +977,13 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=glb`;
       const previewStats = preferredPreviewStats(result);
       const cleanName = promptTitle && promptTitle !== 'generate' && promptTitle !== 'asset' ? promptTitle : `Model_${jobId.slice(0, 6)}`;
-      void prefetchGLB(modelUrl);
+      await prefetchGLB(modelUrl);
       const finalAssetId = `local_${jobId}`;
       const outputAsset = normalizeModelAsset({
         id: finalAssetId,
         name: cleanName,
         category: 'generation',
+        workspace_id: jobId,
         thumbnail: result.thumbnail_url || `/api/v1/system/jobs/${encodeURIComponent(jobId)}/thumbnail`,
         source: { filename: `${cleanName}.glb`, subfolder: 'generated', type: 'output', viewUrl: modelUrl, fileId: `job-${jobId}` },
         polygon_count: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
@@ -1471,7 +1472,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     }
   }, []);
 
-  const selectJobToView = useCallback((jobId: string) => {
+  const selectJobToView = useCallback(async (jobId: string) => {
     const job = jobsByIdRef.current[jobId] || (activeTaskRef.current?.id === jobId ? activeTaskRef.current : null);
     if (!job) return;
 
@@ -1489,11 +1490,12 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     if (modelUrl) {
       const promptTitle = job.title;
       const cleanName = promptTitle && promptTitle !== 'generate' ? promptTitle : `Model_${jobId.slice(0, 6)}`;
-      void prefetchGLB(modelUrl);
+      await prefetchGLB(modelUrl);
       const outputAsset = normalizeModelAsset({
         id: jobId,
         name: cleanName,
         category: 'generation',
+        workspace_id: (job as any)?.workspace_id || jobId,
         thumbnail: result.thumbnail_url || job.inputImage || '',
         source: { filename: `${cleanName}.glb`, subfolder: 'generated', type: 'output', viewUrl: modelUrl, fileId: `job-${jobId}` },
         polygon_count: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
@@ -1537,7 +1539,27 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     }
     addAsset(asset);
     selectAsset(asset.id);
-  }, [addAsset, selectAsset]);
+
+    // Clicking an asset should open its generate workspace so the user is
+    // taken back to /workspace/generate/<workspace_id> from any tab or after
+    // a refresh. Mirrors navigateToTool: set active tool + main nav, then
+    // update the URL with replaceState (same shell, no MeshViewer remount)
+    // or router.push (outside shell, full navigation).
+    if (asset.workspace_id) {
+      const targetRoute = `/workspace/generate/${asset.workspace_id}`;
+      if (typeof window !== 'undefined' && window.location.pathname !== targetRoute) {
+        setActiveTool('model');
+        setMainNav('workspace');
+        // In workspace shell: replaceState keeps MeshViewer mounted. Outside
+        // shell (e.g. dashboard): full router.push navigation.
+        if (pathname.startsWith('/workspace')) {
+          window.history.replaceState(null, '', targetRoute);
+        } else {
+          router.push(targetRoute);
+        }
+      }
+    }
+  }, [addAsset, selectAsset, router, pathname, setActiveTool, setMainNav]);
 
   const duplicateAsset = useCallback((id: string) => {
     const existing = assets.find(a => a.id === id);
