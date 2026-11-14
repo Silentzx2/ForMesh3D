@@ -1344,22 +1344,25 @@ function dataURLtoFile(dataURL: string, filename: string): File {
                 : data.status === 'cancelled' ? 'interrupted'
                 : 'running';
 
+              const nextTask: ActiveTask = {
+                ...task,
+                status: nextStatus,
+                progress,
+                stage: data.stage || task.stage,
+                currentStep: currentMessage,
+                errorMessage: data.error_message || task.errorMessage,
+                errorCode: (data as any).error_code || task.errorCode,
+                logs: data.logs || task.logs,
+                result: data.result || task.result,
+              };
+              jobsByIdRef.current[jobId] = nextTask;
+
               setJobsById(prev => {
                 const existing = prev[jobId];
                 if (!existing) return prev;
                 return {
                   ...prev,
-                  [jobId]: {
-                    ...existing,
-                    status: nextStatus,
-                    progress,
-                    stage: data.stage || existing.stage,
-                    currentStep: currentMessage,
-                    errorMessage: data.error_message || existing.errorMessage,
-                    errorCode: (data as any).error_code || existing.errorCode,
-                    logs: data.logs || existing.logs,
-                    result: data.result || existing.result,
-                  }
+                  [jobId]: nextTask,
                 };
               });
 
