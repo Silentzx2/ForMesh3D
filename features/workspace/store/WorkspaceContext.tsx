@@ -957,9 +957,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       result?.source_model_url ||
       result?.rigged_model_url ||
       result?.download_url ||
-      (result?.output_mesh_path && !String(result.output_mesh_path).endsWith('.npz') ? result.output_mesh_path : undefined) ||
-      `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=glb`
-    );
+      // output_mesh_path / mesh_path / output_path / file_path are backend
+      // filesystem paths (temp or canonical storage), NOT HTTP URLs.
+      // normalizeBackendAssetUrl would turn them into bogus /api/v1/content/...
+      // paths that 404. The job download endpoint serves the durable artifact,
+      // which the scheduler already copied into storage_root (see
+      // multiprocess_scheduler.py _publish step). Fall through to it below.
+      undefined
+    ) || `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=glb`;
 
     if (resolvedModelUrl) {
       // Ensure the preview URL is same-origin proxied so MeshViewer can always
@@ -1007,7 +1012,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setSelectedAssetId(finalAssetId);
       setActiveMeshAssetId(finalAssetId);
       setExecutionState('completed');
-      setPersistenceState('saved');
+      // Generation lands as an unsaved preview so the user can Keep in
+      // Workspace, Regenerate, or Discard (OperationActionBar renders only
+      // for persistenceState === 'not_saved'). Clicking Keep flips to 'saved'.
+      setPersistenceState('not_saved');
       setViewportResetTrigger(prev => prev + 1);
       loadModelInViewer(modelUrl, cleanName, outputAsset as any);
       return outputAsset;
