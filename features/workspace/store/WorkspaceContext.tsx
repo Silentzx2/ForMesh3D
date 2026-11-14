@@ -24,6 +24,7 @@ import type { BatchQueueItem } from '@/types';
 import { apiClient } from '../lib/api';
 import { parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute } from '../lib/workspaceRouteContract';
 import { captureWorkspacePreviewBaseline, createWorkspacePreviewRestorePlan } from '../lib/workspacePreviewSnapshot';
+import { createWorkspaceRegenerationRequest } from '../lib/workspaceRegeneration';
 import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
 import { useAppStore } from '@/stores/useAppStore';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
@@ -138,6 +139,7 @@ interface WorkspaceContextType {
   workspaceVersions: WorkspaceVersionItem[];
   setWorkspaceVersions: React.Dispatch<React.SetStateAction<WorkspaceVersionItem[]>>;
   restorePreviewBaseline: (taskId?: string) => void;
+  regeneratePreview: (taskId?: string) => Promise<void>;
   executionProgress: number;
   executionStep: string;
   cancelExecution: () => Promise<void>;
@@ -2147,6 +2149,14 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       const selectedCapabilities = modelDetails[effectiveModelId]?.capabilities || {};
       const modelCapabilities = resolveGenerationModelCapabilities(effectiveModelId, selectedCapabilities);
       const { endpoint, body } = buildGenerationParameters(effectiveSettings, modelCapabilities);
+      const submissionSnapshot = {
+        endpoint,
+        body: JSON.parse(JSON.stringify(body)) as Record<string, unknown>,
+      };
+      setJobsById(prev => prev[localTaskId]
+        ? { ...prev, [localTaskId]: { ...prev[localTaskId], submissionSnapshot } }
+        : prev);
+      setActiveTask(prev => prev?.id === localTaskId ? { ...prev, submissionSnapshot } : prev);
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -2203,6 +2213,91 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     setIsExecuting,
     setExecutionStep,
   ]);
+
+  const regeneratePreview = useCallback(async (taskId?: string) => {
+    const sourceTask = taskId
+      ? jobsByIdRef.current[taskId] || (activeTaskRef.current?.id === taskId ? activeTaskRef.current : undefined)
+      : activeTaskRef.current;
+    if (!sourceTask || sourceTask.type !== 'image-to-3d') {
+      throw new Error('Regenerate is currently supported for image-to-mesh previews.');
+    }
+    if (!sourceTask.operationId || !sourceTask.workspaceId || !sourceTask.submissionSnapshot) {
+      throw new Error('The original operation identity or request snapshot is unavailable.');
+    }
+    if (sourceTask.workspaceId !== workspaceIdRef.current) {
+      throw new Error('The preview belongs to a different workspace.');
+    }
+
+    const request = createWorkspaceRegenerationRequest(
+      sourceTask.submissionSnapshot,
+      sourceTask.workspaceId,
+      sourceTask.operationId,
+    );
+    const localTaskId = startTask(
+      'image-to-3d',
+      sourceTask.title,
+      undefined,
+      sourceTask.provider,
+      sourceTask.inputImage,
+      sourceTask.inputImageName,
+      sourceTask.comparisonGroupId,
+    );
+    setJobsById(prev => prev[localTaskId]
+      ? { ...prev, [localTaskId]: { ...prev[localTaskId], submissionSnapshot: sourceTask.submissionSnapshot } }
+      : prev);
+    setActiveTask(prev => prev?.id === localTaskId
+      ? { ...prev, submissionSnapshot: sourceTask.submissionSnapshot }
+      : prev);
+
+    const signal = activeAbortControllerRef.current?.signal;
+    try {
+      const response = await fetch(request.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request.body),
+        signal,
+      });
+      if (!response.ok) throw await parseApiError(response);
+      const data = await parseApiData<{
+        job_id?: string;
+        id?: string;
+        workspace_id?: string;
+        operation_id?: string;
+        route_path?: string;
+      }>(response);
+      const jobId = data.job_id ?? data.id;
+      if (!jobId || !data.operation_id) {
+        throw new Error('Backend did not return the new job and operation identities.');
+      }
+      bindBackendJob(localTaskId, jobId, {
+        status: 'queued',
+        currentStep: 'Regeneration queued on backend',
+        provider: sourceTask.provider,
+        inputImage: sourceTask.inputImage,
+      }, {
+        workspaceId: data.workspace_id,
+        operationId: data.operation_id,
+        routePath: data.route_path,
+      });
+      setExecutionStep('Regeneration queued on backend');
+      toast.success('Regeneration queued', {
+        description: 'A new operation was created. Previous outputs remain unchanged.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Regeneration submission failed';
+      setIsExecuting(false);
+      setExecutionState('failed');
+      setExecutionStep(message);
+      setJobsById(prev => prev[localTaskId]
+        ? { ...prev, [localTaskId]: { ...prev[localTaskId], status: 'failed', currentStep: message, errorMessage: message } }
+        : prev);
+      setActiveTask(prev => prev?.id === localTaskId
+        ? { ...prev, status: 'failed', currentStep: message, errorMessage: message }
+        : prev);
+      toast.error('Regeneration failed', { description: message });
+      throw error;
+    }
+  }, [startTask, bindBackendJob, parseApiError, parseApiData, setIsExecuting, setExecutionState, setExecutionStep]);
 
 async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSignal): Promise<{ mesh_file_id?: string; mesh_path?: string }> {
   if (!asset) {
@@ -3394,6 +3489,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     const generationActionsValue = useMemo(() => ({
       generate3DModel,
       runModelGeneration: generate3DModel,
+      regeneratePreview,
       runRemeshGeneration, runTextureGeneration,
       runUVUnwrapGeneration, runSegmentation,
       runMeshEditing,
@@ -3402,7 +3498,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       processBatchQueue,
       cancelBatchProcessing,
       retryFailedBatchItems,
-    }), [generate3DModel,
+    }), [generate3DModel, regeneratePreview,
       runRemeshGeneration, runTextureGeneration,
       runUVUnwrapGeneration, runSegmentation,
       runMeshEditing,

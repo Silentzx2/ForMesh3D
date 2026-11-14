@@ -125,5 +125,11 @@ This document records the exact inventory of dead, orphaned, and obsolete non-fe
 - [x] Disable unsafe Discard when the baseline or backend operation identity is unavailable.
 - [x] Preserve canonical `ast_*` IDs in frontend asset normalization.
 
-**Deferred to Batch 3C:** Regenerate operation lineage and end-to-end lifecycle regression tests.
-**Deferred to Batch 3C:** Regenerate operation lineage and end-to-end lifecycle regression tests.
+## Workspace Preview Regeneration — Batch 3C
+- [x] Preserve the exact original image-to-mesh endpoint and JSON request snapshot on the frontend task.
+- [x] Regenerate from the same image and settings while retaining the canonical workspace ID and route.
+- [x] Require a completed parent operation in the same workspace and matching generation type.
+- [x] Create a new operation ID with the real parent_operation_id lineage; never overwrite the prior operation or its output.
+- [x] Load the regenerated result through the existing job polling and preview lifecycle.
+- [x] Add contract tests for request snapshot isolation, parent identity, and cross-workspace rejection.
+- [ ] Verify the full Keep → Regenerate → Keep and Discard → restore flows against a running backend.

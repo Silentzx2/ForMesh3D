@@ -39,6 +39,8 @@ export interface ActiveTask {
   workspaceId?: string;
   /** Canonical operation identity returned by the backend. */
   operationId?: string;
+  /** Exact image-to-mesh request used to create this operation; retained for deterministic regeneration. */
+  submissionSnapshot?: { endpoint: string; body: Record<string, unknown> };
   /** Immutable pre-operation viewer/workspace state used by Discard restoration. */
   previewBaseline?: WorkspacePreviewBaselineSnapshot;
   isLocal?: boolean;

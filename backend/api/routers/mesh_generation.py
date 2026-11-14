@@ -32,6 +32,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/mesh-generation", tags=["mesh_generation"])
 
+
+def _validate_regeneration_parent(db, parent_operation_id: Optional[str], workspace_id: str, operation_type: str) -> None:
+    """Require regeneration to branch from a completed operation in the same workspace."""
+    if not parent_operation_id:
+        return
+    parent = db.get_operation(parent_operation_id)
+    if not parent:
+        raise HTTPException(status_code=404, detail="Parent operation not found")
+    if parent.workspace_id != workspace_id:
+        raise HTTPException(status_code=409, detail="Parent operation belongs to a different workspace")
+    parent_status = getattr(parent.execution_status, "value", parent.execution_status)
+    if parent_status != "completed":
+        raise HTTPException(status_code=409, detail="Only completed operations can be regenerated")
+    if parent.operation_type != operation_type:
+        raise HTTPException(status_code=409, detail="Parent operation type does not match the regeneration request")
+
 _LEGACY_TEXTURED_MODEL_ALIASES = {
     "trellis_image_to_textured_mesh": "trellis_image_to_raw_mesh",
     "trellis2_image_to_textured_mesh": "trellis2_image_to_raw_mesh",
@@ -277,6 +293,7 @@ class ImageToRawMeshRequest(BaseModel):
     workspace_id: Optional[str] = Field(
         None, description="Optional target workspace ID. If omitted, will resolve from source asset or create a new workspace."
     )
+    parent_operation_id: Optional[str] = Field(None, description="Completed operation to regenerate from")
     seed: Optional[int] = Field(None, ge=0, description="Random seed for reproducibility")
     texture_resolution: Optional[int] = Field(
         None, description="Optional texture-atlas preset or size; omitted values fall back to the intent preset"
@@ -464,6 +481,7 @@ class ImageToTexturedMeshRequest(BaseModel):
     workspace_id: Optional[str] = Field(
         None, description="Optional target workspace ID. If omitted, will resolve from source asset or create a new workspace."
     )
+    parent_operation_id: Optional[str] = Field(None, description="Completed operation to regenerate from")
     seed: Optional[int] = Field(None, ge=0, description="Random seed for reproducibility")
     texture_image_path: Optional[str] = Field(
         None, description="Path to the texture image"
@@ -1223,6 +1241,9 @@ async def image_to_raw_mesh(
         if not target_ws_id:
             target_ws_id = ws_storage.mint_workspace_id(chosen_stem)
 
+        _validate_regeneration_parent(
+            db, mesh_request.parent_operation_id, target_ws_id, "generate_raw_mesh"
+        )
         ws_storage.create_workspace_tree(target_ws_id)
         if not db.get_workspace(target_ws_id):
             db.create_workspace(
@@ -1237,6 +1258,8 @@ async def image_to_raw_mesh(
             workspace_id=target_ws_id,
             operation_type="generate_raw_mesh",
             input_asset_id=source_asset.asset_id if source_asset else mesh_request.image_file_id,
+            parent_operation_id=mesh_request.parent_operation_id,
+            regenerate=bool(mesh_request.parent_operation_id),
             settings={
                 "intent": getattr(mesh_request, "intent", None),
                 "quality_mode": mesh_request.quality_mode,
@@ -1605,6 +1628,9 @@ async def image_to_textured_mesh(
         if not target_ws_id:
             target_ws_id = ws_storage.mint_workspace_id(chosen_stem)
 
+        _validate_regeneration_parent(
+            db, mesh_request.parent_operation_id, target_ws_id, "generate_textured_mesh"
+        )
         ws_storage.create_workspace_tree(target_ws_id)
         if not db.get_workspace(target_ws_id):
             db.create_workspace(
@@ -1619,6 +1645,8 @@ async def image_to_textured_mesh(
             workspace_id=target_ws_id,
             operation_type="generate_textured_mesh",
             input_asset_id=source_asset.asset_id if source_asset else mesh_request.image_file_id,
+            parent_operation_id=mesh_request.parent_operation_id,
+            regenerate=bool(mesh_request.parent_operation_id),
             settings={
                 "intent": getattr(mesh_request, "intent", None),
                 "quality_mode": mesh_request.quality_mode,

@@ -10,7 +10,7 @@ export const OperationActionBar: React.FC = () => {
   const {
     executionState, persistenceState, setPersistenceState,
     workspaceId, currentAsset, activeTask, jobsById, activeTool, addAsset, selectAsset,
-    workspaceVersions, setWorkspaceVersions, restorePreviewBaseline,
+    workspaceVersions, setWorkspaceVersions, restorePreviewBaseline, regeneratePreview,
   } = useWorkspace();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const previewTask = currentAsset?.operation_id
@@ -89,6 +89,21 @@ export const OperationActionBar: React.FC = () => {
     }
   };
 
+  const canRegenerate = previewTask?.type === 'image-to-3d' &&
+    Boolean(previewTask.submissionSnapshot && operationId && taskWorkspaceId === workspaceId);
+
+  const handleRegeneratePreview = async () => {
+    if (isSubmitting || !canRegenerate || !previewTask) return;
+    setIsSubmitting(true);
+    try {
+      await regeneratePreview(previewTask.id);
+    } catch {
+      // The workspace action reports the actionable failure through its toast.
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleDiscardPreview = async () => {
     if (isSubmitting) return;
     const baseline = previewTask?.previewBaseline;
@@ -138,7 +153,9 @@ export const OperationActionBar: React.FC = () => {
         {persistenceState === 'saving' ? <HugeiconsIcon icon={LoaderCircle} size={14} className="animate-spin text-black" /> : <HugeiconsIcon icon={CheckIcon} size={14} className="stroke-[2.5]" />}
         <span>Keep in Workspace</span>
       </button>
-      <button type="button" disabled className="px-3 py-1.5 rounded-xl bg-white/[0.08] text-zinc-500 font-medium text-xs flex items-center gap-1.5 border border-white/[0.1] cursor-not-allowed opacity-60" title="Regenerate operation lineage is implemented in Batch 3C">
+      <button type="button" disabled={isSubmitting || !canRegenerate} onClick={handleRegeneratePreview}
+        className="px-3 py-1.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] text-zinc-200 font-medium text-xs flex items-center gap-1.5 border border-white/[0.1] active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        title={!canRegenerate ? 'Regenerate requires an image-to-mesh preview with its original request snapshot' : 'Create a new linked operation without replacing previous outputs'}>
         <HugeiconsIcon icon={RefreshCw} size={13} /><span>Regenerate</span>
       </button>
       <button type="button" disabled={isSubmitting || !previewTask?.previewBaseline} onClick={handleDiscardPreview}
