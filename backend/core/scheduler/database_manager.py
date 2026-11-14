@@ -67,7 +67,10 @@ class ProcessFileLock:
             import fcntl
             fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_EX)
         except Exception as e:
-            logger.debug("ProcessFileLock lock note: %s", e)
+            if self.lock_file:
+                self.lock_file.close()
+                self.lock_file = None
+            raise RuntimeError(f"Unable to acquire process lock at {self.lock_path}") from e
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -1152,119 +1155,286 @@ class DatabaseManager:
         operation_id: str,
         storage_manager: Optional[Any] = None,
     ) -> Dict[str, Any]:
-        """
-        Keep in Workspace lifecycle transition:
-        - Transitions persistence_status from not_saved -> saving -> saved.
-        - Stages and publishes temp output files to permanent tool folder.
-        - Registers asset in SQLite assets table (is_retained = 1).
-        - Updates active mesh asset in workspace.
-        - Re-projects metadata.json atomically.
-        """
+        """Persist one completed operation output exactly once in its workspace."""
         mgr = storage_manager or get_workspace_storage_manager()
-        op = self.get_operation(operation_id)
-        if not op:
-            raise ValueError(f"Operation {operation_id} not found")
-        if op.execution_status != ExecutionStatus.COMPLETED:
-            raise ValueError(
-                f"Cannot keep uncompleted operation (current status: {op.execution_status})"
-            )
+        mgr.assert_safe_id(operation_id)
 
-        self.update_operation_persistence_status(operation_id, PersistenceStatus.SAVING)
+        with ProcessFileLock(lock_path=mgr.storage_root / ".workspace_persistence.lock"):
+            op = self.get_operation(operation_id)
+            if not op:
+                raise ValueError(f"Operation {operation_id} not found")
+            if op.execution_status != ExecutionStatus.COMPLETED:
+                raise ValueError(
+                    f"Cannot keep uncompleted operation (current status: {op.execution_status})"
+                )
 
-        try:
-            ws_dir = mgr.get_workspace_dir(op.workspace_id)
-            temp_dir = Path(op.temp_dir) if op.temp_dir else mgr.get_temp_dir() / operation_id
-            if not temp_dir.exists():
+            ws_dir = mgr.get_workspace_dir(op.workspace_id).resolve()
+            if not ws_dir.is_dir():
+                raise FileNotFoundError(f"Workspace directory {ws_dir} does not exist")
+
+            def _asset_result(asset: AssetModel) -> Dict[str, Any]:
+                mesh_path = (ws_dir / asset.relative_path).resolve()
+                if not mesh_path.is_relative_to(ws_dir) or not mesh_path.is_file():
+                    raise FileNotFoundError(
+                        f"Saved asset file is missing or outside workspace: {asset.relative_path}"
+                    )
+                thumbnail_path = None
+                if asset.thumbnail_path:
+                    thumb = (ws_dir / asset.thumbnail_path).resolve()
+                    if thumb.is_relative_to(ws_dir) and thumb.is_file():
+                        thumbnail_path = str(thumb)
+                return {
+                    "operation_id": operation_id,
+                    "asset_id": asset.asset_id,
+                    "relative_mesh_path": asset.relative_path,
+                    "relative_thumbnail_path": asset.thumbnail_path,
+                    "mesh_path": str(mesh_path),
+                    "thumbnail_path": thumbnail_path,
+                }
+
+            # A repeated Keep is a read of the already-persisted asset, never a new version.
+            with self.get_session() as session:
+                op_row = session.query(OperationModel).filter_by(operation_id=operation_id).first()
+                existing_asset = (
+                    session.query(AssetModel)
+                    .filter_by(operation_id=operation_id, is_retained=1)
+                    .first()
+                )
+                if op_row.persistence_status == PersistenceStatus.SAVED:
+                    if not existing_asset:
+                        raise RuntimeError(
+                            f"Operation {operation_id} is marked saved but has no retained asset"
+                        )
+                    session.expunge(existing_asset)
+                    return _asset_result(existing_asset)
+                if op_row.persistence_status not in (
+                    PersistenceStatus.NOT_SAVED,
+                    PersistenceStatus.SAVE_FAILED,
+                ):
+                    raise ValueError(
+                        f"Cannot keep operation in persistence state {op_row.persistence_status}"
+                    )
+                if existing_asset:
+                    existing_asset_id = existing_asset.asset_id
+                    op_row.persistence_status = PersistenceStatus.SAVED
+                    workspace = session.query(WorkspaceModel).filter_by(
+                        workspace_id=op.workspace_id
+                    ).first()
+                    if not workspace:
+                        raise ValueError(f"Workspace {op.workspace_id} not found")
+                    workspace.active_mesh_asset_id = existing_asset_id
+                    workspace.updated_at = datetime.utcnow()
+                    session.commit()
+                    session.refresh(existing_asset)
+                    session.expunge(existing_asset)
+                    result = _asset_result(existing_asset)
+                    try:
+                        mgr.build_manifest_projection(op.workspace_id, self)
+                    except Exception as exc:
+                        logger.warning(
+                            "Saved operation %s but manifest projection failed: %s",
+                            operation_id,
+                            exc,
+                        )
+                    return result
+
+            temp_root = mgr.temp_root.resolve()
+            raw_temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / operation_id)
+            if raw_temp_dir.is_symlink():
+                raise ValueError("Operation temp directory must not be a symlink")
+            temp_dir = raw_temp_dir.resolve()
+            expected_temp_dir = (temp_root / operation_id).resolve()
+            if temp_dir != expected_temp_dir or not temp_dir.is_relative_to(temp_root):
+                raise ValueError("Operation temp directory is outside its assigned temp location")
+            if not temp_dir.is_dir():
                 raise FileNotFoundError(f"Operation temp directory {temp_dir} does not exist")
 
-            mesh_candidates = list(temp_dir.glob("*.glb")) + list(temp_dir.glob("*.obj"))
-            if not mesh_candidates:
-                raise FileNotFoundError(f"No mesh output found in {temp_dir}")
-            temp_mesh_path = mesh_candidates[0]
+            mesh_candidates = sorted(
+                [*temp_dir.glob("*.glb"), *temp_dir.glob("*.obj")],
+                key=lambda path: path.name,
+            )
+            temp_mesh_path = next(
+                (
+                    candidate.resolve()
+                    for candidate in mesh_candidates
+                    if not candidate.is_symlink()
+                    and candidate.resolve().parent == temp_dir
+                    and candidate.is_file()
+                ),
+                None,
+            )
+            if temp_mesh_path is None:
+                raise FileNotFoundError(f"No safe GLB or OBJ output found in {temp_dir}")
+
             temp_thumb_path = temp_dir / "thumbnail.png"
-            if not temp_thumb_path.exists():
+            if temp_thumb_path.is_symlink():
+                raise ValueError("Operation thumbnail must not be a symlink")
+            if temp_thumb_path.exists():
+                temp_thumb_path = temp_thumb_path.resolve()
+                if temp_thumb_path.parent != temp_dir or not temp_thumb_path.is_file():
+                    raise ValueError("Operation thumbnail is outside its assigned temp directory")
+            else:
                 temp_thumb_path = None
 
-            pub_res = mgr.publish_derived_mesh(
-                workspace_id=op.workspace_id,
-                operation_type=op.operation_type,
-                temp_mesh_path=temp_mesh_path,
-                temp_thumbnail_path=temp_thumb_path,
+            self.update_operation_persistence_status(
+                operation_id, PersistenceStatus.SAVING
             )
 
-            new_asset_id = generate_asset_id()
-            mesh_file = pub_res["mesh_path"]
-            mesh_bytes = mesh_file.read_bytes()
-            sha = hashlib.sha256(mesh_bytes).hexdigest()
-
-            asset = self.add_asset(
-                asset_id=new_asset_id,
-                workspace_id=op.workspace_id,
-                file_type="mesh",
-                relative_path=pub_res["relative_mesh_path"],
-                original_filename=mesh_file.name,
-                byte_size=len(mesh_bytes),
-                sha256=sha,
-                thumbnail_path=pub_res["relative_thumbnail_path"],
-                operation_id=operation_id,
-                is_retained=True,
-                status="available",
-            )
-
-            self.update_workspace_active_mesh(op.workspace_id, new_asset_id)
-            mgr.build_manifest_projection(op.workspace_id, self)
-            self.update_operation_persistence_status(operation_id, PersistenceStatus.SAVED)
-
-            return {
-                "operation_id": operation_id,
-                "asset_id": new_asset_id,
-                "relative_mesh_path": pub_res["relative_mesh_path"],
-                "relative_thumbnail_path": pub_res["relative_thumbnail_path"],
-                "mesh_path": str(pub_res["mesh_path"]),
-            }
-        except Exception as e:
-            logger.error("Failed to keep operation %s in workspace: %s", operation_id, e)
+            published = None
+            db_committed = False
             try:
-                self.update_operation_persistence_status(
-                    operation_id, PersistenceStatus.SAVE_FAILED
+                published = mgr.publish_derived_mesh(
+                    workspace_id=op.workspace_id,
+                    operation_type=op.operation_type,
+                    temp_mesh_path=temp_mesh_path,
+                    temp_thumbnail_path=temp_thumb_path,
                 )
-            except Exception:
-                pass
-            raise
+                mesh_file = published["mesh_path"]
+                mesh_bytes = mesh_file.read_bytes()
+                asset_id = generate_asset_id()
+                asset = AssetModel(
+                    asset_id=asset_id,
+                    workspace_id=op.workspace_id,
+                    operation_id=operation_id,
+                    file_type="mesh",
+                    relative_path=published["relative_mesh_path"],
+                    original_filename=mesh_file.name,
+                    byte_size=len(mesh_bytes),
+                    sha256=hashlib.sha256(mesh_bytes).hexdigest(),
+                    thumbnail_path=published["relative_thumbnail_path"],
+                    is_retained=1,
+                    status="available",
+                    created_at=datetime.utcnow(),
+                )
+
+                # Asset registration, active-mesh selection and SAVED transition commit together.
+                with self.get_session() as session:
+                    op_row = session.query(OperationModel).filter_by(
+                        operation_id=operation_id
+                    ).first()
+                    workspace = session.query(WorkspaceModel).filter_by(
+                        workspace_id=op.workspace_id
+                    ).first()
+                    if not op_row or op_row.persistence_status != PersistenceStatus.SAVING:
+                        raise RuntimeError("Operation persistence state changed while saving")
+                    if not workspace:
+                        raise ValueError(f"Workspace {op.workspace_id} not found")
+                    session.add(asset)
+                    workspace.active_mesh_asset_id = asset_id
+                    workspace.updated_at = datetime.utcnow()
+                    op_row.persistence_status = PersistenceStatus.SAVED
+                    session.commit()
+                    db_committed = True
+
+                manifest_updated = True
+                try:
+                    mgr.build_manifest_projection(op.workspace_id, self)
+                except Exception as exc:
+                    manifest_updated = False
+                    logger.warning(
+                        "Operation %s saved; metadata projection will need rebuilding: %s",
+                        operation_id,
+                        exc,
+                    )
+
+                return {
+                    "operation_id": operation_id,
+                    "asset_id": asset_id,
+                    "relative_mesh_path": published["relative_mesh_path"],
+                    "relative_thumbnail_path": published["relative_thumbnail_path"],
+                    "mesh_path": str(mesh_file),
+                    "thumbnail_path": str(published["thumbnail_path"]) if published["thumbnail_path"] else None,
+                    "manifest_updated": manifest_updated,
+                }
+            except Exception as exc:
+                if not db_committed and published:
+                    for published_path in (published.get("mesh_path"), published.get("thumbnail_path")):
+                        if published_path:
+                            try:
+                                Path(published_path).unlink(missing_ok=True)
+                            except OSError as cleanup_exc:
+                                logger.warning(
+                                    "Could not roll back published file %s: %s",
+                                    published_path,
+                                    cleanup_exc,
+                                )
+                if not db_committed:
+                    try:
+                        self.update_operation_persistence_status(
+                            operation_id, PersistenceStatus.SAVE_FAILED
+                        )
+                    except Exception as state_exc:
+                        logger.error(
+                            "Could not mark operation %s save_failed: %s",
+                            operation_id,
+                            state_exc,
+                        )
+                logger.error("Failed to keep operation %s in workspace: %s", operation_id, exc)
+                raise
 
     def discard_operation_preview(
         self,
         operation_id: str,
         storage_manager: Optional[Any] = None,
     ) -> bool:
-        """
-        Discard preview:
-        - Validates transition to discarded.
-        - Purges storage/temp/<operation_id>/ without touching saved assets.
-        - Sets persistence_status = discarded.
-        """
-        op = self.get_operation(operation_id)
-        if not op:
-            return False
+        """Discard only this operation's temp preview; retain job and workspace history."""
+        mgr = storage_manager or get_workspace_storage_manager()
+        mgr.assert_safe_id(operation_id)
 
-        self.update_operation_persistence_status(operation_id, PersistenceStatus.DISCARDED)
+        with ProcessFileLock(lock_path=mgr.storage_root / ".workspace_persistence.lock"):
+            op = self.get_operation(operation_id)
+            if not op:
+                return False
+            if op.persistence_status in (
+                PersistenceStatus.SAVED,
+                PersistenceStatus.SAVING,
+            ):
+                raise ValueError(
+                    f"Cannot discard operation in persistence state {op.persistence_status}"
+                )
 
-        temp_dir_path = None
-        if op.temp_dir:
-            temp_dir_path = Path(op.temp_dir)
-        else:
-            mgr = storage_manager or get_workspace_storage_manager()
-            temp_dir_path = mgr.get_temp_dir() / operation_id
+            temp_root = mgr.temp_root.resolve()
+            raw_temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / operation_id)
+            if raw_temp_dir.is_symlink():
+                raise ValueError("Operation temp directory must not be a symlink")
+            temp_dir = raw_temp_dir.resolve()
+            expected_temp_dir = (temp_root / operation_id).resolve()
+            if temp_dir != expected_temp_dir or not temp_dir.is_relative_to(temp_root):
+                raise ValueError("Operation temp directory is outside its assigned temp location")
 
-        if temp_dir_path and temp_dir_path.exists():
-            try:
-                resolved = temp_dir_path.resolve()
-                if "temp" in resolved.parts:
-                    shutil.rmtree(resolved)
-            except Exception as e:
-                logger.warning("Error purging discarded temp dir %s: %s", temp_dir_path, e)
+            if op.persistence_status == PersistenceStatus.PREVIEW_EXPIRED:
+                return True
+            if op.persistence_status not in (
+                PersistenceStatus.NOT_SAVED,
+                PersistenceStatus.SAVE_FAILED,
+                PersistenceStatus.CLEANUP_PENDING,
+                PersistenceStatus.DISCARDED,
+            ):
+                raise ValueError(
+                    f"Cannot discard operation in persistence state {op.persistence_status}"
+                )
 
-        return True
+            if temp_dir.exists():
+                if op.persistence_status != PersistenceStatus.CLEANUP_PENDING:
+                    self.update_operation_persistence_status(
+                        operation_id, PersistenceStatus.CLEANUP_PENDING
+                    )
+                try:
+                    if not temp_dir.is_dir():
+                        raise ValueError("Operation temp path is not a directory")
+                    shutil.rmtree(temp_dir)
+                except OSError as exc:
+                    logger.warning(
+                        "Discard cleanup remains pending for operation %s: %s",
+                        operation_id,
+                        exc,
+                    )
+                    raise
+            if op.persistence_status != PersistenceStatus.DISCARDED:
+                self.update_operation_persistence_status(
+                    operation_id, PersistenceStatus.DISCARDED
+                )
+            return True
 
     def recover_orphaned_operations(
         self,
