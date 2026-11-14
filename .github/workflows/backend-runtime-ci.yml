@@ -28,7 +28,7 @@ jobs:
           cache: pip
 
       - name: Install lightweight test dependencies
-        run: python -m pip install --upgrade pytest packaging pyyaml fastapi aiofiles sqlalchemy numpy scipy trimesh pillow psutil scikit-image matplotlib pydantic-settings
+        run: python -m pip install --upgrade pytest packaging pyyaml fastapi aiofiles sqlalchemy numpy scipy trimesh pillow psutil scikit-image matplotlib pydantic-settings huggingface_hub python-multipart
 
       - name: Install CPU PyTorch for adapter regression tests
         run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -38,6 +38,13 @@ jobs:
 
       - name: Run Batch 1 backend regression tests
         run: python -m pytest -q backend/tests/test_batch1_regressions.py
+
+      - name: Run workspace lifecycle, regeneration, and API integration contracts
+        run: >-
+          python -m pytest -q
+          backend/tests/test_batch3_queue_and_lifecycle.py
+          backend/tests/test_workspace_regeneration.py
+          backend/tests/test_batch4_api_integration.py
 
       - name: Check model downloader shell syntax
         run: bash -n backend/scripts/download_models.sh

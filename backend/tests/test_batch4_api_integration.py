@@ -138,6 +138,7 @@ def batch4_app_client(tmp_path, monkeypatch):
 
     # Register routers matching production API prefix structure
     test_app.include_router(system.router, prefix="/api/v1/system")
+    test_app.include_router(system.router, prefix="/api/v1")
     test_app.include_router(file_upload.router, prefix="/api/v1")
     test_app.include_router(mesh_generation.router, prefix="/api/v1")
     test_app.include_router(auto_rigging.router, prefix="/api/v1")
@@ -223,6 +224,75 @@ def test_b4_t1_image_to_raw_mesh_response_and_operation_registration(batch4_app_
     assert op.workspace_id == ws_id
     assert op.execution_status == ExecutionStatus.QUEUED
     assert op.persistence_status == PersistenceStatus.NOT_SAVED
+
+
+def test_b4_t1_regeneration_creates_new_operation_with_parent_lineage(batch4_app_client):
+    """Regeneration must reuse the image/settings/workspace and preserve the parent operation."""
+    client = batch4_app_client["client"]
+    db = batch4_app_client["db"]
+
+    image = io.BytesIO()
+    Image.new("RGB", (64, 64), color="purple").save(image, format="PNG")
+    upload = client.post(
+        "/api/v1/file-upload/image",
+        files={"file": ("lineage_input.png", image.getvalue(), "image/png")},
+    )
+    assert upload.status_code == 200, upload.text
+    asset_id = upload.json()["asset_id"]
+    workspace_id = upload.json()["workspace_id"]
+
+    original_request = {
+        "image_file_id": asset_id,
+        "workspace_id": workspace_id,
+        "quality_mode": "high",
+        "model_preference": "trellis2_image_to_raw_mesh",
+    }
+    first = client.post("/api/v1/mesh-generation/image-to-raw-mesh", json=original_request)
+    assert first.status_code == 200, first.text
+    first_data = first.json()
+    parent_id = first_data["operation_id"]
+    parent = db.get_operation(parent_id)
+    assert parent is not None
+
+    # An active parent cannot be regenerated.
+    rejected = client.post(
+        "/api/v1/mesh-generation/image-to-raw-mesh",
+        json={**original_request, "parent_operation_id": parent_id},
+    )
+    assert rejected.status_code == 409
+
+    db.update_operation_execution_status(parent_id, ExecutionStatus.PROCESSING)
+    db.update_operation_execution_status(
+        parent_id, ExecutionStatus.COMPLETED, result={"preview": "parent-output"}
+    )
+
+    changed_settings = client.post(
+        "/api/v1/mesh-generation/image-to-raw-mesh",
+        json={**original_request, "quality_mode": "low", "parent_operation_id": parent_id},
+    )
+    assert changed_settings.status_code == 409
+
+    regenerated = client.post(
+        "/api/v1/mesh-generation/image-to-raw-mesh",
+        json={**original_request, "parent_operation_id": parent_id},
+    )
+    assert regenerated.status_code == 200, regenerated.text
+    child_data = regenerated.json()
+    assert child_data["operation_id"] != parent_id
+    assert child_data["workspace_id"] == workspace_id
+    assert child_data["job_id"] == workspace_id
+    assert child_data["route_path"] == f"/workspace/generate/{workspace_id}"
+
+    child = db.get_operation(child_data["operation_id"])
+    parent_after = db.get_operation(parent_id)
+    assert child is not None
+    assert child.parent_operation_id == parent_id
+    assert child.input_asset_id == parent.input_asset_id == asset_id
+    assert child.operation_type == parent.operation_type == "generate_raw_mesh"
+    assert parent_after is not None
+    assert parent_after.execution_status == ExecutionStatus.COMPLETED
+    assert json.loads(parent_after.result_json) == {"preview": "parent-output"}
+    assert json.loads(child.settings_snapshot) == json.loads(parent.settings_snapshot)
 
 
 def test_b4_t1_image_to_textured_mesh_response_and_operation_registration(batch4_app_client):
@@ -451,6 +521,55 @@ def test_b4_t3_mesh_tools_format_validation(batch4_app_client):
     )
     assert resp.status_code == 400
     assert "Unsupported mesh format" in resp.text
+
+
+def test_b4_t3_keep_and_discard_api_endpoints(batch4_app_client):
+    """Verify the actual frontend-facing Keep/Discard routes preserve operation history."""
+    client = batch4_app_client["client"]
+    db = batch4_app_client["db"]
+    ws_manager = batch4_app_client["ws_manager"]
+
+    workspace_id = "ws_api_persistence_004"
+    ws_manager.create_workspace_tree(workspace_id)
+    db.create_workspace(workspace_id=workspace_id, name="API Persistence Test")
+
+    keep_id = "op_api_keep_004"
+    keep_temp = ws_manager.create_operation_temp(keep_id)
+    keep_mesh = keep_temp / "output.glb"
+    keep_mesh.write_bytes(b"glTF\\x02\\x00\\x00\\x00keep-api")
+    db.enqueue_operation(
+        operation_id=keep_id,
+        workspace_id=workspace_id,
+        operation_type="retopology",
+        temp_dir=str(keep_temp),
+    )
+    db.update_operation_execution_status(keep_id, ExecutionStatus.PROCESSING)
+    db.update_operation_execution_status(keep_id, ExecutionStatus.COMPLETED)
+
+    keep_response = client.post(f"/api/v1/workspace/operations/{keep_id}/keep")
+    assert keep_response.status_code == 200, keep_response.text
+    kept = keep_response.json()
+    assert kept["asset_id"].startswith("ast_")
+    assert Path(kept["mesh_path"]).is_file()
+    assert db.get_operation(keep_id).persistence_status == PersistenceStatus.SAVED
+
+    discard_id = "op_api_discard_004"
+    discard_temp = ws_manager.create_operation_temp(discard_id)
+    (discard_temp / "preview.glb").write_bytes(b"glTF\\x02\\x00\\x00\\x00discard-api")
+    db.enqueue_operation(
+        operation_id=discard_id,
+        workspace_id=workspace_id,
+        operation_type="texture",
+        temp_dir=str(discard_temp),
+    )
+    db.update_operation_execution_status(discard_id, ExecutionStatus.PROCESSING)
+    db.update_operation_execution_status(discard_id, ExecutionStatus.COMPLETED)
+
+    discard_response = client.post(f"/api/v1/workspace/operations/{discard_id}/discard")
+    assert discard_response.status_code == 200, discard_response.text
+    assert not discard_temp.exists()
+    assert db.get_operation(discard_id).persistence_status == PersistenceStatus.DISCARDED
+    assert Path(kept["mesh_path"]).is_file(), "Discard must not remove a retained asset"
 
 
 # ==============================================================================

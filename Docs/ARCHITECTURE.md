@@ -1082,3 +1082,12 @@ Each task captures a versioned, immutable UI baseline before execution starts. T
 ## Workspace Preview Actions — Batch 3B
 
 Keep and Discard are wired to the existing authoritative system-router endpoints. Keep requires the real operation ID and accepts only the retained asset ID returned by SQLite-backed persistence; frontend state is not marked saved when the request fails. Discard validates the task's in-memory baseline before asking the backend to remove only that operation's temp preview, then restores workspace selection, active mesh, versions, execution/persistence state, viewer asset/statistics, shading, wireframe, comparison state, and the captured Three.js camera. A first operation may have a null pre-operation workspace ID; restoration is allowed only while the current workspace still belongs to that task. Discard is disabled when the baseline is unavailable (for example, after a reload), and a backend operation with no operation ID is never deleted by guessing.
+
+
+## Workspace Preview Regeneration — Batch 3C
+
+Image-to-mesh tasks retain the exact original endpoint and JSON request snapshot for the lifetime of the task. Regenerate clones that request, preserves the canonical workspace ID and route, and supplies the current operation as parent_operation_id. The backend accepts only a completed parent from the same workspace and matching generation type, then creates a new operation ID. Parent operations and previously retained outputs are not overwritten. Regenerated outputs enter the existing preview and Keep/Discard lifecycle. This in-memory request snapshot is intentionally task-scoped; after a reload, Regenerate is disabled when the exact original request is unavailable.
+
+## Workspace Lifecycle Integration — Batch 4
+
+The API integration contract covers generation response envelopes, SQLite operation registration, parent-linked regeneration, workspace deep-link hydration, SQLite status fallback, specialist-tool prerequisites, and the frontend-facing Keep/Discard routes. Backend CI runs these contracts alongside the queue/lifecycle and regeneration-parent tests. The CI suite uses a mock scheduler and temporary SQLite/storage roots; it verifies API and persistence contracts without claiming a live GPU inference test. A live deployment smoke test remains a release check.

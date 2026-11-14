@@ -6,6 +6,7 @@ result downloading.
 """
 
 import asyncio
+import json
 import logging
 import shutil
 import tempfile
@@ -33,8 +34,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/mesh-generation", tags=["mesh_generation"])
 
 
-def _validate_regeneration_parent(db, parent_operation_id: Optional[str], workspace_id: str, operation_type: str) -> None:
-    """Require regeneration to branch from a completed operation in the same workspace."""
+def _validate_regeneration_parent(
+    db,
+    parent_operation_id: Optional[str],
+    workspace_id: str,
+    operation_type: str,
+    input_asset_id: Optional[str],
+    settings: Dict[str, Any],
+) -> None:
+    """Require regeneration to preserve the completed parent's workspace, input, and settings."""
     if not parent_operation_id:
         return
     parent = db.get_operation(parent_operation_id)
@@ -47,6 +55,14 @@ def _validate_regeneration_parent(db, parent_operation_id: Optional[str], worksp
         raise HTTPException(status_code=409, detail="Only completed operations can be regenerated")
     if parent.operation_type != operation_type:
         raise HTTPException(status_code=409, detail="Parent operation type does not match the regeneration request")
+    if parent.input_asset_id != input_asset_id:
+        raise HTTPException(status_code=409, detail="Regeneration must use the parent's original input asset")
+    try:
+        parent_settings = json.loads(parent.settings_snapshot) if parent.settings_snapshot else {}
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=409, detail="Parent operation settings snapshot is invalid")
+    if parent_settings != settings:
+        raise HTTPException(status_code=409, detail="Regeneration settings must match the parent's original snapshot")
 
 _LEGACY_TEXTURED_MODEL_ALIASES = {
     "trellis_image_to_textured_mesh": "trellis_image_to_raw_mesh",
@@ -1241,8 +1257,20 @@ async def image_to_raw_mesh(
         if not target_ws_id:
             target_ws_id = ws_storage.mint_workspace_id(chosen_stem)
 
+        operation_input_asset_id = source_asset.asset_id if source_asset else mesh_request.image_file_id
+        operation_settings = {
+            "intent": getattr(mesh_request, "intent", None),
+            "quality_mode": mesh_request.quality_mode,
+            "target_polycount": target_polycount,
+            "model_preference": model_id,
+        }
         _validate_regeneration_parent(
-            db, mesh_request.parent_operation_id, target_ws_id, "generate_raw_mesh"
+            db,
+            mesh_request.parent_operation_id,
+            target_ws_id,
+            "generate_raw_mesh",
+            operation_input_asset_id,
+            operation_settings,
         )
         ws_storage.create_workspace_tree(target_ws_id)
         if not db.get_workspace(target_ws_id):
@@ -1257,15 +1285,10 @@ async def image_to_raw_mesh(
             operation_id=gen_op_id,
             workspace_id=target_ws_id,
             operation_type="generate_raw_mesh",
-            input_asset_id=source_asset.asset_id if source_asset else mesh_request.image_file_id,
+            input_asset_id=operation_input_asset_id,
             parent_operation_id=mesh_request.parent_operation_id,
             regenerate=bool(mesh_request.parent_operation_id),
-            settings={
-                "intent": getattr(mesh_request, "intent", None),
-                "quality_mode": mesh_request.quality_mode,
-                "target_polycount": target_polycount,
-                "model_preference": model_id,
-            },
+            settings=operation_settings,
         )
         op_row = op_res[0] if isinstance(op_res, tuple) else op_res
         operation_id = op_row.operation_id
@@ -1628,8 +1651,20 @@ async def image_to_textured_mesh(
         if not target_ws_id:
             target_ws_id = ws_storage.mint_workspace_id(chosen_stem)
 
+        operation_input_asset_id = source_asset.asset_id if source_asset else mesh_request.image_file_id
+        operation_settings = {
+            "intent": getattr(mesh_request, "intent", None),
+            "quality_mode": mesh_request.quality_mode,
+            "target_polycount": target_polycount,
+            "model_preference": model_id,
+        }
         _validate_regeneration_parent(
-            db, mesh_request.parent_operation_id, target_ws_id, "generate_textured_mesh"
+            db,
+            mesh_request.parent_operation_id,
+            target_ws_id,
+            "generate_textured_mesh",
+            operation_input_asset_id,
+            operation_settings,
         )
         ws_storage.create_workspace_tree(target_ws_id)
         if not db.get_workspace(target_ws_id):
@@ -1644,15 +1679,10 @@ async def image_to_textured_mesh(
             operation_id=gen_op_id,
             workspace_id=target_ws_id,
             operation_type="generate_textured_mesh",
-            input_asset_id=source_asset.asset_id if source_asset else mesh_request.image_file_id,
+            input_asset_id=operation_input_asset_id,
             parent_operation_id=mesh_request.parent_operation_id,
             regenerate=bool(mesh_request.parent_operation_id),
-            settings={
-                "intent": getattr(mesh_request, "intent", None),
-                "quality_mode": mesh_request.quality_mode,
-                "target_polycount": target_polycount,
-                "model_preference": model_id,
-            },
+            settings=operation_settings,
         )
         op_row = op_res[0] if isinstance(op_res, tuple) else op_res
         operation_id = op_row.operation_id

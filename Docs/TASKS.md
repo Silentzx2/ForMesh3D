@@ -132,4 +132,16 @@ This document records the exact inventory of dead, orphaned, and obsolete non-fe
 - [x] Create a new operation ID with the real parent_operation_id lineage; never overwrite the prior operation or its output.
 - [x] Load the regenerated result through the existing job polling and preview lifecycle.
 - [x] Add contract tests for request snapshot isolation, parent identity, and cross-workspace rejection.
-- [ ] Verify the full Keep → Regenerate → Keep and Discard → restore flows against a running backend.
+- [ ] Verify the full Keep → Regenerate → Keep and Discard → restore flows against a running GPU backend.
+
+## Workspace Lifecycle Integration & Final Verification — Batch 4
+- [x] Verify raw and textured generation API envelopes and SQLite operation registration.
+- [x] Verify regeneration creates a new operation with the completed parent_operation_id, same source asset, workspace ID, and route.
+- [x] Reject regeneration from queued/processing parents, another workspace, or another operation type.
+- [x] Verify workspace deep-link hydration and SQLite job-status fallback without rerunning inference.
+- [x] Verify specialist tool operation registration and mesh prerequisite/format validation.
+- [x] Verify frontend-facing Keep and Discard API routes, retained-asset safety, and operation history.
+- [x] Verify API error path sanitization and cancellation delegation.
+- [x] Run workspace lifecycle, regeneration, and API integration suites in backend CI.
+- [x] Add lightweight huggingface_hub and python-multipart dependencies required by the model-factory and API integration tests.
+- [ ] Perform a live GPU end-to-end generation/Keep/Regenerate/Discard smoke test on the deployment machine.
