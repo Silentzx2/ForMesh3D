@@ -253,8 +253,6 @@ QualityBadge.displayName = 'QualityBadge';
 // ==========================================
 // 2. Focused GeneratePanel Component
 // ==========================================
-export type GenerationIntent = 'game_ready' | 'cinematic' | 'mobile' | 'native';
-
 export const GeneratePanel: React.FC = () => {
   const {
     isExecuting,
@@ -267,66 +265,55 @@ export const GeneratePanel: React.FC = () => {
   } = useWorkspace();
 
   const [isGeneralSettingsOpen, setIsGeneralSettingsOpen] = useState(false);
-  const [intent, setIntent] = useState<GenerationIntent>('game_ready');
 
   // ===== Dynamic model list from backend (weights-aware) =====
   const { modelDetails, weightsStatus, getModelsForFeature, loading: modelsLoading } = useFeatureAvailability();
 
-  // Models completely disabled from UI per user direction (trellis2, pixal3d, taoflowforge, unique3d)
-  const isMeshModelDisabled = (mid: string) => {
-    const lower = mid.toLowerCase();
-    return (
-      lower.startsWith('trellis2') ||
-      lower.startsWith('pixal3d') ||
-      lower.startsWith('taoflowforge') ||
-      lower.startsWith('unique3d')
-    );
-  };
-
-  const MESH_MODEL_LABELS: Record<string, { label: string; tag: string; note: string }> = {
-    'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh': { label: 'Hunyuan3D-2 Mini Turbo', tag: 'Fast Geometry', note: 'Fast Geometry · Official locked profile' },
-    'triposg_image_to_raw_mesh': { label: 'TripoSG', tag: 'Hierarchical Geometry', note: 'Stable · 1024 resolution' },
-    'hunyuan3d_shape_v21_image_to_raw_mesh': { label: 'Hunyuan3D-2.1 Shape', tag: 'High Detail', note: '10GB VRAM · 50 steps · 512 octree' },
-    'unique3d_image_to_raw_mesh': { label: 'Unique3D', tag: 'Legacy / Deprecated', note: 'Working but not actively used' },
-    'trellis_image_to_3d': { label: 'TRELLIS', tag: 'Stable', note: '50-step inference' },
-    'trellis_image_to_raw_mesh': { label: 'TRELLIS', tag: 'Raw Mesh', note: 'Stable production model' },
-  };
-
-  const KNOWN_MESH_MODEL_IDS = [
-    'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh',
-    'triposg_image_to_raw_mesh',
-    'hunyuan3d_shape_v21_image_to_raw_mesh',
-    'trellis_image_to_raw_mesh',
-    'trellis_image_to_3d',
-  ];
-
   const meshModels = useMemo(() => {
-    const rawIds = [
-      ...getModelsForFeature('image_to_raw_mesh'),
-      ...getModelsForFeature('image-to-raw-mesh'),
-      ...getModelsForFeature('image_to_mesh'),
-      ...getModelsForFeature('image_to_textured_mesh'),
-      ...getModelsForFeature('image-to-textured-mesh'),
+    // Collect all models where category is 'mesh' or feature relates to mesh generation
+    const registeredIds = Object.keys(modelDetails);
+    const candidatePool = registeredIds.filter((mid) => {
+      const detail = modelDetails[mid];
+      if (!detail || detail.enabled === false) return false;
+      const type = detail.model_type || '';
+      const feat = detail.feature || '';
+      return (
+        type === 'mesh' ||
+        feat === 'image_to_raw_mesh' ||
+        feat === 'image-to-raw-mesh' ||
+        feat === 'image_to_mesh' ||
+        feat === 'image-to-mesh' ||
+        feat === 'image_to_textured_mesh' ||
+        feat === 'image-to-textured-mesh'
+      );
+    });
+    // Fallback if modelDetails not loaded yet
+    const fallbackIds = [
+      'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh',
+      'triposg_image_to_raw_mesh',
+      'hunyuan3d_shape_v21_image_to_raw_mesh',
+      'trellis_image_to_raw_mesh',
+      'trellis_image_to_3d',
     ];
-    const candidatePool = rawIds.length > 0 ? rawIds : KNOWN_MESH_MODEL_IDS;
-    const uniqueCandidates = Array.from(new Set(candidatePool));
+    const pool = candidatePool.length > 0 ? candidatePool : fallbackIds;
+    const uniqueCandidates = Array.from(new Set(pool));
 
     return uniqueCandidates
-      .filter((mid) => !isMeshModelDisabled(mid))
       .filter((mid) => {
         // Strict weight check: only display models whose weights are verified available
         return weightsStatus[mid] === true || modelDetails[mid]?.weights_available === true;
       })
       .map((mid) => {
-        const info = MESH_MODEL_LABELS[mid];
+        const detail = modelDetails[mid];
         return {
           id: mid,
-          label: info?.label || mid,
-          tag: info?.tag || 'Ready',
-          note: info?.note || '',
+          label: detail?.ui_label || detail?.model_name || mid,
+          tag: detail?.ui_tag || 'Ready',
+          note: detail?.ui_note || '',
+          badge: detail?.ui_badge || '',
         };
       });
-  }, [getModelsForFeature, modelDetails, weightsStatus]);
+  }, [modelDetails, weightsStatus]);
 
   const defaultMeshModel = useMemo(() => {
     return meshModels[0]?.id || 'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh';
@@ -358,7 +345,7 @@ export const GeneratePanel: React.FC = () => {
   const [isGeomTextureOpen, setIsGeomTextureOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [enableTexture, setEnableTexture] = useState(true);
-  const [textureQuality, setTextureQuality] = useState<'2K' | '4K'>('4K');
+  const [textureQuality, setTextureQuality] = useState<'512' | '1K' | '2K' | '4K'>('2K');
   const [removeLighting, setRemoveLighting] = useState(true);
   const [enablePbr, setEnablePbr] = useState(true);
   const [topologyMode, setTopologyMode] = useState<'Quad' | 'Triangle'>('Triangle');
@@ -366,28 +353,62 @@ export const GeneratePanel: React.FC = () => {
   const [seed, setSeed] = useState<number | ''>(typeof generationSettings.seed === 'number' ? generationSettings.seed : '');
 
   // ==========================================
-  // Texture Support State Machine (implicit)
-  // States: 'none' (model has no texture pipeline)
-  //         → '2k'  (model supports texture, max 2048 atlas)
-  //         → '4k'  (model supports texture up to 4096+ atlas)
-  // Triggers: selectedModel changes
-  // Transitions driven by TEXTURE_CAPABILITY lookup below.
-  // Shortcut: hardcoded map from models.yaml capabilities; upgrade path is to
-  // read texture_generation + output_resolution from backend config dynamically.
+  // Dynamic Model Capability Mapping (from models.yaml API metadata)
   // ==========================================
-  const TEXTURE_CAPABILITY: Record<string, 'none' | '2k' | '4k'> = {
-    // 4K-capable texture pipeline models
-    'trellis2_image_mesh_painting': '4k',
-    'hunyuan3d_paint_v21_image_mesh_painting': '4k',
-    'hunyuan3d_v20_paint_image_mesh_painting': '4k',
-    'stable_fast_3d_image_to_textured_mesh': '4k',
-    // 2K-only texture pipeline models
-    'trellis_image_mesh_painting': '2k',
-  };
-  // All other models (raw mesh generators, etc.) default to 'none'.
+  const selectedModelDetail = modelDetails[selectedModel];
+  const modelCapabilities = selectedModelDetail?.capabilities || {};
 
-  // Derived texture support state — recomputed whenever selectedModel changes
-  const textureSupport: 'none' | '2k' | '4k' = TEXTURE_CAPABILITY[selectedModel] ?? 'none';
+  const supportedResolutions: ('512' | '1K' | '2K' | '4K')[] =
+    (modelCapabilities.supported_texture_resolutions as any) ||
+    (modelCapabilities.texture_generation ? ['1K', '2K'] : []);
+  const modelSupportsTexture = supportedResolutions.length > 0;
+  const modelSupportsQuad = Boolean(
+    modelCapabilities.supports_quad_topology ?? modelCapabilities.native_topology
+  );
+  const minPolycount = modelCapabilities.min_polycount ?? 500;
+  const maxPolycount = modelCapabilities.max_polycount ?? 600000;
+  const polycountStep = modelCapabilities.polycount_step ?? 2500;
+
+  // State synchronization when selectedModel changes
+  useEffect(() => {
+    // 1. Clamping texture resolution
+    if (supportedResolutions.length > 0 && !supportedResolutions.includes(textureQuality)) {
+      const fallback = supportedResolutions[supportedResolutions.length - 1];
+      setTextureQuality(fallback);
+      setGenerationSettings((prev) => ({
+        ...prev,
+        textureResolution: fallback as any,
+        texture_resolution: fallback as any,
+      }));
+    }
+    // 2. Clamping quad topology if model only supports triangles
+    if (!modelSupportsQuad && topologyMode === 'Quad') {
+      setTopologyMode('Triangle');
+      setGenerationSettings((prev) => ({
+        ...prev,
+        quadTopology: false,
+        topologyMode: 'triangle',
+      }));
+    }
+    // 3. Clamping polycount within model min/max bounds
+    if (polycount > maxPolycount) {
+      setPolycount(maxPolycount);
+      setGenerationSettings((prev) => ({
+        ...prev,
+        polycount: maxPolycount,
+        targetPolycount: maxPolycount,
+        target_polycount: maxPolycount,
+      }));
+    } else if (polycount < minPolycount) {
+      setPolycount(minPolycount);
+      setGenerationSettings((prev) => ({
+        ...prev,
+        polycount: minPolycount,
+        targetPolycount: minPolycount,
+        target_polycount: minPolycount,
+      }));
+    }
+  }, [selectedModel, supportedResolutions, modelSupportsQuad, textureQuality, topologyMode, minPolycount, maxPolycount]);
   const dragCounterRef = useRef(0);
 
   // Keep imagePreview in sync with workspace generationSettings
@@ -402,7 +423,6 @@ export const GeneratePanel: React.FC = () => {
     setGenerationSettings((prev) => ({
       ...prev,
       aiModel: prev.aiModel || selectedModel,
-      intent: prev.intent || intent,
       generateTexture: prev.generateTexture ?? enableTexture,
       texture_enabled: prev.texture_enabled ?? enableTexture,
       textureEnabled: prev.textureEnabled ?? enableTexture,
@@ -677,11 +697,6 @@ export const GeneratePanel: React.FC = () => {
     setSelectedModel(modelId);
     setGenerationSettings((prev) => ({ ...prev, aiModel: modelId }));
     setIsModelDropdownOpen(false);
-  };
-
-  const handleIntentSelect = (newIntent: GenerationIntent) => {
-    setIntent(newIntent);
-    setGenerationSettings((prev) => ({ ...prev, intent: newIntent }));
   };
 
   const handleGenerate = async () => {
@@ -1041,7 +1056,7 @@ export const GeneratePanel: React.FC = () => {
 
 
 
-          {/* Polycount Slider (Main Panel) */}
+          {/* Polycount Slider (Main Panel - Dynamically driven by models.yaml) */}
           <div className="space-y-1 pt-1 border-t border-white/[0.08] pt-1">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
@@ -1051,10 +1066,10 @@ export const GeneratePanel: React.FC = () => {
             </div>
             <input
               type="range"
-              min="500"
-              max="600000"
-              step="2500"
-              value={polycount}
+              min={minPolycount}
+              max={maxPolycount}
+              step={polycountStep}
+              value={Math.min(maxPolycount, Math.max(minPolycount, polycount))}
               onChange={(e) => {
                 const val = parseInt(e.target.value, 10);
                 setPolycount(val);
@@ -1069,8 +1084,8 @@ export const GeneratePanel: React.FC = () => {
               className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#6366F1]"
             />
             <div className="flex items-center justify-between text-[9px] font-mono text-zinc-500">
-              <span>500</span>
-              <span>600,000 (Max 600K)</span>
+              <span>{minPolycount.toLocaleString()}</span>
+              <span>{maxPolycount.toLocaleString()} (Max {(maxPolycount / 1000).toFixed(0)}K)</span>
             </div>
           </div>
         </div>
@@ -1168,21 +1183,30 @@ export const GeneratePanel: React.FC = () => {
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTopologyMode('Quad');
-                    setGenerationSettings((prev) => ({ ...prev, quadTopology: true, topologyMode: 'quad' }));
-                  }}
-                  className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    topologyMode === 'Quad'
-                      ? 'bg-[#3b3577] text-white border border-[#6366F1] shadow-sm'
-                      : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-                  }`}
-                >
-                  <span className="text-[11px]">▢</span>
-                  <span>Quad</span>
-                </button>
+                {modelSupportsQuad ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTopologyMode('Quad');
+                      setGenerationSettings((prev) => ({ ...prev, quadTopology: true, topologyMode: 'quad' }));
+                    }}
+                    className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      topologyMode === 'Quad'
+                        ? 'bg-[#3b3577] text-white border border-[#6366F1] shadow-sm'
+                        : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    <span className="text-[11px]">▢</span>
+                    <span>Quad</span>
+                  </button>
+                ) : (
+                  <div
+                    title="Quad topology is not natively supported by this model"
+                    className="h-6.5 rounded-lg text-[11px] font-medium text-zinc-500 bg-white/[0.02] border border-white/[0.04] flex items-center justify-center cursor-not-allowed opacity-50"
+                  >
+                    <span>Triangle Only</span>
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -1283,7 +1307,7 @@ export const GeneratePanel: React.FC = () => {
       </div>
 
       {/* 4c. Texture Settings (model-aware — hidden when model has no texture pipeline) */}
-      {textureSupport !== 'none' && (
+      {modelSupportsTexture && (
         <div className="border-t border-[hsl(var(--border))] pt-2 space-y-1">
           <label className="text-[10px] font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider block">
             Texture
@@ -1321,8 +1345,8 @@ export const GeneratePanel: React.FC = () => {
               />
             </button>
           </div>
-          {/* Texture Quality: 2K / 4K pills (filtered by model capability) */}
-          {enableTexture && (
+          {/* Texture Quality: Dynamic pills filtered by model capability */}
+          {enableTexture && supportedResolutions.length > 0 && (
             <div className="space-y-1 pt-0.5">
               <div className="flex items-center gap-1.5">
                 <span className="text-[11px] text-zinc-300 font-medium">Texture Quality</span>
@@ -1330,34 +1354,34 @@ export const GeneratePanel: React.FC = () => {
                   <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
                 </span>
               </div>
-              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
-                {(['2K', '4K'] as const)
-                  .filter((res) => textureSupport === '4k' || res === '2K')
-                  .map((res) => {
-                    const isSelected = textureQuality === res;
-                    return (
-                      <button
-                        key={res}
-                        type="button"
-                        onClick={() => {
-                          setTextureQuality(res);
-                          setGenerationSettings((prev) => ({
-                            ...prev,
-                            textureResolution: res,
-                            texture_resolution: res,
-                            textureQuality: res === '4K' ? 'high' : 'medium',
-                          }));
-                        }}
-                        className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#3b3577] text-white border border-[#6366F1] shadow-sm'
-                            : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-                        }`}
-                      >
-                        <span>{res}</span>
-                      </button>
-                    );
-                  })}
+              <div className={`grid gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06] ${
+                supportedResolutions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
+              }`}>
+                {supportedResolutions.map((res) => {
+                  const isSelected = textureQuality === res;
+                  return (
+                    <button
+                      key={res}
+                      type="button"
+                      onClick={() => {
+                        setTextureQuality(res);
+                        setGenerationSettings((prev) => ({
+                          ...prev,
+                          textureResolution: res as any,
+                          texture_resolution: res as any,
+                          textureQuality: res === '4K' ? 'high' : res === '2K' ? 'medium' : 'low',
+                        }));
+                      }}
+                      className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#3b3577] text-white border border-[#6366F1] shadow-sm'
+                          : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      <span>{res}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}

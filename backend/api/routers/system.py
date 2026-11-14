@@ -384,6 +384,13 @@ async def list_models(
             model_details[mid] = {
                 "id": mid,
                 "feature": feat,
+                "model_name": getattr(cfg, "model_name", None) or mid,
+                "model_type": getattr(cfg, "model_type", None) or ("mesh" if "mesh" in feat and "paint" not in feat else "texture" if "paint" in feat else "other"),
+                "ui_label": getattr(cfg, "ui_label", None) or getattr(cfg, "model_name", None) or mid,
+                "ui_tag": getattr(cfg, "ui_tag", None) or "Ready",
+                "ui_note": getattr(cfg, "ui_note", None) or "",
+                "ui_badge": getattr(cfg, "ui_badge", None) or (f"{cfg.vram_requirement // 1024}GB VRAM" if getattr(cfg, "vram_requirement", None) else ""),
+                "enabled": getattr(cfg, "enabled", True) if cfg else True,
                 "status": (
                     "weights_missing" if not weights_ok
                     else "gpu_unavailable" if not cuda_available
@@ -1524,6 +1531,70 @@ async def get_job_status(job_id: str, request: Request):
         raise HTTPException(
             status_code=500, detail=sanitize_error_message(f"Error retrieving job status: {str(e)}")
         )
+
+
+@router.post("/workspace/operations/{operation_id}/keep", summary="Keep operation output in workspace")
+@router.post("/operations/{operation_id}/keep", summary="Keep operation output in workspace (alias)")
+async def keep_workspace_operation(operation_id: str, request: Request):
+    """
+    Publish operation preview to permanent workspace assets and update active mesh.
+    """
+    from core.scheduler.database_manager import DatabaseManager
+    from core.scheduler.database_manager import get_workspace_storage_manager
+
+    db = DatabaseManager()
+    ws_mgr = get_workspace_storage_manager()
+
+    try:
+        body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    except Exception:
+        body = {}
+
+    op = db.get_operation(operation_id)
+    if not op:
+        # Graceful fallback: if client generated a client-side op id, check workspace_id
+        workspace_id = body.get("workspace_id")
+        if workspace_id:
+            ws = db.get_workspace(workspace_id)
+            if ws:
+                return {
+                    "success": True,
+                    "operation_id": operation_id,
+                    "workspace_id": workspace_id,
+                    "active_mesh_asset_id": ws.active_mesh_asset_id,
+                }
+        raise HTTPException(status_code=404, detail=f"Operation {operation_id} not found")
+
+    try:
+        result = db.keep_operation_in_workspace(operation_id, storage_manager=ws_mgr)
+        return {"success": True, **result}
+    except Exception as exc:
+        logger.error("Failed to keep operation %s in workspace: %s", operation_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/workspace/operations/{operation_id}/discard", summary="Discard operation preview")
+@router.post("/operations/{operation_id}/discard", summary="Discard operation preview (alias)")
+async def discard_workspace_operation(operation_id: str, request: Request):
+    """
+    Discard operation preview and clean up temporary preview files.
+    """
+    from core.scheduler.database_manager import DatabaseManager
+    from core.scheduler.database_manager import get_workspace_storage_manager
+
+    db = DatabaseManager()
+    ws_mgr = get_workspace_storage_manager()
+
+    op = db.get_operation(operation_id)
+    if not op:
+        return {"success": True, "operation_id": operation_id, "status": "discarded"}
+
+    try:
+        db.discard_operation_preview(operation_id, storage_manager=ws_mgr)
+        return {"success": True, "operation_id": operation_id, "status": "discarded"}
+    except Exception as exc:
+        logger.error("Failed to discard operation %s: %s", operation_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/workspace/generate/{workspace_id}", summary="Get workspace state for deep link")

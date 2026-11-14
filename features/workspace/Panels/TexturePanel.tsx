@@ -271,51 +271,46 @@ export const TexturePanel: React.FC = () => {
 
   // Model & Core State
   // ===== Dynamic model list from backend (weights-aware) =====
-  const { modelDetails, weightsStatus, getModelsForFeature, loading: modelsLoading } = useFeatureAvailability();
-
-  // Models completely disabled from UI (trellis2)
-  const isTextureModelDisabled = (mid: string) => {
-    return mid.toLowerCase().startsWith('trellis2');
-  };
-
-  const TEXTURE_MODEL_LABELS: Record<string, { label: string; tag: string; note: string; badge: string }> = {
-    'hunyuan3d_paint_v21_image_mesh_painting': { label: 'Hunyuan3D-Paint v2.1', tag: 'PBR Multi-view', note: 'Multi-view projection & full PBR maps', badge: '12GB VRAM' },
-    'trellis_image_mesh_painting': { label: 'TRELLIS Paint', tag: 'Sharp Texture', note: 'Structured 2048 texture atlas', badge: '11GB VRAM' },
-    'hunyuan3d_v20_paint_image_mesh_painting': { label: 'Hunyuan3D-2 (v2.0) Paint', tag: 'Lightweight Texture', note: 'Fast PBR texture painting, ~11GB VRAM', badge: '11GB VRAM' },
-};
-
-const KNOWN_TEXTURE_MODEL_IDS = [
-    'hunyuan3d_paint_v21_image_mesh_painting',
-    'trellis_image_mesh_painting',
-    'hunyuan3d_v20_paint_image_mesh_painting',
-];
+  const { modelDetails, weightsStatus, loading: modelsLoading } = useFeatureAvailability();
 
   const textureModels = useMemo(() => {
-    const rawIds = [
-      ...getModelsForFeature('image_mesh_painting'),
-      ...getModelsForFeature('image-mesh-painting'),
-      ...getModelsForFeature('mesh_painting'),
+    const registeredIds = Object.keys(modelDetails);
+    const candidatePool = registeredIds.filter((mid) => {
+      const detail = modelDetails[mid];
+      if (!detail || detail.enabled === false) return false;
+      const type = detail.model_type || '';
+      const feat = detail.feature || '';
+      return (
+        type === 'texture' ||
+        feat === 'image_mesh_painting' ||
+        feat === 'image-mesh-painting' ||
+        feat === 'mesh_painting'
+      );
+    });
+    const fallbackIds = [
+      'hunyuan3d_paint_v21_image_mesh_painting',
+      'trellis_image_mesh_painting',
+      'hunyuan3d_v20_paint_image_mesh_painting',
     ];
-    const candidatePool = rawIds.length > 0 ? rawIds : KNOWN_TEXTURE_MODEL_IDS;
-    const uniqueCandidates = Array.from(new Set(candidatePool));
+    const pool = candidatePool.length > 0 ? candidatePool : fallbackIds;
+    const uniqueCandidates = Array.from(new Set(pool));
 
     return uniqueCandidates
-      .filter((mid) => !isTextureModelDisabled(mid))
       .filter((mid) => {
         // Strict weight check: only display models whose weights are verified available
         return weightsStatus[mid] === true || modelDetails[mid]?.weights_available === true;
       })
       .map((mid) => {
-        const info = TEXTURE_MODEL_LABELS[mid];
+        const detail = modelDetails[mid];
         return {
           id: mid,
-          label: info?.label || mid,
-          tag: info?.tag || 'Ready',
-          note: info?.note || '',
-          badge: info?.badge || '',
+          label: detail?.ui_label || detail?.model_name || mid,
+          tag: detail?.ui_tag || 'Ready',
+          note: detail?.ui_note || '',
+          badge: detail?.ui_badge || '',
         };
       });
-  }, [getModelsForFeature, modelDetails, weightsStatus]);
+  }, [modelDetails, weightsStatus]);
 
   const defaultTextureModel = useMemo(() => {
     return textureModels[0]?.id || 'hunyuan3d_paint_v21_image_mesh_painting';
@@ -345,8 +340,21 @@ const KNOWN_TEXTURE_MODEL_IDS = [
   const dragCounterRef = useRef(0);
 
   // In-Panel Core Parameters (Resolution + Material Style)
-  const [textureQuality, setTextureQuality] = useState<'1K' | '2K' | '4K'>('2K');
+  const [textureQuality, setTextureQuality] = useState<'512' | '1K' | '2K' | '4K'>('2K');
   const [materialStyle, setMaterialStyle] = useState<'realistic' | 'game' | 'stylized' | 'anime'>('realistic');
+
+  // Dynamic Model Capability Mapping for TexturePanel (from models.yaml API metadata)
+  const selectedModelDetail = modelDetails[selectedModel];
+  const modelCapabilities = selectedModelDetail?.capabilities || {};
+  const supportedResolutions: ('512' | '1K' | '2K' | '4K')[] =
+    (modelCapabilities.supported_texture_resolutions as any) || ['1K', '2K'];
+
+  // Clamp resolution when switching texture models
+  useEffect(() => {
+    if (supportedResolutions.length > 0 && !supportedResolutions.includes(textureQuality)) {
+      setTextureQuality(supportedResolutions[supportedResolutions.length - 1]);
+    }
+  }, [selectedModel, supportedResolutions, textureQuality]);
 
   // Dynamic Floating Advanced Parameters
   const [isTextureSettingsOpen, setIsTextureSettingsOpen] = useState(false);
@@ -943,18 +951,20 @@ const KNOWN_TEXTURE_MODEL_IDS = [
           </div>
         )}
 
-          {/* 3. In-Panel Parameter: Atlas Resolution (1K / 2K / 4K) */}
+          {/* 3. In-Panel Parameter: Atlas Resolution (Dynamic pills) */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
                 Resolution
               </span>
               <span className="text-[11px] font-mono text-zinc-400">
-                {textureQuality === '1K' ? '1024' : textureQuality === '2K' ? '2048' : '4096'}
+                {textureQuality === '512' ? '512' : textureQuality === '1K' ? '1024' : textureQuality === '2K' ? '2048' : '4096'}
               </span>
             </div>
-            <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
-              {(['1K', '2K', '4K'] as const).map((res) => {
+            <div className={`grid gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06] ${
+              supportedResolutions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
+            }`}>
+              {supportedResolutions.map((res) => {
                 const isSelected = textureQuality === res;
                 return (
                   <button

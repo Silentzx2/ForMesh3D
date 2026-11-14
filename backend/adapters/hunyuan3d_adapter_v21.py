@@ -302,6 +302,18 @@ class Hunyuan3DV21ImageMeshPaintingAdapter(Hunyuan3DV21ImageToRawMeshAdapter):
             return {"success": False, "error": f"image not found: {image_path}"}
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
+        texture_resolution = int(inputs.get("texture_resolution", 2048) or 2048)
+        texture_resolution = max(512, min(4096, texture_resolution))
+        texture_enabled = bool(inputs.get("texture_enabled", True) and inputs.get("generate_texture", True))
+
+        if not texture_enabled:
+            return {
+                "success": True,
+                "output_mesh_path": mesh_path,
+                "mesh_path": mesh_path,
+                "texture_enabled": False,
+                "generation_info": {"seed": seed, "texture_enabled": False},
+            }
 
         import trimesh
         from PIL import Image
@@ -325,11 +337,12 @@ class Hunyuan3DV21ImageMeshPaintingAdapter(Hunyuan3DV21ImageToRawMeshAdapter):
             "success": True,
             "output_mesh_path": str(out),
             "mesh_path": str(out),
+            "textured_mesh_path": str(out),
+            "texture_enabled": True,
             "generation_info": {
                 "seed": seed,
+                "texture_resolution": texture_resolution,
                 "num_inference_steps": 50,
                 "guidance_scale": 7.5,
-                "octree_resolution": 512,
-                "num_chunks": 80000,
             },
         }

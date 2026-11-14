@@ -240,6 +240,13 @@ export interface SchedulerStatus {
 export interface ModelRuntimeDetails {
   id: string;
   feature: string;
+  model_name?: string;
+  model_type?: 'mesh' | 'texture' | 'rigging' | 'retopology' | 'uv' | 'motion' | string;
+  ui_label?: string;
+  ui_tag?: string;
+  ui_note?: string;
+  ui_badge?: string;
+  enabled?: boolean;
   status: 'ready' | 'weights_missing' | 'gpu_unavailable' | string;
   weights_available: boolean;
   weights_downloadable: boolean;
@@ -316,7 +323,6 @@ export interface ImageToMeshRequest {
   output_format: OutputFormat;
   model_preference?: string;
   model_parameters?: Record<string, any>;
-  intent?: 'game_ready' | 'cinematic' | 'animation' | '3d_print' | 'mobile';
   preprocessing_artifact_id?: string;
   preprocessing_review_override?: boolean;
   enhancement_enabled?: boolean;
@@ -338,7 +344,6 @@ export interface ImageToTexturedMeshRequest {
   output_format: OutputFormat;
   model_preference?: string;
   model_parameters?: Record<string, any>;
-  intent?: 'game_ready' | 'cinematic' | 'animation' | '3d_print' | 'mobile';
   preprocessing_artifact_id?: string;
   preprocessing_review_override?: boolean;
   enhancement_enabled?: boolean;

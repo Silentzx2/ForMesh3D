@@ -23,7 +23,6 @@
   - Mesh Generation (`/api/v1/mesh-generation`): 6 endpoints (image-to-raw-mesh, image-to-textured-mesh, text/image mesh painting, formats, cancel).
   - Mesh UV Unwrapping (`/api/v1/mesh-uv-unwrapping`): 4 endpoints (unwrap, formats, pack methods, models).
   - Motion Generation (`/api/v1/motion-generation`): 4 endpoints (generate-motion, checkpoints, models, formats).
-  - Smart Generation (`/api/v1/smart-generation`): 3 endpoints (presets, generation, resolve).
   - Auto Rigging (`/api/v1/auto-rigging`): 3 endpoints (generate-rig, formats, models).
   - Mesh Retopology (`/api/v1/mesh-retopology`): 3 endpoints (retopologize-mesh, formats, models).
   - Mesh Segmentation (`/api/v1/mesh-segmentation`): 3 endpoints (segment-mesh, formats, models).

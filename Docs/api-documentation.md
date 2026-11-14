@@ -418,13 +418,6 @@ DELETE /api/v1/file-upload/{file_id}
 
 ---
 
-## Smart Generation APIs
-
-### Smart Generation
-`POST /api/v1/smart-generation/generation` accepts an image input, one of the six canonical intent IDs (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`, `native`), an optional explicit model override, preprocessing/auto-rig/printability controls, and safe preset overrides. It resolves a ready image-capable model deterministically, submits through the existing image raw/textured generation scheduler path, and returns `job_id`, selected model, applied preset, candidate order, and effective configuration.
-
-`GET /api/v1/smart-generation/presets` returns the versioned YAML preset definitions. `POST /api/v1/smart-generation/resolve` returns the deterministic model-selection decision without submitting a job. It answers `400` with an actionable `detail` when the intent is unknown, when an explicit model is not registered or is incompatible with the intent, when that model's weights are missing, or when it does not fit the currently free VRAM. The endpoint is a report, not a gate: a client may submit generation without it, because the generation endpoints re-resolve the intent and the scheduler owns model readiness and resource admission (ADR-094).
-
 ## Mesh Generation APIs
 
 ```http
@@ -1107,9 +1100,6 @@ Event types:
 
 - POST /api/v1/image-enhancement/preview creates a deterministic Generation Preview and returns `approval_status`, foreground-validation metrics, provenance, and a preview URL. An approved URL is returned only for validated foregrounds.
 - GET /api/v1/image-enhancement/artifacts/{artifact_id}?variant=preview|approved serves the preview; requesting an unapproved artifact returns HTTP 409.
-- GET /api/v1/smart-generation/presets returns the versioned intent definitions.
-- POST /api/v1/smart-generation/resolve resolves an intent to a ready, compatible Image → 3D model and applied preset; an explicit model is validated as an override.
-- Image→raw and image→textured requests accept intent, preprocessing_artifact_id, enhancement_enabled, preprocessing_review_override, enable_printability_check, enable_auto_repair, enable_auto_rig, and auto_rig_mode. A review override is required only for `needs_review`; `failed` artifacts cannot enter inference.
 - Completed auto-rig workflows expose a GLB `rigged_model_url` for viewport display and retain the original native FBX separately for download. The `artifact_format=fbx` download option serves a real pre-exported FBX only; assets without one receive HTTP 422 rather than an unsupported generic `trimesh` conversion.
 
 ## High-Fidelity Result and Resource Metadata — 2026-10-08

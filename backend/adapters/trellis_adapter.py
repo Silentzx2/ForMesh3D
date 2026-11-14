@@ -181,12 +181,14 @@ class _TrellisBaseAdapter(BaseModel):
         image = Image.open(image_path)
 
         # Native polycount target: passed through from the generation request.
-        # TRELLIS does not expose a direct face-count parameter in its upstream
-        # pipeline, so the value is logged and preserved in generation_info
-        # without downstream decimation.
-        native_target_polycount = int(inputs.get("native_target_polycount", 0) or 0)
-        if native_target_polycount:
-            logger.info("TRELLIS received native_target_polycount=%d (upstream pipeline has no direct face-count control; preserved native output)", native_target_polycount)
+        native_target_polycount = int(
+            inputs.get("native_target_polycount")
+            or inputs.get("target_polycount")
+            or 0
+        )
+        texture_resolution = int(inputs.get("texture_resolution", 1024) or 1024)
+        texture_resolution = max(512, min(2048, texture_resolution))
+        remesh_option = str(inputs.get("remesh_option", "none") or "none").strip().lower()
 
         want_texture = bool(inputs.get("texture_enabled")) and self._paint_pipeline is not None
         formats = ["mesh", "gaussian"] if want_texture else ["mesh"]
@@ -241,6 +243,39 @@ class _TrellisBaseAdapter(BaseModel):
             rot = np.eye(3) + vx + vx @ vx * ((1.0 - c) / float(v @ v))
             tmesh.vertices = centred @ rot.T
 
+        # Apply target polycount directly: subdivide if higher, simplify if lower
+        face_count = len(tmesh.faces) if hasattr(tmesh, "faces") else 0
+        target_budget = min(600_000, native_target_polycount) if native_target_polycount > 0 else 0
+
+        if target_budget > 0 and face_count > 0:
+            if target_budget > face_count:
+                while len(tmesh.faces) * 2 <= target_budget:
+                    tmesh = tmesh.subdivide()
+                    if len(tmesh.faces) >= target_budget:
+                        break
+            elif target_budget < face_count:
+                try:
+                    import fast_simplification
+                    v_red, f_red = fast_simplification.simplify(
+                        tmesh.vertices,
+                        tmesh.faces,
+                        target_count=target_budget,
+                    )
+                    tmesh = trimesh.Trimesh(vertices=v_red, faces=f_red, process=True)
+                    tmesh.remove_unreferenced_vertices()
+                except Exception:
+                    try:
+                        tmesh = tmesh.simplify_quadric_decimation(face_count=target_budget)
+                        tmesh.remove_unreferenced_vertices()
+                    except Exception:
+                        pass
+        elif face_count > 600_000:
+            try:
+                tmesh = tmesh.simplify_quadric_decimation(face_count=600_000)
+                tmesh.remove_unreferenced_vertices()
+            except Exception:
+                pass
+
         tmesh.export(str(out))
 
         # Texture pipeline: bake a PBR texture from the appearance
@@ -258,7 +293,7 @@ class _TrellisBaseAdapter(BaseModel):
         ):
             try:
                 textured = self._paint_pipeline(
-                    self._paint_app_rep, mesh, texture_size=1024
+                    self._paint_app_rep, mesh, texture_size=texture_resolution
                 )
                 textured_out = Path(tempfile.mkdtemp()) / f"trellis_textured_{seed}.glb"
                 if hasattr(textured, "export"):
@@ -269,11 +304,13 @@ class _TrellisBaseAdapter(BaseModel):
                         "mesh_path": str(out),
                         "textured_mesh_path": str(textured_out),
                         "texture_enabled": True,
+                        "actual_face_count": len(tmesh.faces),
+                        "actual_vertex_count": len(tmesh.vertices),
                         "generation_info": {
                             "seed": seed,
-                            "num_inference_steps": "adapter_owned",
-                            "guidance_scale": "adapter_owned",
-                            "octree_resolution": "adapter_owned",
+                            "texture_resolution": texture_resolution,
+                            "remesh_option": remesh_option,
+                            "native_target_polycount": native_target_polycount or None,
                         },
                     }
                 logger.warning(
@@ -286,11 +323,12 @@ class _TrellisBaseAdapter(BaseModel):
             "success": True,
             "output_mesh_path": str(out),
             "mesh_path": str(out),
+            "actual_face_count": len(tmesh.faces),
+            "actual_vertex_count": len(tmesh.vertices),
             "generation_info": {
                 "seed": seed,
-                "num_inference_steps": "adapter_owned",
-                "guidance_scale": "adapter_owned",
-                "octree_resolution": "adapter_owned",
+                "texture_resolution": texture_resolution,
+                "remesh_option": remesh_option,
                 "native_target_polycount": native_target_polycount or None,
             },
         }

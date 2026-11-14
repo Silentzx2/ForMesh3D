@@ -27,7 +27,6 @@ from core.scheduler.job_queue import JobRequest
 from core.config import get_quality_config, validate_quality_tier
 from core.preprocess.image_enhancement import load_preprocessed_artifact, preprocess_image
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
-from core.smart_presets import CANONICAL_INTENTS, NATIVE_PRESET, resolve_intent
 from core.utils.file_utils import get_workspace_storage_manager, save_base64_file, save_upload_file
 
 logger = logging.getLogger(__name__)
@@ -385,7 +384,6 @@ class ImageToRawMeshRequest(BaseModel):
         None,
         description="Optional input image preparation overrides (e.g. remove_background, tight_crop, margin, resize, upscale_small).",
     )
-    intent: Optional[str] = Field(None, description="Deterministic smart-generation intent: 'mobile', 'game_ready', 'cinematic', 'animation', '3d_print', 'native', 'game_ready_quad', 'multi_variant'")
     preprocessing_artifact_id: Optional[str] = Field(None, description="Approved preprocessing artifact ID")
     preprocessing_review_override: bool = Field(False, description="Explicitly allow a flagged preprocessing preview after review")
     enhancement_enabled: bool = Field(False, description="Use the approved preprocessing artifact")
@@ -467,20 +465,6 @@ class ImageToRawMeshRequest(BaseModel):
                 "Invalid lod_preset. Must be one of: 'mobile', 'low', 'medium', 'high', 'cinematic'"
             )
         return normalized
-
-    @field_validator("intent")
-    @classmethod
-    def validate_intent(cls, v):
-        if v is None:
-            return None
-        v_str = str(v).strip().lower()
-        if not v_str:
-            return None
-        if v_str not in CANONICAL_INTENTS:
-            raise ValueError(
-                f"Invalid intent '{v}'. Canonical presets are: {', '.join(sorted(CANONICAL_INTENTS))}"
-            )
-        return v_str
 
     @field_validator("mesh_style")
     @classmethod
@@ -594,7 +578,6 @@ class ImageToTexturedMeshRequest(BaseModel):
         None,
         description="Optional input image preparation overrides (e.g. remove_background, tight_crop, margin, resize, upscale_small).",
     )
-    intent: Optional[str] = Field(None, description="Deterministic smart-generation intent: 'mobile', 'game_ready', 'cinematic', 'animation', '3d_print', 'native'")
     preprocessing_artifact_id: Optional[str] = Field(None, description="Approved preprocessing artifact ID")
     preprocessing_review_override: bool = Field(False, description="Explicitly allow a flagged preprocessing preview after review")
     enhancement_enabled: bool = Field(False, description="Use the approved preprocessing artifact")
@@ -655,20 +638,6 @@ class ImageToTexturedMeshRequest(BaseModel):
                 "Invalid lod_preset. Must be one of: 'mobile', 'low', 'medium', 'high', 'cinematic'"
             )
         return normalized
-
-    @field_validator("intent")
-    @classmethod
-    def validate_intent(cls, v):
-        if v is None:
-            return None
-        v_str = str(v).strip().lower()
-        if not v_str:
-            return None
-        if v_str not in CANONICAL_INTENTS:
-            raise ValueError(
-                f"Invalid intent '{v}'. Canonical presets are: {', '.join(sorted(CANONICAL_INTENTS))}"
-            )
-        return v_str
 
     @field_validator("mesh_style")
     @classmethod
@@ -1112,25 +1081,6 @@ async def _resolve_generation_plan(request, *, default_model: str, default_featu
     preset = {}
     preset_metadata = {}
 
-    if request.intent:
-        settings = await get_current_settings()
-        resolved = resolve_intent(
-            request.intent,
-            settings,
-            explicit_model=explicit_model,
-        )
-        model_id = resolved["model_id"]
-        feature = resolved["feature"]
-        preset = resolved["preset"]
-        preset_metadata = {
-            "intent": request.intent,
-            "smart_preset_version": resolved["version"],
-            "applied_preset": preset,
-            "chosen_model": model_id,
-            "candidate_order": resolved["candidate_order"],
-            "vram_budget_mb": resolved["vram_budget_mb"],
-        }
-
     # Legacy textured-generation IDs remain accepted, but resolve to raw geometry.
     # Optional texture generation is controlled by the request flags.
     if model_id in _LEGACY_TEXTURED_MODEL_ALIASES:
@@ -1232,21 +1182,10 @@ async def image_to_raw_mesh(
                 would_have_chosen, "image_to_raw_mesh"
             )
         ):
-            if mesh_request.intent:
-                _, feature, preset, preset_metadata = await _resolve_generation_plan(
-                    mesh_request,
-                    default_model=would_have_chosen,
-                    default_feature="image_to_raw_mesh",
-                    scheduler=scheduler,
-                )
-                model_id = would_have_chosen
-                preset_metadata["chosen_model"] = model_id
-                preset_metadata["planner_applied"] = True
-            else:
-                model_id = would_have_chosen
-                feature = "image_to_raw_mesh"
-                preset = {}
-                preset_metadata = {"applied_preset": preset, "chosen_model": model_id, "planner_applied": True}
+            model_id = would_have_chosen
+            feature = "image_to_raw_mesh"
+            preset = {}
+            preset_metadata = {"applied_preset": preset, "chosen_model": model_id, "planner_applied": True}
         else:
             model_id, feature, preset, preset_metadata = await _resolve_generation_plan(
                 mesh_request,
@@ -1394,9 +1333,14 @@ async def image_to_raw_mesh(
             _resolve_preset_option(mesh_request.enable_auto_rig, preset, "enable_auto_rig", False)
         )
         physics_enabled = bool(_resolve_preset_option(mesh_request.physics_enabled, preset, "collision", False))
-        texture_resolution = int(
-            _resolve_preset_option(mesh_request.texture_resolution, preset, "texture_resolution", 2048)
-        )
+        # Prioritize explicit user parameters over preset overrides
+        if getattr(mesh_request, "texture_resolution", None) is not None:
+            texture_resolution = int(mesh_request.texture_resolution)
+        else:
+            texture_resolution = int(
+                _resolve_preset_option(mesh_request.texture_resolution, preset, "texture_resolution", 2048)
+            )
+
         part_count_range = str(
             _resolve_preset_option(mesh_request.part_count_range, preset, "part_count_range", "1")
         )
@@ -1408,17 +1352,16 @@ async def image_to_raw_mesh(
             _resolve_preset_option(mesh_request.slicer_handoff, preset, "slicer_handoff", False)
         )
 
-        native_target_polycount = 0
+        native_target_polycount = int(
+            getattr(mesh_request, "native_target_polycount", 0)
+            or target_polycount
+            or 0
+        )
         if not mesh_request.enable_postprocess:
-            # When post-processing is disabled, decimation, LOD, and QA checks are skipped,
-            # but texture options remain active if texture is enabled.
-            # A user-requested native polycount target is carried separately so it reaches
-            # the model's native extraction path instead of being zeroed out.
             lod_enabled = False
             enable_printability = False
             enable_auto_repair = False
             enable_auto_rig = False
-            native_target_polycount = target_polycount or 0
             target_polycount = 0
         elif mesh_request.intent == "native" or target_polycount == -1:
             if mesh_request.intent == "native":
@@ -1690,21 +1633,10 @@ async def image_to_textured_mesh(
                 would_have_chosen, "image_to_textured_mesh"
             )
         ):
-            if mesh_request.intent:
-                _, feature, preset, preset_metadata = await _resolve_generation_plan(
-                    mesh_request,
-                    default_model=would_have_chosen,
-                    default_feature="image_to_textured_mesh",
-                    scheduler=scheduler,
-                )
-                model_id = would_have_chosen
-                preset_metadata["chosen_model"] = model_id
-                preset_metadata["planner_applied"] = True
-            else:
-                model_id = would_have_chosen
-                feature = "image_to_textured_mesh"
-                preset = {}
-                preset_metadata = {"applied_preset": preset, "chosen_model": model_id, "planner_applied": True}
+            model_id = would_have_chosen
+            feature = "image_to_textured_mesh"
+            preset = {}
+            preset_metadata = {"applied_preset": preset, "chosen_model": model_id, "planner_applied": True}
         else:
             model_id, feature, preset, preset_metadata = await _resolve_generation_plan(
                 mesh_request,
@@ -1849,14 +1781,21 @@ async def image_to_textured_mesh(
             (bool(value) for value in top_level_texture_flags if value is not None),
             next((bool(value) for value in nested_texture_flags if value is not None), True),
         )
-        texture_resolution = int(
-            _resolve_preset_option(
-                mesh_request.texture_resolution,
-                preset,
-                "texture_resolution",
-                source_texture_resolution or 2048,
+        # Prioritize explicit user parameters over preset overrides
+        if getattr(mesh_request, "texture_resolution", None) is not None:
+            texture_resolution = int(mesh_request.texture_resolution)
+        elif source_texture_resolution is not None:
+            texture_resolution = int(source_texture_resolution)
+        else:
+            texture_resolution = int(
+                _resolve_preset_option(
+                    mesh_request.texture_resolution,
+                    preset,
+                    "texture_resolution",
+                    2048,
+                )
             )
-        )
+
         part_count_range = str(
             _resolve_preset_option(mesh_request.part_count_range, preset, "part_count_range", "1")
         )
@@ -1881,17 +1820,16 @@ async def image_to_textured_mesh(
         )
         physics_enabled = bool(_resolve_preset_option(mesh_request.physics_enabled, preset, "collision", False))
 
-        native_target_polycount = 0
+        native_target_polycount = int(
+            getattr(mesh_request, "native_target_polycount", 0)
+            or target_polycount
+            or 0
+        )
         if not mesh_request.enable_postprocess:
-            # When post-processing is disabled, decimation, LOD, and QA checks are skipped,
-            # but texture options remain active if texture is enabled.
-            # A user-requested native polycount target is carried separately so it reaches
-            # the model's native extraction path instead of being zeroed out.
             lod_enabled = False
             enable_printability = False
             enable_auto_repair = False
             enable_auto_rig = False
-            native_target_polycount = target_polycount or 0
             target_polycount = 0
         elif mesh_request.intent == "native" or target_polycount == -1:
             if mesh_request.intent == "native":

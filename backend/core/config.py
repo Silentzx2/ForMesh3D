@@ -145,6 +145,12 @@ class PostProcessingConfig(BaseSettings):
 
 class ModelConfig(BaseSettings):
     """Configuration for a single model"""
+    model_name: Optional[str] = None
+    model_type: Optional[str] = None
+    ui_label: Optional[str] = None
+    ui_tag: Optional[str] = None
+    ui_note: Optional[str] = None
+    ui_badge: Optional[str] = None
     vram_requirement: int
     supported_inputs: List[str]
     supported_outputs: List[str]

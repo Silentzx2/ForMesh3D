@@ -114,13 +114,16 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
         seed = int(inputs.get("seed", DEFAULT_SEED))
         steps = int(inputs.get("num_inference_steps", 50))
         guidance = float(inputs.get("guidance_scale", 7.0))
+        native_target_polycount = int(
+            inputs.get("native_target_polycount")
+            or inputs.get("target_polycount")
+            or 0
+        )
         faces = int(inputs.get("faces", -1))
-        # Native polycount target: TripoSG exposes a direct face-count parameter
-        # in its upstream pipeline, so native_target_polycount is mapped to faces.
-        native_target_polycount = int(inputs.get("native_target_polycount", 0) or 0)
         if native_target_polycount > 0:
             faces = native_target_polycount
             logger.info("TripoSG received native_target_polycount=%d, mapped to faces parameter", native_target_polycount)
+        remesh_option = str(inputs.get("remesh_option", "none") or "none").strip().lower()
 
         from scripts.inference_triposg import run_triposg
 
@@ -151,6 +154,16 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
 
         if not isinstance(mesh, trimesh.Trimesh):
             mesh = trimesh.Trimesh(vertices=mesh.vertices, faces=mesh.faces, process=False)
+
+        # Apply target polycount directly: if user requested target higher than upstream faces limit, subdivide
+        face_count = len(mesh.faces) if hasattr(mesh, "faces") else 0
+        target_budget = min(600_000, native_target_polycount) if native_target_polycount > 0 else 0
+        if target_budget > 0 and face_count > 0 and target_budget > face_count:
+            while len(mesh.faces) * 2 <= target_budget:
+                mesh = mesh.subdivide()
+                if len(mesh.faces) >= target_budget:
+                    break
+
         out = Path(tempfile.mkdtemp()) / f"triposg_{seed}.glb"
         mesh.export(str(out))
 
@@ -175,11 +188,14 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
             "success": True,
             "output_mesh_path": str(out.resolve()),
             "mesh_path": str(out.resolve()),
+            "actual_face_count": len(mesh.faces),
+            "actual_vertex_count": len(mesh.vertices),
             "generation_info": {
                 "seed": seed,
                 "num_inference_steps": steps,
                 "guidance_scale": guidance,
                 "faces": faces,
+                "remesh_option": remesh_option,
                 "native_target_polycount": native_target_polycount or None,
             },
         }

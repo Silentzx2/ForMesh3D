@@ -239,13 +239,24 @@ class StableFast3DAdapter(BaseModel):
         try:
             seed = int(inputs.get("seed", DEFAULT_SEED))
             texture_resolution = int(inputs.get("texture_resolution", 1024))
+            native_target_polycount = int(
+                inputs.get("native_target_polycount")
+                or inputs.get("target_polycount")
+                or 0
+            )
             target_vertex_count = int(inputs.get("target_vertex_count", -1))
+            if target_vertex_count <= 0 and native_target_polycount > 0:
+                # Approximate vertex count budget from target triangle face count
+                target_vertex_count = max(100, native_target_polycount // 2)
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                "SF3D seed, texture_resolution and target_vertex_count must be integers"
+                "SF3D seed, texture_resolution, native_target_polycount, and target_vertex_count must be integers"
             ) from exc
 
         remesh_option = str(inputs.get("remesh_option", "none") or "none").strip().lower()
+        texture_enabled = bool(
+            inputs.get("texture_enabled", True) and inputs.get("generate_texture", True)
+        )
         if seed < 0:
             raise ValueError("SF3D seed must be >= 0")
         if not MIN_TEXTURE_RESOLUTION <= texture_resolution <= MAX_TEXTURE_RESOLUTION:
@@ -388,6 +399,21 @@ class StableFast3DAdapter(BaseModel):
                     f"SF3D single-image inference returned {len(mesh)} meshes; expected exactly one"
                 )
             mesh = mesh[0]
+
+        # If user disabled texture, strip visual maps for clean untextured export
+        if not texture_enabled:
+            import trimesh
+            mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh)
+
+        # Direct polycount refinement: if user requested target polycount higher than
+        # native extracted triangles, apply direct subdivision to reach target density
+        if native_target_polycount > 0 and len(mesh.faces) > 0 and native_target_polycount > len(mesh.faces):
+            target_faces = min(600_000, native_target_polycount)
+            while len(mesh.faces) * 2 <= target_faces:
+                mesh = mesh.subdivide()
+                if len(mesh.faces) >= target_faces:
+                    break
+
         vertices = getattr(mesh, "vertices", None)
         faces = getattr(mesh, "faces", None)
         if vertices is None or faces is None or len(vertices) == 0 or len(faces) == 0:
@@ -410,18 +436,21 @@ class StableFast3DAdapter(BaseModel):
 
         logger.info(
             "Stable Fast 3D inference complete: vertices=%d faces=%d "
-            "texture_resolution=%d output=%s",
+            "texture_resolution=%d texture_enabled=%s output=%s",
             len(vertices),
             len(faces),
             texture_resolution,
+            texture_enabled,
             output_path,
         )
         return {
             "success": True,
             "output_mesh_path": str(output_path),
             "mesh_path": str(output_path),
-            "textured_mesh_path": str(output_path),
-            "texture_enabled": True,
+            "textured_mesh_path": str(output_path) if texture_enabled else None,
+            "texture_enabled": texture_enabled,
+            "actual_face_count": len(faces),
+            "actual_vertex_count": len(vertices),
             # Upstream run_image has no seed argument. Preserve the requested
             # seed as provenance, but never claim it was applied.
             "generation_info": {
@@ -430,6 +459,7 @@ class StableFast3DAdapter(BaseModel):
                 "texture_resolution": texture_resolution,
                 "remesh_option": remesh_option,
                 "target_vertex_count": target_vertex_count,
+                "native_target_polycount": native_target_polycount or None,
                 "input_preprocessing": "sf3d_remove_background_resize_foreground",
             },
             # The scheduler removes this private temp directory after durable copy.

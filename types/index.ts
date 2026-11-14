@@ -74,7 +74,6 @@ export interface BatchQueueItem {
   preprocessingArtifactId?: string | null;
   preprocessingMetadata?: any;
   aiModel: string;
-  intent?: string;
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   result?: GenerationResult;

@@ -454,7 +454,7 @@ export interface TextureSettings {
   workflow: 'texture' | 'pbr';
   mode: 'ai' | 'manual';
   style: 'realistic' | 'game' | 'stylized' | 'anime';
-  resolution: '1K' | '2K' | '4K' | '8K';
+  resolution: '512' | '1K' | '2K' | '4K' | '8K';
   paintResolution?: 512 | 768;
   referenceImage: string | null;
   referenceImageFileId?: string | null;
@@ -491,9 +491,9 @@ export interface GenerationSettings {
   generateTexture?: boolean;
   texture_enabled?: boolean;
   textureEnabled?: boolean;
-  texture_resolution?: '1K' | '2K' | '4K' | '8K';
+  texture_resolution?: '512' | '1K' | '2K' | '4K' | '8K';
   texture_settings?: Record<string, any>;
-  textureResolution?: '1K' | '2K' | '4K' | '8K';
+  textureResolution?: '512' | '1K' | '2K' | '4K' | '8K';
   targetPolycount?: number;
   target_polycount?: number;
   polycount?: number;
@@ -508,7 +508,6 @@ export interface GenerationSettings {
   imageName?: string;
   negativePrompt?: string;
   paintResolution?: 512 | 768;
-  intent?: string;
   preprocessingArtifactId?: string | null;
   preprocessingReviewOverride?: boolean;
   preprocessingPreviewUrl?: string | null;

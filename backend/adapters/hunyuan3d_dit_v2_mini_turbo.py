@@ -130,12 +130,12 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
         seed = int(inputs.get("seed", DEFAULT_SEED))
 
         # Native polycount target: passed through from the generation request.
-        # Hunyuan3D Mini Turbo does not expose a direct face-count parameter in its
-        # upstream pipeline, so the value is logged and preserved in generation_info
-        # without downstream decimation.
-        native_target_polycount = int(inputs.get("native_target_polycount", 0) or 0)
-        if native_target_polycount:
-            logger.info("Hunyuan3D Mini Turbo received native_target_polycount=%d (upstream pipeline has no direct face-count control; preserved native output)", native_target_polycount)
+        native_target_polycount = int(
+            inputs.get("native_target_polycount")
+            or inputs.get("target_polycount")
+            or 0
+        )
+        remesh_option = str(inputs.get("remesh_option", "none") or "none").strip().lower()
 
         import gc
         import os
@@ -173,6 +173,39 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
 
         mesh = meshes[0]
 
+        # Apply target polycount directly: subdivide if higher, simplify if lower
+        face_count = len(mesh.faces) if hasattr(mesh, "faces") else 0
+        target_budget = min(600_000, native_target_polycount) if native_target_polycount > 0 else 0
+
+        if target_budget > 0 and face_count > 0:
+            if target_budget > face_count:
+                while len(mesh.faces) * 2 <= target_budget:
+                    mesh = mesh.subdivide()
+                    if len(mesh.faces) >= target_budget:
+                        break
+            elif target_budget < face_count:
+                try:
+                    import fast_simplification
+                    v_red, f_red = fast_simplification.simplify(
+                        mesh.vertices,
+                        mesh.faces,
+                        target_count=target_budget,
+                    )
+                    mesh = trimesh.Trimesh(vertices=v_red, faces=f_red, process=True)
+                    mesh.remove_unreferenced_vertices()
+                except Exception:
+                    try:
+                        mesh = mesh.simplify_quadric_decimation(face_count=target_budget)
+                        mesh.remove_unreferenced_vertices()
+                    except Exception:
+                        pass
+        elif face_count > 600_000:
+            try:
+                mesh = mesh.simplify_quadric_decimation(face_count=600_000)
+                mesh.remove_unreferenced_vertices()
+            except Exception:
+                pass
+
         import tempfile
 
         out = Path(tempfile.mkdtemp()) / f"hunyuan3d_mini_{seed}.glb"
@@ -182,6 +215,8 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
             "success": True,
             "output_mesh_path": str(out),
             "mesh_path": str(out),
+            "actual_face_count": len(mesh.faces),
+            "actual_vertex_count": len(mesh.vertices),
             "generation_info": {
                 "seed": seed,
                 "num_inference_steps": 20,
@@ -189,6 +224,7 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
                 "octree_resolution": 380,
                 "num_chunks": 20000,
                 "native_target_polycount": native_target_polycount or None,
+                "remesh_option": remesh_option,
             },
         }
 

@@ -12,6 +12,14 @@ export interface FeatureAvailability {
 
 export type FeatureAvailabilityStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
+export interface ModelUiMeta {
+  label: string;
+  tag: string;
+  note: string;
+  badge: string;
+  enabled: boolean;
+}
+
 export interface UseFeatureAvailabilityReturn {
   features: FeatureAvailability;
   modelDetails: Record<string, ModelRuntimeDetails>;
@@ -21,6 +29,8 @@ export interface UseFeatureAvailabilityReturn {
   error: string | null;
   checkFeature: (featureName: string) => boolean;
   getModelsForFeature: (featureName: string) => string[];
+  getModelCapabilities: (modelId: string) => Record<string, any>;
+  getModelUiMeta: (modelId: string) => ModelUiMeta;
   refetch: () => Promise<void>;
 }
 
@@ -158,6 +168,21 @@ export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
       [];
   }, [features]);
 
+  const getModelCapabilities = useCallback((modelId: string): Record<string, any> => {
+    return modelDetails[modelId]?.capabilities || {};
+  }, [modelDetails]);
+
+  const getModelUiMeta = useCallback((modelId: string): ModelUiMeta => {
+    const detail = modelDetails[modelId];
+    return {
+      label: detail?.ui_label || detail?.model_name || modelId,
+      tag: detail?.ui_tag || 'Ready',
+      note: detail?.ui_note || '',
+      badge: detail?.ui_badge || '',
+      enabled: detail?.enabled !== false,
+    };
+  }, [modelDetails]);
+
   const refetch = useCallback(async () => {
     await fetchFeatureAvailability();
   }, [fetchFeatureAvailability]);
@@ -175,6 +200,8 @@ export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
     error,
     checkFeature,
     getModelsForFeature,
+    getModelCapabilities,
+    getModelUiMeta,
     refetch
   };
 }; 

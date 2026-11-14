@@ -90,7 +90,7 @@ export function buildGenerationParameters(
     (settings.generateTexture !== false)
   );
 
-  const textureResolutionPreset: '1K' | '2K' | '4K' | '8K' =
+  const textureResolutionPreset: '512' | '1K' | '2K' | '4K' | '8K' =
     settings.texture_resolution ||
     settings.textureResolution ||
     (
@@ -102,6 +102,7 @@ export function buildGenerationParameters(
     );
 
   const numericTextureResolution = (
+    textureResolutionPreset === '512' ? 512 :
     textureResolutionPreset === '1K' ? 1024 :
     textureResolutionPreset === '2K' ? 2048 :
     textureResolutionPreset === '4K' ? 4096 :
@@ -178,11 +179,8 @@ export function buildGenerationParameters(
   const clampedPolycount = Number.isFinite(parsedPolycount) && parsedPolycount > 0
     ? Math.max(500, Math.min(600000, Math.round(parsedPolycount)))
     : 0;
-  // Native polycount target always reaches the model's native extraction path,
-  // independent of post-processing. When post-processing is disabled, the
-  // value is carried as native_target_polycount so adapters can apply it
-  // directly during mesh extraction rather than via downstream decimation.
-  const nativeTargetPolycount = enablePostprocess ? 0 : clampedPolycount;
+  // Authoritative user polycount reaches the adapter directly
+  const nativeTargetPolycount = clampedPolycount;
   const targetPolycount = enablePostprocess ? clampedPolycount : 0;
 
   const modelPreference = resolveGenerationModelChoice(settings.aiModel, undefined);
@@ -195,7 +193,6 @@ export function buildGenerationParameters(
     output_format: 'glb',
     model_preference: modelPreference || undefined,
     auto_mode: false,
-    intent: enablePostprocess ? settings.intent : undefined,
     preprocessing_artifact_id: settings.preprocessingArtifactId || undefined,
     preprocessing_review_override: Boolean(settings.preprocessingReviewOverride),
     enhancement_enabled: Boolean(settings.enhancementEnabled),

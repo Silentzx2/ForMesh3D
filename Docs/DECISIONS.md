@@ -5,6 +5,25 @@
 
 ---
 
+## ADR-102: Universal Model Adapter Parameter Passthrough and Dynamic Model-Aware UI Controls (2026-11-14)
+
+**Context:** Generation parameters explicitly configured by users in the UI (e.g. polycount target 400K, texture atlas resolution, texture enable toggle, remesh topology) were previously intercepted by router-level preset overrides or logged and dropped by adapters, resulting in meshes with default resolutions (e.g. 8K faces for SF3D regardless of slider setting). Furthermore, static UI buttons offered unsupported resolutions (e.g. 4K for SF3D which only supports up to 2K) and Quad topology buttons for models producing only native triangles.
+
+**Decision:**
+1. **Dynamic Model-Aware UI Controls**:
+   - `GeneratePanel` and `TexturePanel` resolve texture resolutions dynamically based on the active model: SF3D offers `512`, `1K`, `2K`; Hunyuan3D-Paint offers `1K`, `2K`, `4K`; raw mesh generators hide the texture section.
+   - Geometry topology selector dynamically disables/indicates when a model does not support Quad remeshing, preventing user confusion.
+2. **Authoritative Parameter Passthrough**:
+   - `buildGenerationParameters.ts` maps user-selected polycount directly to `native_target_polycount` and routes user parameters without intermediate decimation post-processing flags.
+   - `mesh_generation.py` router respects user-specified `native_target_polycount`, `texture_resolution`, and `seed` over preset fallbacks.
+3. **Universal Adapter Polycount & Texture Handling**:
+   - Adapters (`stable_fast_3d_adapter.py`, `hunyuan3d_shape_v21.py`, `hunyuan3d_dit_v2_mini_turbo.py`, `trellis_adapter.py`, `triposg_adapter.py`, etc.) consume `native_target_polycount` and apply direct geometric subdivision/simplification before export to ensure meshes match user budgets.
+   - When `texture_enabled` is false, adapters skip texture baking and export clean untextured geometry with `ColorVisuals`.
+4. **Workspace Operations Keep/Discard Endpoints**:
+   - Implemented `POST /api/v1/workspace/operations/{operation_id}/keep` and `discard` in `backend/api/routers/system.py` with alias paths, resolving preview retention 404 errors.
+
+---
+
 ## ADR-101: Studio 3D Unified Tool Panel Architecture & Dynamic Right Panel Extension (2026-11-09)
 
 **Context:** The Studio 3D workspace previously used placeholder cards (`StudioToolTemplate`) for specialized processing workflows (Smart UV, Segmentation, Auto-Rigging, Animation), while right inspector panels were static and did not offer contextual tool inspections (e.g. UV atlas layout visualization or texel density inspection). In addition, disparate panel widths and multiline wrapping degraded usability on smaller laptop displays.

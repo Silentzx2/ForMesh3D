@@ -243,7 +243,7 @@ Texture generation runs inside the selected model's adapter after raw mesh infer
 
 Paint3D has been removed from the main repo. Texture Studio sends the selected paint model ID; atlas resolution does not override the selection. Hunyuan3D-Paint v2.1 uses internal RealESRGAN for 4K/8K targets.
 
-> **Registry source of truth:** the catalog above mirrors `backend/config/models.yaml`. Only entries with `enabled: true` are exposed by `GET /api/v1/system/models`. `backend/config/smart_presets.yaml` holds the intent presets (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`; `native` is a backend-only sentinel).
+> **Registry source of truth:** the catalog above mirrors `backend/config/models.yaml`. Only entries with `enabled: true` are exposed by `GET /api/v1/system/models`. Model capabilities, limits, and supported options are fully model-driven.
 
 ---
 
@@ -460,7 +460,6 @@ The FastAPI backend exposes 100 active API endpoints (98 mounted across 13 `APIR
 | `/api/v1/mesh-generation/image-to-textured-mesh` | `POST` | Combined mesh generation + texturing |
 | `/api/v1/mesh-generation/image-mesh-painting` | `POST` | Paint PBR textures onto existing 3D geometry from image |
 | `/api/v1/mesh-generation/text-mesh-painting` | `POST` | Paint PBR textures onto existing 3D geometry from text prompt |
-| `/api/v1/smart-generation/generation` | `POST` | Intent-driven generation with deterministic model selection |
 | `/api/v1/mesh-retopology/retopologize-mesh` | `POST` | Run FastMesh quad retopology on mesh |
 | `/api/v1/mesh-uv-unwrapping/unwrap-mesh` | `POST` | Generate conformal UV atlas charts |
 | `/api/v1/mesh-segmentation/segment-mesh` | `POST` | Segment mesh into semantic parts |

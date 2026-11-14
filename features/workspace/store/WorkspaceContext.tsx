@@ -305,6 +305,13 @@ function comparisonSourceUrl(asset?: ModelAsset | null): string | undefined {
 }
 
 function preferredPreviewStats(result?: Record<string, any>): Record<string, any> {
+  if (!result) return {};
+  if (typeof result.actual_face_count === 'number' || typeof result.actual_vertex_count === 'number') {
+    return {
+      faces: result.actual_face_count ?? result.polygon_count,
+      vertices: result.actual_vertex_count ?? result.vertex_count,
+    };
+  }
   return isNativeRawPreview(result)
     ? (result?.quality_trace?.source || {})
     : (result?.quality_trace?.game_ready || {});
@@ -1852,25 +1859,8 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     setIsExecuting(true);
 
     try {
-      let resolvedModelId = effective.aiModel || '';
-      let finalSettings = { ...effective, imageFileId: effectiveFileId };
-      if (effective.intent) {
-        try {
-          const resolved = await getApiClient().resolveSmartIntent(
-            effective.intent,
-            effective.aiModel || undefined,
-          );
-          resolvedModelId = resolveGenerationModelChoice(effective.aiModel, resolved.model_id);
-          if (!effective.aiModel) {
-            finalSettings = {
-              ...finalSettings,
-              aiModel: resolvedModelId,
-            };
-          }
-        } catch {
-          // fallback
-        }
-      }
+      const resolvedModelId = effective.aiModel || '';
+      const finalSettings = { ...effective, imageFileId: effectiveFileId };
 
       const selectedCapabilities = modelDetails[resolvedModelId]?.capabilities || {};
       const modelCapabilities = resolveGenerationModelCapabilities(resolvedModelId, selectedCapabilities);
@@ -2776,7 +2766,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
          // Create a temporary GenerationSettings object from the batch item
          const batchTexQuality = batchItem.textureQuality as string | undefined;
-         const batchTexRes: '1K' | '2K' | '4K' | '8K' =
+         const batchTexRes: '512' | '1K' | '2K' | '4K' | '8K' =
            batchItem.texture_resolution ??
            batchItem.textureResolution ??
            (batchTexQuality === '8k' ? '8K' : batchTexQuality === 'ultra' ? '4K' : batchTexQuality === 'high' ? '2K' : '1K');
@@ -2804,7 +2794,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
             exportFormats: batchItem.exportFormats ?? ['glb'],
             slicerHandoff: batchItem.slicerHandoff ?? false,
             generateCollision: batchItem.generateCollision ?? true,
-            intent: batchItem.intent,
             preprocessingArtifactId: batchItem.preprocessingArtifactId,
             preprocessingReviewOverride: batchItem.preprocessingReviewOverride ?? false,
             preprocessingPreviewUrl: null,
@@ -2828,28 +2817,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
              comparisonGroupId ?? undefined
            );
 
-         // Resolve smart intent if applicable
-         let effectiveSettings = batchSettings;
-         if (batchSettings.intent) {
-           try {
-              const resolved = await getApiClient().resolveSmartIntent(
-                batchSettings.intent,
-                batchSettings.aiModel || undefined,
-              );
-              const effectiveModelId = resolveGenerationModelChoice(batchSettings.aiModel, resolved.model_id);
-              if (!batchSettings.aiModel) {
-                effectiveSettings = {
-                  ...batchSettings,
-                  aiModel: effectiveModelId,
-                };
-              }
-           } catch (intentError) {
-             console.warn('Failed to resolve smart intent, using model directly:', intentError);
-             // Continue with original settings
-           }
-         }
-
           // Batch and single submissions use the same manifest-declared model capabilities.
+          const effectiveSettings = batchSettings;
           const effectiveModelId = effectiveSettings.aiModel || '';
           const selectedCapabilities = modelDetails[effectiveModelId]?.capabilities || {};
           const modelCapabilities = resolveGenerationModelCapabilities(effectiveModelId, selectedCapabilities);
