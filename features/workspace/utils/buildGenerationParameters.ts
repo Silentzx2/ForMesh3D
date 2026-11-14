@@ -159,7 +159,15 @@ export function buildGenerationParameters(
     : 'full';
   const lodCount = Math.max(2, Math.min(4, Math.floor(Number(settings.lodCount) || 4)));
 
-  const endpoint = '/api/v1/mesh-generation/image-to-raw-mesh';
+  // Route by the model's declared capability, not the transient texture toggle.
+  // SF3D is textured-only (FEATURE_TYPE = image_to_textured_mesh, no raw mesh):
+  // it can never serve the raw-mesh endpoint even when texture is left off.
+  const isTexturedOnlyModel = Boolean(
+    modelCapabilities.supports_texture && !modelCapabilities.raw_mesh,
+  );
+  const endpoint = isTexturedOnlyModel
+    ? '/api/v1/mesh-generation/image-to-textured-mesh'
+    : '/api/v1/mesh-generation/image-to-raw-mesh';
   const rawTargetPolycount =
     (settings as any).polycount ??
     (settings as any).targetPolycount ??

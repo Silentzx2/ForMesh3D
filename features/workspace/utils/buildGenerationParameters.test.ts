@@ -140,9 +140,46 @@ describe('buildGenerationParameters', () => {
       generateTexture: false,
       texture_enabled: false,
     };
-
     const result = buildGenerationParameters(settings);
     assert.equal(result.body.texture_enabled, false);
     assert.equal(result.body.generate_texture, false);
+  });
+
+  it('routes textured-only non-raw models (SF3D) to the textured endpoint', () => {
+    const settings: GenerationSettings = {
+      ...baseSettings,
+      aiModel: 'stable_fast_3d_image_to_textured_mesh',
+      enablePostprocess: false,
+      generateTexture: true,
+    };
+    const result = buildGenerationParameters(settings, { supports_texture: true });
+    assert.equal(result.endpoint, '/api/v1/mesh-generation/image-to-textured-mesh');
+    assert.equal(result.body.texture_enabled, true);
+    assert.equal(result.body.model_preference, 'stable_fast_3d_image_to_textured_mesh');
+  });
+
+  it('routes SF3D to the textured endpoint even when texture is disabled', () => {
+    const settings: GenerationSettings = {
+      ...baseSettings,
+      aiModel: 'stable_fast_3d_image_to_textured_mesh',
+      enablePostprocess: false,
+      generateTexture: false,
+      texture_enabled: false,
+    };
+    const result = buildGenerationParameters(settings, { supports_texture: true });
+    assert.equal(result.endpoint, '/api/v1/mesh-generation/image-to-textured-mesh');
+    assert.equal(result.body.texture_enabled, false);
+  });
+
+  it('keeps raw models on the raw endpoint even when texture is enabled', () => {
+    const settings: GenerationSettings = {
+      ...baseSettings,
+      aiModel: 'hunyuan3d_shape_v21_image_to_raw_mesh',
+      enablePostprocess: false,
+      generateTexture: true,
+    };
+    const result = buildGenerationParameters(settings, { raw_mesh: true });
+    assert.equal(result.endpoint, '/api/v1/mesh-generation/image-to-raw-mesh');
+    assert.equal(result.body.texture_enabled, true);
   });
 });
