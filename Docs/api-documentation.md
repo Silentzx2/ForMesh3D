@@ -439,13 +439,49 @@ Content-Type: application/json
 }
 ```
 
-**Response (202):**
+**Response (200):**
 ```json
 {
   "api_version": "1",
-  "job_id": "gen_abc123",
+  "job_id": "my_model_abc123",
   "status": "queued",
-  "message": "Generation job queued"
+  "message": "Image-to-mesh generation job queued successfully",
+  "workspace_id": "my_model_abc123",
+  "operation_id": "op_9f8e7d6c5b4a",
+  "route_path": "/workspace/generate/my_model_abc123"
+}
+```
+
+> **Post-Processing Retention Clarification**: Automated post-processing during generation is disabled by default (`postprocessing.enabled: false`) in favor of direct model-native neural output. However, all modules in `backend/postprocess/` remain permanent core foundations powering discrete, on-demand specialist tools (such as PartUV, AutoRetopo, Baking, Collision, and QA inspection).
+
+### Deep-Link Route & Workspace State Lookup
+
+Query the authoritative SQLite database state for a workspace without re-running any inference or jobs:
+
+```http
+GET /api/v1/system/workspace/generate/{workspace_id}
+```
+
+**Response (200):**
+```json
+{
+  "workspace_id": "my_model_abc123",
+  "name": "My Model",
+  "status": "active",
+  "active_mesh_asset_id": "ast_mesh_123456",
+  "active_mesh": {
+    "asset_id": "ast_mesh_123456",
+    "file_type": "mesh",
+    "relative_path": "mesh/source_mesh.glb",
+    "byte_size": 154200
+  },
+  "mesh_url": "http://localhost:7842/api/v1/system/jobs/my_model_abc123/download?artifact_format=glb",
+  "route_path": "/workspace/generate/my_model_abc123",
+  "created_at": "2026-11-14T03:00:00Z",
+  "updated_at": "2026-11-14T03:05:00Z",
+  "settings": {},
+  "assets": [...],
+  "operations": [...]
 }
 ```
 

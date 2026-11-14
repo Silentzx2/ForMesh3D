@@ -16,6 +16,9 @@ export interface AssetItem {
 
 export type ShadingPreset = 'default' | 'clay' | 'metallic' | 'wireframe' | 'normal' | 'gold' | 'cyberpunk' | 'uv';
 
+export type WorkspaceExecutionState = 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'interrupted';
+export type WorkspacePersistenceState = 'not_saved' | 'saving' | 'saved' | 'save_failed' | 'discarded';
+
 export interface ModelMeshStats {
   vertices: number;
   triangles: number;
@@ -70,6 +73,10 @@ interface ViewerState {
   compareSyncCamera: boolean;
   compareLeftAssetId: string | null;
   compareRightAssetId: string | null;
+  workspaceId: string | null;
+  activeMeshAssetId: string | null;
+  executionState: WorkspaceExecutionState;
+  persistenceState: WorkspacePersistenceState;
 
   setLoadedModel: (url: string | null, name?: string | null, asset?: AssetItem | null) => void;
   setSelectedAsset: (asset: AssetItem | null) => void;
@@ -83,6 +90,10 @@ interface ViewerState {
   setCompareSyncCamera: (enabled: boolean) => void;
   setCompareLeftAsset: (assetId: string | null) => void;
   setCompareRightAsset: (assetId: string | null) => void;
+  setWorkspaceId: (workspaceId: string | null) => void;
+  setActiveMeshAssetId: (assetId: string | null) => void;
+  setExecutionState: (executionState: WorkspaceExecutionState) => void;
+  setPersistenceState: (persistenceState: WorkspacePersistenceState) => void;
   activeModelObject: THREE.Object3D | null;
   setActiveModelObject: (obj: THREE.Object3D | null) => void;
 }
@@ -100,8 +111,16 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   compareSyncCamera: false,
   compareLeftAssetId: null,
   compareRightAssetId: null,
+  workspaceId: null,
+  activeMeshAssetId: null,
+  executionState: 'idle',
+  persistenceState: 'not_saved',
   activeModelObject: null,
   setActiveModelObject: (obj) => set({ activeModelObject: obj }),
+  setWorkspaceId: (workspaceId) => set({ workspaceId }),
+  setActiveMeshAssetId: (activeMeshAssetId) => set({ activeMeshAssetId }),
+  setExecutionState: (executionState) => set({ executionState }),
+  setPersistenceState: (persistenceState) => set({ persistenceState }),
 
   setLoadedModel: (url, name = null, asset = null) => {
     const prev = get().loadedModelUrl;

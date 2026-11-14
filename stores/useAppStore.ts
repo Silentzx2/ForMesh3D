@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { GenerationConfig, GenerationJob, GenerationMode, QualityPreset, ViewerState, ViewerMode, LogEntry, RecentPrompt, UploadedImage, InstallProgress, AdminJob, ProjectAsset, ProjectLayer, BatchQueueItem, GenerationResult } from '@/types';
-import type { GenerationSettings } from '@/features/workspace/types';
+import type { GenerationSettings, WorkspaceExecutionState, WorkspacePersistenceState } from '@/features/workspace/types';
 import { getApiClient } from '@/services/apiClient';
 
 export interface AppState {
@@ -25,6 +25,14 @@ export interface AppState {
   retryCount: number;
   generationSettings: GenerationSettings;
   loadHistory: () => Promise<void>;
+
+  // ── Workspace & Execution State ──
+  executionState: WorkspaceExecutionState;
+  persistenceState: WorkspacePersistenceState;
+  activeWorkspaceId: string | null;
+  setExecutionState: (state: WorkspaceExecutionState) => void;
+  setPersistenceState: (state: WorkspacePersistenceState) => void;
+  setActiveWorkspaceId: (workspaceId: string | null) => void;
 
   // ── References ──
   hdMode: 'hd' | 'smart';
@@ -239,6 +247,10 @@ const DEFAULT_STATE: AppStateData = {
     candidateCount: 1,
   },
 
+  executionState: 'idle',
+  persistenceState: 'not_saved',
+  activeWorkspaceId: null,
+
   hdMode: 'hd',
   referenceModel: null,
 
@@ -363,6 +375,10 @@ export const useAppStore = create<AppState>()(
           seed: '',
           currentJob: null,
         }),
+
+      setExecutionState: (executionState) => set({ executionState }),
+      setPersistenceState: (persistenceState) => set({ persistenceState }),
+      setActiveWorkspaceId: (activeWorkspaceId) => set({ activeWorkspaceId }),
 
       setHDMode: (hdMode) => set({ hdMode }),
       setReferenceModel: (referenceModel) => set({ referenceModel }),

@@ -3,6 +3,20 @@ import { getApiClient } from '@/services/apiClient';
 import { validate3DFile } from './lib/fileValidation';
 import { requireUploadFileId } from './lib/uploadResponse';
 
+export type WorkspaceExecutionState = 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'interrupted';
+export type WorkspacePersistenceState = 'not_saved' | 'saving' | 'saved' | 'save_failed' | 'discarded';
+
+export interface WorkspaceVersionItem {
+  asset_id: string;
+  name: string;
+  version_label: string;
+  operation_type?: string;
+  url: string;
+  thumbnail_url?: string | null;
+  created_at?: string;
+  is_base?: boolean;
+}
+
 export type ToolType =
   | 'tools'
   | 'model'
@@ -64,6 +78,10 @@ export type CameraViewPreset = 'perspective' | 'front' | 'back' | 'top' | 'botto
 
 export interface ModelAsset {
   id: string;
+  workspace_id?: string;
+  operation_id?: string;
+  version?: string;
+  is_base_mesh?: boolean;
   fileId?: string;
   name: string;
   category: 'all' | 'mesh' | 'texture' | 'generation' | 'edit';

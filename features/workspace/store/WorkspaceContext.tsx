@@ -16,6 +16,9 @@ import {
   ActiveTask,
   EnvironmentSettings,
   normalizeModelAsset,
+  WorkspaceExecutionState,
+  WorkspacePersistenceState,
+  WorkspaceVersionItem,
 } from '../types';
 import type { BatchQueueItem } from '@/types';
 import { apiClient } from '../lib/api';
@@ -122,6 +125,16 @@ interface WorkspaceContextType {
   dismissActiveTask: () => void;
   isExecuting: boolean;
   executionStatus?: WorkspaceExecutionStatus;
+  executionState: WorkspaceExecutionState;
+  setExecutionState: (state: WorkspaceExecutionState) => void;
+  persistenceState: WorkspacePersistenceState;
+  setPersistenceState: (state: WorkspacePersistenceState) => void;
+  workspaceId: string | null;
+  setWorkspaceId: (id: string | null) => void;
+  activeMeshAssetId: string | null;
+  setActiveMeshAssetId: (id: string | null) => void;
+  workspaceVersions: WorkspaceVersionItem[];
+  setWorkspaceVersions: React.Dispatch<React.SetStateAction<WorkspaceVersionItem[]>>;
   executionProgress: number;
   executionStep: string;
   cancelExecution: () => Promise<void>;
@@ -607,11 +620,52 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     });
   }, [historyAssets, uploadedAssets, localAssets, deletedAssetIds]);
 
+  const [workspaceId, setWorkspaceIdState] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname;
+      if (path.startsWith('/workspace/')) {
+        const parts = path.replace('/workspace/', '').split('/').filter(Boolean);
+        if (parts.length > 1 && parts[1]) {
+          return decodeURIComponent(parts[1]);
+        }
+      }
+    }
+    return null;
+  });
+
+  const [activeMeshAssetId, setActiveMeshAssetIdState] = useState<string | null>(null);
+  const [executionState, setExecutionStateInternal] = useState<WorkspaceExecutionState>('idle');
+  const [persistenceState, setPersistenceStateInternal] = useState<WorkspacePersistenceState>('not_saved');
+  const [workspaceVersions, setWorkspaceVersions] = useState<WorkspaceVersionItem[]>([]);
+
+  const setExecutionState = useCallback((nextState: WorkspaceExecutionState) => {
+    setExecutionStateInternal(nextState);
+    useAppStore.getState().setExecutionState(nextState);
+    useViewerStore.getState().setExecutionState(nextState);
+  }, []);
+
+  const setPersistenceState = useCallback((nextState: WorkspacePersistenceState) => {
+    setPersistenceStateInternal(nextState);
+    useAppStore.getState().setPersistenceState(nextState);
+    useViewerStore.getState().setPersistenceState(nextState);
+  }, []);
+
+  const setWorkspaceId = useCallback((id: string | null) => {
+    setWorkspaceIdState(id);
+    useAppStore.getState().setActiveWorkspaceId(id);
+    useViewerStore.getState().setWorkspaceId(id);
+  }, []);
+
+  const setActiveMeshAssetId = useCallback((id: string | null) => {
+    setActiveMeshAssetIdState(id);
+    useViewerStore.getState().setActiveMeshAssetId(id);
+  }, []);
+
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       const path = window.location.pathname;
       if (path.startsWith('/workspace/')) {
-        const parts = path.replace('/workspace/', '').split('/');
+        const parts = path.replace('/workspace/', '').split('/').filter(Boolean);
         const uuidPart = parts.find(p => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p));
         if (uuidPart) return `local_${uuidPart}`;
         if (parts.length > 1 && parts[1]) {
@@ -625,14 +679,21 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const mainNavRef = useRef(mainNav);
   const activeToolRef = useRef(activeTool);
 
-  // Sync selectedAssetId from deep-link pathname when navigating
+  // Sync workspaceId and activeMeshAssetId from deep-link pathname when navigating
   useEffect(() => {
     if (!pathname || !pathname.startsWith('/workspace/')) return;
-    const parts = pathname.replace('/workspace/', '').split('/');
+    const parts = pathname.replace('/workspace/', '').split('/').filter(Boolean);
+    if (parts.length > 1 && parts[1]) {
+      const routeWorkspaceId = decodeURIComponent(parts[1]);
+      setWorkspaceIdState(routeWorkspaceId);
+      useAppStore.getState().setActiveWorkspaceId(routeWorkspaceId);
+      useViewerStore.getState().setWorkspaceId(routeWorkspaceId);
+    }
     const uuidPart = parts.find(p => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p));
     const urlId = uuidPart ? `local_${uuidPart}` : (parts.length > 1 && parts[1] ? decodeURIComponent(parts[1]) : null);
     if (urlId && urlId !== selectedAssetIdRef.current) {
       setSelectedAssetId(urlId);
+      setActiveMeshAssetIdState(urlId);
     }
   }, [pathname]);
 
@@ -690,10 +751,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // is registered via bindBackendJob.
   const { registerTask, completeTask, startPolling } = useTaskManager();
 
-  // F5: cadenced per-task poller via apiClient.getJobStatus() (5s cadence);
-  // terminal states update useAppStore.tasks. Runs alongside useTaskManager's
-  // reconnect/backoff loop; local placeholder ids are skipped inside the hook.
-  useTaskPolling({ pollingInterval: 5000, enabled: true });
+  // B5-T4: Unified adaptive task poller (1.5s initial cadence, 5s backoff after 2min,
+  // pauses on tab hidden, stops on terminal state).
+  useTaskPolling({ initialInterval: 1500, backoffInterval: 5000, backoffDelayMs: 120000, enabled: true });
 
   const dismissActiveTask = useCallback(() => setActiveTask(null), []);
 
@@ -745,7 +805,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       enableAutoRepair: false,
       enableAutoRig: false,
       autoRigMode: 'full',
-      enablePostprocess: true,
+      enablePostprocess: false,
       candidateCount: 1,
       partCountRange: '1',
       rigType: 'none',
@@ -945,6 +1005,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       });
       addAsset(outputAsset);
       setSelectedAssetId(finalAssetId);
+      setActiveMeshAssetId(finalAssetId);
+      setExecutionState('completed');
+      setPersistenceState('saved');
       setViewportResetTrigger(prev => prev + 1);
       loadModelInViewer(modelUrl, cleanName, outputAsset as any);
       return outputAsset;
@@ -957,8 +1020,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (typeof window === 'undefined') return;
     const path = window.location.pathname;
     if (!path.startsWith('/workspace/')) return;
-    const parts = path.replace('/workspace/', '').split('/');
-    const routeJobId = parts.find(p => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p) || /^[a-z0-9]+-[a-z0-9]+-[a-z0-9]{6}$/i.test(p));
+    const parts = path.replace('/workspace/', '').split('/').filter(Boolean);
+    const routeJobId = (parts.length > 1 && parts[1] && !parts[1].startsWith('?'))
+      ? decodeURIComponent(parts[1])
+      : parts.find(p => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p) || /^[a-z0-9]+-[a-z0-9]+-[a-z0-9]{6}$/i.test(p));
     if (!routeJobId) return;
 
     // Resolve friendly name-hash URL ID to backend job UUID via localStorage mapping
@@ -1451,31 +1516,11 @@ function dataURLtoFile(dataURL: string, filename: string): File {
 
   const selectAsset = useCallback((id: string) => {
     setSelectedAssetId(id);
-
-    if (typeof window !== 'undefined') {
-      // Must use the live activeTool (ref) — a stale closure here would rewrite
-      // the URL to the wrong tool route and bounce the user to the Generate panel.
-      const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-      // Consistent URL: <name>_<hash> — strip known prefixes, deterministic hash
-      // derived from the asset id/name so re-selecting the same asset keeps the
-      // same route (no fresh random hash on every click).
-      const asset = assets.find(a => a.id === id);
-      const rawName = asset?.name || id.replace(/^(?:local_|upload_|hist_|job-)+/, '');
-      const cleanName = rawName
-        .replace(/\.[^/.]+$/, '')
-        .replace(/[^a-zA-Z0-9]+/g, '_')
-        .replace(/^_+|_+$/g, '')
-        .split('_')
-        .filter(Boolean)
-        .slice(0, 2)
-        .join('_') || 'asset';
-      const shortHash = routeShortId(id);
-      window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
-    }
-
+    setActiveMeshAssetId(id);
+    // Selecting an asset updates only active_mesh_asset_id WITHOUT mutating the URL route
     // Increment viewport trigger to force MeshViewer reload
     setViewportResetTrigger(prev => prev + 1);
-  }, [assets]);
+  }, [setActiveMeshAssetId]);
 
   const setCurrentAsset = useCallback((asset: ModelAsset | null) => {
     if (!asset) {
@@ -1676,44 +1721,20 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     setExecutionStep('Queued');
     setActiveTask(task);
 
-    if (typeof window !== 'undefined') {
-      // During image→3d generation, keep the upload URL fixed (name + hash).
-      // Don't overwrite it with a job-specific URL — same image = same URL,
-      // and after generation completes the mesh loads on that same URL.
-      if (!inputImageName) {
-        const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-        const rawName = title || 'job';
-        const cleanName = rawName
-          .replace(/\.[^/.]+$/, '')
-          .replace(/[^a-zA-Z0-9]+/g, '_')
-          .replace(/^_+|_+$/g, '')
-          .split('_')
-          .filter(Boolean)
-          .slice(0, 2)
-          .join('_') || 'job';
-        const shortHash = routeShortId(rawName);
-        window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
-      }
+    if (typeof window !== 'undefined' && workspaceId) {
+      const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
+      window.history.replaceState(null, '', `${toolRoute}/${workspaceId}`);
     }
     setJobsById(prev => ({ ...prev, [taskId]: task }));
     return taskId;
   }, []);
 
   const bindBackendJob = useCallback((localTaskId: string, jobId: string, updates: Partial<ActiveTask> = {}) => {
+    setWorkspaceId(jobId);
+    setExecutionState('queued');
     if (typeof window !== 'undefined') {
       const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-      // Consistent URL: <2words>_<hash> — strip ALL known prefixes, convert dashes to underscores
-      const friendlyId = localTaskId.replace(/^(?:local_|upload_|hist_|job-)+/, '');
-      const cleanName = friendlyId
-        .replace(/\.[^/.]+$/, '')
-        .replace(/[^a-zA-Z0-9]+/g, '_')
-        .replace(/^_+|_+$/g, '')
-        .split('_')
-        .filter(Boolean)
-        .slice(0, 2)
-        .join('_') || 'job';
-      const shortHash = routeShortId(localTaskId);
-      window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
+      window.history.replaceState(null, '', `${toolRoute}/${jobId}`);
       // Persist friendly ID -> backend UUID mapping for post-refresh hydration
       localStorage.setItem(`fm3d:job:${localTaskId}`, jobId);
     }
@@ -1932,18 +1953,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       // Set route to /workspace/generate/<imagename>_<hash> after generation request accepted
       if (typeof window !== 'undefined') {
         const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-        const cleanName = generationSettings.imageName
-          ? generationSettings.imageName
-              .replace(/\.[^/.]+$/, '')
-              .replace(/[^a-zA-Z0-9]+/g, '_')
-              .replace(/^_+|_+$/g, '')
-              .split('_')
-              .filter(Boolean)
-              .slice(0, 2)
-              .join('_') || 'asset'
-          : 'asset';
-        const shortHash = routeShortId(generationSettings.imageName || 'asset');
-        window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
+        window.history.replaceState(null, '', `${toolRoute}/${jobId}`);
       }
       setExecutionStep('Generation queued on backend');
       setActiveTask(prev => prev ? {
@@ -3130,10 +3140,16 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     selectAsset, updateAssetProperties, updateMaterialConfig,
     deleteAsset, addAsset, setCurrentAsset,
     assetFilter, setAssetFilter, duplicateAsset,
+    workspaceId, setWorkspaceId,
+    activeMeshAssetId, setActiveMeshAssetId,
+    workspaceVersions, setWorkspaceVersions,
   }), [assets, isAssetsLoading, selectedAssetId, currentAsset,
     selectAsset, updateAssetProperties, updateMaterialConfig,
     deleteAsset, addAsset, setCurrentAsset,
-    assetFilter, setAssetFilter, duplicateAsset]);
+    assetFilter, setAssetFilter, duplicateAsset,
+    workspaceId, setWorkspaceId,
+    activeMeshAssetId, setActiveMeshAssetId,
+    workspaceVersions, setWorkspaceVersions]);
 
   const systemValue = useMemo(() => ({
     systemStats, isSettingsOpen, setIsSettingsOpen,
@@ -3146,11 +3162,17 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   const executionValue = useMemo(() => ({
     activeTask, jobsById, dismissActiveTask,
     hoveredPartId, setHoveredPartId,
-    isExecuting, executionStatus, executionProgress, executionStep, cancelExecution,
+    isExecuting, executionStatus,
+    executionState, setExecutionState,
+    persistenceState, setPersistenceState,
+    executionProgress, executionStep, cancelExecution,
     dismissJob, selectJobToView, queueGenerationJob,
   }), [activeTask, jobsById, dismissActiveTask,
     hoveredPartId, setHoveredPartId,
-    isExecuting, executionStatus, executionProgress, executionStep, cancelExecution,
+    isExecuting, executionStatus,
+    executionState, setExecutionState,
+    persistenceState, setPersistenceState,
+    executionProgress, executionStep, cancelExecution,
     dismissJob, selectJobToView, queueGenerationJob]);
 
   const generationSettingsValue = useMemo(() => ({

@@ -38,7 +38,33 @@ Use this map to find the owner of a behavior before editing it.
 
 ### Generation runtime ownership
 
-The normal image-to-asset path is UI upload/request serialization → FastAPI validation and `JobRequest` → scheduler/resource planner → one adapter's inference → raw master persistence → optional `postprocess.pipeline.run_postprocess_job` → derivative artifacts and QA report. High-resolution geometry is generated directly in a single pass by modern foundation models (TRELLIS.2, TaoFlowForge, Hunyuan3D-2.1) bypassing legacy coarse-mesh refinement. The scheduler owns worker/resource selection and job state; it does not implement mesh repair, retopology, baking, LOD, or collision algorithms. A request with post-processing disabled returns the raw result and bypasses those production stages.
+The normal image-to-asset path is UI upload/request serialization → FastAPI validation and `JobRequest` → scheduler/resource planner → one adapter's inference → raw master persistence → optional `postprocess.pipeline.run_postprocess_job` → derivative artifacts and QA report. High-resolution geometry is generated directly in a single pass by modern foundation models (TRELLIS.2, TaoFlowForge, Hunyuan3D-2.1) bypassing legacy coarse-mesh refinement. Automated downstream post-processing during initial generation is disabled by default (`postprocessing.enabled: false`) in favor of direct high-fidelity model-native mesh output. All post-processing modules in `backend/postprocess/` remain permanent core foundations powering discrete, on-demand specialist studio tools (such as PartUV, AutoRetopo, Normal Baking, Collision Generation, and QA inspection). The scheduler owns worker/resource selection and job state; it does not implement mesh repair, retopology, baking, LOD, or collision algorithms. A request with post-processing disabled returns the raw result and bypasses automated post-processing production stages.
+
+### Workspace Lifecycle & Dual State Machines (Frontend Integration)
+
+1. **Identity & Route Architecture:**
+   - Stable route format: `/workspace/generate/<workspace_id>` (and tool subroutes `/workspace/[tool]/<workspace_id>`).
+   - Ephemeral client-side route hashing (`routeShortId`) has been eliminated in favor of authoritative backend-minted `workspace_id`.
+   - Asset selection in the Assets panel updates only `active_mesh_asset_id` on the workspace state without mutating or replacing the URL route.
+2. **Dual State Machine Alignment:**
+   - **Execution State:** `idle` | `queued` | `running` | `completed` | `failed` | `interrupted` (enforced with immutable terminal transitions).
+   - **Persistence State:** `not_saved` | `saving` | `saved` | `save_failed` | `discarded`.
+3. **Operation Action Bar (Keep, Regenerate, Discard):**
+   - Active when derived operations produce an unretained preview (`completed` execution with `not_saved` persistence).
+   - **Keep in Workspace:** Commits preview to permanent workspace storage, marks persistence as `saved`, and makes output discoverable in Mesh Versions.
+   - **Regenerate:** Creates a linked operation execution with `parent_operation_id`, preserving prior versions while re-running with parameter snapshot.
+   - **Discard Preview:** Cleans temporary execution directory in `storage/temp/` and restores viewport to the last active saved base mesh.
+4. **Dynamic Mesh Versions Selector:**
+   - Viewport version dropdown dynamically lists retained outputs.
+   - Hidden when workspace only contains its raw base mesh; displayed once derived outputs are retained (`_v002`, `_v003`, or named tool phases).
+   - Stale viewer fetch race protection enforced using `AbortController` in `MeshViewer.tsx` and `glbCache.ts`.
+5. **Consolidated Adaptive Polling:**
+   - 1.5s initial polling interval for fast response.
+   - 5s backoff after 2 minutes (120s) of active task polling to minimize server load.
+   - Pauses on tab hidden (`document.hidden` / `visibilitychange`) and resumes immediately on return.
+   - Stops polling completely when all active tasks reach terminal state.
+6. **Global Workspaces Gallery:**
+   - Studio dashboard lists active workspaces with metadata cards, navigating directly to `/workspace/generate/<workspace_id>`.
 
 For a behavior change, update the owning implementation and its contract test first, then update the linked contract/API docs and verify the targeted CI command. Do not copy thresholds, model profiles, or intent recipes into a second owner.
 
@@ -85,34 +111,33 @@ The generative asset pipeline enforces strict separation of concerns across six 
 flowchart TD
     UI["1. Presentation Tier<br/>(GeneratePanel.tsx)"] --> RB["2. Request Builder<br/>(buildGenerationParameters.ts)"]
     RB --> API["3. API Gateway<br/>(routers/mesh_generation.py)"]
-    API --> SCH["4. Multiprocess Scheduler<br/>(multiprocess_scheduler.py)"]
-    SCH -->|"Image + Seed + max fidelity<br/>(overrides stripped)"| ADP["5. Model Adapter<br/>(adapters/*_adapter.py)"]
-    ADP -->|"Raw Generation<br/>(Immutable master/source.glb)"| PP["6. Production Postprocess<br/>(postprocess/pipeline.py)"]
-    PP --> OUT["Engine-Ready Assets<br/>(game_ready/, lods/, collision/, textures/)"]
+    API --> SCH["4. Shared SQLite FIFO Queue<br/>(Cap 10, Dedupe, Snapshots)"]
+    SCH --> WRK["5. Single Worker Subprocess<br/>(Atomic Claim with Process Lock)"]
+    WRK --> ADP["6. Model Adapter<br/>(adapters/*_adapter.py)"]
+    ADP -->|"Direct Model-Native Extraction"| OUT["High-Fidelity Neural Output<br/>(storage/temp/<op_id>/ -> Keep/Discard)"]
 ```
 
 | Tier | Component | Primary Responsibilities | Data Handled & Stripped |
 | :--- | :--- | :--- | :--- |
 | **1. UI** | `GeneratePanel.tsx`<br>`GenerationPresetDrawer.tsx` | Clean generation studio. Image intake, model selector with live hardware readiness, single Target Polycount / intent-preset card (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`, `native`), and an uncluttered Advanced drawer with real production controls (candidates 1–4, quad/tri, normal baking, LOD levels, repair, physics colliders). Presets configure parameters non-destructively; clicking a preset **never** auto-submits. | Emits user settings state. Exposes no fake inference sliders (steps, guidance, octree resolution, sampler overrides). |
-| **2. Request Builder** | `buildGenerationParameters.ts` | Pure client serialization function. Maps intent presets and explicit polycount budgets into clean API payloads for `POST /api/v1/mesh-generation/image-to-raw-mesh`. Isolates target budgets and postprocessing flags; `model_parameters` carries only `seed`. | Emits `endpoint`, `body`, `modelParameters`. Does not construct or duplicate adapter-owned numeric inference schedules. |
-| **3. API Gateway** | `mesh_generation.py`<br>`smart_generation.py` | Pydantic request validation and job queuing. Accepts production settings (`intent`, `target_polycount`, `candidate_count`, `generate_lod`, `lod_preset`, `lod_count`, `physics_enabled`, `bake_normal_maps`, `enable_postprocess`, etc.) and resolves each production option as explicit request value > intent preset (`backend/config/smart_presets.yaml`) > backend default. Routes to deterministic planner when active. | Enqueues job with request inputs. Legacy inference-style fields (`requested_quality`, `mesh_style`, `object_type`, `symmetry`) are accepted for planner routing only and never reach adapter inference; legacy `model_parameters` keys (`generateLOD`, `lodPreset`, `lodCount`) are popped and ignored. |
-| **4. Scheduler** | `multiprocess_scheduler.py` | VRAM allocation, GPU dispatch locks, Best-of-N multi-seed scheduling (`candidate_count` 1..4), and composite quality scoring (`_score_and_select`). Strips all post-process only fields (`_POSTPROCESS_ONLY_INPUTS`) and adapter-owned inference keys (`_ADAPTER_OWNED_INFERENCE_INPUTS`). | Passes `image_path`, `seed`, `source_quality="max"` plus adapter-owned inputs to the adapter. Retains production budgets (`target_polycount`, `generateLOD`, `lodPreset`, `lodCount`, `physics_enabled`, texture options) for post-processing. |
-| **5. Model Adapter** | `adapters/*_adapter.py` | Model execution in dedicated worker processes. Owns locked native inference profile (`_LOCKED_INFERENCE_PROFILE`). Produces high-fidelity raw extraction without decimation or quality reduction. | Overwrites request-side inference parameters with locked schedule. Saves immutable raw mesh to `master/source.glb` with SHA-256 hash. |
-| **6. Production Pipeline** | `postprocess/pipeline.py` | Post-generation finishing engine. Reads immutable `master/source.glb` and executes production recipe stages based on the selected intent preset and advanced flags: Topology Gate → Hole Repair → Quad/Tri retopology → Decimation → UV unwrapping → Normal bake → Texture stage → Game-ready export → LODs → Collision hull → Preview/QA. | Produces production derivatives (`game_ready/`, `lods/`, `collision/`, `textures/`, `quality_report.json`). Never mutates `master/source.glb`. |
+| **2. Request Builder** | `buildGenerationParameters.ts` | Pure client serialization function. Maps intent presets and explicit polycount budgets into clean API payloads for `POST /api/v1/mesh-generation/image-to-raw-mesh`. Isolates target budgets and flags; `model_parameters` carries only `seed`. | Emits `endpoint`, `body`, `modelParameters`. Does not construct or duplicate adapter-owned numeric inference schedules. |
+| **3. API Gateway** | `mesh_generation.py`<br>`smart_generation.py` | Pydantic request validation and job queuing. Accepts production settings and routes to deterministic planner when active. | Enqueues job with request inputs. Legacy inference-style fields (`requested_quality`, `mesh_style`, `object_type`, `symmetry`) are accepted for planner routing only and never reach adapter inference; legacy `model_parameters` keys (`generateLOD`, `lodPreset`, `lodCount`) are popped and ignored. |
+| **4. Queue & Scheduler** | `job_queue.py`<br>`multiprocess_scheduler.py` | Durable SQLite FIFO queue with capacity cap of 10 operations (`QUEUE_FULL`), atomic single-worker claiming with process locks, immutable input snapshots, and request deduplication fingerprints. VRAM allocation, GPU dispatch locks, Best-of-N multi-seed scheduling (`candidate_count` 1..4), and composite quality scoring (`_score_and_select`). | Strips all post-process only fields (`_POSTPROCESS_ONLY_INPUTS`) and adapter-owned inference keys (`_ADAPTER_OWNED_INFERENCE_INPUTS`). |
+| **5. Model Adapter** | `adapters/*_adapter.py` | Model execution in dedicated worker processes. Owns locked native inference profile (`_LOCKED_INFERENCE_PROFILE`). Produces high-fidelity raw extraction without decimation or quality reduction. Direct model-native mesh delivery is the standard default workflow. | Overwrites request-side inference parameters with locked schedule. Output is staged to `storage/temp/<operation_id>/` in preview mode. |
+| **6. Workspace Lifecycle** | `database_manager.py`<br>`file_utils.py` | Dual state machines: executionState (`queued` -> `processing` -> `completed` \| `failed` \| `interrupted` \| `cancelled`) and persistenceState (`not_saved` -> `saving` -> `saved` \| `save_failed` \| `discarded`). Keep in Workspace commits to tool folder and active mesh; Discard purges temp directory without altering saved assets. | Manages atomic versioning and metadata.json projections. Expired unretained previews purged after 24h TTL. |
 
-### Post-Processing YAML Opt-In (`backend/config/system.yaml`)
+### Direct Model-Native Delivery & Post-Processing Architecture Status
 
-Post-processing is controlled by a YAML opt-in switch that defaults to **disabled**:
+ForMesh3D prioritizes **direct, uncompromised model-native mesh output**. Automated downstream mesh post-processing during generation is permanently disabled by default (`postprocessing.enabled: false`) in favor of native neural geometry.
 
-```yaml
-postprocessing:
-  enabled: false
-```
+> [!IMPORTANT]
+> ### 🛡️ Post-Processing Core Component Invariant
+> While automated generation post-processing is deactivated by default to guarantee 100% untouched model-native geometry output, **all files, services, and modules in `backend/postprocess/` are core foundation components of ForMesh3D and must never be deleted, purged, or removed**.
+> These modules power all discrete, on-demand interactive tools (Auto UV Unwrapping, Quad Retopology, Normal Baking, Convex Colliders, and QA diagnostics) and provide essential utility across the application.
 
-- When `false` (default): The generation workflow bypasses the post-processing pipeline entirely. The scheduler forces `postprocess_mode = "none"` and `enable_postprocess = False` regardless of request flags (`backend/core/scheduler/multiprocess_scheduler.py:2386-2388`). The mesh extracted by the selected model adapter is returned directly with no decimation, remeshing, repair, or smoothing.
-- When `true`: The existing post-processing workflow runs as designed, and post-processing UI controls are rendered in the Dynamic Floating Geometry Settings.
-- The setting is read consistently by both backend (`backend/core/config.py:PostProcessingConfig`) and frontend (`features/workspace/store/WorkspaceContext.tsx:760-767`, fetched from `GET /api/v1/system/models` which exposes `postprocessing.enabled`).
-- Post-processing is **not** user-toggleable in the default UI — YAML configuration is the sole opt-in mechanism.
+- **Direct Extraction**: Upstream neural models (Hunyuan3D-2.1, TRELLIS.2, TaoFlowForge, TripoSG) output native, detailed geometry directly. Destructive decimation, remeshing, and polygon collapse are permanently turned off during initial generation.
+- **Preview & Retain**: Generated outputs enter preview mode (`persistence_status = not_saved`) in `storage/temp/<operation_id>/`. The user decides whether to permanently retain ("Keep in Workspace") or purge ("Discard").
+- **State Machine Guarantees**: Strict terminal state immutability ensures completed or saved operations can never transition into undefined or corrupted states. Worker crashes are safely handled through active PID lease checks during startup recovery.
 | **7. GPU Doctor Subsystem** | `patcher/doctor.py`<br>`patcher/<model-name>/` | Standalone hardware diagnostics, precision selection, memory execution planning, and bounded error recovery. Implements query-chunked SDPA for pre-Ampere GPUs (`sm < 80`) and guarantees 100% native BF16 FlashAttention on modern GPUs (`sm >= 80`). Isolated strictly to worker processes. Model-specific patchers: [`patcher/taoflowforge/`](patcher/taoflowforge/) (pre-Ampere SDPA routing), [`patcher/triposg/`](patcher/triposg/) (output-to-storage), [`patcher/trellis2/`](patcher/trellis2/) (sparse_structure_decoder compatibility + debug logging). | Emits execution plans (`resident`, `cpu_offload`, `accelerate_dispatch`), intercepts runtime OOMs/logit collapses, records stage telemetry (`StageRecord`), and coordinates safe fallback execution without global monkeypatching. |
 
 ### GPU Doctor & Hardware Compatibility Subsystem (`patcher/`)

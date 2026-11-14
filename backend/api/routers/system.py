@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
-from api.dependencies import get_current_settings, get_scheduler, verify_api_key
+from api.dependencies import get_current_settings, get_scheduler, sanitize_error_message, verify_api_key
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
 from core.utils.artifact_utils import first_result_path, resolve_declared_artifact, resolve_manifest_path
 from core.utils.file_utils import encode_file_to_base64, get_file_size_mb, get_storage_base_dir
@@ -1292,6 +1292,48 @@ async def get_job_status(job_id: str, request: Request):
         job_status = await scheduler.get_job_status(job_id)
 
         if job_status is None:
+            # Check authoritative SQLite database for workspace or operation
+            from core.scheduler.database_manager import DatabaseManager
+            db = DatabaseManager()
+            job_row = db.get_job(job_id)
+            if job_row:
+                job_status = job_row.to_dict()
+            else:
+                op_row = db.get_operation(job_id)
+                if op_row:
+                    job_status = {
+                        "job_id": op_row.operation_id,
+                        "operation_id": op_row.operation_id,
+                        "workspace_id": op_row.workspace_id,
+                        "status": op_row.execution_status,
+                        "execution_status": op_row.execution_status,
+                        "persistence_status": op_row.persistence_status,
+                        "progress": op_row.progress,
+                        "result": json.loads(op_row.result_json) if op_row.result_json else {},
+                        "error": json.loads(op_row.error_json) if op_row.error_json else None,
+                        "created_at": op_row.created_at.isoformat() if op_row.created_at else None,
+                        "completed_at": op_row.completed_at.isoformat() if op_row.completed_at else None,
+                        "api_version": "1",
+                    }
+                else:
+                    ws_row = db.get_workspace(job_id)
+                    if ws_row:
+                        ops = db.list_workspace_operations(ws_row.workspace_id)
+                        latest_op = ops[-1] if ops else None
+                        job_status = {
+                            "job_id": ws_row.workspace_id,
+                            "workspace_id": ws_row.workspace_id,
+                            "status": latest_op.execution_status if latest_op else "completed",
+                            "execution_status": latest_op.execution_status if latest_op else "completed",
+                            "persistence_status": latest_op.persistence_status if latest_op else "saved",
+                            "progress": latest_op.progress if latest_op else 100.0,
+                            "result": (json.loads(latest_op.result_json) if latest_op and latest_op.result_json else {}) or {},
+                            "created_at": ws_row.created_at.isoformat() if ws_row.created_at else None,
+                            "completed_at": ws_row.updated_at.isoformat() if ws_row.updated_at else None,
+                            "api_version": "1",
+                        }
+
+        if job_status is None:
             raise HTTPException(status_code=404, detail="Job not found")
 
         job_status.setdefault("api_version", "1")
@@ -1434,6 +1476,45 @@ async def get_job_status(job_id: str, request: Request):
                 "file_extension": Path(input_image_path).suffix,
             }
 
+        # Enrich with workspace state and output assets from SQLite
+        from core.scheduler.database_manager import DatabaseManager
+        db = DatabaseManager()
+        ws_id = (
+            job_status.get("workspace_id")
+            or (job_status.get("inputs") or {}).get("workspace_id")
+            or (job_status.get("metadata") or {}).get("workspace_id")
+            or job_id
+        )
+        ws = db.get_workspace(ws_id)
+        if ws:
+            job_status["workspace_id"] = ws.workspace_id
+            job_status["route_path"] = f"/workspace/generate/{ws.workspace_id}"
+            job_status["active_mesh_asset_id"] = ws.active_mesh_asset_id
+            job_status["workspace_status"] = ws.status
+            assets = db.list_workspace_assets(ws.workspace_id)
+            job_status["assets"] = [a.to_dict() for a in assets]
+            if ws.active_mesh_asset_id:
+                active_asset = db.get_asset(ws.active_mesh_asset_id)
+                if active_asset:
+                    job_status["active_mesh_asset"] = active_asset.to_dict()
+                    storage_base = get_storage_base_dir().resolve()
+                    active_path = (storage_base / ws.workspace_id / active_asset.relative_path).resolve()
+                    if active_path.is_file() and active_path.is_relative_to(storage_base):
+                        job_status.setdefault("result", {})
+                        if not job_status["result"].get("mesh_url"):
+                            mesh_url = f"{request.base_url}api/v1/system/jobs/{job_id}/download?artifact_format=glb"
+                            job_status["result"]["mesh_url"] = mesh_url
+                            job_status["result"]["model_url"] = mesh_url
+                            job_status["result"]["mesh_path"] = str(active_path)
+
+        op_id = job_status.get("operation_id") or (job_status.get("inputs") or {}).get("operation_id") or (job_status.get("metadata") or {}).get("operation_id")
+        if op_id:
+            op = db.get_operation(op_id)
+            if op:
+                job_status["operation_id"] = op.operation_id
+                job_status["execution_status"] = op.execution_status
+                job_status["persistence_status"] = op.persistence_status
+
         return job_status
     except HTTPException:
         raise
@@ -1441,8 +1522,47 @@ async def get_job_status(job_id: str, request: Request):
         import traceback 
         traceback.print_exc()
         raise HTTPException(
-            status_code=500, detail=f"Error retrieving job status: {str(e)}"
+            status_code=500, detail=sanitize_error_message(f"Error retrieving job status: {str(e)}")
         )
+
+
+@router.get("/workspace/generate/{workspace_id}", summary="Get workspace state for deep link")
+@router.get("/workspace/{workspace_id}", summary="Get workspace state")
+async def get_workspace_route_lookup(workspace_id: str, request: Request):
+    """
+    Support route lookup /workspace/generate/{workspace_id} from authoritative SQLite DB without rerunning inference.
+    """
+    from core.scheduler.database_manager import DatabaseManager
+    db = DatabaseManager()
+    ws = db.get_workspace(workspace_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    assets = db.list_workspace_assets(workspace_id)
+    operations = db.list_workspace_operations(workspace_id)
+    active_mesh = db.get_asset(ws.active_mesh_asset_id) if ws.active_mesh_asset_id else None
+
+    storage_base = get_storage_base_dir().resolve()
+    mesh_url = None
+    if active_mesh:
+        active_path = (storage_base / ws.workspace_id / active_mesh.relative_path).resolve()
+        if active_path.is_file() and active_path.is_relative_to(storage_base):
+            mesh_url = f"{request.base_url}api/v1/system/jobs/{workspace_id}/download?artifact_format=glb"
+
+    return {
+        "workspace_id": ws.workspace_id,
+        "name": ws.name,
+        "status": ws.status,
+        "active_mesh_asset_id": ws.active_mesh_asset_id,
+        "active_mesh": active_mesh.to_dict() if active_mesh else None,
+        "mesh_url": mesh_url,
+        "route_path": f"/workspace/generate/{ws.workspace_id}",
+        "created_at": ws.created_at.isoformat() if ws.created_at else None,
+        "updated_at": ws.updated_at.isoformat() if ws.updated_at else None,
+        "settings": ws.to_dict().get("settings", {}),
+        "assets": [a.to_dict() for a in assets],
+        "operations": [op.to_dict() for op in operations],
+    }
 
 
 @router.get("/adapters", summary="List registered adapters")
@@ -1540,6 +1660,30 @@ async def download_job_result(
         job_status = await scheduler.get_job_status(job_id)
 
         if job_status is None:
+            from core.scheduler.database_manager import DatabaseManager
+            db = DatabaseManager()
+            ws = db.get_workspace(job_id)
+            if ws and ws.active_mesh_asset_id:
+                asset = db.get_asset(ws.active_mesh_asset_id)
+                if asset:
+                    storage_base = get_storage_base_dir().resolve()
+                    file_path = (storage_base / ws.workspace_id / asset.relative_path).resolve()
+                    if file_path.is_file() and file_path.is_relative_to(storage_base):
+                        return FileResponse(
+                            path=str(file_path),
+                            filename=filename or asset.original_filename,
+                            media_type=get_content_type_for_file(str(file_path)),
+                        )
+            asset = db.get_asset(job_id)
+            if asset:
+                storage_base = get_storage_base_dir().resolve()
+                file_path = (storage_base / asset.workspace_id / asset.relative_path).resolve()
+                if file_path.is_file() and file_path.is_relative_to(storage_base):
+                    return FileResponse(
+                        path=str(file_path),
+                        filename=filename or asset.original_filename,
+                        media_type=get_content_type_for_file(str(file_path)),
+                    )
             raise HTTPException(status_code=404, detail="Job not found")
 
         if job_status.get("status") != "completed":
@@ -1918,6 +2062,30 @@ async def download_job_thumbnail(
             job_status = raw_status
 
         if job_status is None:
+            from core.scheduler.database_manager import DatabaseManager
+            db = DatabaseManager()
+            ws = db.get_workspace(job_id)
+            if ws and ws.active_mesh_asset_id:
+                asset = db.get_asset(ws.active_mesh_asset_id)
+                if asset and asset.thumbnail_path:
+                    storage_base = get_storage_base_dir().resolve()
+                    thumb_path = (storage_base / ws.workspace_id / asset.thumbnail_path).resolve()
+                    if thumb_path.is_file() and thumb_path.is_relative_to(storage_base):
+                        return FileResponse(
+                            path=str(thumb_path),
+                            filename=filename or f"{job_id}_thumb.png",
+                            media_type="image/png",
+                        )
+            asset = db.get_asset(job_id)
+            if asset and asset.thumbnail_path:
+                storage_base = get_storage_base_dir().resolve()
+                thumb_path = (storage_base / asset.workspace_id / asset.thumbnail_path).resolve()
+                if thumb_path.is_file() and thumb_path.is_relative_to(storage_base):
+                    return FileResponse(
+                        path=str(thumb_path),
+                        filename=filename or f"{job_id}_thumb.png",
+                        media_type="image/png",
+                    )
             raise HTTPException(status_code=404, detail="Job not found")
 
         if job_status.get("status") != "completed":

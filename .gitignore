@@ -51,12 +51,13 @@ scripts/.cloudflare_tunnels/*.url
 # Local runtime artifacts
 *.bak
 *.dir
+.goals
 *.dat
 .goals/
 # OS
 .DS_Store
 Thumbs.db
-
+BATCH1_BASELINE_AUDIT.md
 # Build
 dist/
 build/

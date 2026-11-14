@@ -13,11 +13,13 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from api.dependencies import get_file_store, get_scheduler
+from api.dependencies import get_file_store, get_scheduler, sanitize_error_message
 from api.routers.file_upload import resolve_file_id_async
 from core.file_store import FileStore
+from core.scheduler.database_manager import DatabaseManager
 from core.scheduler.job_queue import JobRequest
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
+from core.utils.file_utils import get_workspace_storage_manager
 from core.utils.mask_generator import MaskGenerator
 
 logger = logging.getLogger(__name__)
@@ -45,6 +47,7 @@ class TextMeshEditingRequest(BaseModel):
     mesh_path: Optional[str] = Field(None, description="Path to input mesh file (for local files)")
     mesh_base64: Optional[str] = Field(None, description="Base64 encoded mesh data")
     mesh_file_id: Optional[str] = Field(None, description="File ID from upload endpoint")
+    workspace_id: Optional[str] = Field(None, description="Workspace ID")
     
     # Mask parameters - one of these must be provided
     mask_bbox: Optional[MaskBoundingBox] = Field(None, description="Bounding box mask parameters")
@@ -103,6 +106,7 @@ class ImageMeshEditingRequest(BaseModel):
     mesh_path: Optional[str] = Field(None, description="Path to input mesh file")
     mesh_base64: Optional[str] = Field(None, description="Base64 encoded mesh data")
     mesh_file_id: Optional[str] = Field(None, description="File ID from upload endpoint")
+    workspace_id: Optional[str] = Field(None, description="Workspace ID")
     
     source_image_path: Optional[str] = Field(None, description="Path to source reference image")
     source_image_base64: Optional[str] = Field(None, description="Base64 encoded source image")
@@ -192,6 +196,8 @@ class MeshEditingResponse(BaseModel):
     job_id: str = Field(..., description="Unique job identifier")
     status: str = Field(..., description="Job status")
     message: str = Field(..., description="Status message")
+    workspace_id: Optional[str] = Field(None, description="Workspace ID")
+    operation_id: Optional[str] = Field(None, description="Operation ID")
 
 
 # Helper function to process file inputs (reused from mesh_generation)
@@ -253,6 +259,36 @@ async def text_mesh_editing(
         )
         if not is_valid:
             raise HTTPException(status_code=400, detail=f"Invalid mask parameters: {error_msg}")
+
+        db = DatabaseManager()
+        ws_storage = get_workspace_storage_manager()
+
+        target_ws_id = getattr(request, "workspace_id", None)
+        input_asset = None
+        if request.mesh_file_id:
+            input_asset = db.get_asset(request.mesh_file_id)
+            if input_asset:
+                if not target_ws_id:
+                    target_ws_id = input_asset.workspace_id
+                if input_asset.file_type != "mesh":
+                    raise HTTPException(
+                        status_code=400, detail="Prerequisite failed: Input asset must be a mesh file"
+                    )
+
+        operation_id = None
+        if target_ws_id:
+            op_row = db.enqueue_operation(
+                workspace_id=target_ws_id,
+                operation_type="editing",
+                input_asset_id=input_asset.asset_id if input_asset else None,
+                settings={
+                    "source_prompt": request.source_prompt,
+                    "target_prompt": request.target_prompt,
+                    "output_format": request.output_format,
+                },
+            )
+            operation_id = op_row.operation_id
+            ws_storage.create_operation_temp(operation_id)
         
         job_request = JobRequest(
             feature="text_mesh_editing",
@@ -266,11 +302,18 @@ async def text_mesh_editing(
                 "num_views": request.num_views,
                 "resolution": request.resolution,
                 "output_format": request.output_format,
+                "workspace_id": target_ws_id,
+                "operation_id": operation_id,
                 **(request.model_parameters or {}),
             },
             model_preference=request.model_preference,
             priority=1,
-            metadata={"postprocess_mode": "manual_mesh_tool", "feature_type": "text_mesh_editing"},
+            metadata={
+                "postprocess_mode": "manual_mesh_tool",
+                "feature_type": "text_mesh_editing",
+                "workspace_id": target_ws_id,
+                "operation_id": operation_id,
+            },
             user_id=user_id,
         )
         
@@ -280,13 +323,15 @@ async def text_mesh_editing(
             job_id=job_id,
             status="queued",
             message="Text-guided mesh editing job queued successfully",
+            workspace_id=target_ws_id,
+            operation_id=operation_id,
         )
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error scheduling text mesh editing job: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to schedule job: {str(e)}")
+        raise HTTPException(status_code=500, detail=sanitize_error_message(f"Failed to schedule job: {str(e)}"))
 
 
 @router.post("/image-mesh-editing", response_model=MeshEditingResponse)
@@ -359,6 +404,36 @@ async def image_mesh_editing(
         )
         if not is_valid:
             raise HTTPException(status_code=400, detail=f"Invalid mask parameters: {error_msg}")
+
+        db = DatabaseManager()
+        ws_storage = get_workspace_storage_manager()
+
+        target_ws_id = getattr(request, "workspace_id", None)
+        input_asset = None
+        if request.mesh_file_id:
+            input_asset = db.get_asset(request.mesh_file_id)
+            if input_asset:
+                if not target_ws_id:
+                    target_ws_id = input_asset.workspace_id
+                if input_asset.file_type != "mesh":
+                    raise HTTPException(
+                        status_code=400, detail="Prerequisite failed: Input asset must be a mesh file"
+                    )
+
+        operation_id = None
+        if target_ws_id:
+            op_row = db.enqueue_operation(
+                workspace_id=target_ws_id,
+                operation_type="editing",
+                input_asset_id=input_asset.asset_id if input_asset else None,
+                settings={
+                    "num_views": request.num_views,
+                    "resolution": request.resolution,
+                    "output_format": request.output_format,
+                },
+            )
+            operation_id = op_row.operation_id
+            ws_storage.create_operation_temp(operation_id)
         
         job_request = JobRequest(
             feature="image_mesh_editing",
@@ -373,11 +448,18 @@ async def image_mesh_editing(
                 "num_views": request.num_views,
                 "resolution": request.resolution,
                 "output_format": request.output_format,
+                "workspace_id": target_ws_id,
+                "operation_id": operation_id,
                 **(request.model_parameters or {}),
             },
             model_preference=request.model_preference,
             priority=1,
-            metadata={"postprocess_mode": "manual_mesh_tool", "feature_type": "image_mesh_editing"},
+            metadata={
+                "postprocess_mode": "manual_mesh_tool",
+                "feature_type": "image_mesh_editing",
+                "workspace_id": target_ws_id,
+                "operation_id": operation_id,
+            },
             user_id=user_id,
         )
         
@@ -387,13 +469,15 @@ async def image_mesh_editing(
             job_id=job_id,
             status="queued",
             message="Image-guided mesh editing job queued successfully",
+            workspace_id=target_ws_id,
+            operation_id=operation_id,
         )
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error scheduling image mesh editing job: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to schedule job: {str(e)}")
+        raise HTTPException(status_code=500, detail=sanitize_error_message(f"Failed to schedule job: {str(e)}"))
 
 
 # Utility endpoints

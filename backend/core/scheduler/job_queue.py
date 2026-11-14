@@ -10,10 +10,15 @@ from collections import deque
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .database_manager import DatabaseManager
-from .database_models import JobModel
+from .database_models import (
+    JobModel,
+    OperationModel,
+    ExecutionStatus,
+    PersistenceStatus,
+)
 from core.utils.file_utils import get_storage_base_dir
 from .database_models import JobStatus as DBJobStatus
 
@@ -295,7 +300,7 @@ class JobQueue:
 
     def __init__(
         self,
-        max_size: int = 1000,
+        max_size: int = 10,
         database_url: Optional[str] = None,
         max_completed_jobs: int = 1000,
         # Legacy parameters for backward compatibility
@@ -376,9 +381,14 @@ class JobQueue:
             self._cleanup_task = asyncio.create_task(self._periodic_cleanup())
             logger.info("Started database-backed job queue")
 
-    async def recover_processing_jobs(self) -> int:
-        """Recover processing jobs left behind by a backend restart."""
+    async def recover_processing_jobs(self, is_pid_alive_fn=None) -> int:
+        """Recover processing jobs and operations left behind by a backend restart."""
         recovered = 0
+        if hasattr(self.db_manager, "recover_orphaned_operations"):
+            recovered += await asyncio.to_thread(
+                self.db_manager.recover_orphaned_operations, is_pid_alive_fn
+            )
+
         async with self._cache_lock:
             for job_id, job in list(self._processing_cache.items()):
                 job.status = JobStatus.QUEUED
@@ -396,6 +406,12 @@ class JobQueue:
             if recovered:
                 self._sort_queue_cache()
         return recovered
+
+    async def cleanup_expired_previews(self, ttl_hours: int = 24) -> int:
+        """Purge temporary preview folders exceeding TTL for unretained operations."""
+        if hasattr(self.db_manager, "cleanup_expired_previews"):
+            return await asyncio.to_thread(self.db_manager.cleanup_expired_previews, ttl_hours)
+        return 0
 
     async def stop_persistence(self):
         """Stop background tasks"""
@@ -421,6 +437,9 @@ class JobQueue:
                     self.db_manager.cleanup_old_jobs,
                     self.max_completed_jobs,
                 )
+
+                # Purge expired unretained preview temps (24h TTL)
+                await self.cleanup_expired_previews(24)
 
                 # Sync completed cache with database if needed
                 async with self._cache_lock:
@@ -452,7 +471,7 @@ class JobQueue:
         """Add job to queue"""
         async with self._cache_lock:
             if len(self._queue_cache) >= self.max_size:
-                raise Exception("Job queue is full")
+                raise RuntimeError("QUEUE_FULL: Job queue is full")
 
             # Save to database first
             if not await asyncio.to_thread(self.db_manager.save_job, job):
@@ -469,7 +488,7 @@ class JobQueue:
         """Add job to front of queue (for jobs that couldn't be processed due to resources)"""
         async with self._cache_lock:
             if len(self._queue_cache) >= self.max_size:
-                raise Exception("Job queue is full")
+                raise RuntimeError("QUEUE_FULL: Job queue is full")
 
             # Save to database first
             if not await asyncio.to_thread(self.db_manager.save_job, job):
@@ -479,6 +498,39 @@ class JobQueue:
             self._queue_cache.appendleft(job)
             logger.info(
                 f"Re-enqueued job {job.job_id} to front of queue for feature {job.feature}"
+            )
+
+    async def enqueue_operation(
+        self,
+        operation_id: str,
+        workspace_id: str,
+        operation_type: str,
+        input_asset_id: Optional[str] = None,
+        parent_operation_id: Optional[str] = None,
+        settings: Optional[Dict[str, Any]] = None,
+        temp_dir: Optional[str] = None,
+        regenerate: bool = False,
+    ) -> Tuple[OperationModel, bool]:
+        """Enqueue an operation record with queue cap (10), deduplication, and snapshot immutability."""
+        async with self._cache_lock:
+            return await asyncio.to_thread(
+                self.db_manager.enqueue_operation,
+                operation_id=operation_id,
+                workspace_id=workspace_id,
+                operation_type=operation_type,
+                input_asset_id=input_asset_id,
+                parent_operation_id=parent_operation_id,
+                settings=settings,
+                temp_dir=temp_dir,
+                queue_cap=self.max_size,
+                regenerate=regenerate,
+            )
+
+    async def dequeue_operation(self, worker_lease: str) -> Optional[OperationModel]:
+        """Atomically claim the next queued operation from SQLite."""
+        async with self._cache_lock:
+            return await asyncio.to_thread(
+                self.db_manager.claim_next_operation, worker_lease
             )
 
     async def existing_job_for_source(

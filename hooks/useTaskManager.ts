@@ -129,63 +129,12 @@ const reconnectToRunningTasks = useCallback(async () => {
    }, [updateTask, completeTask]);
 
   const stopPolling = useCallback(() => {
-    if (pollIntervalRef.current) {
-      clearTimeout(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
+    // Consolidated into adaptive useTaskPolling hook
   }, []);
 
   const startPolling = useCallback(() => {
-    if (pollIntervalRef.current) return;
-    pollTickCountRef.current = 0;
-
-    const scheduleNext = () => {
-      pollTickCountRef.current++;
-      // Gentle exponential backoff: 5s, 7.5s, 10s, then cap at 10s
-      const backoffFactor = Math.min(pollTickCountRef.current, 3);
-      const interval = Math.min(POLL_INTERVAL + (backoffFactor - 1) * 2500, 10000);
-
-      pollIntervalRef.current = setTimeout(() => {
-        const state = useAppStore.getState();
-        const runningTasks = Object.values(state.tasks).filter(
-          (t) => (t.status === 'running' || t.status === 'queued') && isPollableGenerationTask(t)
-        );
-
-        if (runningTasks.length === 0) {
-          stopPolling();
-          return;
-        }
-
-        for (const task of runningTasks) {
-          fetch(`/api/v1/system/jobs/${task.id}`)
-            .then((res) => {
-              if (!res.ok) return;
-              return res.json();
-            })
-            .then((data) => {
-              if (!data) return;
-              const status = data?.data || data;
-              updateTask(task.id, {
-                status: (status.status || 'running') as Task['status'],
-                progress: Math.round((status.progress ?? 0) * 100), // Convert 0-1 to 0-100
-                updatedAt: Date.now(),
-              });
-
-              if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled') {
-                completeTask(task.id, status.status as 'completed' | 'failed' | 'cancelled');
-              }
-            })
-            .catch(() => {
-              // Silently ignore polling errors
-            });
-        }
-
-        scheduleNext();
-      }, interval);
-    };
-
-    scheduleNext();
-  }, [updateTask, completeTask, stopPolling]);
+    // Consolidated into adaptive useTaskPolling hook
+  }, []);
 
   const reconnectToDownload = useCallback(
     (downloadId: string) => {

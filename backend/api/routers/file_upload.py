@@ -15,6 +15,7 @@ import logging
 import mimetypes
 import os
 import re
+import shutil
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -29,6 +30,8 @@ from pydantic import BaseModel, Field
 
 from api.dependencies import get_file_store
 from core.file_store import FileStore
+from core.scheduler.database_manager import DatabaseManager
+from core.scheduler.database_models import generate_workspace_id, generate_asset_id
 from core.utils.artifact_utils import resolve_declared_artifact
 from core.utils.file_utils import (
     MAX_MESH_FACES,
@@ -37,10 +40,12 @@ from core.utils.file_utils import (
     SUPPORTED_MESH_FORMATS,
     FileUploadError,
     get_storage_base_dir,
+    get_workspace_storage_manager,
     save_upload_file,
     validate_image_file,
     validate_mesh_file,
     get_file_type_from_extension,
+    WorkspaceStorageManager,
 )
 from core.utils.thumbnail_utils import generate_mesh_thumbnail
 
@@ -69,6 +74,8 @@ class FileUploadResponse(BaseModel):
     url: Optional[str] = Field(None, description="Direct download/view URL for the uploaded file")
     thumbnail_url: Optional[str] = Field(None, description="URL to the generated thumbnail image (meshes only)")
     mesh_stats: Optional[Dict] = Field(None, description="Mesh statistics (vertices, faces, etc.)")
+    workspace_id: Optional[str] = Field(None, description="Workspace ID")
+    asset_id: Optional[str] = Field(None, description="Asset ID")
 
 
 class FileMetadataResponse(BaseModel):
@@ -141,9 +148,22 @@ def _storage_path(path: str | Path) -> Optional[Path]:
 
 
 def _is_uploaded_source(file_id: str, file_type: str, file_path: Path) -> bool:
-    if not re.fullmatch(r"[0-9a-fA-F-]{36}", file_id):
+    if not (
+        re.fullmatch(r"[0-9a-fA-F-]{36}", file_id)
+        or re.fullmatch(r"ast_[0-9a-fA-F]{12}", file_id)
+        or re.fullmatch(r"[A-Za-z0-9_-]{1,128}", file_id)
+    ):
         return False
     storage_base = get_storage_base_dir().resolve()
+    try:
+        resolved = file_path.resolve(strict=True)
+        if resolved.is_relative_to(storage_base) and resolved.is_file():
+            if file_type == "image" and resolved.suffix.lower() in SUPPORTED_IMAGE_FORMATS:
+                return True
+            if file_type == "mesh" and resolved.suffix.lower() in SUPPORTED_MESH_FORMATS:
+                return True
+    except (ValueError, OSError):
+        pass
     uploads_root = UPLOAD_BASE_DIR / file_type / file_id[:2]
     if file_type == "image" and file_path.parent == uploads_root:
         return (
@@ -836,12 +856,129 @@ async def upload_image(
     """
     Upload an image file.
 
-    Returns a unique file ID that can be used in other API endpoints.
-    Supported formats: PNG, JPG, JPEG, WebP, BMP, TIFF
+    Saves to backend/storage/<workspace_id>/input/source_image.<ext>,
+    creates Workspace and Asset records, and returns workspace_id, asset_id,
+    and backward-compatible file_id.
     """
-    return await upload_file_with_validation(
-        file, "image", SUPPORTED_IMAGE_FORMATS, file_store, max_size_mb=MAX_IMAGE_UPLOAD_SIZE_MB
-    )
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Filename required")
+
+    allowed_extensions = SUPPORTED_IMAGE_FORMATS
+    file_ext = Path(file.filename).suffix.lower()
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type. Allowed extensions: {allowed_extensions}",
+        )
+
+    stem = Path(file.filename).stem or "image"
+    ws_manager = get_workspace_storage_manager()
+    workspace_id = ws_manager.mint_workspace_id(stem)
+    asset_id = generate_asset_id()
+
+    ws_dir = ws_manager.create_workspace_tree(workspace_id)
+    input_dir = ws_dir / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    target_path = input_dir / f"source_image{file_ext}"
+
+    max_size_bytes = MAX_IMAGE_UPLOAD_SIZE_MB * 1024 * 1024
+    total_bytes = 0
+    digest = hashlib.sha256()
+
+    staging_path = input_dir / f".staging_{uuid.uuid4().hex}{file_ext}"
+    try:
+        async with aiofiles.open(staging_path, "wb") as handle:
+            while chunk := await file.read(1024 * 1024):
+                total_bytes += len(chunk)
+                if total_bytes > max_size_bytes:
+                    raise FileUploadError(
+                        file.filename,
+                        f"File size exceeds limit ({max_size_bytes} bytes / {MAX_IMAGE_UPLOAD_SIZE_MB} MiB)",
+                    )
+                digest.update(chunk)
+                await handle.write(chunk)
+
+        # Validate image
+        validation_info = validate_image_file(str(staging_path), optimize_large=False)
+        if not validation_info.get("valid", False):
+            raise FileUploadError(
+                file.filename,
+                validation_info.get("error", "Invalid image file"),
+            )
+
+        # Atomic move to final target path
+        staging_path.replace(target_path)
+
+        file_size_mb = total_bytes / (1024 * 1024)
+        sha256 = digest.hexdigest()
+
+        # Database records
+        db = DatabaseManager()
+        db.create_workspace(
+            workspace_id=workspace_id,
+            name=stem,
+            source_asset_id=asset_id,
+        )
+        db.add_asset(
+            asset_id=asset_id,
+            workspace_id=workspace_id,
+            file_type="image",
+            relative_path=f"input/source_image{file_ext}",
+            original_filename=file.filename,
+            byte_size=total_bytes,
+            sha256=sha256,
+        )
+
+        # Manifest projection
+        ws_manager.build_manifest_projection(workspace_id, db)
+
+        # Register in file_store and manifest for backward compatibility
+        file_info = {
+            "file_path": str(target_path),
+            "original_filename": file.filename,
+            "saved_filename": f"source_image{file_ext}",
+            "file_size_mb": file_size_mb,
+            "content_type": file.content_type or "image/png",
+            "file_type": "image",
+            "file_size_bytes": total_bytes,
+            "sha256": sha256,
+            "original_format": file_ext,
+            "upload_time": datetime.now().isoformat(),
+            "durable": True,
+            "workspace_id": workspace_id,
+            "asset_id": asset_id,
+        }
+        manifest_path = _upload_manifest_path(asset_id, "image")
+        try:
+            _write_upload_manifest(asset_id, file_info, manifest_path)
+        except Exception:
+            pass
+        if file_store is not None:
+            await store_file_metadata_impl(file_store, asset_id, file_info)
+
+        return {
+            "file_id": asset_id,
+            "workspace_id": workspace_id,
+            "asset_id": asset_id,
+            "filename": file.filename,
+            "file_type": "image",
+            "file_size_mb": file_size_mb,
+            "upload_time": datetime.now(),
+            "expires_at": None,
+            "url": f"/api/v1/file-upload/download/{asset_id}",
+        }
+
+    except HTTPException:
+        staging_path.unlink(missing_ok=True)
+        raise
+    except FileUploadError as e:
+        staging_path.unlink(missing_ok=True)
+        logger.error(f"Failed to upload image file {file.filename}: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        staging_path.unlink(missing_ok=True)
+        logger.error(f"Failed to upload image file {file.filename}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
 
 
 @router.post("/mesh", response_model=FileUploadResponse)
@@ -853,22 +990,159 @@ async def upload_mesh(
     """
     Upload a mesh file.
 
-    Returns a unique file ID that can be used in other API endpoints.
-    Supported formats: GLB, OBJ, FBX, PLY, STL, GLTF
+    Standalone upload creates independent workspace,
+    saves to backend/storage/<workspace_id>/mesh/source_mesh.<ext> (and input/source_mesh.<ext>),
+    sets active_mesh_asset_id, generates thumbnail, and returns workspace_id, asset_id, thumbnail_url.
     """
-    result = await upload_file_with_validation(
-        file, "mesh", SUPPORTED_MESH_FORMATS, file_store, max_size_mb=MAX_MESH_UPLOAD_SIZE_MB
-    )
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Filename required")
 
-    file_path = result.get("file_path")
-    file_id = result.get("file_id")
-    if file_path and file_id:
-        background_tasks.add_task(
-            _generate_thumbnail_for_mesh, str(file_path), str(file_id)
+    allowed_extensions = SUPPORTED_MESH_FORMATS
+    file_ext = Path(file.filename).suffix.lower()
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type. Allowed extensions: {allowed_extensions}",
         )
-        result["thumbnail_url"] = f"/api/v1/file-upload/thumbnail/{file_id}"
 
-    return result
+    stem = Path(file.filename).stem or "mesh"
+    ws_manager = get_workspace_storage_manager()
+    workspace_id = ws_manager.mint_workspace_id(stem)
+    asset_id = generate_asset_id()
+
+    ws_dir = ws_manager.create_workspace_tree(workspace_id)
+    mesh_dir = ws_dir / "mesh"
+    input_dir = ws_dir / "input"
+    mesh_dir.mkdir(parents=True, exist_ok=True)
+    input_dir.mkdir(parents=True, exist_ok=True)
+
+    mesh_target_path = mesh_dir / f"source_mesh{file_ext}"
+    input_target_path = input_dir / f"source_mesh{file_ext}"
+
+    max_size_bytes = MAX_MESH_UPLOAD_SIZE_MB * 1024 * 1024
+    total_bytes = 0
+    digest = hashlib.sha256()
+
+    staging_path = mesh_dir / f".staging_{uuid.uuid4().hex}{file_ext}"
+    try:
+        async with aiofiles.open(staging_path, "wb") as handle:
+            while chunk := await file.read(1024 * 1024):
+                total_bytes += len(chunk)
+                if total_bytes > max_size_bytes:
+                    raise FileUploadError(
+                        file.filename,
+                        f"File size exceeds limit ({max_size_bytes} bytes / {MAX_MESH_UPLOAD_SIZE_MB} MiB)",
+                    )
+                digest.update(chunk)
+                await handle.write(chunk)
+
+        # Validate mesh
+        validation_info = await anyio.to_thread.run_sync(
+            validate_mesh_file,
+            str(staging_path),
+            limiter=_MESH_VALIDATION_LIMITER,
+        )
+        if not validation_info.get("valid", False):
+            raise FileUploadError(
+                file.filename,
+                validation_info.get("error", "Invalid mesh file"),
+            )
+
+        # Atomic move to mesh target path and copy to input target path
+        staging_path.replace(mesh_target_path)
+        shutil.copy2(str(mesh_target_path), str(input_target_path))
+
+        file_size_mb = total_bytes / (1024 * 1024)
+        sha256 = digest.hexdigest()
+
+        # Generate thumbnail
+        thumb_path = mesh_dir / "thumbnail.png"
+        try:
+            generate_mesh_thumbnail(str(mesh_target_path), str(thumb_path))
+            legacy_thumb = _THUMBNAIL_DIR / f"{asset_id}.png"
+            if thumb_path.exists():
+                shutil.copy2(str(thumb_path), str(legacy_thumb))
+        except Exception as thumb_err:
+            logger.warning("Thumbnail generation error for mesh %s: %s", asset_id, thumb_err)
+
+        # Database records
+        db = DatabaseManager()
+        db.create_workspace(
+            workspace_id=workspace_id,
+            name=stem,
+            active_mesh_asset_id=asset_id,
+            source_asset_id=asset_id,
+        )
+        rel_thumb = "mesh/thumbnail.png" if thumb_path.exists() else None
+        db.add_asset(
+            asset_id=asset_id,
+            workspace_id=workspace_id,
+            file_type="mesh",
+            relative_path=f"mesh/source_mesh{file_ext}",
+            original_filename=file.filename,
+            byte_size=total_bytes,
+            sha256=sha256,
+            thumbnail_path=rel_thumb,
+        )
+
+        # Manifest projection
+        ws_manager.build_manifest_projection(workspace_id, db)
+
+        # Legacy store registration for backward compatibility
+        file_info = {
+            "file_path": str(mesh_target_path),
+            "original_filename": file.filename,
+            "saved_filename": f"source_mesh{file_ext}",
+            "file_size_mb": file_size_mb,
+            "content_type": file.content_type or "model/gltf-binary",
+            "file_type": "mesh",
+            "file_size_bytes": total_bytes,
+            "sha256": sha256,
+            "original_format": file_ext,
+            "upload_time": datetime.now().isoformat(),
+            "durable": True,
+            "workspace_id": workspace_id,
+            "asset_id": asset_id,
+        }
+        manifest_path = _upload_manifest_path(asset_id, "mesh")
+        try:
+            _write_upload_manifest(asset_id, file_info, manifest_path)
+        except Exception:
+            pass
+        if file_store is not None:
+            await store_file_metadata_impl(file_store, asset_id, file_info)
+
+        mesh_stats = {
+            "vertex_count": validation_info.get("vertex_count", 0),
+            "polygon_count": validation_info.get("face_count", 0),
+            "is_watertight": validation_info.get("is_watertight", False),
+        }
+
+        return {
+            "file_id": asset_id,
+            "workspace_id": workspace_id,
+            "asset_id": asset_id,
+            "filename": file.filename,
+            "file_type": "mesh",
+            "file_size_mb": file_size_mb,
+            "upload_time": datetime.now(),
+            "expires_at": None,
+            "url": f"/api/v1/file-upload/download/{asset_id}",
+            "thumbnail_url": f"/api/v1/file-upload/thumbnail/{asset_id}",
+            "mesh_stats": mesh_stats,
+        }
+
+    except HTTPException:
+        staging_path.unlink(missing_ok=True)
+        raise
+    except FileUploadError as e:
+        staging_path.unlink(missing_ok=True)
+        logger.error(f"Failed to upload mesh file {file.filename}: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        staging_path.unlink(missing_ok=True)
+        logger.error(f"Failed to upload mesh file {file.filename}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
 
 
 @router.get("/metadata/{file_id}", response_model=FileMetadataResponse)
@@ -891,6 +1165,23 @@ async def get_file_metadata_endpoint(
     metadata = cached_metadata or _read_upload_manifest(file_id)
 
     if not metadata:
+        db = DatabaseManager()
+        asset = db.get_asset(file_id)
+        if asset:
+            storage_base = get_storage_base_dir().resolve()
+            full_path = (storage_base / asset.workspace_id / asset.relative_path).resolve()
+            is_avail = full_path.is_file() and full_path.is_relative_to(storage_base)
+            thumb_url = f"/api/v1/file-upload/thumbnail/{asset.asset_id}" if asset.thumbnail_path or asset.file_type == "image" else None
+            return FileMetadataResponse(
+                file_id=asset.asset_id,
+                filename=asset.original_filename,
+                file_type=asset.file_type,
+                file_size_mb=asset.byte_size / (1024 * 1024),
+                upload_time=asset.created_at,
+                expires_at=None,
+                is_available=is_avail,
+                thumbnail_url=thumb_url,
+            )
         raise HTTPException(status_code=404, detail="File not found")
 
     # Check if file still exists on disk
@@ -928,7 +1219,7 @@ async def delete_file(
     Args:
         file_id: Unique file identifier
     """
-    if not re.fullmatch(r"[0-9a-fA-F-]{36}", file_id):
+    if not (re.fullmatch(r"[0-9a-fA-F-]{36}", file_id) or re.fullmatch(r"ast_[0-9a-fA-F]{12}", file_id)):
         raise HTTPException(status_code=400, detail="Only uploaded files can be deleted")
     cached_metadata = (
         await file_store.get_file_metadata(file_id) if file_store is not None else None
@@ -1041,6 +1332,27 @@ async def get_thumbnail(
     """
     Get thumbnail for an uploaded mesh file.
     """
+    db = DatabaseManager()
+    asset = db.get_asset(file_id)
+    if asset:
+        storage_base = get_storage_base_dir().resolve()
+        if asset.file_type == "image":
+            img_path = (storage_base / asset.workspace_id / asset.relative_path).resolve()
+            if img_path.is_file() and img_path.is_relative_to(storage_base):
+                return FileResponse(
+                    path=str(img_path),
+                    media_type="image/*",
+                    filename=f"{file_id}_thumb",
+                )
+        if asset.thumbnail_path:
+            thumb_path = (storage_base / asset.workspace_id / asset.thumbnail_path).resolve()
+            if thumb_path.is_file() and thumb_path.is_relative_to(storage_base):
+                return FileResponse(
+                    path=str(thumb_path),
+                    media_type="image/png",
+                    filename=f"{file_id}_thumb.png",
+                )
+
     metadata = await get_file_metadata_impl(file_store, file_id)
     if not metadata:
         raise HTTPException(status_code=404, detail="File not found")
@@ -1101,6 +1413,18 @@ async def download_file(
     """
     Download an uploaded file.
     """
+    db = DatabaseManager()
+    asset = db.get_asset(file_id)
+    if asset:
+        storage_base = get_storage_base_dir().resolve()
+        full_path = (storage_base / asset.workspace_id / asset.relative_path).resolve()
+        if full_path.is_file() and full_path.is_relative_to(storage_base):
+            return FileResponse(
+                path=str(full_path),
+                filename=asset.original_filename,
+                media_type=mimetypes.guess_type(str(full_path))[0] or "application/octet-stream",
+            )
+
     metadata = await get_file_metadata_impl(file_store, file_id)
     if not metadata:
         raise HTTPException(status_code=404, detail="File not found")

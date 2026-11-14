@@ -1,7 +1,9 @@
 """File handling utilities"""
 
 import base64
+import hashlib
 import json
+import re
 try:
     import imghdr
 except ImportError:
@@ -15,7 +17,7 @@ import tempfile
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import aiofiles
 from fastapi import UploadFile
@@ -815,3 +817,189 @@ class OutputPathGenerator:
                         logger.warning(
                             f"Failed to cleanup temp file {temp_file}: {str(e)}"
                         )
+
+
+# ==============================================================================
+# Workspace Storage Manager & Manifest Projection (Docs/TASKS.md §21 & §22)
+# ==============================================================================
+
+class WorkspaceStorageManager:
+    """Manages filesystem hierarchy strictly conforming to Section 21 & 22."""
+
+    def __init__(self, storage_root: Optional[Union[str, Path]] = None):
+        if storage_root is not None:
+            self.storage_root = Path(storage_root).resolve()
+        else:
+            self.storage_root = get_storage_base_dir().resolve()
+        self.storage_root.mkdir(parents=True, exist_ok=True)
+        self.temp_root = self.storage_root / "temp"
+        self.temp_root.mkdir(parents=True, exist_ok=True)
+
+    def assert_safe_id(self, identifier: str) -> None:
+        """Validate that an identifier contains no path traversal sequences."""
+        if not identifier:
+            raise ValueError("Identifier cannot be empty")
+        if ".." in identifier or "/" in identifier or "\\" in identifier:
+            raise ValueError(f"Path traversal detected in identifier: {identifier}")
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", identifier):
+            raise ValueError(f"Invalid identifier contains illegal characters: {identifier}")
+
+    def mint_workspace_id(self, stem: str, existing_ids: Optional[Set[str]] = None) -> str:
+        """Generate collision-safe workspace identifier <name>_<short-hash>."""
+        clean = re.sub(r"[^a-zA-Z0-9_-]", "_", stem).strip("_").lower()[:32] or "workspace"
+        existing = existing_ids or set()
+        while True:
+            short_hash = hashlib.sha256(f"{clean}:{time.time_ns()}:{uuid.uuid4().hex}".encode()).hexdigest()[:6]
+            candidate = f"{clean}_{short_hash}"
+            if candidate not in existing:
+                return candidate
+
+    def get_workspace_dir(self, workspace_id: str) -> Path:
+        """Resolve workspace directory and ensure no path traversal escaping storage root."""
+        self.assert_safe_id(workspace_id)
+        target = (self.storage_root / workspace_id).resolve()
+        if not target.is_relative_to(self.storage_root):
+            raise ValueError(f"Path traversal detected: {workspace_id}")
+        return target
+
+    def create_workspace_tree(self, workspace_id: str, create_subdirs: bool = True) -> Path:
+        """Create Section 21 workspace directory structure."""
+        ws_dir = self.get_workspace_dir(workspace_id)
+        ws_dir.mkdir(parents=True, exist_ok=True)
+        if create_subdirs:
+            (ws_dir / "input").mkdir(exist_ok=True)
+            (ws_dir / "mesh").mkdir(exist_ok=True)
+        return ws_dir
+
+    def create_operation_temp(self, operation_id: str) -> Path:
+        """Stage temporary operation resources under storage/temp/<operation_id>/."""
+        self.assert_safe_id(operation_id)
+        op_temp = (self.temp_root / operation_id).resolve()
+        if not op_temp.is_relative_to(self.temp_root):
+            raise ValueError(f"Path traversal detected in operation_id: {operation_id}")
+        op_temp.mkdir(parents=True, exist_ok=True)
+        return op_temp
+
+    def get_version_mesh_path(self, workspace_id: str, operation_type: str, ext: str, dest_dir: Path) -> Path:
+        """Generate collision-safe/version-safe mesh filename (_v002, _v003, etc.)."""
+        final_mesh_name = f"{workspace_id}_{operation_type}{ext}"
+        final_mesh_path = dest_dir / final_mesh_name
+        version = 2
+        while final_mesh_path.exists():
+            final_mesh_name = f"{workspace_id}_{operation_type}_v{version:03d}{ext}"
+            final_mesh_path = dest_dir / final_mesh_name
+            version += 1
+        return final_mesh_path
+
+    def publish_derived_mesh(
+        self,
+        workspace_id: str,
+        operation_type: str,
+        temp_mesh_path: Path,
+        temp_thumbnail_path: Optional[Path] = None,
+    ) -> Dict[str, Any]:
+        """Atomic publication conforming to Section 21 & Section 22.7."""
+        ws_dir = self.get_workspace_dir(workspace_id)
+        tool_folder_map = {
+            "texture": ws_dir / "texture" / "pbr",
+            "segmentation": ws_dir / "segmentation",
+            "retopology": ws_dir / "retopology",
+            "uv": ws_dir / "uv",
+            "rigging": ws_dir / "rigging",
+            "animation": ws_dir / "animation",
+        }
+        dest_dir = tool_folder_map.get(operation_type, ws_dir / operation_type)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        ext = temp_mesh_path.suffix.lower()
+        final_mesh_path = self.get_version_mesh_path(workspace_id, operation_type, ext, dest_dir)
+
+        # Atomic publication: copy to staging path then replace
+        staging_path = dest_dir / f".staging_{uuid.uuid4().hex}"
+        shutil.copy2(temp_mesh_path, staging_path)
+        staging_path.replace(final_mesh_path)
+
+        # Thumbnail publication
+        final_thumb_path = None
+        if temp_thumbnail_path and Path(temp_thumbnail_path).exists():
+            final_thumb_path = dest_dir / "thumbnail.png"
+            thumb_staging = dest_dir / f".staging_thumb_{uuid.uuid4().hex}"
+            shutil.copy2(temp_thumbnail_path, thumb_staging)
+            thumb_staging.replace(final_thumb_path)
+
+        relative_mesh_path = str(final_mesh_path.relative_to(ws_dir))
+        relative_thumb_path = str(final_thumb_path.relative_to(ws_dir)) if final_thumb_path else None
+
+        return {
+            "mesh_path": final_mesh_path,
+            "relative_mesh_path": relative_mesh_path,
+            "thumbnail_path": final_thumb_path,
+            "relative_thumbnail_path": relative_thumb_path,
+        }
+
+    def write_manifest(self, workspace_id: str, manifest_data: Dict[str, Any]) -> Path:
+        """Atomic write of unified workspace metadata.json."""
+        ws_dir = self.get_workspace_dir(workspace_id)
+        manifest_path = ws_dir / "metadata.json"
+        temp_manifest = ws_dir / f".metadata_{uuid.uuid4().hex}.tmp"
+        temp_manifest.write_text(json.dumps(manifest_data, indent=2), encoding="utf-8")
+        temp_manifest.replace(manifest_path)
+        return manifest_path
+
+    def read_manifest(self, workspace_id: str) -> Optional[Dict[str, Any]]:
+        """Read unified workspace metadata.json."""
+        ws_dir = self.get_workspace_dir(workspace_id)
+        manifest_path = ws_dir / "metadata.json"
+        if not manifest_path.is_file():
+            return None
+        try:
+            return json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def build_manifest_projection(self, workspace_id: str, db_manager: Any) -> Dict[str, Any]:
+        """Project unified metadata.json from authoritative DB records + verified disk files."""
+        ws_dir = self.get_workspace_dir(workspace_id)
+        ws = db_manager.get_workspace(workspace_id)
+        assets = db_manager.list_workspace_assets(workspace_id)
+        now_iso = datetime.utcnow().isoformat()
+
+        manifest_data = {
+            "schema_version": "1.0",
+            "workspace_id": workspace_id,
+            "name": ws.name if ws else workspace_id,
+            "active_mesh_asset_id": ws.active_mesh_asset_id if ws else None,
+            "source_asset_id": ws.source_asset_id if ws else None,
+            "status": ws.status if ws else "active",
+            "created_at": ws.created_at.isoformat() if ws and ws.created_at else now_iso,
+            "updated_at": ws.updated_at.isoformat() if ws and ws.updated_at else now_iso,
+            "assets": [
+                {
+                    "asset_id": a.asset_id,
+                    "relative_path": a.relative_path,
+                    "file_type": a.file_type,
+                    "original_filename": a.original_filename,
+                    "byte_size": a.byte_size,
+                    "sha256": a.sha256,
+                    "thumbnail_path": a.thumbnail_path,
+                    "is_retained": bool(a.is_retained),
+                    "verified_on_disk": (ws_dir / a.relative_path).exists(),
+                }
+                for a in assets
+            ],
+            "projected_at": now_iso,
+        }
+        self.write_manifest(workspace_id, manifest_data)
+        return manifest_data
+
+
+_workspace_storage_instance: Optional[WorkspaceStorageManager] = None
+
+
+def get_workspace_storage_manager(storage_root: Optional[Union[str, Path]] = None) -> WorkspaceStorageManager:
+    """Get or create singleton instance of WorkspaceStorageManager."""
+    global _workspace_storage_instance
+    if _workspace_storage_instance is None or storage_root is not None:
+        _workspace_storage_instance = WorkspaceStorageManager(storage_root=storage_root)
+    return _workspace_storage_instance
+

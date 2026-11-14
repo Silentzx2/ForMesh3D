@@ -10,9 +10,11 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.dependencies import get_scheduler
+from api.dependencies import get_scheduler, sanitize_error_message
+from core.scheduler.database_manager import DatabaseManager
 from core.scheduler.job_queue import JobRequest
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
+from core.utils.file_utils import get_workspace_storage_manager
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,8 @@ class MotionGenerationRequest(BaseModel):
     model_preference: str = Field(
         "ardy_motion_generation", description="Name of the motion generation model to use"
     )
+    workspace_id: Optional[str] = Field(None, description="Workspace ID")
+    input_asset_id: Optional[str] = Field(None, description="Input rigged mesh asset ID")
     model_parameters: Optional[Dict[str, Any]] = Field(
         None, description="Model-specific parameters"
     )
@@ -56,6 +60,8 @@ class MotionGenerationResponse(BaseModel):
     job_id: str = Field(..., description="Unique job identifier")
     status: str = Field(..., description="Job status")
     message: str = Field(..., description="Status message")
+    workspace_id: Optional[str] = Field(None, description="Workspace ID")
+    operation_id: Optional[str] = Field(None, description="Operation ID")
 
 
 @router.post("/generate-motion", response_model=MotionGenerationResponse)
@@ -87,6 +93,32 @@ async def generate_motion(
         )
 
     try:
+        db = DatabaseManager()
+        ws_storage = get_workspace_storage_manager()
+
+        target_ws_id = request.workspace_id
+        input_asset = None
+        if request.input_asset_id:
+            input_asset = db.get_asset(request.input_asset_id)
+            if input_asset and not target_ws_id:
+                target_ws_id = input_asset.workspace_id
+
+        operation_id = None
+        if target_ws_id:
+            op_row = db.enqueue_operation(
+                workspace_id=target_ws_id,
+                operation_type="animation",
+                input_asset_id=input_asset.asset_id if input_asset else None,
+                settings={
+                    "prompt": request.prompt.strip(),
+                    "duration": float(request.duration),
+                    "checkpoint": request.checkpoint,
+                    "target_skeleton": request.target_skeleton,
+                },
+            )
+            operation_id = op_row.operation_id
+            ws_storage.create_operation_temp(operation_id)
+
         job_inputs = {
             "prompt": request.prompt.strip(),
             "duration": float(request.duration),
@@ -96,6 +128,8 @@ async def generate_motion(
             "target_skeleton": request.target_skeleton,
             "target_bones": request.target_bones,
             "constraints": request.constraints,
+            "workspace_id": target_ws_id,
+            "operation_id": operation_id,
             **(request.model_parameters or {}),
         }
 
@@ -104,7 +138,12 @@ async def generate_motion(
             inputs=job_inputs,
             model_preference=model_preference,
             priority=1,
-            metadata={"feature_type": feature, "prompt": request.prompt},
+            metadata={
+                "feature_type": feature,
+                "prompt": request.prompt,
+                "workspace_id": target_ws_id,
+                "operation_id": operation_id,
+            },
             user_id=user_id,
         )
 
@@ -114,13 +153,15 @@ async def generate_motion(
             job_id=job_id,
             status="queued",
             message="Motion generation job queued successfully",
+            workspace_id=target_ws_id,
+            operation_id=operation_id,
         )
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error scheduling motion generation job: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to schedule job: {e}")
+        raise HTTPException(status_code=500, detail=sanitize_error_message(f"Failed to schedule job: {e}"))
 
 
 @router.get("/checkpoints")

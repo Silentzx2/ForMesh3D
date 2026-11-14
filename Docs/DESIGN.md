@@ -278,6 +278,25 @@ There is no `output_preset` body field and no `auto_optimize` field. The output 
 
 ### Generation & Texture Power Tools (Batch 2)
 - `GeneratePanel.tsx` (Pick-Best-of-N Candidate Generation): Multi-variation count selector (1 to 4) stepping seeds deterministically. Interactive Candidate Comparison Grid rendered on completion with individual candidate seed display, 3D viewport previewing (`loadModelInViewer`), and one-click promotion to `master/source.glb` with unselected candidate file garbage collection.
+
+### Viewport Operation Controls & Action Bar (Batch 5)
+
+#### 1. Operation Action Bar (`OperationActionBar.tsx`)
+- Docked at bottom-center of the 3D viewport during active preview inspection (`executionState === 'completed'`, `persistenceState === 'not_saved'`).
+- Floating dark pill container (`bg-[#141522]/95 backdrop-blur-xl border border-white/[0.15] shadow-2xl`).
+- **Keep in Workspace**: Primary Studio Gold gradient button with CheckIcon committing the preview permanently into the workspace tree.
+- **Regenerate**: Secondary glass button with RefreshCw icon triggering a linked re-execution attempt (`parent_operation_id`).
+- **Discard Preview**: Subtle rose-accent button with Trash2 icon cleaning temporary output files and restoring the base mesh in viewport.
+
+#### 2. Dynamic Mesh Versions Selector (`ViewportToolOverlay.tsx`)
+- Docked at top-left of the 3D viewport.
+- Hidden when the workspace contains only its initial base mesh; dynamically visible once derived assets are retained.
+- Studio dark dropdown with live amber indicator pulse, allowing one-click preview switching between saved versions (`Base Mesh (v001)`, `Textured Mesh (v002)`, `Remeshed Mesh (v003)`).
+- Decoupled from URL route mutation: switching versions updates only `active_mesh_asset_id` and viewport model object without modifying the browser URL.
+
+#### 3. Assets Library Thumbnail Resilience (`RightAssetsPanel.tsx`)
+- Graceful `onError` placeholder fallback: failed or missing thumbnail images automatically transition to a styled geometric Box placeholder icon, preventing broken image indicators.
+- Workspace scope toggle: allows instantaneous filtering between assets belonging to the active workspace versus global library assets.
 - `TexturePanel.tsx` (Spot Retexture / UV Region Mask): Sub-tool toggle between Surface Color Paint and Spot Retexture Mask. Interactive 3D surface painting generating a binary/grayscale UV mask aligned to the mesh's existing xatlas UV layout without re-unwrapping. Localized prompt input, brush dynamics, mask thumbnail preview, PNG mask export, and versioned non-destructive output reservation (`textures/<name>_textured_v{n}.glb`) with clear labeling of backend adapter limitations.
 - `constants/models.ts` & `TexturePanel.tsx` (Material Prompt Presets): 8 curated material presets (Brushed Metal, Weathered Wood, Matte Plastic, Rough Stone, Fabric, Chrome, Carbon Fiber, Gold) with CSS gradient previews, pre-filling editable prompt guidance without parallel preset code paths.
 - `GeneratePanel.tsx` (Physics Material Quick Presets): 6 friction/restitution preset chips (Default, Rubber, Stone, Wood, Ice, Metal) setting sliders non-destructively in the Physics Preparation drawer.

@@ -4,12 +4,13 @@ import { useAppStore } from '@/stores/useAppStore';
 import type { JobStatus, JobInfo } from '@/types/api';
 
 export interface UseTaskPollingOptions {
-  pollingInterval?: number;
+  initialInterval?: number; // default: 1500 (1.5s)
+  backoffInterval?: number; // default: 5000 (5s)
+  backoffDelayMs?: number;  // default: 120000 (2 minutes)
   enabled?: boolean;
 }
 
-// Skip local placeholder ids (slugs like 'generate-abc123'): they have no
-// backend job under /api/v1/system/jobs/{id} and would 404 on every poll.
+// Skip local placeholder ids: only real backend generation jobs (uuid) are pollable
 const BACKEND_JOB_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const BACKEND_STATUS: Record<JobStatus, 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'> = {
@@ -20,20 +21,30 @@ const BACKEND_STATUS: Record<JobStatus, 'queued' | 'running' | 'completed' | 'fa
   cancelled: 'cancelled',
 };
 
-export type PollingLifecycleStatus = 'idle' | 'polling' | 'stopped';
+export type PollingLifecycleStatus = 'idle' | 'polling' | 'paused' | 'stopped';
 
+/**
+ * Consolidated adaptive poller for workspace generation tasks:
+ * - 1.5s initial cadence
+ * - 5s backoff after 2 minutes (120s) of active execution
+ * - Pauses automatically when tab is hidden (document.hidden / visibilitychange)
+ * - Stops completely on terminal state (completed, failed, cancelled, interrupted)
+ */
 export const useTaskPolling = (options: UseTaskPollingOptions = {}) => {
   const {
-    pollingInterval = 5000,
+    initialInterval = 1500,
+    backoffInterval = 5000,
+    backoffDelayMs = 120000,
     enabled = true,
   } = options;
 
   const tasks = useAppStore((state) => state.tasks);
   const setTask = useAppStore((state) => state.setTask);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pollingStatus, setPollingStatus] = useState<PollingLifecycleStatus>('idle');
   const isPolling = pollingStatus === 'polling';
   const isPollingRef = useRef(false);
+  const pollingStartTimeRef = useRef<number | null>(null);
 
   const pollTaskStatus = useCallback(async (task: (typeof tasks)[string]) => {
     if (!task.id || task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
@@ -43,7 +54,7 @@ export const useTaskPolling = (options: UseTaskPollingOptions = {}) => {
     try {
       const apiClient = getApiClient();
       const jobInfo: JobInfo = await apiClient.getJobStatus(task.id);
-      const status = BACKEND_STATUS[jobInfo.status];
+      const status = BACKEND_STATUS[jobInfo.status] || (jobInfo.status as any);
       const rawProgress = Number(jobInfo.progress ?? 0);
       const normalizedProgress = Math.max(
         0,
@@ -122,54 +133,109 @@ export const useTaskPolling = (options: UseTaskPollingOptions = {}) => {
   }, [setTask]);
 
   const pollAllActiveTasks = useCallback(async () => {
-    if (isPollingRef.current) {
+    if (isPollingRef.current) return;
+
+    // Check visibility: pause if tab is hidden
+    if (typeof document !== 'undefined' && document.hidden) {
+      setPollingStatus('paused');
       return;
+    }
+
+    const currentTasks = useAppStore.getState().tasks;
+    const activeTasks = Object.values(currentTasks).filter(
+      (task) =>
+        task.id &&
+        BACKEND_JOB_ID_RE.test(task.id) &&
+        (task.status === 'queued' || task.status === 'running')
+    );
+
+    if (activeTasks.length === 0) {
+      pollingStartTimeRef.current = null;
+      setPollingStatus('idle');
+      return;
+    }
+
+    if (!pollingStartTimeRef.current) {
+      pollingStartTimeRef.current = Date.now();
     }
 
     isPollingRef.current = true;
     setPollingStatus('polling');
 
     try {
-      const activeTasks = Object.values(tasks).filter(
-        (task) =>
-          task.id &&
-          BACKEND_JOB_ID_RE.test(task.id) &&
-          (task.status === 'queued' || task.status === 'running'),
-      );
-
-      if (activeTasks.length === 0) {
-        setPollingStatus('idle');
-        return;
-      }
-
       await Promise.allSettled(activeTasks.map((task) => pollTaskStatus(task)));
     } catch (error) {
       console.error('[TaskPolling] Error during polling cycle:', error);
     } finally {
       isPollingRef.current = false;
-      setPollingStatus('idle');
+      const remainingTasks = Object.values(useAppStore.getState().tasks).filter(
+        (task) =>
+          task.id &&
+          BACKEND_JOB_ID_RE.test(task.id) &&
+          (task.status === 'queued' || task.status === 'running')
+      );
+      if (remainingTasks.length === 0) {
+        pollingStartTimeRef.current = null;
+        setPollingStatus('idle');
+      }
     }
-  }, [tasks, pollTaskStatus]);
+  }, [pollTaskStatus]);
 
+  // Adaptive scheduling loop with tab visibility awareness
   useEffect(() => {
     if (!enabled) {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
       }
       return;
     }
 
-    intervalRef.current = setInterval(pollAllActiveTasks, pollingInterval);
-    void pollAllActiveTasks();
+    let isMounted = true;
 
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
+    const scheduleNext = () => {
+      if (!isMounted) return;
+
+      // Determine current interval: 1.5s initial, 5s after 2 minutes of active polling
+      const elapsed = pollingStartTimeRef.current ? Date.now() - pollingStartTimeRef.current : 0;
+      const currentInterval = elapsed >= backoffDelayMs ? backoffInterval : initialInterval;
+
+      timerRef.current = setTimeout(async () => {
+        if (!isMounted) return;
+        if (typeof document === 'undefined' || !document.hidden) {
+          await pollAllActiveTasks();
+        }
+        scheduleNext();
+      }, currentInterval);
+    };
+
+    // Immediate initial poll
+    void pollAllActiveTasks();
+    scheduleNext();
+
+    const handleVisibilityChange = () => {
+      if (!isMounted) return;
+      if (!document.hidden) {
+        // Tab became visible again: poll immediately and resume
+        void pollAllActiveTasks();
       }
     };
-  }, [enabled, pollingInterval, pollAllActiveTasks]);
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    return () => {
+      isMounted = false;
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
+  }, [enabled, initialInterval, backoffInterval, backoffDelayMs, pollAllActiveTasks]);
 
   return {
     isPolling,

@@ -17,16 +17,18 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from api.dependencies import get_current_settings, get_file_store, get_scheduler
+from api.dependencies import get_current_settings, get_file_store, get_scheduler, sanitize_error_message
 from api.routers.file_upload import resolve_file_id_async
 from api.utils.asset_name import resolve_asset_name
 from core.file_store import FileStore
+from core.scheduler.database_manager import DatabaseManager
+from core.scheduler.database_models import generate_operation_id
 from core.scheduler.job_queue import JobRequest
 from core.config import get_quality_config, validate_quality_tier
 from core.preprocess.image_enhancement import load_preprocessed_artifact, preprocess_image
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
 from core.smart_presets import CANONICAL_INTENTS, NATIVE_PRESET, resolve_intent
-from core.utils.file_utils import save_base64_file, save_upload_file
+from core.utils.file_utils import get_workspace_storage_manager, save_base64_file, save_upload_file
 
 logger = logging.getLogger(__name__)
 
@@ -357,6 +359,9 @@ class ImageToRawMeshRequest(BaseModel):
     image_file_id: Optional[str] = Field(
         None, description="File ID from upload endpoint"
     )
+    workspace_id: Optional[str] = Field(
+        None, description="Optional target workspace ID. If omitted, will resolve from source asset or create a new workspace."
+    )
     seed: Optional[int] = Field(None, ge=0, description="Random seed for reproducibility")
     texture_resolution: Optional[int] = Field(
         None, description="Optional texture-atlas preset or size; omitted values fall back to the intent preset"
@@ -553,6 +558,9 @@ class ImageToTexturedMeshRequest(BaseModel):
     image_base64: Optional[str] = Field(None, description="Base64 encoded image data")
     image_file_id: Optional[str] = Field(
         None, description="File ID from upload endpoint"
+    )
+    workspace_id: Optional[str] = Field(
+        None, description="Optional target workspace ID. If omitted, will resolve from source asset or create a new workspace."
     )
     seed: Optional[int] = Field(None, ge=0, description="Random seed for reproducibility")
     texture_image_path: Optional[str] = Field(
@@ -861,6 +869,9 @@ class MeshGenerationResponse(BaseModel):
     job_id: str = Field(..., description="Unique job identifier")
     status: str = Field(..., description="Job status")
     message: str = Field(..., description="Status message")
+    workspace_id: Optional[str] = Field(None, description="Canonical workspace identifier")
+    operation_id: Optional[str] = Field(None, description="Canonical operation identifier")
+    route_path: Optional[str] = Field(None, description="Canonical workspace route path")
 
 
 class BatchImageToMeshRequest(BaseModel):
@@ -939,6 +950,21 @@ async def process_file_input(
         elif file_id:
             # Process file ID (uses Redis in multi-worker mode)
             resolved_path = await resolve_file_id_async(file_id, file_store)
+            if not resolved_path:
+                try:
+                    from core.scheduler.database_manager import DatabaseManager
+                    from core.utils.file_utils import get_storage_base_dir
+                    db = DatabaseManager()
+                    asset = db.get_asset(file_id)
+                    logger.info("process_file_input file_id=%s, asset=%s", file_id, asset)
+                    if asset:
+                        storage_base = get_storage_base_dir().resolve()
+                        candidate = (storage_base / asset.workspace_id / asset.relative_path).resolve()
+                        logger.info("candidate path=%s, is_file=%s", candidate, candidate.is_file())
+                        if candidate.is_file() and candidate.is_relative_to(storage_base):
+                            resolved_path = str(candidate)
+                except Exception as ex:
+                    logger.error("Fallback asset resolution error: %s", ex, exc_info=True)
             if not resolved_path:
                 raise HTTPException(
                     status_code=404,
@@ -1405,9 +1431,48 @@ async def image_to_raw_mesh(
                 auto_uv = False
             target_polycount = -1
 
+        db = DatabaseManager()
+        ws_storage = get_workspace_storage_manager()
+
+        target_ws_id = mesh_request.workspace_id
+        source_asset = None
+        if mesh_request.image_file_id:
+            source_asset = db.get_asset(mesh_request.image_file_id)
+            if not target_ws_id and source_asset and source_asset.workspace_id:
+                target_ws_id = source_asset.workspace_id
+
+        if not target_ws_id:
+            target_ws_id = ws_storage.mint_workspace_id(chosen_stem)
+
+        ws_storage.create_workspace_tree(target_ws_id)
+        if not db.get_workspace(target_ws_id):
+            db.create_workspace(
+                workspace_id=target_ws_id,
+                name=chosen_stem,
+                source_asset_id=source_asset.asset_id if source_asset else mesh_request.image_file_id,
+            )
+
+        gen_op_id = generate_operation_id()
+        op_res = db.enqueue_operation(
+            operation_id=gen_op_id,
+            workspace_id=target_ws_id,
+            operation_type="generate_raw_mesh",
+            input_asset_id=source_asset.asset_id if source_asset else mesh_request.image_file_id,
+            settings={
+                "intent": mesh_request.intent,
+                "quality_mode": mesh_request.quality_mode,
+                "target_polycount": target_polycount,
+                "model_preference": model_id,
+            },
+        )
+        op_row = op_res[0] if isinstance(op_res, tuple) else op_res
+        operation_id = op_row.operation_id
+
         job_request = JobRequest(
             feature=feature,
             inputs={
+                "workspace_id": target_ws_id,
+                "operation_id": operation_id,
                 "asset_name": chosen_stem,
                 "image_name": chosen_stem,
                 "image_path": image_file_path,
@@ -1500,8 +1565,12 @@ async def image_to_raw_mesh(
                 "topology_mode": mesh_request.topology_mode or ("quad" if mesh_request.quad_topology else "triangle"),
                 "quad_topology": bool(mesh_request.quad_topology or mesh_request.topology_mode == "quad"),
                 "temp_input_dirs": list(tracked_temp_dirs),
+                "workspace_id": target_ws_id,
+                "operation_id": operation_id,
+                "route_path": f"/workspace/generate/{target_ws_id}",
             },
             user_id=user_id,
+            explicit_job_id=target_ws_id,
         )
 
         job_id = await scheduler.schedule_job(job_request)
@@ -1516,7 +1585,11 @@ async def image_to_raw_mesh(
             mesh_request.texture_enabled,
         )
         return MeshGenerationResponse(
+            api_version="1",
             job_id=job_id,
+            workspace_id=target_ws_id,
+            operation_id=operation_id,
+            route_path=f"/workspace/generate/{target_ws_id}",
             status="queued",
             message="Image-to-raw-mesh generation job queued successfully",
         )
@@ -1529,12 +1602,12 @@ async def image_to_raw_mesh(
         for td in tracked_temp_dirs:
             shutil.rmtree(td, ignore_errors=True)
         logger.warning(f"Validation error in image_to_raw_mesh: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=sanitize_error_message(str(e)))
     except Exception as e:
         for td in tracked_temp_dirs:
             shutil.rmtree(td, ignore_errors=True)
         logger.error(f"Error scheduling image-to-raw-mesh job: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to schedule job: {e}")
+        raise HTTPException(status_code=500, detail=sanitize_error_message(f"Failed to schedule job: {e}"))
 
 @router.post("/image-to-textured-mesh", response_model=MeshGenerationResponse)
 async def image_to_textured_mesh(
@@ -1831,9 +1904,48 @@ async def image_to_textured_mesh(
                 auto_uv = False
             target_polycount = -1
 
+        db = DatabaseManager()
+        ws_storage = get_workspace_storage_manager()
+
+        target_ws_id = mesh_request.workspace_id
+        source_asset = None
+        if mesh_request.image_file_id:
+            source_asset = db.get_asset(mesh_request.image_file_id)
+            if not target_ws_id and source_asset and source_asset.workspace_id:
+                target_ws_id = source_asset.workspace_id
+
+        if not target_ws_id:
+            target_ws_id = ws_storage.mint_workspace_id(chosen_stem)
+
+        ws_storage.create_workspace_tree(target_ws_id)
+        if not db.get_workspace(target_ws_id):
+            db.create_workspace(
+                workspace_id=target_ws_id,
+                name=chosen_stem,
+                source_asset_id=source_asset.asset_id if source_asset else mesh_request.image_file_id,
+            )
+
+        gen_op_id = generate_operation_id()
+        op_res = db.enqueue_operation(
+            operation_id=gen_op_id,
+            workspace_id=target_ws_id,
+            operation_type="generate_textured_mesh",
+            input_asset_id=source_asset.asset_id if source_asset else mesh_request.image_file_id,
+            settings={
+                "intent": mesh_request.intent,
+                "quality_mode": mesh_request.quality_mode,
+                "target_polycount": target_polycount,
+                "model_preference": model_id,
+            },
+        )
+        op_row = op_res[0] if isinstance(op_res, tuple) else op_res
+        operation_id = op_row.operation_id
+
         job_request = JobRequest(
             feature=feature,
             inputs={
+                "workspace_id": target_ws_id,
+                "operation_id": operation_id,
                 "asset_name": chosen_stem,
                 "image_name": chosen_stem,
                 "image_path": image_file_path,
@@ -1927,14 +2039,22 @@ async def image_to_textured_mesh(
                 "topology_mode": mesh_request.topology_mode or ("quad" if mesh_request.quad_topology else "triangle"),
                 "quad_topology": bool(mesh_request.quad_topology or mesh_request.topology_mode == "quad"),
                 "temp_input_dirs": list(tracked_temp_dirs),
+                "workspace_id": target_ws_id,
+                "operation_id": operation_id,
+                "route_path": f"/workspace/generate/{target_ws_id}",
             },
             user_id=user_id,
+            explicit_job_id=target_ws_id,
         )
 
         job_id = await scheduler.schedule_job(job_request)
 
         return MeshGenerationResponse(
+            api_version="1",
             job_id=job_id,
+            workspace_id=target_ws_id,
+            operation_id=operation_id,
+            route_path=f"/workspace/generate/{target_ws_id}",
             status="queued",
             message="Image-to-textured-mesh generation job queued successfully",
         )
@@ -1947,12 +2067,12 @@ async def image_to_textured_mesh(
         for td in tracked_temp_dirs:
             shutil.rmtree(td, ignore_errors=True)
         logger.warning(f"Validation error in image_to_textured_mesh: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=sanitize_error_message(str(e)))
     except Exception as e:
         for td in tracked_temp_dirs:
             shutil.rmtree(td, ignore_errors=True)
         logger.error(f"Error scheduling image-to-textured-mesh job: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to schedule job: {e}")
+        raise HTTPException(status_code=500, detail=sanitize_error_message(f"Failed to schedule job: {e}"))
 
 @router.post("/image-mesh-painting", response_model=MeshGenerationResponse)
 async def image_mesh_painting(
@@ -2109,60 +2229,7 @@ async def get_supported_formats():
 async def cancel_mesh_generation(
     job_id: str,
     request: Request,
-    scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
 ):
-    """Cancel a queued mesh-generation job without deleting its history record."""
-    try:
-        job_status = await scheduler.get_job_status(job_id)
-        if job_status is None:
-            raise HTTPException(status_code=404, detail="Job not found")
-
-
-        current_status = job_status.get("status")
-        if current_status not in {"queued", "processing", "running"}:
-            return {
-                "job_id": job_id,
-                "status": current_status,
-                "cancelled": False,
-                "message": "Job is no longer cancellable",
-            }
-
-        cancelled = await scheduler.cancel_job(job_id)
-        if cancelled:
-            return {
-                "job_id": job_id,
-                "status": "cancelled",
-                "cancelled": True,
-                "message": "Generation job cancelled",
-            }
-
-        updated_status = await scheduler.get_job_status(job_id)
-        latest_status = (updated_status.get("status") if updated_status else None) or current_status
-        if latest_status == "cancelled":
-            return {
-                "job_id": job_id,
-                "status": "cancelled",
-                "cancelled": True,
-                "message": "Generation job cancelled",
-            }
-
-        if latest_status in {"queued", "processing", "running"}:
-            return {
-                "job_id": job_id,
-                "status": latest_status,
-                "cancelled": False,
-                "cancel_requested": True,
-                "message": "Cancellation requested",
-            }
-
-        return {
-            "job_id": job_id,
-            "status": latest_status,
-            "cancelled": False,
-            "message": "Job is no longer cancellable",
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error cancelling mesh generation job {job_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to cancel job: {e}")
+    """Delegate directly to canonical /system/jobs/{job_id}/cancel endpoint."""
+    from api.routers.system import cancel_job_endpoint
+    return await cancel_job_endpoint(job_id=job_id, request=request, _=True)

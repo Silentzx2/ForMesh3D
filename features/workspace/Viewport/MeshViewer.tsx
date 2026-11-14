@@ -901,6 +901,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       return;
     }
 
+    const abortController = new AbortController();
     let isCancelled = false;
     setIsComparisonLoading(true);
     beforeGroup.visible = false;
@@ -981,6 +982,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       return;
     }
 
+    const abortController = new AbortController();
     let isCancelled = false;
     setModelLoadStatus('loading');
     setLoadError(null);
@@ -1066,62 +1068,90 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
     // Load by format
     if (format === 'glb' || format === 'gltf') {
-      void loadGLBWithProgress(modelUrl).then((buffer) => {
-        if (isCancelled) return;
+      void loadGLBWithProgress(modelUrl, undefined, abortController.signal).then((buffer) => {
+        if (isCancelled || abortController.signal.aborted) return;
         const basePath = modelUrl.startsWith('blob:') || modelUrl.startsWith('data:')
           ? ''
           : new URL('.', new URL(modelUrl, window.location.href)).href;
         sharedGLTFLoader.parse(
           buffer,
           basePath,
-          (gltf) => handleObjectLoaded(gltf.scene, gltf.animations),
-          (err) => handleLoadFailure(`Failed to load 3D model: ${err instanceof Error ? err.message : 'Invalid model file'}`)
+          (gltf) => {
+            if (isCancelled || abortController.signal.aborted) return;
+            handleObjectLoaded(gltf.scene, gltf.animations);
+          },
+          (err) => {
+            if (isCancelled || abortController.signal.aborted) return;
+            handleLoadFailure(`Failed to load 3D model: ${err instanceof Error ? err.message : 'Invalid model file'}`);
+          }
         );
       }).catch((err: unknown) => {
+        if (isCancelled || abortController.signal.aborted) return;
         handleLoadFailure(`Failed to load 3D model: ${err instanceof Error ? err.message : 'Network error'}`);
       });
     } else if (format === 'obj') {
       sharedOBJLoader.load(
         modelUrl,
-        (obj) => handleObjectLoaded(obj),
+        (obj) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          handleObjectLoaded(obj);
+        },
         undefined,
-        (err: unknown) => handleLoadFailure(`Failed to load OBJ: ${(err as any)?.message || 'Error'}`)
+        (err: unknown) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          handleLoadFailure(`Failed to load OBJ: ${(err as any)?.message || 'Error'}`);
+        }
       );
     } else if (format === 'fbx') {
       sharedFBXLoader.load(
         modelUrl,
-        (fbx) => handleObjectLoaded(fbx, fbx.animations),
+        (fbx) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          handleObjectLoaded(fbx, fbx.animations);
+        },
         undefined,
-        (err: unknown) => handleLoadFailure(`Failed to load FBX: ${(err as any)?.message || 'Error'}`)
+        (err: unknown) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          handleLoadFailure(`Failed to load FBX: ${(err as any)?.message || 'Error'}`);
+        }
       );
     } else if (format === 'stl') {
       sharedSTLLoader.load(
         modelUrl,
         (geom) => {
+          if (isCancelled || abortController.signal.aborted) return;
           geom.computeVertexNormals();
           const mat = new THREE.MeshStandardMaterial({ color: 0xc8cdd5, roughness: 0.6 });
           const mesh = new THREE.Mesh(geom, mat);
           handleObjectLoaded(mesh);
         },
         undefined,
-        (err: unknown) => handleLoadFailure(`Failed to load STL: ${(err as any)?.message || 'Error'}`)
+        (err: unknown) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          handleLoadFailure(`Failed to load STL: ${(err as any)?.message || 'Error'}`);
+        }
       );
     } else if (format === 'ply') {
       sharedPLYLoader.load(
         modelUrl,
         (geom) => {
+          if (isCancelled || abortController.signal.aborted) return;
           geom.computeVertexNormals();
           const mat = new THREE.MeshStandardMaterial({ color: 0xc8cdd5, roughness: 0.6 });
           const mesh = new THREE.Mesh(geom, mat);
           handleObjectLoaded(mesh);
         },
         undefined,
-        (err: unknown) => handleLoadFailure(`Failed to load PLY: ${(err as any)?.message || 'Error'}`)
+        (err: unknown) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          handleLoadFailure(`Failed to load PLY: ${(err as any)?.message || 'Error'}`);
+        }
       );
     }
 
     return () => {
       isCancelled = true;
+      abortController.abort();
     };
   }, [modelUrl, assetFormat, fitCameraToModel, applyShadingToMesh]);
 

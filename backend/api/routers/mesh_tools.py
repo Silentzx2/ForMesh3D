@@ -61,6 +61,10 @@ def _parse_options(raw: str | None, model):
 
 
 async def _read_upload(mesh_file: UploadFile) -> bytes:
+    filename = mesh_file.filename or ""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext and ext not in {"glb", "gltf", "obj", "ply", "stl"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported mesh format .{ext}")
     data = await mesh_file.read()
     if not data:
         raise HTTPException(status_code=400, detail="meshFile is empty.")

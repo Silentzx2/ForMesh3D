@@ -36,6 +36,7 @@ export const RightAssetsPanel: React.FC = () => {
     duplicateAsset,
     deleteAsset,
     updateAssetProperties,
+    workspaceId,
   } = useWorkspace();
 
   const { assetCollections, addAssetCollection } = useAppStore();
@@ -43,6 +44,8 @@ export const RightAssetsPanel: React.FC = () => {
   const [activePage, setActivePage] = useState(1);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
+  const [scopeToWorkspace, setScopeToWorkspace] = useState(true);
+  const [failedThumbnails, setFailedThumbnails] = useState<Set<string>>(() => new Set());
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [activeMenuAssetId, setActiveMenuAssetId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -112,7 +115,20 @@ export const RightAssetsPanel: React.FC = () => {
     if (file) processModelFile(file);
   };
 
-  const filteredAssets = assets.filter(a => {
+  const scopedBaseAssets = React.useMemo(() => {
+    if (!scopeToWorkspace || !workspaceId) return assets;
+    const scoped = assets.filter(
+      (a) =>
+        a.workspace_id === workspaceId ||
+        a.id === `local_${workspaceId}` ||
+        a.id === workspaceId ||
+        (a.source?.fileId && a.source.fileId.includes(workspaceId)) ||
+        (a.id === currentAsset?.id)
+    );
+    return scoped.length > 0 ? scoped : assets;
+  }, [assets, scopeToWorkspace, workspaceId, currentAsset]);
+
+  const filteredAssets = scopedBaseAssets.filter(a => {
     if (showFavoritesOnly && !a.isFavorite) return false;
     if (selectedCollection && a.collection !== selectedCollection && !a.tags?.includes(selectedCollection)) return false;
     if (assetFilter === 'all') return true;
@@ -219,6 +235,22 @@ export const RightAssetsPanel: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* Workspace Scope Toggle */}
+            {workspaceId && (
+              <button
+                type="button"
+                onClick={() => setScopeToWorkspace(!scopeToWorkspace)}
+                className={`px-2 py-0.5 rounded-md text-[10px] font-mono transition-colors border cursor-pointer ${
+                  scopeToWorkspace
+                    ? 'bg-primary/10 border-primary/30 text-primary font-bold'
+                    : 'bg-white/[0.04] border-white/[0.08] text-zinc-400 hover:text-white'
+                }`}
+                title={scopeToWorkspace ? 'Showing current workspace assets only. Click to show all.' : 'Showing all assets. Click to scope to this workspace.'}
+              >
+                {scopeToWorkspace ? 'Workspace' : 'All'}
+              </button>
+            )}
           </div>
 
           {/* Manage Pill Button matching Reference */}
@@ -313,12 +345,15 @@ export const RightAssetsPanel: React.FC = () => {
               >
                 {/* 3D Asset Thumbnail */}
                 <div className="relative w-full flex-1 bg-[#121316] overflow-hidden">
-                  {asset.thumbnail ? (
+                  {asset.thumbnail && !failedThumbnails.has(asset.id) ? (
                     <img
                       src={asset.thumbnail}
                       alt={asset.name}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       crossOrigin="anonymous"
+                      onError={() => {
+                        setFailedThumbnails((prev) => new Set(prev).add(asset.id));
+                      }}
                     />
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-[hsl(var(--surface-1))] gap-1 p-1">

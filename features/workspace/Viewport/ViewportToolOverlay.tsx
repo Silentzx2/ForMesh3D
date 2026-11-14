@@ -18,7 +18,8 @@ import {
 } from '@hugeicons/core-free-icons';
 import type { LightTone } from './MeshViewer';
 import type { ShadingMode } from '../types';
-import { useViewerStore } from '@/stores/useViewerStore';
+import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
+import { OperationActionBar } from './OperationActionBar';
 
 interface ViewportToolOverlayProps {
   isRightPanelOpen?: boolean;
@@ -40,7 +41,42 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
     shadingMode,
     setShadingMode,
     isRightPanelOpen: contextRightPanelOpen,
+    workspaceId,
+    activeMeshAssetId,
+    selectAsset,
+    assets,
   } = useWorkspace();
+
+  const workspaceMeshVersions = React.useMemo(() => {
+    if (!workspaceId) return [];
+    const wsAssets = assets.filter(
+      (a) =>
+        a.category !== 'texture' &&
+        a.format !== 'IMAGE' &&
+        a.format !== 'FILE' &&
+        (a.workspace_id === workspaceId ||
+          a.id === `local_${workspaceId}` ||
+          a.id === workspaceId ||
+          (a.source?.fileId && a.source.fileId.includes(workspaceId)) ||
+          (a.id === currentAsset?.id && (currentAsset.workspace_id === workspaceId || currentAsset.id.includes(workspaceId))))
+    );
+
+    const unique = Array.from(new Map(wsAssets.map((a) => [a.id, a])).values());
+    if (unique.length <= 1) return [];
+
+    return unique.map((asset, index) => {
+      const isBase = index === 0 || asset.is_base_mesh || asset.category === 'generation';
+      const versionNumber = String(index + 1).padStart(3, '0');
+      const label = isBase
+        ? 'Base Mesh (v001)'
+        : (asset.name || `${asset.category ? asset.category.charAt(0).toUpperCase() + asset.category.slice(1) : 'Mesh'} (v${versionNumber})`);
+      return {
+        id: asset.id,
+        label,
+        asset,
+      };
+    });
+  }, [workspaceId, assets, currentAsset]);
 
   const isRightPanelOpen = propRightPanelOpen ?? contextRightPanelOpen ?? false;
   const compareBeforeUrl = currentAsset?.artifacts?.source;
@@ -126,6 +162,42 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
       id="viewport-tool-overlay"
       className="absolute inset-0 pointer-events-none z-10 overflow-hidden select-none"
     >
+      {/* Dynamic Mesh Versions Selector (Hidden if only base raw mesh exists) */}
+      {workspaceMeshVersions.length > 1 && (
+        <div className="pointer-events-auto absolute top-4 left-4 md:left-6 flex items-center gap-2 z-20">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#161722]/90 backdrop-blur-md border border-white/[0.12] shadow-[0_8px_32px_rgba(0,0,0,0.6)] text-xs text-white">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-primary font-mono flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+              Mesh Version
+            </span>
+            <select
+              value={activeMeshAssetId || currentAsset?.id || ''}
+              onChange={(e) => {
+                const selectedId = e.target.value;
+                const target = assets.find((a) => a.id === selectedId);
+                if (target) {
+                  selectAsset(target.id);
+                  loadModelInViewer(
+                    target.source?.viewUrl || target.source?.localUrl || target.artifacts?.gameReady || '',
+                    target.name,
+                    target as any
+                  );
+                } else {
+                  toast.error('Selected mesh version is unavailable');
+                }
+              }}
+              className="bg-transparent text-xs text-zinc-100 font-medium focus:outline-none cursor-pointer border-none py-0.5 pr-2"
+              aria-label="Select Mesh Version"
+            >
+              {workspaceMeshVersions.map((v) => (
+                <option key={v.id} value={v.id} className="bg-[#141522] text-zinc-100">
+                  {v.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
       {/* Top-Right Control Cluster (Tripo-Style Vertical Tool Dock) */}
       <div
         className={`pointer-events-auto absolute top-16 md:top-20 flex flex-col items-center gap-2 transition-[right] duration-200 ease-out z-20 ${
@@ -555,6 +627,9 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
           </button>
         </SimpleTooltip>
       </div>
+
+      {/* Operation Action Bar: Keep in Workspace, Regenerate, Discard Preview */}
+      <OperationActionBar />
     </div>
   );
 };

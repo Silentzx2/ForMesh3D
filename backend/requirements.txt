@@ -58,6 +58,7 @@ imageio-ffmpeg>=0.4.2
 
 pyvista
 vtk
+pyrender>=0.1.45
 
 ninja
 setuptools
