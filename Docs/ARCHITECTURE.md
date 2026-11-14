@@ -1051,4 +1051,13 @@ The application state architecture is cataloged in `Docs/TASKS.md` §2–§3:
 - **Dynamic Floating Geometry & Texture Settings:** Secondary refinement toggles (delighting/remove lighting, PBR map baking, quad/triangle topology) are rendered via React portal into `#geometry-texture-flyout`, isolating advanced parameters without cluttering primary workflows.
 - **Post-Processing UI Removal:** In alignment with the default native mesh extraction model (`postprocessing.enabled: false`), the post-processing master toggle is completely removed from the UI, ensuring direct model-native fidelity without unnecessary intermediate state.
 
+## 2026-11-14 — Workspace Preview Persistence Safety
 
+- SQLite remains authoritative for operation persistence and retained assets; `metadata.json` is only a rebuildable projection.
+- Keep is serialized by a storage-scoped process lock. It accepts only completed operations, validates the operation's exact temp directory, and commits the retained asset, active-mesh pointer, and `saved` state in one database transaction.
+- Repeated Keep returns the already-retained asset for that operation. It does not publish a second mesh version.
+- Discard is limited to `storage/temp/{operation_id}/`. It transitions through `cleanup_pending` before deletion and reaches `discarded` only after cleanup succeeds; repeated Discard is safe.
+- Published mesh and thumbnail files are version-paired. A failed publication removes its partial files, and a failed database commit removes the newly published files where possible.
+- Manifest projection failure does not undo a committed save; the DB state remains authoritative and the projection can be rebuilt.
+- The persistence routes reject unknown operation IDs rather than returning synthetic success. External temp paths are rejected and never deleted.
+- Regression coverage: `backend/tests/test_batch3_queue_and_lifecycle.py` (idempotent Keep/Discard and external-path rejection).
