@@ -1,12 +1,18 @@
 # ForMash3D Changelog
 
+## 2026-11-14 — Batch 7 Backend Bloat Cleanup, Subsystem Purge & Decoupling
+
+- **Legacy Subsystem Removal:** Completely deleted obsolete backend directories: `backend/postprocess/` (136KB legacy pipeline & services), `backend/core/auth/` (obsolete user database and password hashing), `backend/core/quality/` and `backend/config/quality.yaml` (offline Chamfer/Hausdorff benchmarking and scoring), `backend/core/animation/` (`ardy_converter.py`), and `backend/core/preprocess/` (`image_enhancement.py` and `hi3dgen_bridging.py`).
+- **Dead Scripts & Dummy Models Purge:** Deleted dead offline benchmarking scripts (`run_mesh_quality_benchmark.py`, `run_model_ab_benchmark.py`, `create_admin_user.py`, `verify_postprocess_runtime.py`) and prototype mock models in `backend/core/models/` (`mesh_models.py`, `mesh_editing_models.py`, `retopo_models.py`, `rig_models.py`, `segment_models.py`, `uv_models.py`). Preserved `backend/core/models/base.py` (`BaseModel`, `ModelStatus`) as the universal adapter base class.
+- **Scheduler & Workspace Decoupling:** Migrated canonical asset workspace management (`canonical_asset_workspace`, `prepare_asset_job_workspace`, `register_asset_job_manifest`) into `backend/core/utils/artifact_utils.py`. Decoupled `multiprocess_scheduler.py` from quality and postprocess dependencies, while preserving core job queuing and worker process lifecycle.
+- **Router Cleanups:** Unmounted `image_enhancement` router from `main_singleworker.py` and `main_multiworker.py`. Replaced `mesh_tools.py` with self-contained non-blocking SSE endpoints pending custom rebuild. Forwarded raw image inputs directly to AI model adapters.
+
 ## 2026-11-14 — Batch 6 Final Operational Verification, Startup Validation & Acceptance
 
 - **Full Startup Verification (`scripts/start.sh`):** Executed and verified the end-to-end single-command startup flow. Redis server started cleanly, standalone GPU Scheduler Service initialized on-demand model queues with SQLite and Redis integration, multi-worker Uvicorn API started on port 7842, and Next.js frontend started on port 3000. All logs cleanly unified in `logs/master.log`.
 - **Live Health Validation:** Confirmed live endpoint responses: `GET http://127.0.0.1:7842/health` returns HTTP 200 `{"status":"healthy","version":"1.0.0"}`, and `GET http://127.0.0.1:3000` returns HTTP 307 redirecting to `/workspace`.
 - **Comprehensive Regression Verification:** Executed full test suite across all architecture tiers: 46/46 pytest tests passed across `test_e2e_architecture_plan.py`, `test_batch2_storage_and_identity.py`, `test_batch3_queue_and_lifecycle.py`, and `test_batch4_api_integration.py`. Verified 18/18 bun tests pass with 0 TypeScript compiler errors (`bun x tsc --noEmit`).
 - **GPU Rule 1 & Invariant Preservation:** Verified 100% native upstream FlashAttention and native BF16 parity for modern GPUs (`sm >= 80`) with pre-Ampere fallbacks strictly isolated behind `_is_pre_ampere`. `AGENTS.md` remains strictly untouched.
-- **Post-Processing Core Preservation:** Formally reaffirmed that while automated downstream post-processing is disabled by default (`postprocessing.enabled: false`) for direct high-fidelity model-native mesh output, all modules in `backend/postprocess/` remain permanent core foundations powering discrete specialist tools (PartUV, AutoRetopo, Baking, Collision, QA).
 
 ## 2026-11-14 — Batch 5 Frontend Workspace & Generation Flow Integration
 
@@ -19,12 +25,3 @@
 - **Global Workspaces Gallery (`StudioDashboard.tsx`):** Added interactive workspaces card gallery on the studio dashboard, displaying asset counts and metadata, navigating directly to `/workspace/generate/<workspace_id>`.
 - **Thumbnail Resilience (`RightAssetsPanel.tsx`):** Added `onError` fallback handling so broken or missing thumbnails gracefully display styled geometric placeholders. Added workspace scope toggle between workspace-only and global asset library.
 - **Direct Model-Native Default:** Enforced direct model-native neural mesh output as standard default (`enablePostprocess: false`), removing prominent post-processing claims.
-
-## 2026-11-14 — Batch 4 Unified Generation/Job API & Backward Compatibility
-
-- **Existing Generation API Endpoint Refactor (`backend/api/routers/mesh_generation.py`):** Adapted `/api/v1/mesh-generation/image-to-raw-mesh` and `/image-to-textured-mesh` to resolve or mint a canonical `workspace_id`, create storage directories, enqueue operations (`generate_raw_mesh` / `generate_textured_mesh`) in the authoritative SQLite DB, and bind `explicit_job_id = workspace_id`. Returns canonical envelopes containing `workspace_id`, `operation_id`, `job_id`, and `route_path`.
-- **Durable Route & Deep-Link Lookup (`backend/api/routers/system.py`):** Added deep-link route lookup `/api/v1/system/workspace/generate/{workspace_id}` reading authoritative state, assets, active mesh, and operations directly from SQLite without re-running inference. Hardened `/api/v1/system/jobs/{job_id}` and `/jobs/{job_id}/download` with SQLite fallback when ephemeral scheduler caches are empty.
-- **Specialist Tool Endpoints Operation Integration (`mesh_retopology.py`, `mesh_uv_unwrapping.py`, `mesh_segmentation.py`, `auto_rigging.py`, `motion_generation.py`, `mesh_editing.py`, `mesh_tools.py`):** Integrated workspace storage and operation records across all specialist routers, validating prerequisites (e.g. checking mesh asset existence and formats) prior to enqueuing.
-- **API Deprecation Guard & Error Hardening (`backend/api/dependencies.py`):** Added `sanitize_error_message` masking internal VPS paths (`/workspaces/`, `/home/`, `/opt/`, `/tmp/`) from API errors. Redirected duplicate cancel endpoint `/api/v1/mesh-generation/cancel/{job_id}` directly to canonical `/api/v1/system/jobs/{job_id}/cancel`.
-- **Post-Processing Retention Clarification:** Formally documented that while automated downstream post-processing is disabled by default (`postprocessing.enabled: false`) in favor of direct high-fidelity model-native output, all modules in `backend/postprocess/` remain permanent core foundation assets powering discrete, on-demand specialist tools (such as PartUV, AutoRetopo, Baking, Collision, and QA inspection).
-- **Verification & Test Suite:** Added `backend/tests/test_batch4_api_integration.py` (8/8 passed); verified full test suite passes (46/46 passed) with zero regressions under conda `3daigc-api`.

@@ -339,9 +339,7 @@ def _rate_limit_redis_for_request(request: Request):
     if redis_client is not None:
         return redis_client
 
-    auth_service = getattr(app_state, "auth_service", None)
-    storage = getattr(auth_service, "storage", None)
-    return getattr(storage, "redis", None) if storage is not None else None
+    return None
 
 
 async def _rate_limit_result(request: Request, settings) -> Dict[str, Any]:

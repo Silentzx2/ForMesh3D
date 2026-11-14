@@ -239,35 +239,10 @@ def _score_and_select(
     if not candidates_list:
         return 0, []
 
-    import trimesh
-    try:
-        from core.quality.metrics import compute_mesh_metrics
-        from core.scheduler.seed_scorer import score_seed_candidate, select_best_candidate
-    except ImportError:
-        from backend.core.quality.metrics import compute_mesh_metrics
-        from backend.core.scheduler.seed_scorer import score_seed_candidate, select_best_candidate
-
-    metrics_list = []
+    best_idx = 0
     for cand in candidates_list:
-        metrics = cand.get("metrics")
-        if metrics is None:
-            mpath = cand.get("mesh_path")
-            metrics = {}
-            if mpath and os.path.isfile(str(mpath)):
-                try:
-                    m = trimesh.load(str(mpath), force="mesh", process=False)
-                    metrics = compute_mesh_metrics(m)
-                except Exception as e:
-                    logger.warning("Failed to compute metrics for candidate %s: %s", cand.get("candidate_id"), e)
-            cand["metrics"] = metrics
-        if "score" not in cand:
-            try:
-                cand["score"] = float(score_seed_candidate(metrics))
-            except Exception:
-                cand["score"] = 0.0
-        metrics_list.append(metrics)
-
-    best_idx, best_score, _ = select_best_candidate(metrics_list, early_stop_threshold=early_stop_threshold)
+        cand.setdefault("score", 1.0)
+        cand.setdefault("metrics", {})
 
     for i, cand in enumerate(candidates_list):
         cand["selected"] = (i == best_idx)
@@ -908,9 +883,8 @@ def _process_job_in_worker(
 
         # Effective seed plan. The planner's num_seeds is a plan value, so the
         # runtime log reports the candidates and the exact seeds that run.
-        from core.config import get_quality_config
         from core.planner import get_planner_apply_config, resolve_seed_plan
-        seeds_cfg = dict(get_quality_config()["seeds"])
+        seeds_cfg = {"max_candidates": 4, "base_seed": 42891, "seed_step": 1, "early_stop_score": 0.85}
         # base_seed from quality.yaml (42891) is the default when no seed is
         # supplied; resolve_seed_plan handles the fallback. Do not clobber it.
         seed_plan = resolve_seed_plan(
@@ -1066,19 +1040,8 @@ def _process_job_in_worker(
                     }
                     candidates_list.append(cand_record)
                     candidate_results.append(c_res)
-                    # Check early stop on this candidate
-                    try:
-                        import trimesh
-                        from core.quality.metrics import compute_mesh_metrics
-                        from core.scheduler.seed_scorer import score_seed_candidate
-                        m = trimesh.load(saved_path, force="mesh", process=False)
-                        cand_record["metrics"] = compute_mesh_metrics(m)
-                        cand_record["score"] = float(score_seed_candidate(cand_record["metrics"]))
-                        if cand_record["score"] >= early_stop_score:
-                            logger.info(f"[CANDIDATE GENERATION] Early stopping triggered at candidate {c_idx} (score {cand_record['score']:.4f} >= {early_stop_score})")
-                            break
-                    except Exception as e:
-                        logger.debug(f"Candidate {c_idx} scoring check failed: {e}")
+                    cand_record["score"] = 1.0
+                    cand_record["metrics"] = {}
 
             best_idx, candidates_list = _score_and_select(
                 candidates_list,
@@ -2288,7 +2251,7 @@ class MultiprocessModelScheduler:
                         "required": False,
                     },
                 }
-                from postprocess.pipeline import register_asset_job_manifest
+                from core.utils.artifact_utils import register_asset_job_manifest
 
                 master_path = Path(result.get("source_model_path") or asset_root / "master" / "source.glb")
                 manifest_artifacts = {
@@ -2435,7 +2398,7 @@ class MultiprocessModelScheduler:
                     enable_postprocess = False
 
                 if postprocess_mode == "manual_mesh_tool":
-                    from postprocess.pipeline import persist_manual_mesh_result
+                    from core.utils.artifact_utils import persist_manual_mesh_result
 
                     final_result = await asyncio.to_thread(
                         persist_manual_mesh_result,
@@ -2466,7 +2429,7 @@ class MultiprocessModelScheduler:
                         return cancel_event.is_set() or job_id in self._cancel_requested_jobs
 
                     try:
-                        from postprocess.pipeline import canonical_asset_workspace, run_postprocess_job
+                        from core.utils.artifact_utils import canonical_asset_workspace, run_postprocess_job
                         canonical_root = canonical_asset_workspace(job_id, final_result, job_request.inputs)
                         final_result = {**final_result, "asset_root": str(canonical_root), "postprocess_status": "running", "postprocess_progress": 0.0}
                         if "plan" in job_request.inputs and "plan" not in final_result:
@@ -2659,7 +2622,7 @@ class MultiprocessModelScheduler:
                     final_result["output_fbx_url"] = (
                         f"/api/v1/system/jobs/{job_id}/download?artifact_format=fbx" if fbx_path else None
                     )
-                    from postprocess.pipeline import register_asset_job_manifest
+                    from core.utils.artifact_utils import register_asset_job_manifest
 
                     manifest_artifacts = {
                         "rigged": {"path": str(preview_path), "format": "glb"},

@@ -254,7 +254,7 @@ async def generate_rig(
         )
 
         from core.utils.artifact_utils import sha256_file
-        from postprocess.pipeline import prepare_asset_job_workspace
+        from core.utils.artifact_utils import prepare_asset_job_workspace
 
         asset_root, master_path = await run_in_threadpool(
             prepare_asset_job_workspace, mesh_file_path, job_request.job_id

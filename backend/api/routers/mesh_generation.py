@@ -24,8 +24,7 @@ from core.file_store import FileStore
 from core.scheduler.database_manager import DatabaseManager
 from core.scheduler.database_models import generate_operation_id
 from core.scheduler.job_queue import JobRequest
-from core.config import get_quality_config, validate_quality_tier
-from core.preprocess.image_enhancement import load_preprocessed_artifact, preprocess_image
+from core.config import validate_quality_tier
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
 from core.utils.file_utils import get_workspace_storage_manager, save_base64_file, save_upload_file
 
@@ -260,6 +259,7 @@ class TextMeshPaintingRequest(BaseModel):
     output_format: str = Field("glb", description="Output mesh format")
     quality_mode: Optional[str] = Field("high", description="Target quality budget")
     target_polycount: Optional[int] = Field(None, description="Target triangle budget")
+    intent: Optional[str] = Field(None, description="Intent preset: 'game_ready', 'cinematic', etc.")
     model_preference: str = Field(
         "trellis_image_to_textured_mesh", description="Model name for mesh generation"
     )
@@ -373,6 +373,7 @@ class ImageToRawMeshRequest(BaseModel):
     output_format: str = Field("glb", description="Output mesh format")
     quality_mode: Optional[str] = Field("high", description="Target quality budget")
     target_polycount: Optional[int] = Field(None, description="Target triangle budget")
+    intent: Optional[str] = Field(None, description="Intent preset: 'game_ready', 'cinematic', etc.")
     model_preference: Optional[str] = Field(
         None, description="Explicit model override; intent presets choose a model when omitted"
     )
@@ -403,7 +404,7 @@ class ImageToRawMeshRequest(BaseModel):
     topology_mode: Optional[str] = Field("triangle", description="Topology mode: 'triangle' or 'quad'")
     quad_topology: bool = Field(False, description="Request quad-dominant topology")
     enable_postprocess: bool = Field(False, description="Run production postprocessing pipeline after mesh generation. If False, postprocessing is bypassed.")
-    candidate_count: int = Field(1, ge=1, le=int(get_quality_config()["seeds"]["max_candidates"]), description="Candidate variations to generate (1-4, default 1)")
+    candidate_count: int = Field(1, ge=1, le=4, description="Candidate variations to generate (1-4, default 1)")
     part_count_range: Optional[str] = Field(None, description="Target part count range for segmentation: '1', '3-6', '6-15', '15+'")
     rig_type: Optional[str] = Field(None, description="Rig type: 'none', 'generic', 'humanoid', 'quadruped', 'bird', 'insect', 'custom'")
     export_formats: Optional[List[str]] = Field(None, description="Export formats: 'glb', 'fbx', 'obj', 'stl', '3mf'")
@@ -567,6 +568,7 @@ class ImageToTexturedMeshRequest(BaseModel):
     output_format: str = Field("glb", description="Output mesh format")
     quality_mode: Optional[str] = Field("high", description="Target quality budget")
     target_polycount: Optional[int] = Field(None, description="Target triangle budget")
+    intent: Optional[str] = Field(None, description="Intent preset: 'game_ready', 'cinematic', etc.")
     model_preference: Optional[str] = Field(
         None, description="Explicit model override; intent presets choose a model when omitted"
     )
@@ -597,7 +599,7 @@ class ImageToTexturedMeshRequest(BaseModel):
     topology_mode: Optional[str] = Field("triangle", description="Topology mode: 'triangle' or 'quad'")
     quad_topology: bool = Field(False, description="Request quad-dominant topology")
     enable_postprocess: bool = Field(False, description="Run production postprocessing pipeline after mesh generation. If False, postprocessing is bypassed.")
-    candidate_count: int = Field(1, ge=1, le=int(get_quality_config()["seeds"]["max_candidates"]), description="Candidate variations to generate (1-4, default 1)")
+    candidate_count: int = Field(1, ge=1, le=4, description="Candidate variations to generate (1-4, default 1)")
     part_count_range: Optional[str] = Field(None, description="Target part count range for segmentation: '1', '3-6', '6-15', '15+'")
     rig_type: Optional[str] = Field(None, description="Rig type: 'none', 'generic', 'humanoid', 'quadruped', 'bird', 'insect', 'custom'")
     export_formats: Optional[List[str]] = Field(None, description="Export formats: 'glb', 'fbx', 'obj', 'stl', '3mf'")
@@ -726,6 +728,7 @@ class ImageMeshPaintingRequest(BaseModel):
     output_format: str = Field("glb", description="Output mesh format")
     quality_mode: Optional[str] = Field("high", description="Target quality budget")
     target_polycount: Optional[int] = Field(None, description="Target triangle budget")
+    intent: Optional[str] = Field(None, description="Intent preset: 'game_ready', 'cinematic', etc.")
     model_preference: str = Field(
         "trellis_image_mesh_painting", description="Model name for mesh generation"
     )
@@ -1218,33 +1221,6 @@ async def image_to_raw_mesh(
 
         image_file_path = original_image_path
         preprocessing_metadata = {}
-        if mesh_request.preprocessing_artifact_id:
-            try:
-                image_file_path, preprocessing_metadata = load_preprocessed_artifact(
-                    mesh_request.preprocessing_artifact_id,
-                    "approved",
-                    allow_review=mesh_request.preprocessing_review_override,
-                )
-            except ValueError as exc:
-                raise HTTPException(status_code=409, detail=str(exc)) from exc
-        elif mesh_request.enhancement_enabled:
-            model_config = getattr(scheduler, "model_registry", {}).get(model_id, {})
-            capabilities = (
-                model_config.get("capabilities", {})
-                if isinstance(model_config, dict)
-                else getattr(model_config, "capabilities", {}) or {}
-            )
-            preprocessing_profile = str(capabilities.get("preferred_preprocessing", "default"))
-            prep_flags = generation_plan.get("input_prep", {}) if apply_cfg.get("input_prep", True) else {}
-            enhanced = preprocess_image(
-                str(image_file_path),
-                profile=preprocessing_profile,
-                remove_background=bool(prep_flags.get("remove_background", True)),
-                auto_crop=bool(prep_flags.get("tight_crop", True)),
-                upscale=bool(prep_flags.get("upscale_small", prep_flags.get("upscale_if_small", True))),
-            )
-            image_file_path = enhanced["approved_path"]
-            preprocessing_metadata = enhanced["metadata"]
 
         chosen_stem = await resolve_asset_name(
             mesh_request,
@@ -1310,7 +1286,7 @@ async def image_to_raw_mesh(
             auto_uv = bool(params.pop("auto_uv", True))
 
         # Resolve quality: cinematic intent or target >= 150k uses "ultra", others default to "high"
-        if mesh_request.intent == "cinematic" or (target_polycount is not None and target_polycount >= 150_000):
+        if getattr(mesh_request, "intent", None) == "cinematic" or (target_polycount is not None and target_polycount >= 150_000):
             quality = "ultra"
         elif preset.get("quality"):
             quality = str(preset["quality"])
@@ -1402,7 +1378,7 @@ async def image_to_raw_mesh(
             operation_type="generate_raw_mesh",
             input_asset_id=source_asset.asset_id if source_asset else mesh_request.image_file_id,
             settings={
-                "intent": mesh_request.intent,
+                "intent": getattr(mesh_request, "intent", None),
                 "quality_mode": mesh_request.quality_mode,
                 "target_polycount": target_polycount,
                 "model_preference": model_id,
@@ -1426,7 +1402,7 @@ async def image_to_raw_mesh(
                 "bake_normal_maps": mesh_request.bake_normal_maps,
                 "texture_enabled": texture_enabled,
                 "texture_settings": mesh_request.texture_settings,
-                "intent": mesh_request.intent,
+                "intent": getattr(mesh_request, "intent", None),
                 "mesh_style": getattr(mesh_request, "mesh_style", "auto") or "auto",
                 "requested_quality": req_qual,
                 "object_type": getattr(mesh_request, "object_type", "general") or "general",
@@ -1482,7 +1458,7 @@ async def image_to_raw_mesh(
                 "reference_image_path": original_image_path,
                 "physics_enabled": physics_enabled,
                 "physics_config": mesh_request.physics_config,
-                "intent": mesh_request.intent,
+                "intent": getattr(mesh_request, "intent", None),
                 "mesh_style": getattr(mesh_request, "mesh_style", "auto") or "auto",
                 "requested_quality": req_qual,
                 "object_type": getattr(mesh_request, "object_type", "general") or "general",
@@ -1669,33 +1645,6 @@ async def image_to_textured_mesh(
 
         image_file_path = original_image_path
         preprocessing_metadata = {}
-        if mesh_request.preprocessing_artifact_id:
-            try:
-                image_file_path, preprocessing_metadata = load_preprocessed_artifact(
-                    mesh_request.preprocessing_artifact_id,
-                    "approved",
-                    allow_review=mesh_request.preprocessing_review_override,
-                )
-            except ValueError as exc:
-                raise HTTPException(status_code=409, detail=str(exc)) from exc
-        elif mesh_request.enhancement_enabled:
-            model_config = getattr(scheduler, "model_registry", {}).get(model_id, {})
-            capabilities = (
-                model_config.get("capabilities", {})
-                if isinstance(model_config, dict)
-                else getattr(model_config, "capabilities", {}) or {}
-            )
-            preprocessing_profile = str(capabilities.get("preferred_preprocessing", "default"))
-            prep_flags = generation_plan.get("input_prep", {}) if apply_cfg.get("input_prep", True) else {}
-            enhanced = preprocess_image(
-                str(image_file_path),
-                profile=preprocessing_profile,
-                remove_background=bool(prep_flags.get("remove_background", True)),
-                auto_crop=bool(prep_flags.get("tight_crop", True)),
-                upscale=bool(prep_flags.get("upscale_small", prep_flags.get("upscale_if_small", True))),
-            )
-            image_file_path = enhanced["approved_path"]
-            preprocessing_metadata = enhanced["metadata"]
 
         texture_image_path = None
         if mesh_request.texture_image_path or mesh_request.texture_image_base64 or mesh_request.texture_image_file_id:
@@ -1759,7 +1708,7 @@ async def image_to_textured_mesh(
             auto_uv = bool(params.pop("auto_uv", True))
 
         # Resolve quality: cinematic intent or target >= 150k uses "ultra", others default to "high"
-        if mesh_request.intent == "cinematic" or (target_polycount is not None and target_polycount >= 150_000):
+        if getattr(mesh_request, "intent", None) == "cinematic" or (target_polycount is not None and target_polycount >= 150_000):
             quality = "ultra"
         elif preset.get("quality"):
             quality = str(preset["quality"])
@@ -1870,7 +1819,7 @@ async def image_to_textured_mesh(
             operation_type="generate_textured_mesh",
             input_asset_id=source_asset.asset_id if source_asset else mesh_request.image_file_id,
             settings={
-                "intent": mesh_request.intent,
+                "intent": getattr(mesh_request, "intent", None),
                 "quality_mode": mesh_request.quality_mode,
                 "target_polycount": target_polycount,
                 "model_preference": model_id,
@@ -1896,7 +1845,7 @@ async def image_to_textured_mesh(
                 "bake_normal_maps": mesh_request.bake_normal_maps,
                 "texture_enabled": texture_enabled,
                 "texture_settings": mesh_request.texture_settings,
-                "intent": mesh_request.intent,
+                "intent": getattr(mesh_request, "intent", None),
                 "mesh_style": getattr(mesh_request, "mesh_style", "auto") or "auto",
                 "requested_quality": req_qual,
                 "object_type": getattr(mesh_request, "object_type", "general") or "general",
@@ -1951,7 +1900,7 @@ async def image_to_textured_mesh(
                 "reference_image_path": original_image_path,
                 "physics_enabled": physics_enabled,
                 "physics_config": mesh_request.physics_config,
-                "intent": mesh_request.intent,
+                "intent": getattr(mesh_request, "intent", None),
                 "mesh_style": getattr(mesh_request, "mesh_style", "auto") or "auto",
                 "requested_quality": req_qual,
                 "object_type": getattr(mesh_request, "object_type", "general") or "general",

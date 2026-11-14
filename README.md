@@ -22,7 +22,7 @@
   <a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Frontend-Next.js_16-000000.svg?style=flat-square&logo=nextdotjs&logoColor=white" alt="Next.js 16"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="Python 3.10"></a>
   <a href="https://bun.sh/"><img src="https://img.shields.io/badge/Runtime-Bun-fbf0df.svg?style=flat-square&logo=bun&logoColor=black" alt="Bun"></a>
-  <a href="Docs/MEMORY.md"><img src="https://img.shields.io/badge/Tests-46%20Pytest%20Passed%20|%2018%20Bun%20Run-blue.svg?style=flat-square" alt="Test Status"></a>
+  <a href="Docs/MEMORY.md"><img src="https://img.shields.io/badge/Tests-57%20Pytest%20Passed%20|%2018%20Bun%20Run-blue.svg?style=flat-square" alt="Test Status"></a>
 </p>
 
 <p align="center">
@@ -79,11 +79,10 @@ ForMesh3D delivers **direct high-fidelity model-native generation**, preserving 
 > ### ⚖️ Licensing, Commercial & SaaS Advisory (Important)
 >
 > 1. **Core Repository License**: ForMesh3D's original code (orchestrator, API gateway, scheduler, and Next.js studio UI) is open-source under the **[Apache License 2.0](LICENSE)**.
-> 2. **Post-Processing Provenance**: The mesh post-processing engine (`backend/postprocess/`) was forked and customized from **[visualbruno/3DGenStudio](https://github.com/visualbruno/3DGenStudio)** under the **3D Gen Studio Community License**. See **[backend/postprocess/THIRD_PARTY_LICENSE.md](backend/postprocess/THIRD_PARTY_LICENSE.md)**.
+> 2. **Direct Upstream Model Architecture**: Upstream neural models (Hunyuan3D-2.1, TRELLIS.2, Stable Fast 3D, TripoSG) output native, detailed geometry directly without destructive legacy post-processing.
 > 3. **Use of Generated Outputs**: Rights to generated outputs depend on upstream model/checkpoint terms and applicable law. The Apache license on this repository does not grant unrestricted rights to every third-party model output; check the exact model and checkpoint terms before commercial use.
 > 4. **Notice for Commercial & SaaS Implementors**:
 >    - The Apache 2.0 license applies **strictly to ForMesh3D's original code**. We do **not** own or re-license underlying third-party models, research weights, or ported submodules.
->    - The ported `3DGenStudio` post-processing pipeline prohibits hosting the software as a paid public/private commercial SaaS service without explicit written consent from the upstream author (`visualbruno`).
 >    - Individual model source snapshots and checkpoints have their own terms. Read the **[`backend/thirdparty/LICENSE`](backend/thirdparty/LICENSE)** directory for complete license details.
 >    - **Do NOT blindly deploy or redistribute ForMesh3D as a paid commercial product or SaaS** without auditing and complying with the respective licenses of each integrated model and component!
 
@@ -478,11 +477,10 @@ The FastAPI backend exposes 100 active API endpoints (98 mounted across 13 `APIR
 ForMesh3D maintains unit and regression test suites across frontend and backend. Counts below reflect execution under conda environment `3daigc-api` and Bun:
 
 ```bash
-# Backend Pytest Suite — 37 tests collected across backend/tests/
-# 33 passed, 3 skipped (live API server offline on port 7842), 1 pre-existing mock issue
+# Backend Pytest Suite — 57 tests passed across backend/tests/
 /opt/conda/envs/3daigc-api/bin/pytest backend/tests/
 
-# Frontend Bun Test Suite — 14 tests across 3 files: 14 passed, 0 failed
+# Frontend Bun Test Suite — 18 tests across 4 files: 18 passed, 0 failed
 bun test
 
 # Frontend TypeScript compiler check
@@ -496,8 +494,8 @@ bash scripts/tests/compute_mode_test.sh
 ```
 
 **Verification Status (Audited Baseline)**:
-- **Pytest Backend**: 37 collected: **33 passed, 3 skipped, 1 failed** (pre-existing mock setup issue in `test_stable_fast_3d_adapter.py`).
-- **Bun Frontend**: **14/14 passed** across 3 files (`buildGenerationParameters.test.ts`, `meshStats.test.ts`, `app/api/v1/[...path]/route.test.mjs`); 0 failures.
+- **Pytest Backend**: **57 passed, 0 failed** across all active test suites.
+- **Bun Frontend**: **18/18 passed** across 4 files (`buildGenerationParameters.test.ts`, `meshStats.test.ts`, `workspaceBatch5.test.ts`, `route.test.mjs`); 0 failures.
 - **Frontend TypeScript**: `tsc --noEmit` verified with 0 errors.
 - **Shell Scripts**: 17/17 scripts verified clean.
 - **Compute Mode**: 8/8 tests verified clean.
@@ -509,7 +507,7 @@ bash scripts/tests/compute_mode_test.sh
 <details>
 <summary><strong>How does ForMesh3D protect source quality?</strong></summary>
 
-Source generation uses model-specific inference schedules and source-density settings. The scheduler strips production-only face, decimation, remesh, LOD, physics, and paint orchestration controls before adapter inference. The resulting `master/source.glb` is immutable; downstream production budgets operate on derived artifacts only.
+Source generation uses model-specific inference schedules and source-density settings. Upstream models (Hunyuan3D-2.1, TRELLIS.2, SF3D) export native geometry directly without destructive intermediate smoothing. The resulting `master/source.glb` is immutable; derived artifacts operate on isolated workspaces.
 </details>
 
 <details>
@@ -517,7 +515,7 @@ Source generation uses model-specific inference schedules and source-density set
 
 **For Outputs**: Do not assume unrestricted commercial rights. Check the upstream model and checkpoint terms for the specific generator, along with applicable law, before redistributing or commercially using generated assets.
 
-**For Code & Hosting**: ForMesh3D's original code is under Apache 2.0, while ported components, model source code, pretrained checkpoints, and datasets have separate terms. Review the [ThirdParty licensing directory](backend/thirdparty/LICENSE) and [post-processing attribution](backend/postprocess/THIRD_PARTY_LICENSE.md). The main repository license does not override upstream terms.
+**For Code & Hosting**: ForMesh3D's original code is under Apache 2.0, while model source code, pretrained checkpoints, and datasets have separate upstream terms. Review the [ThirdParty licensing directory](backend/thirdparty/LICENSE). The main repository license does not override upstream terms.
 </details>
 
 <details>

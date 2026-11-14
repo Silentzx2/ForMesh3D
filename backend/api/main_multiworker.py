@@ -41,7 +41,6 @@ from .routers import (
     mesh_editing,
     mesh_tools,
     mesh_generation,
-    image_enhancement,
     mesh_retopology,
     mesh_segmentation,
     mesh_uv_unwrapping,
@@ -321,7 +320,6 @@ app.include_router(database.router, prefix="/api/v1/system/database", tags=["Dat
 app.include_router(file_upload.router, prefix="/api/v1", tags=["File Upload"])
 
 app.include_router(mesh_generation.router, prefix="/api/v1", tags=["Mesh Generation"])
-app.include_router(image_enhancement.router, prefix="/api/v1", tags=["Image Enhancement"])
 
 app.include_router(mesh_editing.router, prefix="/api/v1", tags=["Mesh Editing"])
 app.include_router(mesh_tools.router, prefix="/api/v1", tags=["Mesh Tools"])

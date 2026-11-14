@@ -447,161 +447,22 @@ def get_settings() -> Settings:
 
 
 
-_QUALITY_REQUIRED_KEYS = (
-    "shared.feature_edge_angle_deg",
-    "holes.max_hole_vertices", "holes.max_hole_perimeter_frac",
-    "gate.strict", "gate.max_non_manifold_edges", "gate.max_non_manifold_vertices",
-    "gate.max_native_mesh_normalized_drift",
-    "gate.max_holes", "gate.max_floater_ratio", "gate.max_degenerate_faces",
-    "gate.min_aspect_ratio_p1", "gate.min_aspect_ratio_p5",
-    "surface_comparison.sample_count",
-    "surface_comparison.fscore_diagonal_fraction",
-    "surface_comparison.minimum_fscore_threshold",
-    "surface_comparison.local_density_neighbor_count",
-    "physics.defaults.body_type",
-    "physics.defaults.mass_mode",
-    "physics.defaults.mass_kg",
-    "physics.defaults.density_mode",
-    "physics.defaults.density_kg_m3",
-    "physics.defaults.friction",
-    "physics.defaults.restitution",
-    "physics.defaults.linear_damping",
-    "physics.defaults.angular_damping",
-    "physics.defaults.gravity_enabled",
-    "physics.defaults.fallback_volume_m3",
-    "physics.thresholds.minimum_valid_volume_m3",
-    "physics.limits.mass_kg.min",
-    "physics.limits.mass_kg.max",
-    "physics.limits.density_kg_m3.min",
-    "physics.limits.density_kg_m3.max",
-    "physics.limits.friction.min",
-    "physics.limits.friction.max",
-    "physics.limits.restitution.min",
-    "physics.limits.restitution.max",
-    "physics.limits.linear_damping.min",
-    "physics.limits.linear_damping.max",
-    "physics.limits.angular_damping.min",
-    "physics.limits.angular_damping.max",
-    "physics.default_collision_quality",
-    "physics.collision_quality_profiles.fast.method",
-    "physics.collision_quality_profiles.fast.max_hulls",
-    "physics.collision_quality_profiles.fast.threshold",
-    "physics.collision_quality_profiles.fast.input_faces",
-    "physics.collision_quality_profiles.fast.max_hull_vertices",
-    "physics.collision_quality_profiles.fast.resolution",
-    "physics.collision_quality_profiles.fast.mcts_nodes",
-    "physics.collision_quality_profiles.fast.mcts_iterations",
-    "physics.collision_quality_profiles.fast.mcts_max_depth",
-    "physics.collision_quality_profiles.fast.preprocess_resolution",
-    "physics.collision_quality_profiles.fast.seed",
-    "physics.collision_quality_profiles.balanced.method",
-    "physics.collision_quality_profiles.balanced.max_hulls",
-    "physics.collision_quality_profiles.balanced.threshold",
-    "physics.collision_quality_profiles.balanced.input_faces",
-    "physics.collision_quality_profiles.balanced.max_hull_vertices",
-    "physics.collision_quality_profiles.balanced.resolution",
-    "physics.collision_quality_profiles.balanced.mcts_nodes",
-    "physics.collision_quality_profiles.balanced.mcts_iterations",
-    "physics.collision_quality_profiles.balanced.mcts_max_depth",
-    "physics.collision_quality_profiles.balanced.preprocess_resolution",
-    "physics.collision_quality_profiles.balanced.seed",
-    "physics.collision_quality_profiles.precise.method",
-    "physics.collision_quality_profiles.precise.max_hulls",
-    "physics.collision_quality_profiles.precise.threshold",
-    "physics.collision_quality_profiles.precise.input_faces",
-    "physics.collision_quality_profiles.precise.max_hull_vertices",
-    "physics.collision_quality_profiles.precise.resolution",
-    "physics.collision_quality_profiles.precise.mcts_nodes",
-    "physics.collision_quality_profiles.precise.mcts_iterations",
-    "physics.collision_quality_profiles.precise.mcts_max_depth",
-    "physics.collision_quality_profiles.precise.preprocess_resolution",
-    "physics.collision_quality_profiles.precise.seed",
-    "decimation.memory_safe_threshold_triangles",
-    "decimation.max_ram_fraction",
-    "uv.partuv_triangle_threshold", "uv.partuv_vram_requirement_gb",
-    "uv.default_backend", "uv.fallback_backend", "uv.max_chart_size",
-    "uv.max_safe_triangles",
-    "bake.normal_space", "bake.convention", "bake.max_ray_distance",
-    "bake.cage_extrusion", "bake.texture_size", "bake.gutter_dilation_pixels",
-    "bake.min_uv_utilization",
-    "seeds.base_seed", "seeds.seed_step", "seeds.max_candidates",
-    "seeds.seed_count_by_tier", "seeds.early_stop_score", "seeds.weights",
-    "seeds.ranges", "seeds.inverted",
-    "limits.max_production_faces", "limits.memory_safe_dispatch_triangles",
-    "limits.uv_scan_max_faces",
-    "badge.sharp_min_score", "badge.clean_min_score",
-    "tiers", "default_tier",
-)
-
-
-def _quality_nested_value(config: Dict[str, Any], dotted_key: str) -> Any:
-    value: Any = config
-    for part in dotted_key.split("."):
-        if not isinstance(value, dict) or part not in value:
-            raise KeyError(dotted_key)
-        value = value[part]
-    return value
-
-
-@functools.lru_cache(maxsize=4)
-def get_quality_config(config_path: Optional[str] = None) -> Dict[str, Any]:
-    """Load the single canonical quality/pipeline config.
-
-    No numeric fallback defaults are used: invalid or incomplete configuration
-    stops initialization instead of silently allowing different pipeline behavior.
-    """
-    path = (
-        Path(config_path).expanduser().resolve()
-        if config_path
-        else Path(__file__).resolve().parent.parent / "config" / "quality.yaml"
-    )
-    if not path.is_file():
-        raise FileNotFoundError(f"Required quality configuration not found: {path}")
-    try:
-        config = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        raise ValueError(f"Invalid quality configuration YAML at {path}: {exc}") from exc
-    if not isinstance(config, dict):
-        raise ValueError(f"Quality configuration at {path} must be a YAML mapping")
-    missing = []
-    for key in _QUALITY_REQUIRED_KEYS:
-        try:
-            _quality_nested_value(config, key)
-        except KeyError:
-            missing.append(key)
-    if missing:
-        raise ValueError(
-            f"Quality configuration at {path} is missing required keys: "
-            + ", ".join(missing)
-        )
-    tiers = config["tiers"]
-    if not isinstance(tiers, list) or not tiers or config["default_tier"] not in tiers:
-        raise ValueError("quality.tiers must be non-empty and contain default_tier")
-    if not isinstance(config["seeds"]["seed_count_by_tier"], dict):
-        raise ValueError("quality.seeds.seed_count_by_tier must be a mapping")
-    if set(config["seeds"]["seed_count_by_tier"]) != set(tiers):
-        raise ValueError("quality.seeds.seed_count_by_tier keys must match quality.tiers")
-    if not isinstance(config["seeds"]["weights"], dict) or abs(sum(config["seeds"]["weights"].values()) - 1.0) > 1e-6:
-        raise ValueError("quality.seeds.weights must sum to 1.0")
-    return config
-
-
 def validate_quality_tier(value: Optional[str]) -> Optional[str]:
-    """Validate request tier strings against the canonical quality configuration."""
+    """Validate request tier strings against known quality tiers."""
     if value is None:
         return None
     normalized = str(value).strip().lower()
-    tiers = get_quality_config()["tiers"]
+    tiers = ("draft", "standard", "high", "production")
     if normalized not in tiers:
         raise ValueError(f"requested_quality must be one of: {', '.join(tiers)}")
     return normalized
+
 
 
 def reload_settings() -> Settings:
     """Reload settings from config files, discarding cached instance."""
     global settings
     settings = None
-    get_quality_config.cache_clear()
     return get_settings()
 
 

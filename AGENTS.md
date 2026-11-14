@@ -75,20 +75,20 @@ Bug fix = root cause, not symptom: a report names a symptom. Grep every caller o
 ## Documentation Rules
 
 - **Continuous Documentation Integrity**: After a meaningful change, update only the .md docs and README.md sections that the change actually affects (skip typo, formatting and other trivial edits); never leave an affected doc outdated or inconsistent with the actual codebase.
-- **Documentation Map**:
+- **Documentation Map & Context Budget Limits (Strictly Enforced)**:
   - Project-level technical documentation lives in `Docs/`; root-level contributor guidance lives in `AGENTS.md` and `CONTRIBUTING.md`.
   - Review and update every document relevant to a code/config/contract change; do not reference a document unless the path exists in the current tree.
-  - Product requirements: `Docs/PRD.md`
-  - Runtime ownership and architecture: `Docs/ARCHITECTURE.md`
-  - UI design system: `Docs/DESIGN.md`
-  - Implementation plan and outstanding acceptance criteria: `Docs/TASKS.md`
-  - Architecture decisions: `Docs/DECISIONS.md`
-  - Audited current state: `Docs/MEMORY.md`
-  - Security requirements: `Docs/SECURITY.md`
-  - Recent history (keep only the last three entries): `Docs/CHANGELOG.md`
-  - System blueprint: `Docs/SYSTEM-BLUEPRINT.md`
-  - HTTP API reference: `Docs/api-documentation.md`
-  - Main overview: `README.md`
+  - Recent history: `Docs/CHANGELOG.md` — **Strict limit: keep only the last 3 entries**.
+  - Architecture decisions: `Docs/DECISIONS.md` — **Strict limit: keep only the last 3 active ADR entries** (prune older superseded records to keep context lean).
+  - Audited current state: `Docs/MEMORY.md` — **Strict limit: max 100 lines** (single-page live system snapshot of current reality, 0 historical fluff).
+  - Implementation plan: `Docs/TASKS.md` — **Strict limit: max 150 lines** (active sprint and next pending items only; prune completed legacy batches).
+  - Product requirements: `Docs/PRD.md` — **Strict limit: max 250 lines** (active production requirements & feature scope only).
+  - System blueprint: `Docs/SYSTEM-BLUEPRINT.md` — **Strict limit: max 250 lines** (concise system blueprint & pipeline topologies; purge historical iterations).
+  - Runtime ownership: `Docs/ARCHITECTURE.md` — Focus strictly on active modules, boundaries, and data flow.
+  - UI design system: `Docs/DESIGN.md` — **Strict limit: max 150 lines** (active UI tokens and layout constraints).
+  - Security requirements: `Docs/SECURITY.md` — **Strict limit: max 60 lines** (single-user / VPS security posture).
+  - HTTP API reference: `Docs/api-documentation.md` — Document active registered endpoints only.
+  - Main overview: `README.md` — Concise project overview, quickstart, active model catalog, and verified test counts (no dead modules or unneeded licenses).
   - Third-party source collection guide: `backend/thirdparty/README.md` (inside the submodule)
   - Workspace how-to pages: `features/wiki/content/content/*.md`
 

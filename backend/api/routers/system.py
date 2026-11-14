@@ -86,14 +86,7 @@ async def system_status(
     memory = psutil.virtual_memory()
     disk = psutil.disk_usage("/")
 
-    mesh_tools_status = {"status": "ready", "mode": "in_process", "routes_prefix": "/api/v1/mesh-tools"}
-    try:
-        import postprocess.services.auto_retopo  # noqa: F401
-        import postprocess.services.auto_uv  # noqa: F401
-        import postprocess.services.repair  # noqa: F401
-        import postprocess.services.collision  # noqa: F401
-    except Exception as exc:
-        mesh_tools_status = {"status": "unavailable", "mode": "in_process", "routes_prefix": "/api/v1/mesh-tools", "error": str(exc)}
+    mesh_tools_status = {"status": "rebuilding", "mode": "in_process", "routes_prefix": "/api/v1/mesh-tools"}
 
     status = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1951,16 +1944,11 @@ async def download_job_result(
                         src_glb = glb_matches[0]
                         target_file = asset_root_path / "game_ready" / f"{src_glb.stem}.{target_ext}"
                         try:
-                            if target_ext == "gltf":
-                                from postprocess.pipeline import _export_gltf_embedded
-                                _export_gltf_embedded(src_glb.read_bytes(), target_file)
-                            else:
-                                import trimesh
-                                from postprocess.pipeline import _export_bytes
-                                mesh = trimesh.load(src_glb, file_type="glb", process=False)
-                                if isinstance(mesh, trimesh.Scene):
-                                    mesh = trimesh.util.concatenate([g for g in mesh.geometry.values() if isinstance(g, trimesh.Trimesh)])
-                                target_file.write_bytes(_export_bytes(mesh, target_ext))
+                            import trimesh
+                            mesh = trimesh.load(src_glb, file_type="glb", process=False)
+                            if isinstance(mesh, trimesh.Scene):
+                                mesh = trimesh.util.concatenate([g for g in mesh.geometry.values() if isinstance(g, trimesh.Trimesh)])
+                            mesh.export(str(target_file), file_type=target_ext)
                             if target_file.exists():
                                 candidate = target_file
                         except Exception as conv_err:
@@ -2564,7 +2552,7 @@ async def select_candidate_mesh(
     if not chosen_mesh or not os.path.exists(chosen_mesh):
         raise HTTPException(status_code=404, detail="Candidate mesh file missing on disk")
 
-    from postprocess.pipeline import canonical_asset_workspace
+    from core.utils.artifact_utils import canonical_asset_workspace
     asset_root = canonical_asset_workspace(job_id, result, job_status.get("inputs"))
     master_dir = asset_root / "master"
     master_dir.mkdir(parents=True, exist_ok=True)
@@ -2613,7 +2601,8 @@ async def retry_job_postprocess(
 ):
     """Rebuild derived production artifacts from the immutable canonical master."""
     try:
-        from postprocess.pipeline import run_postprocess_job
+        return {"job_id": job_id, "status": "unavailable", "message": "Post-processing pipeline is disabled / under reconstruction."}
+        from core.utils.artifact_utils import canonical_asset_workspace
 
         scheduler = await get_scheduler(request)
         job_status = await scheduler.get_job_status(job_id)
