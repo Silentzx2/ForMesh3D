@@ -80,6 +80,31 @@ class StableFast3DAdapter(BaseModel):
         texture_baker_root = sf3d_root / "texture_baker"
         if str(texture_baker_root) not in sys.path:
             sys.path.insert(0, str(texture_baker_root))
+
+        texture_baker = None
+        # Locate the compiled _C extension (may live in the package dir or a build dir).
+        _c_so = None
+        pkg_dir = texture_baker_root / "texture_baker"
+        if pkg_dir.is_dir():
+            for cand in pkg_dir.glob("_C*.so"):
+                _c_so = cand
+                break
+        if _c_so is None:
+            for build_dir in texture_baker_root.glob("build/*/texture_baker/_C*.so"):
+                _c_so = build_dir
+                break
+
+        # Import the compiled extension directly first so torch.ops are registered,
+        # then import the full package (its __init__ does `from . import _C`).
+        if _c_so is not None:
+            _c_dir = str(_c_so.parent)
+            if _c_dir not in sys.path:
+                sys.path.insert(0, _c_dir)
+            try:
+                importlib.import_module("texture_baker._C")
+            except ImportError:
+                pass
+
         try:
             texture_baker = importlib.import_module("texture_baker")
         except ImportError:
