@@ -899,6 +899,7 @@ class WorkspaceStorageManager:
         temp_thumbnail_path: Optional[Path] = None,
     ) -> Dict[str, Any]:
         """Atomic publication conforming to Section 21 & Section 22.7."""
+        self.assert_safe_id(operation_type)
         ws_dir = self.get_workspace_dir(workspace_id)
         tool_folder_map = {
             "texture": ws_dir / "texture" / "pbr",
@@ -908,10 +909,14 @@ class WorkspaceStorageManager:
             "rigging": ws_dir / "rigging",
             "animation": ws_dir / "animation",
         }
-        dest_dir = tool_folder_map.get(operation_type, ws_dir / operation_type)
+        dest_dir = tool_folder_map.get(operation_type, ws_dir / operation_type).resolve()
+        if not dest_dir.is_relative_to(ws_dir):
+            raise ValueError("Operation output directory is outside its workspace")
         dest_dir.mkdir(parents=True, exist_ok=True)
 
         ext = temp_mesh_path.suffix.lower()
+        if ext not in (".glb", ".obj"):
+            raise ValueError(f"Unsupported retained mesh format: {ext or 'unknown'}")
         final_mesh_path = self.get_version_mesh_path(workspace_id, operation_type, ext, dest_dir)
 
         # Publish through unique staging paths; remove partial output on failure.
