@@ -81,45 +81,20 @@ class StableFast3DAdapter(BaseModel):
         if str(texture_baker_root) not in sys.path:
             sys.path.insert(0, str(texture_baker_root))
 
-        texture_baker = None
-        # Locate the compiled _C extension (may live in the package dir or a build dir).
-        _c_so = None
-        pkg_dir = texture_baker_root / "texture_baker"
-        if pkg_dir.is_dir():
-            for cand in pkg_dir.glob("_C*.so"):
-                _c_so = cand
-                break
-        if _c_so is None:
-            for build_dir in texture_baker_root.glob("build/*/texture_baker/_C*.so"):
-                _c_so = build_dir
-                break
-
-        # Import the compiled extension directly first so torch.ops are registered,
-        # then import the full package (its __init__ does `from . import _C`).
-        if _c_so is not None:
-            _c_dir = str(_c_so.parent)
-            if _c_dir not in sys.path:
-                sys.path.insert(0, _c_dir)
-            try:
-                importlib.import_module("texture_baker._C")
-            except ImportError:
-                pass
-
+        # texture_baker_root is already on sys.path (added above).
+        # _C.so lives inside texture_baker_root/texture_baker/ — do NOT add that
+        # inner dir to sys.path; doing so causes a circular import because Python
+        # would re-enter __init__.py while it is still being executed.
+        # Just import the top-level package once, cleanly.
+        sys.modules.pop("texture_baker", None)
+        sys.modules.pop("texture_baker._C", None)
         try:
             texture_baker = importlib.import_module("texture_baker")
-        except ImportError:
-            texture_baker = None
-        if not callable(getattr(texture_baker, "TextureBaker", None)) or not hasattr(
-            texture_baker, "_C"
-        ):
-            sys.modules.pop("texture_baker", None)
-            try:
-                texture_baker = importlib.import_module("texture_baker")
-            except ImportError as exc:
-                raise RuntimeError(
-                    "Stable Fast 3D texture_baker native extension is unavailable. "
-                    "Run backend/scripts/install.sh --gpu to build the SF3D extensions."
-                ) from exc
+        except ImportError as exc:
+            raise RuntimeError(
+                "Stable Fast 3D texture_baker native extension is unavailable. "
+                "Run backend/scripts/install.sh --gpu to build the SF3D extensions."
+            ) from exc
         if not callable(getattr(texture_baker, "TextureBaker", None)) or not hasattr(
             texture_baker, "_C"
         ):
