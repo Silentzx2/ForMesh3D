@@ -28,8 +28,8 @@ Use this map to find the owner of a behavior before editing it.
 | Workspace navigation and page mounts | `app/`, `features/workspace/` | A page, workspace tool, or route alias is added/removed | Next.js route files and workspace route allow-list |
 | Generation UI state and serialization | `features/workspace/Panels/GeneratePanel.tsx`, `features/workspace/utils/buildGenerationParameters.ts` | A visible generation control or request field changes | UI state is serialized by the builder; no inference schedule belongs here |
 | Studio tool panels & dynamic inspectors | `features/workspace/Panels/` (`GeneratePanel`, `TexturePanel`, `RemeshPanel`, `UVPanel`, `SegmentationPanel`, `RiggingPanel`, `AnimationPanel`), `features/workspace/dynamic/`, `features/workspace/RightPanel/` | A 3D Studio tool panel, parameters, or tool-specific dynamic right inspector changes (dedicated inspector mode for non-model tools, full general properties for model tool) | Backend routers (`mesh_generation`, `texture_generation`, `remesh`, `uv`, `mesh_segmentation`, `auto_rigging`, `motion_generation`) |
-| HTTP validation and job construction | `backend/api/routers/mesh_generation.py` | Request shape, model validation, file intake, or job metadata changes | Pydantic request model, `backend/config/models.yaml`, `backend/config/planner_rules.yaml` |
-| Model choice and worker lifecycle | `backend/core/planner.py`, `backend/core/scheduler/` | Auto-selection, resource feasibility, model loading, fallback, or queue behavior changes | `backend/config/planner_rules.yaml`, `backend/config/models.yaml`, runtime probe |
+| HTTP validation and job construction | `backend/api/routers/mesh_generation.py` | Request shape, model validation, file intake, or job metadata changes | Pydantic request model, `backend/config/models.yaml` |
+| Model choice and worker lifecycle | `backend/core/scheduler/` | Explicit model selection, resource feasibility, model loading, or queue behavior changes | `backend/config/models.yaml`, GPU resource planner |
 | Model inference contract | `backend/adapters/` and adapter-owned model schemas | A model's native call, supported runtime input, or fixed inference profile changes | Adapter profile and model facts in `backend/config/models.yaml`; GPU behavior still requires runtime validation |
 | Asset production and derivatives | `backend/core/utils/artifact_utils.py` | Direct model-native master storage, workspace management, and custom post-processing scripts | `backend/config/models.yaml` |
 | Specialist mesh tools & streaming | `backend/api/routers/mesh_tools.py` | In-process mesh validation and SSE progress streaming for studio tools | `.glb`, `.gltf`, `.obj`, `.ply`, `.stl` format specs |
@@ -217,7 +217,7 @@ This static audit does not replace supported-host inference tests. Preserve mode
 
 ### Pipeline Planner v0 and Runtime Probe contracts (Task 1E)
 - `backend/core/runtime_probe.py`: Returns a uniform runtime capability payload (`probe_runtime()`) including live VRAM (`torch.cuda.mem_get_info`), peak allocated memory, host RAM (`psutil`), installed adapter classes (`_ADAPTER_MAP`), enabled models from `models.yaml`, and license opt-in state.
-- `backend/core/planner.py`: Pure function `plan_generation(request, runtime, rules)` dynamically routes requests based on quality tier, mesh style, object type, VRAM budgets, and license opt-in. When a preferred candidate fails runtime checks, it recomputes the entire plan (adapter, preset, seeds, retopo permission, UV backend) rather than patching individual fields.
+- Model resolution: Direct and deterministic model resolution based on user UI selection (`model_preference`) and feature type (`image_to_raw_mesh`, `image_to_textured_mesh`), with the scheduler's hardware resource planner managing GPU workers and memory allocation.
 - `BaseModel`: Initialized with `native_topology: bool = False` flag to differentiate dense marching cubes / implicit field adapters from native topology generators.
 
 ### Canonical Asset Management & Master Immutability
@@ -694,7 +694,6 @@ Every tunable parameter has exactly one canonical definition:
 | **Production Limits** | `backend/config/quality.yaml` | `quality.limits.*` | `max_production_faces` (2M), `memory_safe_dispatch_triangles` (2M), `uv_scan_max_faces` (60k). |
 | **Model Facts & VRAM** | `backend/config/models.yaml` | `models.yaml: <feature>.<id>.*` | Upstream repo, revision, checkpoint license, VRAM requirement (MB), `capabilities.native_topology`, `preferred_resolution`. |
 | **Intent Presets** | `backend/config/smart_presets.yaml` | `smart_presets.yaml: intents.*` | Production budgets per intent (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`) and the backend-only `native` sentinel; each intent supplies the default for the tri-state production options. |
-| **Planner Routing Policy**| `backend/config/planner_rules.yaml`| `planner_rules.yaml: routes.*, apply.*` | Routing decisions per object type and tier; execution toggles (`apply.model_choice`, `apply.auto_seeds`, `apply.input_prep`). |
 
 ### system.yaml (`backend/config/system.yaml`)
 ```yaml

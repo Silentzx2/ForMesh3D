@@ -409,7 +409,9 @@ class StableFast3DAdapter(BaseModel):
         # native extracted triangles, apply direct subdivision to reach target density
         if native_target_polycount > 0 and len(mesh.faces) > 0 and native_target_polycount > len(mesh.faces):
             target_faces = min(600_000, native_target_polycount)
-            while len(mesh.faces) * 2 <= target_faces:
+            while len(mesh.faces) < target_faces:
+                if len(mesh.faces) * 2 > target_faces and len(mesh.faces) >= (target_faces * 0.7):
+                    break
                 mesh = mesh.subdivide()
                 if len(mesh.faces) >= target_faces:
                     break
@@ -451,16 +453,14 @@ class StableFast3DAdapter(BaseModel):
             "texture_enabled": texture_enabled,
             "actual_face_count": len(faces),
             "actual_vertex_count": len(vertices),
-            # Upstream run_image has no seed argument. Preserve the requested
-            # seed as provenance, but never claim it was applied.
             "generation_info": {
                 "seed": seed,
                 "seed_applied": False,
                 "texture_resolution": texture_resolution,
-                "remesh_option": remesh_option,
-                "target_vertex_count": target_vertex_count,
                 "native_target_polycount": native_target_polycount or None,
-                "input_preprocessing": "sf3d_remove_background_resize_foreground",
+                "faces": len(faces),
+                "vertices": len(vertices),
+                "remesh_option": remesh_option if remesh_option != "none" else None,
             },
             # The scheduler removes this private temp directory after durable copy.
             "_temporary_output_dir": str(output_dir),

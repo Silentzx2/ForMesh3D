@@ -129,16 +129,14 @@ def auto_unload_after_job_enabled() -> bool:
     return get_model_cache_ttl_seconds() == 0.0
 
 # Production budgets belong to post-processing. Never let them reach model inference.
-# NOTE: texture_enabled is NOT a production budget — it is an adapter instruction
-# telling the model adapter whether to run texture after raw inference. It must
-# reach the adapter via model_inputs, so it is intentionally excluded here.
+# NOTE: texture_enabled, texture_resolution, and native_target_polycount are adapter
+# instructions telling the model adapter what fidelity/geometry to generate.
+# They reach the adapter via model_inputs, so they are intentionally excluded here.
 _POSTPROCESS_ONLY_INPUTS = frozenset({
     "candidate_count", "enable_postprocess", "plan", "fallback_chain",
     "target_polycount", "auto_optimize", "generateLOD", "lodPreset", "lodCount",
     "quality", "meshQuality", "mesh_quality", "topology_mode", "quad_topology", "auto_uv",
     "physics_enabled", "physics_config", "auto_paint", "paint_model_preference", "paint_resolution",
-    "generate_texture", "generateTexture", "texture_resolution",
-    "texture_resolution_preset", "production_texture_resolution",
     "enable_realesrgan", "enableRealESRGAN", "realeg",
     "faces", "num_faces", "simplify", "decimation_target", "remesh", "remesh_band", "remesh_project",
     "low_vram", "low_vram_mode",
@@ -223,6 +221,36 @@ def _build_model_inference_inputs(
         model_inputs.pop("meshQuality", None)
         model_inputs["source_quality"] = "max"
     return model_inputs
+
+
+def _resolve_seed_plan(
+    request_inputs: Optional[Dict[str, Any]] = None,
+    model_inputs: Optional[Dict[str, Any]] = None,
+    seeds_cfg: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Return the candidate and seed plan that will execute without external planner dependency."""
+    req = request_inputs or {}
+    model_in = model_inputs or {}
+    cfg = seeds_cfg or {}
+    raw_cand = req.get("candidate_count")
+    candidate_count = max(1, min(int(raw_cand), int(cfg.get("max_candidates", 4)))) if raw_cand is not None else 1
+    seed = model_in.get("seed")
+    if seed is None:
+        seed = req.get("seed")
+    if seed is None:
+        seed = cfg.get("base_seed", 42891)
+    base_seed = int(seed)
+    seed_step = int(cfg.get("seed_step", 1))
+    return {
+        "candidate_count": candidate_count,
+        "user_candidate_count": candidate_count,
+        "planned_candidate_count": candidate_count,
+        "auto_seeds_enabled": False,
+        "auto_candidates": False,
+        "base_seed": base_seed,
+        "seed_step": seed_step,
+        "seed_schedule": [base_seed + (i * seed_step) for i in range(candidate_count)],
+    }
 
 
 def _score_and_select(
@@ -881,17 +909,12 @@ def _process_job_in_worker(
         request_inputs = job_request.inputs or {}
         model_inputs = _build_model_inference_inputs(request_inputs, model_id=model_id)
 
-        # Effective seed plan. The planner's num_seeds is a plan value, so the
-        # runtime log reports the candidates and the exact seeds that run.
-        from core.planner import get_planner_apply_config, resolve_seed_plan
+        # Effective seed plan
         seeds_cfg = {"max_candidates": 4, "base_seed": 42891, "seed_step": 1, "early_stop_score": 0.85}
-        # base_seed from quality.yaml (42891) is the default when no seed is
-        # supplied; resolve_seed_plan handles the fallback. Do not clobber it.
-        seed_plan = resolve_seed_plan(
+        seed_plan = _resolve_seed_plan(
             request_inputs,
             model_inputs,
             seeds_cfg=seeds_cfg,
-            apply_cfg=get_planner_apply_config(),
         )
         total_seeds_to_run = int(seed_plan["candidate_count"])
         base_seed = int(seed_plan["base_seed"])
@@ -919,49 +942,44 @@ def _process_job_in_worker(
                 model_id,
             )
 
+        actual_device = (
+            "cpu" if cpu_only else str(
+                getattr(loaded_model, "device", None)
+                or (f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu")
+            )
+        )
+        raw_target_poly = request_inputs.get("native_target_polycount") or request_inputs.get("target_polycount")
+        target_poly = int(raw_target_poly) if raw_target_poly is not None and str(raw_target_poly).isdigit() else 0
+        tex_res = request_inputs.get("texture_resolution") or model_inputs.get("texture_resolution")
+        tex_res = int(tex_res) if tex_res else None
+        is_feedforward = "stable_fast_3d" in str(model_id).lower() or "triposg" in str(model_id).lower()
+
         runtime_log = {
             "model": model_id,
             "model_version": getattr(loaded_model, "version", "1.0"),
             "checkpoint": getattr(loaded_model, "model_path", model_config.get("model_path", "unknown")),
-            "requested_quality": request_inputs.get("quality", request_inputs.get("meshQuality", "not_specified")),
-            "source_quality_contract": model_inputs.get("source_quality", "max"),
-            "postprocess_target_polycount": request_inputs.get("target_polycount", "native"),
-            "actual_inference_steps": model_inputs.get("num_inference_steps", model_inputs.get("num_steps",
-                "adapter_owned" if str(model_id).lower() in _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS else "not_supported")),
-            "actual_guidance": model_inputs.get("guidance_scale", model_inputs.get("cfg_scale",
-                "adapter_owned" if str(model_id).lower() in _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS else "not_supported")),
-            "requested_resolution_parameter": model_inputs.get("resolution", "not_supported"),
-            "requested_extraction_resolution": model_inputs.get(
-                "mc_resolution", model_inputs.get("octree_resolution", model_inputs.get("octree_res", model_inputs.get(
-                    "grid_resolution", "adapter_owned" if str(model_id).lower() in _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS else "not_supported"))),
-            ),
-            "effective_geometry_resolution": "reported_after_decode_if_supported",
-            "actual_seed": seed_schedule[0] if seed_schedule else "not_supported",
+            "device": actual_device,
+            "seed": seed_schedule[0] if seed_schedule else base_seed,
             "candidate_count": total_seeds_to_run,
-            "planned_candidate_count": int(seed_plan["planned_candidate_count"]),
-            "auto_seeds_enabled": bool(seed_plan["auto_seeds_enabled"]),
-            "seed_schedule": seed_schedule,
-            "actual_dtype": str(getattr(loaded_model, "dtype", None) or model_inputs.get("dtype") or "adapter_default"),
-            "actual_device": (
-                "cpu" if cpu_only else str(
-                    getattr(loaded_model, "device", None)
-                    or (f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu")
-                )
-            ),
-            "actual_low_vram_mode": model_inputs.get("low_vram_mode", model_inputs.get("low_vram", "not_supported")),
-            "requested_target_polycount": request_inputs.get("target_polycount", "native"),
-            "requested_auto_optimize": request_inputs.get("auto_optimize", False),
-            "adapter_received_target_polycount": "not_sent",
-            "adapter_received_auto_optimize": "not_sent",
-            "actual_decimation_target": model_inputs.get("decimation_target", "not_supported"),
+            "target_polycount": target_poly if target_poly > 0 else "native",
         }
+        if tex_res:
+            runtime_log["texture_resolution"] = tex_res
+        if is_feedforward:
+            runtime_log["architecture"] = "feed_forward_single_pass"
+        else:
+            steps_val = model_inputs.get("num_inference_steps") or model_inputs.get("num_steps")
+            cfg_val = model_inputs.get("guidance_scale") or model_inputs.get("cfg_scale")
+            if steps_val is not None:
+                runtime_log["inference_steps"] = steps_val
+            if cfg_val is not None:
+                runtime_log["guidance_scale"] = cfg_val
+
         logger.info(f"[RUNTIME PARAMETERS] job_id={job_id} params={json.dumps(runtime_log, default=str)}")
         logger.info(
-            "[SEED PLAN] job_id=%s candidates=%s planned=%s auto_seeds=%s seeds=%s",
+            "[SEED PLAN] job_id=%s candidates=%s seeds=%s",
             job_id,
             total_seeds_to_run,
-            seed_plan["planned_candidate_count"],
-            seed_plan["auto_seeds_enabled"],
             seed_schedule,
         )
 
@@ -976,27 +994,36 @@ def _process_job_in_worker(
                 img_sz = f" ({format_bytes(os.path.getsize(input_path))})"
             input_desc = f"Image: {input_path}{img_sz}"
 
+        box_rows = [
+            ("Job ID", job_id),
+            ("Model ID", f"{model_id} (v{runtime_log['model_version']})"),
+            ("Feature Type", job_request.feature),
+            ("Device", "CPU-only (GPU intentionally unused)" if cpu_only else f"{actual_device} ({get_gpu_memory_summary(gpu_id)})"),
+            ("Input Source", input_desc),
+        ]
+        if is_feedforward:
+            box_rows.append(("Architecture", "Feed-forward Neural Reconstruction (Single-pass)"))
+        else:
+            steps_val = runtime_log.get("inference_steps")
+            cfg_val = runtime_log.get("guidance_scale")
+            if steps_val is not None or cfg_val is not None:
+                box_rows.append(("Sampling Steps / CFG", f"Steps={steps_val or 'adapter-default'} | CFG={cfg_val or 'adapter-default'}"))
+
+        if target_poly > 0:
+            box_rows.append(("Target Polycount", f"{target_poly:,} faces"))
+        else:
+            box_rows.append(("Target Polycount", "Native / Raw (no decimation)"))
+
+        if tex_res:
+            box_rows.append(("Texture Resolution", f"{tex_res}x{tex_res}"))
+
+        box_rows.append(("Candidates", str(total_seeds_to_run)))
+        box_rows.append(("Seed" if len(seed_schedule) <= 1 else "Seeds", ", ".join(str(seed) for seed in seed_schedule)))
+
         logger.info(
             "\n" + format_box(
                 "GENERATION: INFERENCE START",
-                [
-                    ("Job ID", job_id),
-                    ("Model ID", f"{model_id} (v{runtime_log['model_version']})"),
-                    ("Feature Type", job_request.feature),
-                    ("Device", "CPU-only (GPU intentionally unused)" if cpu_only else f"{runtime_log['actual_device']} ({get_gpu_memory_summary(gpu_id)})"),
-                    ("Input Source", input_desc),
-                    ("Steps / Guidance", (
-                        f"Steps={runtime_log['actual_inference_steps']} | CFG={runtime_log['actual_guidance']}"
-                        if runtime_log["actual_inference_steps"] != "adapter_owned"
-                        else "adapter-owned (effective values reported after inference)"
-                    )),
-                    ("Requested Resolution / Grid", f"{runtime_log['requested_resolution_parameter']} / {runtime_log['requested_extraction_resolution']}"),
-                    ("Effective Geometry Resolution", runtime_log["effective_geometry_resolution"]),
-                    ("Candidates", str(total_seeds_to_run)),
-                    ("Seed" if len(seed_schedule) <= 1 else "Seeds", ", ".join(str(seed) for seed in seed_schedule)),
-                    ("Quality Contract", runtime_log["source_quality_contract"]),
-                    ("Downstream Budget", runtime_log["postprocess_target_polycount"]),
-                ],
+                box_rows,
             )
         )
 
@@ -1065,20 +1092,17 @@ def _process_job_in_worker(
 
         effective_info = result.get("generation_info") if isinstance(result, dict) else None
         if isinstance(effective_info, dict):
+            filtered_params = {
+                k: v for k, v in effective_info.items()
+                if v is not None and not (isinstance(v, (str, list, dict)) and len(v) == 0)
+            }
+            if "faces" not in filtered_params and isinstance(result.get("mesh_info"), dict):
+                filtered_params.update(result["mesh_info"])
             logger.info(
                 "[EFFECTIVE PARAMETERS] job_id=%s model=%s params=%s",
                 job_id,
                 model_id,
-                json.dumps(
-                    {
-                        key: effective_info.get(key)
-                        for key in (
-                            "num_inference_steps", "ss_sampling_steps", "slat_sampling_steps",
-                            "guidance_scale", "slat_cfg_strength", "seed", "texture_resolution",
-                        )
-                    },
-                    default=str,
-                ),
+                json.dumps(filtered_params, default=str),
             )
 
         inference_seconds = time.time() - inference_start_time

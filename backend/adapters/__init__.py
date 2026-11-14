@@ -11,7 +11,7 @@ supplied by the scheduler. The package exposes each adapter module for
 from __future__ import annotations
 # Map of registered model ID -> adapter module path.
 # Used by runtime_probe._get_installed_adapters() to report which adapters
-# are installed, and by planner._is_adapter_registered() to admit candidates.
+# are installed and available.
 # Keys are the canonical model IDs from backend/config/models.yaml; values are
 # the adapter module that implements that model.
 _ADAPTER_MAP: dict[str, str] = {
