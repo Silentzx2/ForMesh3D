@@ -1238,7 +1238,12 @@ class DatabaseManager:
                         )
                     return result
 
+            storage_root = mgr.storage_root.resolve()
+            if mgr.temp_root.is_symlink():
+                raise ValueError("Storage temp root must not be a symlink")
             temp_root = mgr.temp_root.resolve()
+            if temp_root != (storage_root / "temp").resolve() or not temp_root.is_relative_to(storage_root):
+                raise ValueError("Storage temp root is outside the configured storage directory")
             raw_temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / operation_id)
             if raw_temp_dir.is_symlink():
                 raise ValueError("Operation temp directory must not be a symlink")
@@ -1393,7 +1398,12 @@ class DatabaseManager:
                     f"Cannot discard operation in persistence state {op.persistence_status}"
                 )
 
+            storage_root = mgr.storage_root.resolve()
+            if mgr.temp_root.is_symlink():
+                raise ValueError("Storage temp root must not be a symlink")
             temp_root = mgr.temp_root.resolve()
+            if temp_root != (storage_root / "temp").resolve() or not temp_root.is_relative_to(storage_root):
+                raise ValueError("Storage temp root is outside the configured storage directory")
             raw_temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / operation_id)
             if raw_temp_dir.is_symlink():
                 raise ValueError("Operation temp directory must not be a symlink")
