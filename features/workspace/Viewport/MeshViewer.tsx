@@ -234,6 +234,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
+  const pendingViewportRestoreRef = useRef<{ cameraPosition: [number, number, number]; target: [number, number, number] } | null>(null);
   const modelGroupRef = useRef<THREE.Group | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
@@ -841,6 +842,47 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     cameraRef.current.lookAt(center);
     controlsRef.current.target.copy(center);
     controlsRef.current.update();
+    const pendingViewport = pendingViewportRestoreRef.current;
+    if (pendingViewport) {
+      cameraRef.current.position.set(...pendingViewport.cameraPosition);
+      controlsRef.current.target.set(...pendingViewport.target);
+      cameraRef.current.lookAt(controlsRef.current.target);
+      controlsRef.current.update();
+      pendingViewportRestoreRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    const captureViewport = () => {
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      if (!camera || !controls) return;
+      useViewerStore.getState().setViewport({
+        cameraPosition: [camera.position.x, camera.position.y, camera.position.z],
+        target: [controls.target.x, controls.target.y, controls.target.z],
+      });
+    };
+    const restoreViewport = (event: Event) => {
+      const viewport = (event as CustomEvent<{
+        cameraPosition: [number, number, number];
+        target: [number, number, number];
+      }>).detail;
+      if (!viewport) return;
+      pendingViewportRestoreRef.current = viewport;
+      if (!modelGroupRef.current?.children.length && cameraRef.current && controlsRef.current) {
+        cameraRef.current.position.set(...viewport.cameraPosition);
+        controlsRef.current.target.set(...viewport.target);
+        cameraRef.current.lookAt(controlsRef.current.target);
+        controlsRef.current.update();
+        pendingViewportRestoreRef.current = null;
+      }
+    };
+    window.addEventListener('capture-viewer-viewport', captureViewport);
+    window.addEventListener('restore-viewer-viewport', restoreViewport);
+    return () => {
+      window.removeEventListener('capture-viewer-viewport', captureViewport);
+      window.removeEventListener('restore-viewer-viewport', restoreViewport);
+    };
   }, []);
 
   useEffect(() => {

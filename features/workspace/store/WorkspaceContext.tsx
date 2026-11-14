@@ -23,7 +23,7 @@ import {
 import type { BatchQueueItem } from '@/types';
 import { apiClient } from '../lib/api';
 import { parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute } from '../lib/workspaceRouteContract';
-import { captureWorkspacePreviewBaseline } from '../lib/workspacePreviewSnapshot';
+import { captureWorkspacePreviewBaseline, createWorkspacePreviewRestorePlan } from '../lib/workspacePreviewSnapshot';
 import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
 import { useAppStore } from '@/stores/useAppStore';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
@@ -137,6 +137,7 @@ interface WorkspaceContextType {
   setActiveMeshAssetId: (id: string | null) => void;
   workspaceVersions: WorkspaceVersionItem[];
   setWorkspaceVersions: React.Dispatch<React.SetStateAction<WorkspaceVersionItem[]>>;
+  restorePreviewBaseline: (taskId?: string) => void;
   executionProgress: number;
   executionStep: string;
   cancelExecution: () => Promise<void>;
@@ -898,7 +899,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const cleanStem = (asset.name || 'mesh').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
     const shortHash = (asset.id || crypto.randomUUID()).replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(asset.id);
-    const finalId = asset.id.startsWith('local_')
+    const finalId = asset.id.startsWith('local_') || asset.id.startsWith('ast_')
       ? asset.id
       : (asset.id.startsWith('job-') || asset.id.startsWith('upload_') || asset.id.startsWith('hist_')
           ? asset.id
@@ -1817,6 +1818,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
 
     const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'job';
     const taskId = `${slug}-${crypto.randomUUID().slice(0, 8)}`;
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('capture-viewer-viewport'));
     const viewerState = useViewerStore.getState();
     const selectedAsset = assetsRef.current.find(asset => asset.id === selectedAssetIdRef.current) || null;
     const previewBaseline = captureWorkspacePreviewBaseline({
@@ -1873,6 +1875,72 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     setJobsById(prev => ({ ...prev, [taskId]: task }));
     return taskId;
   }, []);
+
+  const restorePreviewBaseline = useCallback((taskId?: string) => {
+    const task = taskId
+      ? jobsByIdRef.current[taskId] || (activeTaskRef.current?.id === taskId ? activeTaskRef.current : undefined)
+      : activeTaskRef.current;
+    const snapshot = task?.previewBaseline;
+    if (!snapshot) throw new Error('This preview has no in-memory baseline. Reloaded previews cannot be discarded safely.');
+
+    const currentWorkspaceId = workspaceIdRef.current;
+    if (task?.workspaceId && task.workspaceId !== currentWorkspaceId) {
+      throw new Error('The preview belongs to a different workspace.');
+    }
+    if (snapshot.workspaceId && snapshot.workspaceId !== currentWorkspaceId) {
+      throw new Error('The saved baseline belongs to a different workspace.');
+    }
+    if (!snapshot.workspaceId && task?.workspaceId && currentWorkspaceId !== task.workspaceId) {
+      throw new Error('The preview workspace changed before restoration.');
+    }
+
+    // The baseline workspace may be null when this task created the workspace.
+    const plan = createWorkspacePreviewRestorePlan(snapshot, snapshot.workspaceId);
+    if (plan.selectedAsset) addAsset(plan.selectedAsset);
+
+    setWorkspaceId(plan.workspaceId);
+    setWorkspaceVersions(plan.workspaceVersions);
+    selectedAssetIdRef.current = plan.selectedAssetId;
+    setSelectedAssetId(plan.selectedAssetId);
+    setActiveMeshAssetId(plan.activeMeshAssetId);
+
+    setExecutionState(plan.executionState);
+    setPersistenceState(plan.persistenceState);
+    setIsExecutingState(plan.executionState === 'queued' || plan.executionState === 'running');
+    setExecutionStatus(plan.executionState === 'running' || plan.executionState === 'queued' ? 'running' : 'idle');
+    setExecutionProgress(0);
+    setExecutionStep('');
+
+    const viewer = useViewerStore.getState();
+    viewer.setLoadedModel(plan.viewer.loadedModelUrl, plan.viewer.loadedModelName, plan.viewer.selectedAsset);
+    viewer.setModelStats(plan.viewer.modelStats);
+    viewer.setShadingMode(plan.viewer.shadingMode);
+    viewer.setWireframeOverlay(plan.viewer.wireframeOverlay);
+    viewer.setActiveContextTab(plan.viewer.activeContextTab);
+    if (plan.viewer.viewport) viewer.setViewport(plan.viewer.viewport);
+    else useViewerStore.setState({ viewport: null });
+    viewer.setCompareMode(plan.viewer.compareMode);
+    viewer.setCompareSyncCamera(plan.viewer.compareSyncCamera);
+    viewer.setCompareLeftAsset(plan.viewer.compareLeftAssetId);
+    viewer.setCompareRightAsset(plan.viewer.compareRightAssetId);
+    viewer.setWorkspaceId(plan.workspaceId);
+    viewer.setActiveMeshAssetId(plan.activeMeshAssetId);
+
+    setShadingModeState(presetToShadingMode(plan.viewer.shadingMode) as ShadingMode);
+    setShowWireframeState(plan.viewer.wireframeOverlay);
+    setIsComparingState(plan.viewer.compareMode);
+    setComparisonMode(plan.viewer.compareMode ? 'split_screen' : 'off');
+
+    if (plan.viewer.loadedModelUrl) {
+      loadModelInViewer(plan.viewer.loadedModelUrl, plan.viewer.loadedModelName, plan.viewer.selectedAsset);
+    } else {
+      useViewerStore.getState().setLoadedModel(null, null, null);
+    }
+    if (typeof window !== 'undefined' && plan.viewer.viewport) {
+      window.dispatchEvent(new CustomEvent('restore-viewer-viewport', { detail: plan.viewer.viewport }));
+    }
+    setActiveTask(null);
+  }, [addAsset, setWorkspaceId, setActiveMeshAssetId, setExecutionState, setPersistenceState]);
 
   const bindBackendJob = useCallback((
     localTaskId: string,
@@ -3292,14 +3360,14 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     refreshSystemStats]);
 
   const executionValue = useMemo(() => ({
-    activeTask, jobsById, dismissActiveTask,
+    activeTask, jobsById, dismissActiveTask, restorePreviewBaseline,
     hoveredPartId, setHoveredPartId,
     isExecuting, executionStatus,
     executionState, setExecutionState,
     persistenceState, setPersistenceState,
     executionProgress, executionStep, cancelExecution,
     dismissJob, selectJobToView, queueGenerationJob,
-  }), [activeTask, jobsById, dismissActiveTask,
+  }), [activeTask, jobsById, dismissActiveTask, restorePreviewBaseline,
     hoveredPartId, setHoveredPartId,
     isExecuting, executionStatus,
     executionState, setExecutionState,

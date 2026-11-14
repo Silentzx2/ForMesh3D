@@ -115,5 +115,15 @@ This document records the exact inventory of dead, orphaned, and obsolete non-fe
 - [x] Build a detached restore plan and reject unsupported snapshot versions or cross-workspace restoration.
 - [x] Add regression tests for immutability, exact state capture, restore-plan isolation, schema validation, and workspace mismatch.
 
-**Deferred to Batch 3B:** applying the restore plan to live workspace/viewer state and Keep/Discard UI wiring.
+## Workspace Preview Actions — Batch 3B
+- [x] Apply a task baseline to live workspace, asset selection, viewer store, execution/persistence state, shading, wireframe, and comparison state.
+- [x] Capture the actual Three.js camera/OrbitControls state at task start and restore it after the previous asset reloads.
+- [x] Validate task/workspace identity before restoration, including first-operation workspaces whose pre-operation workspace ID was null.
+- [x] Wire Keep to the authoritative backend endpoint; require a real operation ID and backend-retained asset ID, and never fabricate IDs or mark a failed request as saved.
+- [x] Hydrate the retained asset with its canonical `ast_*` identity and update workspace versions.
+- [x] Wire Discard to backend temp-preview cleanup, then restore the exact in-memory baseline. Backend failure leaves preview and viewer state untouched.
+- [x] Disable unsafe Discard when the baseline or backend operation identity is unavailable.
+- [x] Preserve canonical `ast_*` IDs in frontend asset normalization.
+
+**Deferred to Batch 3C:** Regenerate operation lineage and end-to-end lifecycle regression tests.
 **Deferred to Batch 3C:** Regenerate operation lineage and end-to-end lifecycle regression tests.
