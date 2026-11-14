@@ -1323,6 +1323,9 @@ async def get_job_status(job_id: str, request: Request):
                         job_status = {
                             "job_id": ws_row.workspace_id,
                             "workspace_id": ws_row.workspace_id,
+                            "operation_id": latest_op.operation_id if latest_op else None,
+                            "operation_type": latest_op.operation_type if latest_op else None,
+                            "parent_operation_id": latest_op.parent_operation_id if latest_op else None,
                             "status": latest_op.execution_status if latest_op else "completed",
                             "execution_status": latest_op.execution_status if latest_op else "completed",
                             "persistence_status": latest_op.persistence_status if latest_op else "saved",

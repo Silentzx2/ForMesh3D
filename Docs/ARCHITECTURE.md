@@ -1061,3 +1061,14 @@ The application state architecture is cataloged in `Docs/TASKS.md` §2–§3:
 - Manifest projection failure does not undo a committed save; the DB state remains authoritative and the projection can be rebuilt.
 - The persistence routes reject unknown operation IDs rather than returning synthetic success. External temp paths are rejected and never deleted.
 - Regression coverage: `backend/tests/test_batch3_queue_and_lifecycle.py` (idempotent Keep/Discard and external-path rejection).
+
+## 2026-11-14 — Workspace Preview Identity and Route State
+- Frontend task keys, backend job IDs, workspace IDs, operation IDs, and asset IDs are separate fields. `ActiveTask.id` is a frontend task key; `backendJobId`, `workspaceId`, and `operationId` carry backend identities.
+- Generation and mesh-tool submission responses are consumed using their canonical `workspace_id`, `operation_id`, `job_id`, and `route_path` fields. A backend job ID is never assigned to `workspaceId` as a fallback.
+- Current deep links use `/workspace/{tool}/{workspace_id}`. UUID-shaped and pre-contract friendly job links continue to hydrate as legacy job routes. Asset IDs (`ast_*`) and operation IDs (`op_*`) are rejected as workspace identities.
+- A route segment is not an asset selection. Changing workspaces clears stale selection/viewer state; the actual asset ID comes from workspace/job data.
+- Remesh, UV, and segmentation submissions include the current workspace ID so their backend operation records are linked to the correct workspace. Their returned operation IDs are propagated into task state.
+- The mesh-processing bridge exposes optional job/workspace/operation identity in its result contract. Script-mode results remain local previews and do not invent backend operation IDs.
+- Background polling accepts backend IDs in both UUID and workspace-slug formats; local task keys are not used as backend polling IDs.
+- Saved operation hydration restores `saved` persistence state and uses the retained asset ID when the backend reports one.
+- Regression coverage: `features/workspace/lib/workspaceRouteContract.test.ts`.

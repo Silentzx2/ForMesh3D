@@ -95,3 +95,16 @@ This document records the exact inventory of dead, orphaned, and obsolete non-fe
 - [x] Discard removes only the operation preview, preserves operation/workspace history, and uses `cleanup_pending` when filesystem cleanup fails.
 - [x] Mesh thumbnails are version-specific; partial publications are cleaned up on failure.
 - [x] Regression tests cover idempotent Keep/Discard and rejection of external temp paths.
+
+## Workspace Preview Identity — Batch 2
+- [x] Separate frontend task key, backend job ID, workspace ID, operation ID, and asset ID in frontend task/asset models.
+- [x] Parse workspace deep links without treating the route segment as a selected asset.
+- [x] Preserve UUID-shaped and pre-contract friendly legacy job links while using canonical workspace IDs for current deep links.
+- [x] Bind backend response `workspace_id`, `operation_id`, `job_id`, and `route_path` to task state without substituting job IDs for workspace IDs.
+- [x] Link remesh, UV, and segmentation submissions to the active workspace and retain returned operation IDs.
+- [x] Resolve completed job results with the backend job ID, not the frontend task key.
+- [x] Support workspace-shaped backend job IDs in background polling.
+- [x] Restore saved persistence state and retained asset identity when the backend reports a saved operation.
+- [x] Add route identity regression tests for workspace, legacy job, asset, and operation IDs.
+
+**Deferred to Batch 3:** preview baseline snapshots, exact Discard restoration, real Keep/Discard UI wiring, and Regenerate lineage.

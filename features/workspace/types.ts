@@ -31,8 +31,13 @@ export type ToolType =
   | 'rigging';
 
 export interface ActiveTask {
+  /** Stable frontend task key; never use as a backend job, workspace, operation, or asset ID. */
   id: string;
   backendJobId?: string;
+  /** Canonical workspace identity returned by the backend. */
+  workspaceId?: string;
+  /** Canonical operation identity returned by the backend. */
+  operationId?: string;
   isLocal?: boolean;
   type: 'image-to-3d' | 'segment' | 'remesh' | 'texture' | 'animation' | 'rigging' | 'uv' | 'edit' | 'refine';
   title: string;
@@ -244,7 +249,9 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
   } : undefined;
 
   return {
-    id: String(raw.id || `asset-${Date.now()}`),
+    id: String(raw.asset_id || raw.id || `asset-${Date.now()}`),
+    workspace_id: raw.workspace_id || raw.workspaceId,
+    operation_id: raw.operation_id || raw.operationId,
     name: String(raw.name || '3D Model'),
     category: raw.category || 'mesh',
     thumbnail: raw.thumbnail || raw.thumbnail_url || '',

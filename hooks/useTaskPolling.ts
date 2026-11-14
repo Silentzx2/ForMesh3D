@@ -10,8 +10,9 @@ export interface UseTaskPollingOptions {
   enabled?: boolean;
 }
 
-// Skip local placeholder ids: only real backend generation jobs (uuid) are pollable
-const BACKEND_JOB_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Backend job IDs may be UUIDs or canonical <slug>_<6-8 hex> workspace IDs.
+// This excludes frontend task keys and local placeholder IDs.
+const BACKEND_JOB_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9][a-z0-9-]{0,39}_[a-f0-9]{6,8})$/i;
 
 const BACKEND_STATUS: Record<JobStatus, 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'> = {
   queued: 'queued',

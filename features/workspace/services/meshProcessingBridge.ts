@@ -132,6 +132,8 @@ export interface ExecutionOptions {
   meshFile?: File | Blob;
   meshUrl?: string;
   meshRef?: { mesh_file_id?: string; mesh_path?: string };
+  workspaceId?: string;
+  parentOperationId?: string;
   params: Record<string, any>;
   onProgress?: (step: string, percent: number, stage?: string) => void;
   onLog?: (message: string) => void;
@@ -144,13 +146,16 @@ export interface ExecutionResult {
   format: string;
   stats?: Record<string, any>;
   previewUrl?: string;
+  jobId?: string;
+  workspaceId?: string;
+  operationId?: string;
 }
 
 /**
  * Single unified dispatcher: executes either Neural AI (GPU scheduler) or Script (Python/Blender SSE)
  */
 export async function executeMeshOperation(options: ExecutionOptions): Promise<ExecutionResult> {
-  const { tool, engine, scriptId, meshFile, meshUrl, meshRef, params, onProgress, onLog, signal } = options;
+  const { tool, engine, scriptId, meshFile, meshUrl, meshRef, workspaceId, parentOperationId, params, onProgress, onLog, signal } = options;
 
   if (signal?.aborted) {
     throw new Error('Operation cancelled by user');
@@ -301,6 +306,8 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
         modelUrl: localUrl,
         format: doneResult.format || 'glb',
         stats: doneResult.stats,
+        workspaceId,
+        operationId: doneResult.operation_id,
         previewUrl: doneResult.preview_b64 ? `data:image/png;base64,${doneResult.preview_b64}` : undefined,
       };
     }
@@ -315,6 +322,8 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
 
     const body: Record<string, any> = {
       output_format: 'glb',
+      ...(workspaceId ? { workspace_id: workspaceId } : {}),
+      ...(parentOperationId ? { parent_operation_id: parentOperationId } : {}),
       ...meshRef,
       ...params,
     };
@@ -342,6 +351,9 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
       success: true,
       modelUrl: '', // Will be resolved by WorkspaceContext polling
       format: 'glb',
+      jobId,
+      workspaceId: data.workspace_id || workspaceId,
+      operationId: data.operation_id,
       stats: { jobId },
     };
   } catch (err: any) {

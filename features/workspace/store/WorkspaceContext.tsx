@@ -22,7 +22,7 @@ import {
 } from '../types';
 import type { BatchQueueItem } from '@/types';
 import { apiClient } from '../lib/api';
-import { transitionWorkspaceToolRoute } from '../lib/workspaceRouteContract';
+import { parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute } from '../lib/workspaceRouteContract';
 import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
 import { useAppStore } from '@/stores/useAppStore';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
@@ -629,17 +629,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [historyAssets, uploadedAssets, localAssets, deletedAssetIds]);
 
   const [workspaceId, setWorkspaceIdState] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      const path = window.location.pathname;
-      if (path.startsWith('/workspace/')) {
-        const parts = path.replace('/workspace/', '').split('/').filter(Boolean);
-        if (parts.length > 1 && parts[1]) {
-          return decodeURIComponent(parts[1]);
-        }
-      }
-    }
-    return null;
+    if (typeof window === 'undefined') return null;
+    return parseWorkspaceRouteIdentity(window.location.pathname).workspaceId;
   });
+  const workspaceIdRef = useRef<string | null>(workspaceId);
 
   const [activeMeshAssetId, setActiveMeshAssetIdState] = useState<string | null>(null);
   const [executionState, setExecutionStateInternal] = useState<WorkspaceExecutionState>('idle');
@@ -659,6 +652,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   const setWorkspaceId = useCallback((id: string | null) => {
+    workspaceIdRef.current = id;
     setWorkspaceIdState(id);
     useAppStore.getState().setActiveWorkspaceId(id);
     useViewerStore.getState().setWorkspaceId(id);
@@ -669,41 +663,24 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     useViewerStore.getState().setActiveMeshAssetId(id);
   }, []);
 
-  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      const path = window.location.pathname;
-      if (path.startsWith('/workspace/')) {
-        const parts = path.replace('/workspace/', '').split('/').filter(Boolean);
-        const uuidPart = parts.find(p => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p));
-        if (uuidPart) return `local_${uuidPart}`;
-        if (parts.length > 1 && parts[1]) {
-           return parts[1];
-        }
-      }
-    }
-    return null;
-  });
+  // Deep-link route segments identify workspaces, never selected mesh assets.
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const selectedAssetIdRef = useRef(selectedAssetId);
   const mainNavRef = useRef(mainNav);
   const activeToolRef = useRef(activeTool);
 
-  // Sync workspaceId and activeMeshAssetId from deep-link pathname when navigating
+  // Route identity is a workspace ID; never copy it into asset selection state.
   useEffect(() => {
     if (!pathname || !pathname.startsWith('/workspace/')) return;
-    const parts = pathname.replace('/workspace/', '').split('/').filter(Boolean);
-    if (parts.length > 1 && parts[1]) {
-      const routeWorkspaceId = decodeURIComponent(parts[1]);
-      setWorkspaceIdState(routeWorkspaceId);
-      useAppStore.getState().setActiveWorkspaceId(routeWorkspaceId);
-      useViewerStore.getState().setWorkspaceId(routeWorkspaceId);
+    const routeIdentity = parseWorkspaceRouteIdentity(pathname);
+    if (routeIdentity.workspaceId !== workspaceIdRef.current) {
+      setWorkspaceId(routeIdentity.workspaceId);
+      setSelectedAssetId(null);
+      setActiveMeshAssetId(null);
+      setWorkspaceVersions([]);
+      useViewerStore.getState().setLoadedModel(null, null, null);
     }
-    const uuidPart = parts.find(p => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p));
-    const urlId = uuidPart ? `local_${uuidPart}` : (parts.length > 1 && parts[1] ? decodeURIComponent(parts[1]) : null);
-    if (urlId && urlId !== selectedAssetIdRef.current) {
-      setSelectedAssetId(urlId);
-      setActiveMeshAssetIdState(urlId);
-    }
-  }, [pathname]);
+  }, [pathname, setWorkspaceId]);
 
   const [shadingMode, setShadingModeState] = useState<ShadingMode>('textured');
   const [showWireframe, setShowWireframeState] = useState(false);
@@ -954,10 +931,54 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const loadCompletedJobResult = useCallback(async (jobId: string, rawData: any, promptTitle?: string) => {
     const data = normalizeBackendJob(rawData);
     const result = data.result || (rawData as any)?.result || {};
+    const matchingTask = Object.values(jobsByIdRef.current).find(task => task.backendJobId === jobId) ||
+      (activeTaskRef.current?.backendJobId === jobId ? activeTaskRef.current : undefined);
+    const resolvedWorkspaceId =
+      rawData?.workspace_id || result?.workspace_id || matchingTask?.workspaceId || undefined;
+    const resolvedOperationId =
+      rawData?.operation_id || result?.operation_id || matchingTask?.operationId || undefined;
+    const retainedAssetId =
+      rawData?.active_mesh_asset_id ||
+      rawData?.active_mesh_asset?.asset_id ||
+      result?.active_mesh_asset_id ||
+      undefined;
+    const isRetainedResult = Boolean(
+      retainedAssetId &&
+      (rawData?.persistence_status === 'saved' || rawData?.operation?.persistence_status === 'saved')
+    );
+    const retainedAssetLookupId = isRetainedResult && retainedAssetId ? retainedAssetId : jobId;
+    const retainedFilename =
+      rawData?.active_mesh_asset?.original_filename ||
+      rawData?.active_mesh_asset?.relative_path?.split(/[\\/]/).pop() ||
+      undefined;
+    const retainedFormat = retainedFilename?.toLowerCase().endsWith('.obj') ? 'OBJ' : 'GLB';
+    const activeTask = activeTaskRef.current;
+    const isCurrentRouteWorkspace = Boolean(
+      resolvedWorkspaceId && workspaceIdRef.current === resolvedWorkspaceId
+    );
+    const activeTaskBelongsToResultWorkspace = Boolean(
+      activeTask?.workspaceId && activeTask.workspaceId === resolvedWorkspaceId
+    );
+    const shouldActivatePreview = activeTask
+      ? activeTask.backendJobId === jobId ||
+        activeTask.id === matchingTask?.id ||
+        (isCurrentRouteWorkspace && !activeTaskBelongsToResultWorkspace)
+      : (!workspaceIdRef.current || isCurrentRouteWorkspace);
+    if (shouldActivatePreview && resolvedWorkspaceId) setWorkspaceId(resolvedWorkspaceId);
+    if (shouldActivatePreview && resolvedOperationId) {
+      setActiveTask(prev => prev && (prev.backendJobId === jobId || prev.id === matchingTask?.id) ? {
+        ...prev,
+        workspaceId: resolvedWorkspaceId || prev.workspaceId,
+        operationId: resolvedOperationId || prev.operationId,
+      } : prev);
+    }
     const productionStatus = result.production_status || (result.postprocess_status === 'degraded' ? 'degraded' : 'ready');
     const degradedReasons = result.degraded_reasons || (result.texture_stage?.status === 'failed' ? ['texture_generation_failed'] : []);
 
-    const resolvedModelUrl = (
+    const retainedModelUrl = isRetainedResult && retainedAssetId
+      ? `/api/v1/system/jobs/${encodeURIComponent(retainedAssetLookupId)}/download`
+      : undefined;
+    const resolvedModelUrl = retainedModelUrl || (
       result?.model_url ||
       result?.active_model_url ||
       result?.textured_model_url ||
@@ -986,14 +1007,23 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const previewStats = preferredPreviewStats(result);
       const cleanName = promptTitle && promptTitle !== 'generate' && promptTitle !== 'asset' ? promptTitle : `Model_${jobId.slice(0, 6)}`;
       await prefetchGLB(modelUrl);
-      const finalAssetId = `local_${jobId}`;
+      const finalAssetId = isRetainedResult && retainedAssetId
+        ? retainedAssetId
+        : `preview_${resolvedOperationId || jobId}`;
       const outputAsset = normalizeModelAsset({
         id: finalAssetId,
-        name: cleanName,
-        category: 'generation',
-        workspace_id: jobId,
-        thumbnail: result.thumbnail_url || `/api/v1/system/jobs/${encodeURIComponent(jobId)}/thumbnail`,
-        source: { filename: `${cleanName}.glb`, subfolder: 'generated', type: 'output', viewUrl: modelUrl, fileId: `job-${jobId}` },
+        name: rawData?.active_mesh_asset?.original_filename || cleanName,
+        category: isRetainedResult ? 'mesh' : 'generation',
+        workspace_id: resolvedWorkspaceId,
+        operation_id: resolvedOperationId,
+        thumbnail: result.thumbnail_url || `/api/v1/system/jobs/${encodeURIComponent(retainedAssetLookupId)}/thumbnail`,
+        source: {
+          filename: isRetainedResult && retainedFilename ? retainedFilename : `${cleanName}.glb`,
+          subfolder: 'generated',
+          type: 'output',
+          viewUrl: modelUrl,
+          fileId: isRetainedResult ? retainedAssetLookupId : `job-${jobId}`,
+        },
         polygon_count: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
         vertex_count: isNativeRawPreview(result) ? previewStats.vertices : (result.vertex_count ?? previewStats.vertices),
         faces: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
@@ -1001,7 +1031,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         triangles: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
         statsAvailable: Boolean(previewStats.faces || result.polygon_count || previewStats.vertices || result.vertex_count),
         topology: (result.topology as any) || (result.quality_trace?.game_ready?.quad_dominant ? 'Quad' : 'Triangle'),
-        format: 'GLB',
+        format: isRetainedResult ? retainedFormat : 'GLB',
         postprocessStatus: productionStatus === 'degraded' ? 'degraded' : (result.production_status || result.postprocess_status || 'completed'),
         productionStatus,
         degradedReasons,
@@ -1018,40 +1048,38 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         candidates: result.candidates,
       });
       addAsset(outputAsset);
-      setSelectedAssetId(finalAssetId);
-      setActiveMeshAssetId(finalAssetId);
-      setExecutionState('completed');
-      // Generation lands as an unsaved preview so the user can Keep in
-      // Workspace, Regenerate, or Discard (OperationActionBar renders only
-      // for persistenceState === 'not_saved'). Clicking Keep flips to 'saved'.
-      setPersistenceState('not_saved');
-      setViewportResetTrigger(prev => prev + 1);
-      loadModelInViewer(modelUrl, cleanName, outputAsset as any);
+      if (shouldActivatePreview) {
+        setSelectedAssetId(finalAssetId);
+        setActiveMeshAssetId(finalAssetId);
+        setExecutionState('completed');
+        // A completed operation is either an unsaved preview or a retained asset.
+        setPersistenceState(isRetainedResult ? 'saved' : 'not_saved');
+        setViewportResetTrigger(prev => prev + 1);
+        loadModelInViewer(modelUrl, cleanName, outputAsset as any);
+      }
       return outputAsset;
     }
     return null;
-  }, [addAsset]);
+  }, [addAsset, setWorkspaceId]);
 
-  // Hydrate job from URL /workspace/[tool]/[job_id] if present so failed, running, or completed status is never lost
+  // Hydrate a deep link by workspace identity. UUID routes remain supported as legacy job links.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const path = window.location.pathname;
-    if (!path.startsWith('/workspace/')) return;
-    const parts = path.replace('/workspace/', '').split('/').filter(Boolean);
-    const routeJobId = (parts.length > 1 && parts[1] && !parts[1].startsWith('?'))
-      ? decodeURIComponent(parts[1])
-      : parts.find(p => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p) || /^[a-z0-9]+-[a-z0-9]+-[a-z0-9]{6}$/i.test(p));
-    if (!routeJobId) return;
+    const routeIdentity = parseWorkspaceRouteIdentity(window.location.pathname);
+    const routeId = routeIdentity.routeId;
+    if (!routeId) return;
 
-    // Resolve friendly name-hash URL ID to backend job UUID via localStorage mapping
-    let backendJobId = routeJobId;
-    const isFriendlyId = !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(routeJobId);
-    if (isFriendlyId && typeof localStorage !== 'undefined') {
-      const stored = localStorage.getItem(`fm3d:job:${routeJobId}`);
-      if (stored) backendJobId = stored;
-    }
+    const workspaceRouteId = routeIdentity.workspaceId;
+    if (workspaceRouteId) setWorkspaceId(workspaceRouteId);
 
-    const currentTask = jobsByIdRef.current[routeJobId] || activeTaskRef.current;
+    let backendJobId = routeIdentity.legacyJobId || routeId;
+    const mappedJobId = localStorage.getItem(`fm3d:job:${routeId}`);
+    if (mappedJobId) backendJobId = mappedJobId;
+
+    const currentTask = Object.values(jobsByIdRef.current).find(task =>
+      task.backendJobId === backendJobId ||
+      (workspaceRouteId && task.workspaceId === workspaceRouteId)
+    );
     if (!currentTask || (!currentAssetRef.current && currentTask.status === 'completed')) {
       let cancelled = false;
       fetch(`/api/v1/system/jobs/${encodeURIComponent(backendJobId)}`)
@@ -1068,7 +1096,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             : 'running';
           const currentMessage = data.message || (data.status === 'processing' ? 'Processing...' : data.status === 'failed' ? 'Process failed' : 'Queued on backend');
           const diagnostic = (data.status === 'failed' || data.status === 'cancelled') ? diagnoseJobError({
-            id: routeJobId,
+            id: routeId,
             status: data.status,
             error: data.error_message,
             error_message: data.error_message,
@@ -1076,11 +1104,46 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             provider: (raw as any)?.model_id || (raw as any)?.model_preference,
           } as any) : undefined;
 
+          const resolvedWorkspaceId = (raw as any)?.workspace_id || workspaceRouteId || undefined;
+          const activeMesh = (raw as any)?.active_mesh_asset;
+          const activeMeshAssetId = (raw as any)?.active_mesh_asset_id || activeMesh?.asset_id;
+          if (resolvedWorkspaceId && activeMeshAssetId) {
+            const activeMeshUrl = `/api/v1/system/jobs/${encodeURIComponent(activeMeshAssetId)}/download`;
+            const activeMeshName = activeMesh?.original_filename || activeMesh?.name || `Workspace_${resolvedWorkspaceId}`;
+            const activeMeshAsset = normalizeModelAsset({
+              asset_id: activeMeshAssetId,
+              id: activeMeshAssetId,
+              workspace_id: resolvedWorkspaceId,
+              operation_id: activeMesh?.operation_id,
+              name: activeMeshName,
+              category: 'mesh',
+              thumbnail: `/api/v1/system/jobs/${encodeURIComponent(activeMeshAssetId)}/thumbnail`,
+              source: {
+                filename: activeMeshName,
+                subfolder: activeMesh?.relative_path || 'mesh',
+                type: 'output',
+                viewUrl: activeMeshUrl,
+                fileId: activeMeshAssetId,
+              },
+              format: String(activeMesh?.relative_path || '').toLowerCase().endsWith('.obj') ? 'OBJ' : 'GLB',
+            });
+            addAsset(activeMeshAsset);
+            setSelectedAssetId(activeMeshAsset.id);
+            setActiveMeshAssetId(activeMeshAsset.id);
+            setPersistenceState('saved');
+            loadModelInViewer(activeMeshUrl, activeMeshName, activeMeshAsset as any);
+            setViewportResetTrigger(prev => prev + 1);
+          }
+          const resolvedOperationId = (raw as any)?.operation_id || undefined;
+          const resolvedBackendJobId = (raw as any)?.job_id || backendJobId;
           const hydratedTask: ActiveTask = {
-            id: routeJobId,
+            id: `route_${routeId}`,
+            backendJobId: resolvedBackendJobId,
+            workspaceId: resolvedWorkspaceId,
+            operationId: resolvedOperationId,
             isLocal: false,
             type: 'image-to-3d',
-            title: (raw as any)?.metadata?.asset_name || (raw as any)?.inputs?.asset_name || `Job_${routeJobId.slice(0, 6)}`,
+            title: (raw as any)?.metadata?.asset_name || (raw as any)?.inputs?.asset_name || `Job_${routeId.slice(0, 6)}`,
             startedAt: raw.created_at ? new Date(raw.created_at).getTime() : Date.now(),
             status: nextStatus,
             progress: data.progress,
@@ -1094,7 +1157,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             result: data.result,
           };
 
-          setJobsById(prev => ({ ...prev, [routeJobId]: hydratedTask }));
+          if (resolvedWorkspaceId) setWorkspaceId(resolvedWorkspaceId);
+          setJobsById(prev => ({ ...prev, [hydratedTask.id]: hydratedTask }));
           setActiveTask(hydratedTask);
           if (nextStatus === 'running' || nextStatus === 'queued') {
             setIsExecuting(true);
@@ -1103,14 +1167,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           } else {
             setIsExecuting(false);
             if (nextStatus === 'completed') {
-              loadCompletedJobResult(routeJobId, raw, hydratedTask.title);
+              loadCompletedJobResult(resolvedBackendJobId, raw, hydratedTask.title);
             }
           }
         })
         .catch(() => {});
       return () => { cancelled = true; };
     }
-  }, [pathname, loadCompletedJobResult]);
+  }, [pathname, loadCompletedJobResult, setWorkspaceId, addAsset, setActiveMeshAssetId, setPersistenceState]);
 
   useEffect(() => {
     if (activeTool === 'remesh') setShowWireframeState(true);
@@ -1352,6 +1416,8 @@ function dataURLtoFile(dataURL: string, filename: string): File {
                 : data.status === 'cancelled' ? 'interrupted'
                 : 'running';
 
+              const resolvedWorkspaceId = raw?.workspace_id || task.workspaceId;
+              const resolvedOperationId = raw?.operation_id || task.operationId;
               const nextTask: ActiveTask = {
                 ...task,
                 status: nextStatus,
@@ -1362,7 +1428,12 @@ function dataURLtoFile(dataURL: string, filename: string): File {
                 errorCode: (data as any).error_code || task.errorCode,
                 logs: data.logs || task.logs,
                 result: data.result || task.result,
+                workspaceId: resolvedWorkspaceId,
+                operationId: resolvedOperationId,
               };
+              if (resolvedWorkspaceId && resolvedWorkspaceId !== workspaceIdRef.current && activeTaskRef.current?.id === task.id) {
+                setWorkspaceId(resolvedWorkspaceId);
+              }
               jobsByIdRef.current[jobId] = nextTask;
 
               setJobsById(prev => {
@@ -1374,18 +1445,18 @@ function dataURLtoFile(dataURL: string, filename: string): File {
                 };
               });
 
-              if (activeTaskRef.current?.id === jobId) {
+              if (activeTaskRef.current?.id === task.id || activeTaskRef.current?.backendJobId === backendJobId) {
                 setExecutionProgress(progress);
                 setExecutionStep(currentMessage);
                 const diagnostic = (nextStatus === 'failed' || nextStatus === 'interrupted') ? diagnoseJobError({
-                  id: jobId,
+                  id: backendJobId,
                   status: data.status,
                   error: data.error_message,
                   error_message: data.error_message,
                   model_id: (task as any)?.provider || (data as any)?.model_id,
                   provider: (task as any)?.provider || (data as any)?.model_id,
                 } as any) : undefined;
-                setActiveTask(prev => prev && prev.id === jobId ? {
+                setActiveTask(prev => prev && (prev.id === task.id || prev.backendJobId === backendJobId) ? {
                   ...prev,
                   status: nextStatus,
                   progress,
@@ -1396,6 +1467,8 @@ function dataURLtoFile(dataURL: string, filename: string): File {
                   diagnostic: diagnostic || prev.diagnostic,
                   logs: data.logs || prev.logs,
                   result: data.result || prev.result,
+                  workspaceId: resolvedWorkspaceId || prev.workspaceId,
+                  operationId: resolvedOperationId || prev.operationId,
                 } : prev);
               }
 
@@ -1421,11 +1494,11 @@ function dataURLtoFile(dataURL: string, filename: string): File {
                    title: task.title ? `${task.title} Completed` : '3D Generation Completed',
                    description,
                    status: productionStatus === 'failed' ? 'failed' : 'completed',
-                   jobId,
-                   assetId: jobId,
+                   jobId: backendJobId,
+                   assetId: raw?.active_mesh_asset_id || raw?.asset_id || backendJobId,
                  });
 
-                 loadCompletedJobResult(jobId, raw, task.title);
+                 loadCompletedJobResult(backendJobId, raw, task.title);
                  if (task.type === 'animation') {
                    toast.success('Motion generation completed', { description: 'Animation clip generated successfully' });
                  }
@@ -1436,7 +1509,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
                    title: task.title ? `${task.title} Failed` : 'Job Failed',
                    description: errMsg,
                    status: 'failed',
-                   jobId,
+                   jobId: backendJobId,
                  });
                }
              } catch (jobErr) {
@@ -1487,12 +1560,14 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     const job = jobsByIdRef.current[jobId] || (activeTaskRef.current?.id === jobId ? activeTaskRef.current : null);
     if (!job) return;
 
-    if (typeof window !== 'undefined') {
+    const routeIdentity = job.workspaceId || job.backendJobId;
+    if (routeIdentity) setWorkspaceId(job.workspaceId || null);
+    if (typeof window !== 'undefined' && routeIdentity) {
       const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-      // Consistent URL: <name>_<hash> — no raw UUID in route
-      const cleanName = (job.title || 'job').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 24);
-      const shortHash = jobId.slice(0, 6);
-      window.history.replaceState(null, '', `${toolRoute}/${cleanName}_${shortHash}`);
+      window.history.replaceState(null, '', `${toolRoute}/${routeIdentity}`);
+      if (job.workspaceId && job.backendJobId) {
+        localStorage.setItem(`fm3d:job:${job.workspaceId}`, job.backendJobId);
+      }
     }
 
     const result = (job.result || {}) as Record<string, any>;
@@ -1502,13 +1577,15 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       const promptTitle = job.title;
       const cleanName = promptTitle && promptTitle !== 'generate' ? promptTitle : `Model_${jobId.slice(0, 6)}`;
       await prefetchGLB(modelUrl);
+      const previewAssetId = `preview_${job.operationId || job.backendJobId || job.id}`;
       const outputAsset = normalizeModelAsset({
-        id: jobId,
+        id: previewAssetId,
         name: cleanName,
         category: 'generation',
-        workspace_id: (job as any)?.workspace_id || jobId,
+        workspace_id: job.workspaceId,
+        operation_id: job.operationId,
         thumbnail: result.thumbnail_url || job.inputImage || '',
-        source: { filename: `${cleanName}.glb`, subfolder: 'generated', type: 'output', viewUrl: modelUrl, fileId: `job-${jobId}` },
+        source: { filename: `${cleanName}.glb`, subfolder: 'generated', type: 'output', viewUrl: modelUrl, fileId: `job-${job.backendJobId || jobId}` },
         polygon_count: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
         vertex_count: isNativeRawPreview(result) ? previewStats.vertices : (result.vertex_count ?? previewStats.vertices),
         faces: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
@@ -1527,13 +1604,16 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       });
       addAsset(outputAsset);
       setSelectedAssetId(outputAsset.id);
+      setActiveMeshAssetId(outputAsset.id);
+      setExecutionState('completed');
+      setPersistenceState('not_saved');
       setViewportResetTrigger(prev => prev + 1);
       loadModelInViewer(modelUrl, cleanName, outputAsset as any);
       toast.success('Loaded model in viewport', { description: cleanName });
     } else {
       toast.info('Model is still generating or has no output URL yet.');
     }
-  }, [addAsset]);
+  }, [addAsset, setWorkspaceId, setActiveMeshAssetId, setExecutionState, setPersistenceState]);
 
   const selectAsset = useCallback((id: string) => {
     setSelectedAssetId(id);
@@ -1720,31 +1800,19 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     });
   }, [activeTask, getApiClient]);
 
-  const startTask = useCallback((type: ActiveTask['type'], title: string, promptId?: string, provider?: string, inputImage?: string, inputImageName?: string, comparisonGroupId?: string, sourceModelUrl?: string) => {
-    // REUSE LOGIC: If there's already an active task for the same source,
-    // reuse its ID instead of creating a new job_id/route. This keeps the
-    // URL stable (/workspace/generate/rabbit_hash) across tool switches
-    // and subsequent actions (texture, remesh, segmentation, etc.).
-    // Don't reuse terminal states (failed/interrupted) — a new generation
-    // needs a fresh task with isExecuting=true.
-    const existing = activeTaskRef.current;
-    if (existing && existing.status !== 'failed' && existing.status !== 'interrupted') {
-      return existing.id;
-    }
-
-    if (activeAbortControllerRef.current) {
-      activeAbortControllerRef.current.abort();
-    }
+  const startTask = useCallback((type: ActiveTask['type'], title: string, _promptId?: string, provider?: string, inputImage?: string, inputImageName?: string, comparisonGroupId?: string, sourceModelUrl?: string) => {
+    // Every execution gets its own task identity. Workspace and backend job
+    // identities are attached only after the API accepts the operation.
+    // Each submission captures its own signal. Starting another task must
+    // not abort an already-submitted sibling operation (notably batch jobs).
     activeAbortControllerRef.current = new AbortController();
 
-    const isLocal = !promptId;
     const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'job';
-    const shortHash = crypto.randomUUID().slice(0, 6);
-    const taskId = promptId ?? `${slug}-${shortHash}`;
+    const taskId = `${slug}-${crypto.randomUUID().slice(0, 8)}`;
     const task: ActiveTask = {
       id: taskId,
-      backendJobId: !isLocal ? taskId : undefined,
-      isLocal,
+      isLocal: true,
+      workspaceId: workspaceIdRef.current || undefined,
       type,
       title,
       startedAt: Date.now(),
@@ -1755,38 +1823,59 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       inputImage,
       inputImageName,
       comparisonGroupId,
-      sourceModelUrl
+      sourceModelUrl,
     };
     setIsExecuting(true);
     setExecutionProgress(0);
     setExecutionStep('Queued');
     setActiveTask(task);
 
-    if (typeof window !== 'undefined' && workspaceId) {
+    if (typeof window !== 'undefined' && workspaceIdRef.current) {
       const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-      window.history.replaceState(null, '', `${toolRoute}/${workspaceId}`);
+      window.history.replaceState(null, '', `${toolRoute}/${workspaceIdRef.current}`);
     }
     setJobsById(prev => ({ ...prev, [taskId]: task }));
     return taskId;
   }, []);
 
-  const bindBackendJob = useCallback((localTaskId: string, jobId: string, updates: Partial<ActiveTask> = {}) => {
-    setWorkspaceId(jobId);
+  const bindBackendJob = useCallback((
+    localTaskId: string,
+    jobId: string,
+    updates: Partial<ActiveTask> = {},
+    identity: { workspaceId?: string | null; operationId?: string | null; routePath?: string | null } = {},
+  ) => {
+    const currentTask = jobsByIdRef.current[localTaskId] ||
+      (activeTaskRef.current?.id === localTaskId ? activeTaskRef.current : undefined);
+    const resolvedWorkspaceId = identity.workspaceId || currentTask?.workspaceId || undefined;
+    const resolvedOperationId = identity.operationId || currentTask?.operationId || undefined;
+    if (resolvedWorkspaceId) setWorkspaceId(resolvedWorkspaceId);
     setExecutionState('queued');
+
     if (typeof window !== 'undefined') {
-      const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-      window.history.replaceState(null, '', `${toolRoute}/${jobId}`);
-      // Persist friendly ID -> backend UUID mapping for post-refresh hydration
-      localStorage.setItem(`fm3d:job:${localTaskId}`, jobId);
+      if (resolvedWorkspaceId) {
+        const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
+        const routePath = identity.routePath?.startsWith('/workspace/')
+          ? identity.routePath
+          : `${toolRoute}/${resolvedWorkspaceId}`;
+        window.history.replaceState(null, '', routePath);
+        localStorage.setItem(`fm3d:job:${resolvedWorkspaceId}`, jobId);
+      }
+      localStorage.setItem(`fm3d:task:${localTaskId}`, jobId);
     }
+
     setJobsById(prev => {
-      const task = prev[localTaskId] || activeTaskRef.current;
+      const task = prev[localTaskId] ||
+        (activeTaskRef.current?.id === localTaskId ? activeTaskRef.current : undefined);
       if (!task) return prev;
-      const next: ActiveTask = { ...task, ...updates, id: localTaskId, backendJobId: jobId, isLocal: false };
-      // Register the backend job in the background task registry (F5) so the
-      // polling loop can track it to a terminal state. Local placeholder ids
-      // (slugs/queue_*) are deliberately not registered: they would 404 forever
-      // under /api/v1/system/jobs/{id}.
+      const next: ActiveTask = {
+        ...task,
+        ...updates,
+        id: localTaskId,
+        backendJobId: jobId,
+        workspaceId: resolvedWorkspaceId,
+        operationId: resolvedOperationId,
+        isLocal: false,
+      };
       registerTask({
         id: jobId,
         type: 'generation',
@@ -1795,18 +1884,15 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         label: task.title,
         createdAt: task.startedAt,
         updatedAt: Date.now(),
-        metadata: { localTaskId },
+        metadata: { localTaskId, workspaceId: resolvedWorkspaceId, operationId: resolvedOperationId },
       });
-      // (Re)start the F5 polling loop so the newly tracked job is checked
-      // against the backend without waiting for the next mount cycle.
       startPolling();
-      const copy = { ...prev };
-      delete copy[localTaskId];
-      copy[localTaskId] = next;
-      return copy;
+      return { ...prev, [localTaskId]: next };
     });
-    setActiveTask(prev => prev && (prev.id === localTaskId || prev.id === jobId) ? { ...prev, ...updates, id: localTaskId, backendJobId: jobId, isLocal: false } : prev);
-  }, []);
+    setActiveTask(prev => prev && prev.id === localTaskId
+      ? { ...prev, ...updates, id: localTaskId, backendJobId: jobId, workspaceId: resolvedWorkspaceId, operationId: resolvedOperationId, isLocal: false }
+      : prev);
+  }, [setWorkspaceId]);
 
   const queueGenerationJob = useCallback(async (customSettings?: Partial<GenerationSettings>) => {
     const effective = { ...generationSettings, ...(customSettings || {}) };
@@ -1875,7 +1961,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       });
 
       if (!res.ok) throw await parseApiError(res);
-      const data = await parseApiData<{ job_id?: string; id?: string }>(res);
+      const data = await parseApiData<{ job_id?: string; id?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
       const backendJobId = data.job_id ?? data.id;
       if (!backendJobId) throw new Error('Backend did not return a job ID');
 
@@ -1884,7 +1970,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         currentStep: 'Queued on backend',
         provider: resolvedModelId,
         inputImage: inputThumbnail,
-      });
+      }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
 
       toast.success('Job Queued in Background', {
         description: `${jobTitle} (${resolvedModelId || 'Default'})`,
@@ -1965,7 +2051,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         signal,
       });
       if (!res.ok) throw await parseApiError(res);
-      const data = await parseApiData<{ job_id?: string; id?: string; status?: string }>(res);
+      const data = await parseApiData<{ job_id?: string; id?: string; status?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
       const jobId = data.job_id ?? data.id;
       if (!jobId) throw new Error('Backend did not return a generation job ID');
       bindBackendJob(localTaskId, jobId, {
@@ -1973,12 +2059,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         currentStep: 'Queued on backend',
         provider: effectiveModelId,
         inputImage: inputThumbnail,
-      });
-      // Set route to /workspace/generate/<imagename>_<hash> after generation request accepted
-      if (typeof window !== 'undefined') {
-        const toolRoute = TOOL_TO_ROUTE[activeToolRef.current] || '/workspace/generate';
-        window.history.replaceState(null, '', `${toolRoute}/${jobId}`);
-      }
+      }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
       setExecutionStep('Generation queued on backend');
       setActiveTask(prev => prev ? {
         ...prev,
@@ -2094,6 +2175,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         const result = await executeMeshOperation({
           tool: 'remesh',
           engine: 'script',
+          workspaceId: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
           meshUrl,
           meshRef,
           params: {
@@ -2135,6 +2217,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
           const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
           const newAsset = normalizeModelAsset({
             id: newAssetId,
+            workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
+            operation_id: undefined,
             name: `${cleanBaseName}_retopo_${polyType}`,
             category: 'edit',
             source: { filename: `${cleanBaseName}_retopo.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'retopo' },
@@ -2166,6 +2250,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         output_format: customSettings?.outputFormat || 'glb',
         model_preference: 'fastmesh_v1k_retopology',
         target_polycount: targetPoly,
+        workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
         ...meshRef,
       };
 
@@ -2176,10 +2261,10 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         signal,
       });
       if (!res.ok) throw await parseApiError(res);
-      const data = await parseApiData<{ job_id?: string; id?: string }>(res);
+      const data = await parseApiData<{ job_id?: string; id?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
       const jobId = data.job_id ?? data.id;
       if (!jobId) throw new Error('Backend did not return a remesh job ID');
-      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' });
+      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
       setExecutionStep('Remesh queued on backend');
     } catch (error) {
       if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
@@ -2219,10 +2304,10 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         signal,
       });
       if (!res.ok) throw await parseApiError(res);
-      const data = await parseApiData<{ job_id?: string; id?: string }>(res);
+      const data = await parseApiData<{ job_id?: string; id?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
       const jobId = data.job_id ?? data.id;
       if (!jobId) throw new Error('Backend did not return a texture job ID');
-      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' });
+      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
       setExecutionStep('Texture generation queued on backend');
     } catch (error) {
       if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
@@ -2279,6 +2364,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         const result = await executeMeshOperation({
           tool: 'uv',
           engine: 'script',
+          workspaceId: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
           scriptId: customSettings?.scriptId,
           meshUrl,
           meshRef,
@@ -2319,6 +2405,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
           const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
           const newAsset = normalizeModelAsset({
             id: newAssetId,
+            workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
+            operation_id: undefined,
             name: `${cleanBaseName}_uv_unwrapped`,
             category: 'edit',
             source: { filename: `${cleanBaseName}_uv.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'uv' },
@@ -2345,6 +2433,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
       // AI Mode Execution
       const body: Record<string, unknown> = {
+        workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
         distortion_threshold: customSettings?.distortionThreshold ?? 1.25,
         pack_method: customSettings?.packMethod || 'blender',
         save_individual_parts: customSettings?.saveIndividualParts ?? true,
@@ -2369,10 +2458,10 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         signal,
       });
       if (!res.ok) throw await parseApiError(res);
-      const data = await parseApiData<{ job_id?: string; id?: string }>(res);
+      const data = await parseApiData<{ job_id?: string; id?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
       const jobId = data.job_id ?? data.id;
       if (!jobId) throw new Error('Backend did not return a UV unwrapping job ID');
-      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' });
+      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
       setExecutionStep('UV unwrapping queued on backend');
     } catch (error) {
       if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
@@ -2423,6 +2512,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         const result = await executeMeshOperation({
           tool: 'segment',
           engine: 'script',
+          workspaceId: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
           meshUrl,
           meshRef,
           params: {
@@ -2460,6 +2550,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
           const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
           const newAsset = normalizeModelAsset({
             id: newAssetId,
+            workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
+            operation_id: undefined,
             name: `${cleanBaseName}_segmented_${numParts}parts`,
             category: 'edit',
             source: { filename: `${cleanBaseName}_segmented.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'segment' },
@@ -2487,6 +2579,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
       // AI Mode Execution
       const body: Record<string, unknown> = {
+        workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
         num_parts: numParts,
         output_format: outputFormat,
         model_preference: pref,
@@ -2510,6 +2603,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
             const fbResult = await executeMeshOperation({
               tool: 'segment',
               engine: 'script',
+              workspaceId: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
               meshUrl,
               meshRef,
               params: { numParts },
@@ -2551,10 +2645,10 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         }
         throw await parseApiError(res);
       }
-      const data = await parseApiData<{ job_id?: string; id?: string }>(res);
+      const data = await parseApiData<{ job_id?: string; id?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
       const jobId = data.job_id ?? data.id;
       if (!jobId) throw new Error('Backend did not return a segmentation job ID');
-      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' });
+      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
       setExecutionStep('Mesh segmentation queued on backend');
     } catch (error) {
       if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
@@ -2598,10 +2692,10 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         signal,
       });
       if (!res.ok) throw await parseApiError(res);
-      const data = await parseApiData<{ job_id?: string; id?: string }>(res);
+      const data = await parseApiData<{ job_id?: string; id?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
       const jobId = data.job_id ?? data.id;
       if (!jobId) throw new Error('Backend did not return an auto-rigging job ID');
-      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Auto-rigging queued on backend' });
+      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Auto-rigging queued on backend' }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
       setExecutionStep('Auto-rigging queued on backend');
     } catch (error) {
       if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
@@ -2647,10 +2741,10 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         signal,
       });
       if (!res.ok) throw await parseApiError(res);
-      const data = await parseApiData<{ job_id?: string; id?: string }>(res);
+      const data = await parseApiData<{ job_id?: string; id?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
       const jobId = data.job_id ?? data.id;
       if (!jobId) throw new Error('Backend did not return a motion generation job ID');
-      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Motion generation queued on backend' });
+      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Motion generation queued on backend' }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
       setExecutionStep('Motion generation queued on backend');
     } catch (error) {
       if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
@@ -2719,10 +2813,10 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         signal,
       });
       if (!res.ok) throw await parseApiError(res);
-      const data = await parseApiData<{ job_id?: string; id?: string }>(res);
+      const data = await parseApiData<{ job_id?: string; id?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
       const jobId = data.job_id ?? data.id;
       if (!jobId) throw new Error('Backend did not return an editing job ID');
-      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' });
+      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
       setExecutionStep('Mesh editing queued on backend');
     } catch (error) {
       if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
@@ -2833,7 +2927,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
            signal: activeAbortControllerRef.current?.signal,
          });
          if (!res.ok) throw await parseApiError(res);
-         const data = await parseApiData<{ job_id?: string; id?: string; status?: string }>(res);
+         const data = await parseApiData<{ job_id?: string; id?: string; status?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
          const jobId = data.job_id ?? data.id;
          if (!jobId) throw new Error('Backend did not return a generation job ID');
 
@@ -2853,7 +2947,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
            status: 'queued',
            currentStep: 'Queued on backend',
            provider: effectiveSettings.aiModel || '',
-         });
+         }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
          
        } catch (error) {
          const message = error instanceof Error ? error.message : 'Batch item processing failed';
@@ -3034,17 +3128,12 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     setIsLeftPanelOpen(true);
     const baseRoute = TOOL_TO_ROUTE[tool] || '/workspace/generate';
 
-    // Resolve the current workspace identity from the selected asset or deep-link.
-    let activeId: string | null = null;
-    const refId = selectedAssetIdRef.current;
-    if (refId) {
-      activeId = refId.replace(/^(?:local_|upload_|hist_|job-)+/, '');
-    }
-    if (!activeId && typeof window !== 'undefined' && window.location.pathname.startsWith('/workspace/')) {
-      const parts = window.location.pathname.replace('/workspace/', '').split('/');
-      if (parts.length > 1 && parts[1]) {
-        activeId = decodeURIComponent(parts[1]).replace(/^(?:local_|upload_|hist_|job-)+/, '');
-      }
+    // Resolve workspace identity only from canonical workspace state or route parsing.
+    // A selected asset ID is never a valid substitute for workspace_id.
+    let activeId: string | null =
+      workspaceIdRef.current || currentAssetRef.current?.workspace_id || null;
+    if (!activeId && typeof window !== 'undefined') {
+      activeId = parseWorkspaceRouteIdentity(window.location.pathname).workspaceId;
     }
 
     const currentRouteState = activeId

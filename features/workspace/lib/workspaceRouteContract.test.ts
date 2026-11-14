@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { transitionWorkspaceToolRoute } from './workspaceRouteContract';
+import { parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute } from './workspaceRouteContract';
 
 describe('workspace tool route state machine', () => {
   const base = { status: 'base' } as const;
@@ -20,5 +20,69 @@ describe('workspace tool route state machine', () => {
 
   it('keeps a base route when switching tools without a selected workspace', () => {
     assert.deepEqual(transitionWorkspaceToolRoute(base, { type: 'select-different-tool' }), base);
+  });
+});
+
+describe('workspace route identity contract', () => {
+  it('treats a non-UUID deep-link segment as a workspace ID, not an asset ID', () => {
+    assert.deepEqual(
+      parseWorkspaceRouteIdentity('/workspace/generate/rabbit_a82f31'),
+      {
+        tool: 'generate',
+        routeId: 'rabbit_a82f31',
+        workspaceId: 'rabbit_a82f31',
+        legacyJobId: null,
+      },
+    );
+  });
+
+  it('keeps pre-contract friendly job IDs in the legacy job namespace', () => {
+    const routeId = 'rabbit-a82f31';
+    assert.deepEqual(parseWorkspaceRouteIdentity(`/workspace/generate/${routeId}`), {
+      tool: 'generate',
+      routeId,
+      workspaceId: null,
+      legacyJobId: routeId,
+    });
+  });
+
+  it('recognizes UUID routes as legacy job links', () => {
+    const jobId = '380fbba4-e122-4a78-818d-3418dbb0ee46';
+    assert.deepEqual(parseWorkspaceRouteIdentity(`/workspace/generate/${jobId}`), {
+      tool: 'generate',
+      routeId: jobId,
+      workspaceId: null,
+      legacyJobId: jobId,
+    });
+  });
+
+
+  it('does not treat asset or operation IDs as workspace IDs', () => {
+    for (const routeId of ['ast_123456789abc', 'op_123456789abc']) {
+      assert.deepEqual(parseWorkspaceRouteIdentity(`/workspace/generate/${routeId}`), {
+        tool: 'generate',
+        routeId,
+        workspaceId: null,
+        legacyJobId: null,
+      });
+    }
+  });
+
+  it('keeps /workspace/jobs/{id} in the job identity namespace', () => {
+    assert.deepEqual(parseWorkspaceRouteIdentity('/workspace/jobs/job_123456'), {
+      tool: 'jobs',
+      routeId: 'job_123456',
+      workspaceId: null,
+      legacyJobId: 'job_123456',
+    });
+  });
+
+  it('does not invent a workspace identity for a tool base route', () => {
+    assert.deepEqual(parseWorkspaceRouteIdentity('/workspace/generate'), {
+      tool: 'generate',
+      routeId: null,
+      workspaceId: null,
+      legacyJobId: null,
+    });
   });
 });

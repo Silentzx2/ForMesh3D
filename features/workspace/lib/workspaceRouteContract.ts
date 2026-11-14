@@ -13,7 +13,7 @@ const JOB_ID_PATTERN = /^[a-zA-Z0-9_\-\.]{3,128}$/;
 
 /**
  * Validate the path handled by app/workspace/[...tool].
- * Deep links may append one UUID job ID to a valid tool or use /jobs/{id}.
+ * Deep links may append a canonical workspace ID or a legacy job identifier.
  */
 export function isKnownWorkspaceRoute(segments: readonly string[]): boolean {
   if (segments.length === 0) return false;
@@ -28,6 +28,46 @@ export function isKnownWorkspaceRoute(segments: readonly string[]): boolean {
   }
   if (rest.length !== 0) return false;
   return WORKSPACE_TOOL_SEGMENTS.has(first) || WORKSPACE_VIEW_SEGMENTS.has(first);
+}
+
+
+const LEGACY_JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const WORKSPACE_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}_[a-f0-9]{6,8}$/i;
+
+export interface WorkspaceRouteIdentity {
+  tool: string | null;
+  routeId: string | null;
+  workspaceId: string | null;
+  legacyJobId: string | null;
+}
+
+/**
+ * A current deep-link segment must match the canonical <slug>_<6-8 hex> workspace ID.
+ * UUID and pre-contract friendly identifiers remain readable as legacy job routes.
+ * Asset IDs and operation IDs are never accepted as workspace identities.
+ */
+export function parseWorkspaceRouteIdentity(pathname: string): WorkspaceRouteIdentity {
+  const segments = pathname.split('?')[0].split('#')[0].split('/').filter(Boolean);
+  if (segments[0] !== 'workspace' || segments.length < 2) {
+    return { tool: null, routeId: null, workspaceId: null, legacyJobId: null };
+  }
+
+  const tool = segments[1];
+  const routeId = segments.length > 2 ? decodeURIComponent(segments[2]) : null;
+  if (!routeId) {
+    return { tool, routeId: null, workspaceId: null, legacyJobId: null };
+  }
+
+  // UI asset aliases and operation IDs are not valid workspace or job route identities.
+  if (/^(?:ast_|op_|asset-|local_|upload_|hist_|job-)/i.test(routeId)) {
+    return { tool, routeId, workspaceId: null, legacyJobId: null };
+  }
+
+  if (tool === 'jobs' || LEGACY_JOB_ID_PATTERN.test(routeId) || !WORKSPACE_ID_PATTERN.test(routeId)) {
+    return { tool, routeId, workspaceId: null, legacyJobId: routeId };
+  }
+
+  return { tool, routeId, workspaceId: routeId, legacyJobId: null };
 }
 
 export type WorkspaceToolRouteState =
