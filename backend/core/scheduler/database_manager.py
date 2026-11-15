@@ -179,16 +179,17 @@ class DatabaseManager:
                 autocommit=False,
                 autoflush=False,
             )
+            self._initialized = True
 
             # Idempotent migration with automated hot backup
             self._init_db()
 
-            self._initialized = True
             if self.database_url not in _INITIALIZED_DBS:
                 _INITIALIZED_DBS.add(self.database_url)
                 logger.info(f"Database initialized successfully: {self.database_url}")
 
         except Exception as e:
+            self._initialized = False
             logger.error(f"Failed to initialize database: {e}")
             raise
 
@@ -228,15 +229,14 @@ class DatabaseManager:
         Base.metadata.create_all(bind=self.engine)
         # Idempotent column additions for existing databases (create_all won't
         # alter tables). SQLite returns "duplicate column name" if already present.
-        with self.get_session() as session:
+        with self.engine.begin() as conn:
             for column_def in (
                 "ALTER TABLE assets ADD COLUMN operation_type VARCHAR(32)",
             ):
                 try:
-                    session.execute(text(column_def))
-                    session.commit()
+                    conn.execute(text(column_def))
                 except Exception:
-                    session.rollback()
+                    pass
 
     @contextmanager
     def get_session(self):
