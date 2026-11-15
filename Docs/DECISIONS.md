@@ -1,8 +1,27 @@
 # Architecture Decisions — ForMesh 3D
 
-> **Version**: 0.2.0
-> **Last Updated**: November 14, 2026
+> **Version**: 0.3.0
+> **Last Updated**: November 15, 2026
 > **Retention Policy**: Keep only the last 3 active Architectural Decision Records (ADRs) to preserve lean context.
+
+---
+
+## ADR-104: Native Target Triangles — Post-Process Count Forcing Removed (2026-11-15)
+
+**Context:** Part I of the Unified Master Specification (Docs/TASKS.md) prohibits using subdivision, decimation, simplification, remeshing, or retopology after raw generation to force a mesh toward the user's requested triangle target. Five adapters (SF3D, TripoSG, Hunyuan3D v2.1, Mini Turbo, TRELLIS) were calling `mesh.subdivide()`, `fast_simplification.simplify()`, or `simplify_quadric_decimation()` to match `native_target_polycount` after generation. Additionally, the router zeroed `native_target_polycount` when `enable_postprocess=false`, hiding the requested value from honest reporting.
+
+**Decision:**
+1. **Remove all post-process count forcing** from the 5 adapters — adapters now return raw model-native geometry unchanged; `native_target_polycount` is informational only (logged/preserved in `generation_info`).
+2. **Router no longer zeroes `native_target_polycount`** when `enable_postprocess=false` — the value is preserved for honest requested-vs-actual triangle reporting in `/api/v1/system/jobs/{job_id}/info`.
+3. **All models classified `UNSUPPORTED`** — verified none pass `native_target_polycount` to upstream generation. TRELLIS.2, Unique3D, Pixal3D, TaoFlowForge log only; Hunyuan3D v2.1/Mini Turbo use hardcoded `octree_resolution` (indirect resolution control only); SF3D `vertex_count` ignored when `remesh_option="none"` (default).
+4. **Frontend `buildGenerationParameters.ts` simplified** — removed dead native parameter computation switch (no model reaches upstream generation); capability registry returns `UNSUPPORTED` for all models.
+
+**Consequences:**
+- Zero post-process topology-changing fallbacks remain in any adapter.
+- `native_target_polycount` is never silently used to subdivide/decimate a mesh after generation.
+- Requested vs actual triangle counts are reported separately and honestly (measured from the actual GLB on disk, never inferred from requested).
+- No change to modern GPU (`sm >= 80`) native execution path (Priority Rule 1 preserved).
+- ADR-102 is superseded on the point that adapters "apply direct geometric subdivision/simplification before export" — that behavior is removed.
 
 ---
 
@@ -37,6 +56,8 @@
 
 ## ADR-102: Universal Model Adapter Parameter Passthrough and Dynamic Model-Aware UI Controls (2026-11-14)
 
+**Status:** Partially superseded by ADR-104 — the statement that "adapters apply direct geometric subdivision/simplification before export" is removed; adapters no longer perform post-generation count forcing. The dynamic model-aware UI controls and authoritative parameter passthrough portions remain valid.
+
 **Context:** Generation parameters explicitly configured by users in the UI (e.g. polycount target 400K, texture atlas resolution, texture enable toggle, remesh topology) were previously intercepted by router-level preset overrides or logged and dropped by adapters, resulting in meshes with default resolutions (e.g. 8K faces for SF3D regardless of slider setting). Furthermore, static UI buttons offered unsupported resolutions (e.g. 4K for SF3D which only supports up to 2K) and Quad topology buttons for models producing only native triangles.
 
 **Decision:**
@@ -46,30 +67,5 @@
 2. **Authoritative Parameter Passthrough**:
    - `buildGenerationParameters.ts` maps user-selected polycount directly to `native_target_polycount` and routes user parameters without intermediate decimation post-processing flags.
    - `mesh_generation.py` router respects user-specified `native_target_polycount`, `texture_resolution`, and `seed` over preset fallbacks.
-3. **Universal Adapter Polycount & Texture Handling**:
-   - Adapters (`stable_fast_3d_adapter.py`, `hunyuan3d_shape_v21.py`, `hunyuan3d_dit_v2_mini_turbo.py`, `trellis_adapter.py`, `triposg_adapter.py`, etc.) consume `native_target_polycount` and apply direct geometric subdivision/simplification before export to ensure meshes match user budgets.
-   - When `texture_enabled` is false, adapters skip texture baking and export clean untextured geometry with `ColorVisuals`.
-4. **Workspace Operations Keep/Discard Endpoints**:
-   - Implemented `POST /api/v1/workspace/operations/{operation_id}/keep` and `discard` in `backend/api/routers/system.py` with alias paths, resolving preview retention 404 errors.
 
----
-
-## ADR-101: Studio 3D Unified Tool Panel Architecture & Dynamic Right Panel Extension (2026-11-09)
-
-**Context:** The Studio 3D workspace previously used placeholder cards (`StudioToolTemplate`) for specialized processing workflows (Smart UV, Segmentation, Auto-Rigging, Animation), while right inspector panels were static and did not offer contextual tool inspections (e.g. UV atlas layout visualization or texel density inspection). In addition, disparate panel widths and multiline wrapping degraded usability on smaller laptop displays.
-
-**Decision:**
-1. **Canonical Tool Panels**: Implement dedicated, production-grade panels for all 7 left-rail studio tools:
-   - `GeneratePanel.tsx`: 3D generation studio with image intake, model preference, polycount budget, and topology.
-   - `TexturePanel.tsx`: 3D PBR texturing with resolution (1K/2K/4K) and lighting presets.
-   - `RemeshPanel.tsx`: Quad/triangle remeshing with 120fps smooth budget slider (5K–200K) and quick presets.
-   - `UVPanel.tsx`: Smart UV unwrap with single-line pill selectors (Organic vs Hard-Surface, 1K–4K, Island Margins).
-   - `SegmentationPanel.tsx`: Mesh part decomposition (2–32 parts, Semantic vs Geometric, hierarchical tree toggle).
-   - `RiggingPanel.tsx`: Character auto-rigging (Humanoid, Quadruped, Generic templates, T/A bind poses, facial/finger bones).
-   - `AnimationPanel.tsx`: 3D motion generation (duration slider 1.0–15.0s, prompt chips, ground lock cleanup).
-2. **Untouched Input Dropzone Card**: Standardize the top Image & 3D Mesh dropzone card across all panels to be 100% byte-for-byte identical, guaranteeing zero workflow disruption when switching tools.
-3. **No Model Branding in CTAs**: Action buttons and subtitles use purely action-oriented terminology (`Generate Model`, `Run Retopology`, `Run Smart UV`, `Segment Mesh`, `Auto-Rig Character`, `Apply Animation`) without leaking internal model names.
-4. **Dynamic Right Panel Extension**: Create `features/workspace/dynamic/` as a modular extension point. When `activeTool === 'uv'`, `RightPropertyPanel.tsx` dynamically mounts `DynamicUVInspector.tsx`; when `activeTool === 'segment'`, it mounts `DynamicSegmentationInspector.tsx`; when `activeTool === 'animation'`, it mounts `DynamicAnimationInspector.tsx`. Essential controls are preserved on the left panel with zero vertical scroll down to 577px viewport heights, and fine-tuning knobs are placed in dynamic portal flyouts.
-5. **Ergonomic Sizing & Clearance**: Ensure 8px top clearance (`top-2`), 228px inner panel width with `px-8` header padding so centered tool headers never collide with the floating panel collapse button.
-
-**Consequences:** Users have immediate, full control over all 7 primary 3D studio workflows with consistent, responsive single-line controls and zero horizontal overflow. Dedicated tool inspectors can be added to `features/workspace/dynamic/` in the future without modifying core property inspector logic.
+**Consequences:** Users have full control over generation parameters with dynamic model-aware UI controls; parameter passthrough is authoritative without post-generation count forcing.

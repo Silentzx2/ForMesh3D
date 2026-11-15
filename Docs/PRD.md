@@ -2,6 +2,9 @@
 
 ## Product
 
+> **Version**: 0.3.0
+> **Last Updated**: November 15, 2026
+>
 **ForMesh3D** — An open-source, self-hosted generative 3D asset studio. Directly bridges modern research neural 3D models into a unified studio for local generation, inspection, and engine-ready delivery.
 
 ## Problem & Product Position

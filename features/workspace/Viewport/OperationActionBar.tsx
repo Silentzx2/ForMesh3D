@@ -4,7 +4,8 @@ import React, { useState } from 'react';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { CheckIcon, RefreshCw, Trash2, SparklesIcon, LoaderCircle, AlertCircleIcon } from '@hugeicons/core-free-icons';
+import { SparklesIcon, AlertCircleIcon } from '@hugeicons/core-free-icons';
+import { GlowButton } from '../components/GlowButton';
 
 export const OperationActionBar: React.FC = () => {
   const {
@@ -147,22 +148,34 @@ export const OperationActionBar: React.FC = () => {
         {persistenceState === 'save_failed' && <span className="flex items-center gap-1 text-rose-400 text-[10px] ml-1"><HugeiconsIcon icon={AlertCircleIcon} size={12} />Save Failed</span>}
       </div>
       <div className="h-4 w-[1px] bg-white/10 mx-0.5" />
-      <button type="button" disabled={isSubmitting || persistenceState === 'saving' || !operationId} onClick={handleKeepInWorkspace}
-        className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#FFE066] via-[#FFCC00] to-[#E09800] text-[#080808] font-bold text-xs flex items-center gap-1.5 shadow-[0_2px_12px_rgba(255,204,0,0.35)] hover:brightness-105 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+      <GlowButton
+        type="button"
+        variant="keep"
+        size="sm"
+        loading={persistenceState === 'saving'}
+        disabled={isSubmitting || persistenceState === 'saving' || !operationId}
+        onClick={handleKeepInWorkspace}
         title={!operationId ? 'Backend operation identity is unavailable' : 'Permanently retain this preview'}>
-        {persistenceState === 'saving' ? <HugeiconsIcon icon={LoaderCircle} size={14} className="animate-spin text-black" /> : <HugeiconsIcon icon={CheckIcon} size={14} className="stroke-[2.5]" />}
         <span>Keep in Workspace</span>
-      </button>
-      <button type="button" disabled={isSubmitting || !canRegenerate} onClick={handleRegeneratePreview}
-        className="px-3 py-1.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] text-zinc-200 font-medium text-xs flex items-center gap-1.5 border border-white/[0.1] active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+      </GlowButton>
+      <GlowButton
+        type="button"
+        variant="regenerate"
+        size="sm"
+        disabled={isSubmitting || !canRegenerate}
+        onClick={handleRegeneratePreview}
         title={!canRegenerate ? 'Regenerate requires an image-to-mesh preview with its original request snapshot' : 'Create a new linked operation without replacing previous outputs'}>
-        <HugeiconsIcon icon={RefreshCw} size={13} /><span>Regenerate</span>
-      </button>
-      <button type="button" disabled={isSubmitting || !previewTask?.previewBaseline} onClick={handleDiscardPreview}
-        className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 font-medium text-xs flex items-center gap-1.5 border border-rose-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        <span>Regenerate</span>
+      </GlowButton>
+      <GlowButton
+        type="button"
+        variant="discard"
+        size="sm"
+        disabled={isSubmitting || !previewTask?.previewBaseline}
+        onClick={handleDiscardPreview}
         title={!previewTask?.previewBaseline ? 'Discard requires an in-memory pre-operation baseline' : 'Discard preview and restore the exact previous state'}>
-        <HugeiconsIcon icon={Trash2} size={13} /><span>Discard Preview</span>
-      </button>
+        <span>Discard Preview</span>
+      </GlowButton>
     </div>
   );
 };

@@ -1228,6 +1228,10 @@ async def image_to_raw_mesh(
             or 0
         )
         if not mesh_request.enable_postprocess:
+            # Native extraction only: drop the post-process polycount budget so
+            # no topology-changing count forcing runs (adapters no longer apply
+            # subdivision/simplification toward a requested count). native_target_polycount
+            # is preserved for honest requested-vs-actual triangle reporting (Part I §8).
             lod_enabled = False
             enable_printability = False
             enable_auto_repair = False
@@ -1253,6 +1257,14 @@ async def image_to_raw_mesh(
             source_asset = db.get_asset(mesh_request.image_file_id)
             if not target_ws_id and source_asset and source_asset.workspace_id:
                 target_ws_id = source_asset.workspace_id
+
+        # Identity matching: same image + same model → reuse existing workspace.
+        if not target_ws_id and mesh_request.image_file_id:
+            existing = db.list_workspaces_by_asset_and_model(
+                mesh_request.image_file_id, model_id
+            )
+            if existing:
+                target_ws_id = existing[0].workspace_id
 
         if not target_ws_id:
             target_ws_id = ws_storage.mint_workspace_id(chosen_stem)
@@ -1622,6 +1634,10 @@ async def image_to_textured_mesh(
             or 0
         )
         if not mesh_request.enable_postprocess:
+            # Native extraction only: drop the post-process polycount budget so
+            # no topology-changing count forcing runs (adapters no longer apply
+            # subdivision/simplification toward a requested count). native_target_polycount
+            # is preserved for honest requested-vs-actual triangle reporting (Part I §8).
             lod_enabled = False
             enable_printability = False
             enable_auto_repair = False
@@ -1647,6 +1663,14 @@ async def image_to_textured_mesh(
             source_asset = db.get_asset(mesh_request.image_file_id)
             if not target_ws_id and source_asset and source_asset.workspace_id:
                 target_ws_id = source_asset.workspace_id
+
+        # Identity matching: same image + same model → reuse existing workspace.
+        if not target_ws_id and mesh_request.image_file_id:
+            existing = db.list_workspaces_by_asset_and_model(
+                mesh_request.image_file_id, model_id
+            )
+            if existing:
+                target_ws_id = existing[0].workspace_id
 
         if not target_ws_id:
             target_ws_id = ws_storage.mint_workspace_id(chosen_stem)

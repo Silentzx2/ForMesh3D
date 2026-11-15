@@ -34,8 +34,8 @@ SUPPORTED_TEXTURE_FORMATS = [".jpg", ".jpeg", ".png", ".tga", ".exr", ".hdr"]
 
 # Validation limits
 MAX_IMAGE_RESOLUTION = (8192, 8192)  # Maximum accepted upload image resolution
-MAX_MESH_VERTICES = int(os.environ.get("FORMASH_MAX_MESH_VERTICES", 10_000_000))  # Maximum number of vertices
-MAX_MESH_FACES = int(os.environ.get("FORMASH_MAX_MESH_FACES", 10_000_000))  # Maximum number of faces
+MAX_MESH_VERTICES = int(os.environ.get("FORMASH_MAX_MESH_VERTICES", 2_000_000))  # Maximum 2,000,000 vertices (2000k)
+MAX_MESH_FACES = int(os.environ.get("FORMASH_MAX_MESH_FACES", 2_000_000))  # Maximum 2,000,000 faces (2000k upload limit)
 
 # MIME type mappings
 MIME_TYPE_MAPPING = {
@@ -289,13 +289,13 @@ def validate_mesh_file(
         # Check vertex count
         if vertex_count > max_vertices:
             raise ValueError(
-                f"Mesh has {vertex_count} vertices, which exceeds maximum {max_vertices}"
+                f"Mesh has {vertex_count:,} vertices, which exceeds the maximum allowable upload limit of {max_vertices:,} vertices."
             )
 
         # Check face count
         if face_count > max_faces:
             raise ValueError(
-                f"Mesh has {face_count} faces, which exceeds maximum {max_faces}"
+                f"Mesh has {face_count:,} faces, which exceeds the maximum allowable upload limit of {max_faces:,} (2000k) faces."
             )
 
         # Basic mesh validation

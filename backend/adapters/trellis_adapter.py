@@ -243,39 +243,6 @@ class _TrellisBaseAdapter(BaseModel):
             rot = np.eye(3) + vx + vx @ vx * ((1.0 - c) / float(v @ v))
             tmesh.vertices = centred @ rot.T
 
-        # Apply target polycount directly: subdivide if higher, simplify if lower
-        face_count = len(tmesh.faces) if hasattr(tmesh, "faces") else 0
-        target_budget = min(600_000, native_target_polycount) if native_target_polycount > 0 else 0
-
-        if target_budget > 0 and face_count > 0:
-            if target_budget > face_count:
-                while len(tmesh.faces) * 2 <= target_budget:
-                    tmesh = tmesh.subdivide()
-                    if len(tmesh.faces) >= target_budget:
-                        break
-            elif target_budget < face_count:
-                try:
-                    import fast_simplification
-                    v_red, f_red = fast_simplification.simplify(
-                        tmesh.vertices,
-                        tmesh.faces,
-                        target_count=target_budget,
-                    )
-                    tmesh = trimesh.Trimesh(vertices=v_red, faces=f_red, process=True)
-                    tmesh.remove_unreferenced_vertices()
-                except Exception:
-                    try:
-                        tmesh = tmesh.simplify_quadric_decimation(face_count=target_budget)
-                        tmesh.remove_unreferenced_vertices()
-                    except Exception:
-                        pass
-        elif face_count > 600_000:
-            try:
-                tmesh = tmesh.simplify_quadric_decimation(face_count=600_000)
-                tmesh.remove_unreferenced_vertices()
-            except Exception:
-                pass
-
         tmesh.export(str(out))
 
         # Texture pipeline: bake a PBR texture from the appearance

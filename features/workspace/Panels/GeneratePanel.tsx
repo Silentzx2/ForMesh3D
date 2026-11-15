@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import { useWorkspace } from '../store/WorkspaceContext';
 import type { ModelAsset } from '../types';
 import { useFeatureAvailability } from '@/hooks/useFeatureAvailability';
+import { getNativeTargetCapability, type NativeTargetCapability } from '../utils/buildGenerationParameters';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import {
   Sparkles,
@@ -19,6 +19,7 @@ import {
   Trash2,
   Edit2,
   ThumbsUp,
+  Dices,
 } from 'lucide-react';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
@@ -35,6 +36,7 @@ import { toast } from 'sonner';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
 import { MeshUploadStatus } from './MeshUploadStatus';
 import { getApiClient } from '@/services/apiClient';
+import { GlowButton, JobProgressBar, JobProgressStage } from '../components';
 
 // ==========================================
 // 1. Quality Metrics & QualityBadge Export
@@ -258,8 +260,11 @@ export const GeneratePanel: React.FC = () => {
     isExecuting,
     executionProgress,
     executionStep,
+    executionStatus,
     cancelExecution,
     generate3DModel,
+    isExportModalOpen,
+    setIsExportModalOpen,
     generationSettings,
     setGenerationSettings,
   } = useWorkspace();
@@ -335,21 +340,15 @@ export const GeneratePanel: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const meshInputRef = useRef<HTMLInputElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
-  const geomTextureFlyoutRef = useRef<HTMLDivElement>(null);
-  const geomTextureTriggerRef = useRef<HTMLButtonElement>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [inputTab, setInputTab] = useState<'image' | 'mesh'>('image');
   const [isDragOver, setIsDragOver] = useState(false);
 
-  // Geometry & Texture flyout settings matching Tripo reference
-  const [isGeomTextureOpen, setIsGeomTextureOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  // General Settings (Inline in Main Panel)
   const [enableTexture, setEnableTexture] = useState(true);
   const [textureQuality, setTextureQuality] = useState<'512' | '1K' | '2K' | '4K'>('2K');
   const [removeLighting, setRemoveLighting] = useState(true);
   const [enablePbr, setEnablePbr] = useState(true);
-  const [topologyMode, setTopologyMode] = useState<'Quad' | 'Triangle'>('Triangle');
-  const [polycount, setPolycount] = useState(600000);
   const [seed, setSeed] = useState<number | ''>(typeof generationSettings.seed === 'number' ? generationSettings.seed : '');
 
   // ==========================================
@@ -447,32 +446,7 @@ export const GeneratePanel: React.FC = () => {
     setMounted(true);
   }, []);
 
-  // Close Geometry & Texture flyout on outside click or Escape
-  useEffect(() => {
-    if (!isGeomTextureOpen) return;
-    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
-      const target = e.target as Node;
-      if (
-        geomTextureFlyoutRef.current &&
-        !geomTextureFlyoutRef.current.contains(target) &&
-        geomTextureTriggerRef.current &&
-        !geomTextureTriggerRef.current.contains(target)
-      ) {
-        setIsGeomTextureOpen(false);
-      }
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsGeomTextureOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('touchstart', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('touchstart', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isGeomTextureOpen]);
+
 
   // Clear sticky drag glow on global window dragend, drop, or dragleave
   useEffect(() => {
@@ -1023,211 +997,75 @@ export const GeneratePanel: React.FC = () => {
 
       {/* Parameter Deck (Geometry, AI Model & Seed in natural flow below dropzone) */}
       <div className="pt-2.5 space-y-2.5">
-        {/* 3. General Settings: Geometry & Texture (Matching Tripo Reference & Dynamic Loading) */}
-        <div className="border-t border-[hsl(var(--border))] pt-2 relative">
-          <div className="flex items-center justify-between pb-1">
+        {/* 3. General Settings (Inline in Main Panel - Pure Native High-Res) */}
+        <div className="border-t border-[hsl(var(--border))] pt-2 space-y-2">
+          <div className="flex items-center justify-between pb-0.5">
             <span className="text-[10px] font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">
               General Settings
             </span>
+            <span className="text-[9px] font-mono text-[#F9CF00] px-1.5 py-0.5 rounded bg-[#F9CF00]/10 border border-[#F9CF00]/20 font-bold">
+              Pure Native Output
+            </span>
           </div>
 
-          {/* Geometry & Texture Trigger Button */}
-          <button
-            ref={geomTextureTriggerRef}
-            type="button"
-            aria-expanded={isGeomTextureOpen}
-            onClick={() => setIsGeomTextureOpen((prev) => !prev)}
-            className={`w-full flex items-center justify-between p-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-sm ${
-              isGeomTextureOpen
-                ? 'bg-[#1b1b2f] border-[#6366F1] text-white ring-1 ring-[#6366F1]/50'
-                : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-[hsl(var(--foreground))]'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <SlidersHorizontal className="w-3.5 h-3.5 text-[#6366F1]" />
-              <span>Geometry &amp; Texture</span>
+          {/* Toggle: Remove Lighting */}
+          <div className="flex items-center justify-between py-1 px-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-zinc-200 font-medium">Remove Lighting</span>
+              <span title="De-light albedo textures to extract true material colors" className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00]" />
+              </span>
             </div>
-            <ChevronRight
-              className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] transition-transform duration-200 ${
-                isGeomTextureOpen ? 'rotate-90 text-[#6366F1]' : ''
-              }`}
-            />
-          </button>
-
-
-
-          {/* Polycount Slider (Main Panel - Dynamically driven by models.yaml) */}
-          <div className="space-y-1 pt-1 border-t border-white/[0.08] pt-1">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-zinc-300 font-medium">Polycount (Target)</span>
-                <span className="text-[9px] font-mono text-[#F9CF00] font-bold">{polycount.toLocaleString()}</span>
-              </div>
-            </div>
-            <input
-              type="range"
-              min={minPolycount}
-              max={maxPolycount}
-              step={polycountStep}
-              value={Math.min(maxPolycount, Math.max(minPolycount, polycount))}
-              onChange={(e) => {
-                const val = parseInt(e.target.value, 10);
-                setPolycount(val);
-                setGenerationSettings((prev) => ({
-                  ...prev,
-                  polycount: val,
-                  targetPolycount: val,
-                  target_polycount: val,
-                  autoOptimizeSettings: { ...prev.autoOptimizeSettings, targetPolycount: val },
-                }));
+            <button
+              type="button"
+              role="switch"
+              aria-checked={removeLighting}
+              onClick={() => {
+                const next = !removeLighting;
+                setRemoveLighting(next);
+                setGenerationSettings((prev) => ({ ...prev, removeBackground: next }));
               }}
-              className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#6366F1]"
-            />
-            <div className="flex items-center justify-between text-[9px] font-mono text-zinc-500">
-              <span>{minPolycount.toLocaleString()}</span>
-              <span>{maxPolycount.toLocaleString()} (Max {(maxPolycount / 1000).toFixed(0)}K)</span>
+              className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer ${
+                removeLighting ? 'bg-[#6366F1]' : 'bg-white/15'
+              }`}
+            >
+              <div
+                className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                  removeLighting ? 'translate-x-3.5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Toggle: PBR Materials */}
+          <div className="flex items-center justify-between py-1 px-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-zinc-200 font-medium">PBR Materials</span>
+              <span title="Generate physically based roughness, metallic and normal maps" className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00]" />
+              </span>
             </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={enablePbr}
+              onClick={() => {
+                const next = !enablePbr;
+                setEnablePbr(next);
+                setGenerationSettings((prev) => ({ ...prev, highResolutionNormalBaking: next }));
+              }}
+              className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer ${
+                enablePbr ? 'bg-[#6366F1]' : 'bg-white/15'
+              }`}
+            >
+              <div
+                className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                  enablePbr ? 'translate-x-3.5' : 'translate-x-0'
+                }`}
+              />
+            </button>
           </div>
         </div>
-
-        {/* Dynamic Flying Side Geometry & Texture Settings Panel */}
-        {mounted && isGeomTextureOpen && typeof document !== 'undefined' && createPortal(
-            <div
-              ref={geomTextureFlyoutRef}
-              id="geometry-texture-flyout"
-              role="dialog"
-              aria-label="Geometry and Texture Settings"
-              className="fixed left-4 right-4 md:left-[290px] md:right-auto bottom-12 md:bottom-16 w-auto md:w-[280px] p-3.5 rounded-2xl bg-[#141421] border border-[#6366F1]/50 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-2.5 animate-in fade-in zoom-in-95 duration-150 z-50 pointer-events-auto select-none"
-            >
-            {/* Header with Title and Close Button */}
-            <div className="flex items-start justify-between pb-1 border-b border-white/[0.08]">
-              <div>
-                <h3 className="text-xs font-bold text-white tracking-wide">Geometry &amp; Texture</h3>
-                <p className="text-[9px] text-zinc-400 mt-0.5">Settings automatically saved</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsGeomTextureOpen(false)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                aria-label="Close Geometry & Texture settings"
-              >
-                <HugeiconsIcon icon={Cancel} size={13} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
-              </button>
-            </div>
-
-            {/* Toggle 4: Remove Lighting */}
-            <div className="flex items-center justify-between py-0.5">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-zinc-200 font-medium">Remove Lighting</span>
-                <span title="De-light albedo textures to extract true material colors" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                  <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
-                </span>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={removeLighting}
-                onClick={() => {
-                  const next = !removeLighting;
-                  setRemoveLighting(next);
-                  setGenerationSettings((prev) => ({ ...prev, removeBackground: next }));
-                }}
-                className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer ${
-                  removeLighting ? 'bg-[#6366F1]' : 'bg-white/15'
-                }`}
-              >
-                <div
-                  className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
-                    removeLighting ? 'translate-x-3.5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Toggle 5: PBR */}
-            <div className="flex items-center justify-between py-0.5">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-zinc-200 font-medium">PBR</span>
-                <span title="Generate physically based roughness, metallic and normal maps" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                  <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
-                </span>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={enablePbr}
-                onClick={() => {
-                  const next = !enablePbr;
-                  setEnablePbr(next);
-                  setGenerationSettings((prev) => ({ ...prev, highResolutionNormalBaking: next }));
-                }}
-                className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer ${
-                  enablePbr ? 'bg-[#6366F1]' : 'bg-white/15'
-                }`}
-              >
-                <div
-                  className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
-                    enablePbr ? 'translate-x-3.5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Topology Mode: Quad / Triangle (Controlled by Post-Processing) */}
-            <div className={`space-y-1 pt-0.5 transition-all duration-200`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-zinc-300 font-medium">Topology</span>
-                  <span title="Target mesh face topology structure (requires Post-Processing)" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                    <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
-                {modelSupportsQuad ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTopologyMode('Quad');
-                      setGenerationSettings((prev) => ({ ...prev, quadTopology: true, topologyMode: 'quad' }));
-                    }}
-                    className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                      topologyMode === 'Quad'
-                        ? 'bg-[#3b3577] text-white border border-[#6366F1] shadow-sm'
-                        : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-                    }`}
-                  >
-                    <span className="text-[11px]">▢</span>
-                    <span>Quad</span>
-                  </button>
-                ) : (
-                  <div
-                    title="Quad topology is not natively supported by this model"
-                    className="h-6.5 rounded-lg text-[11px] font-medium text-zinc-500 bg-white/[0.02] border border-white/[0.04] flex items-center justify-center cursor-not-allowed opacity-50"
-                  >
-                    <span>Triangle Only</span>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTopologyMode('Triangle');
-                    setGenerationSettings((prev) => ({ ...prev, quadTopology: false, topologyMode: 'triangle' }));
-                  }}
-                  className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    topologyMode === 'Triangle'
-                      ? 'bg-[#3b3577] text-white border border-[#6366F1] shadow-sm'
-                      : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-                  }`}
-                >
-                  <span className="text-[11px]">△</span>
-                  <span>Triangle</span>
-                </button>
-                </div>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
 
       {/* 4. AI Model Section */}
       <div className="border-t border-[hsl(var(--border))] pt-2 space-y-1" ref={modelDropdownRef}>
@@ -1280,26 +1118,51 @@ export const GeneratePanel: React.FC = () => {
                   {modelsLoading ? 'Checking model weights...' : 'No models with downloaded weights found. Use Manager to download weights.'}
                 </div>
               ) : (
-                meshModels.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    role="option"
-                    aria-selected={selectedModel === m.id}
-                    onClick={() => handleModelSelect(m.id)}
-                    className={`w-full text-left px-2 py-1.5 rounded-lg text-[11px] transition-all cursor-pointer flex items-center justify-between ${
-                      selectedModel === m.id
-                        ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
-                        : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
-                    }`}
-                  >
-                    <div className="min-w-0 pr-1">
-                      <span className="block font-semibold truncate leading-tight">{m.label}</span>
-                      <span className="text-[9px] opacity-70 block truncate leading-tight">{m.note}</span>
-                    </div>
-                    <span className="text-[9px] font-mono opacity-65 flex-shrink-0">{m.tag}</span>
-                  </button>
-                ))
+                meshModels.map((m) => {
+                  const capability = getNativeTargetCapability(m.id);
+                  const capabilityColors: Record<NativeTargetCapability, string> = {
+                    NATIVE_EXACT_TARGET: 'text-emerald-400',
+                    NATIVE_TARGET_APPROXIMATE: 'text-emerald-300',
+                    NATIVE_MAX_LIMIT: 'text-amber-400',
+                    NATIVE_INDIRECT_CONTROL: 'text-[#6366F1]',
+                    UNSUPPORTED: 'text-rose-400',
+                    UNVERIFIED: 'text-zinc-400',
+                  };
+                  const capabilityLabels: Record<NativeTargetCapability, string> = {
+                    NATIVE_EXACT_TARGET: 'Exact',
+                    NATIVE_TARGET_APPROXIMATE: 'Approx',
+                    NATIVE_MAX_LIMIT: 'Max Limit',
+                    NATIVE_INDIRECT_CONTROL: 'Indirect',
+                    UNSUPPORTED: 'Unsupported',
+                    UNVERIFIED: 'Unverified',
+                  };
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      role="option"
+                      aria-selected={selectedModel === m.id}
+                      onClick={() => handleModelSelect(m.id)}
+                      className={`w-full text-left px-2 py-1.5 rounded-lg text-[11px] transition-all cursor-pointer flex items-center justify-between ${
+                        selectedModel === m.id
+                          ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
+                          : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      <div className="min-w-0 pr-1 flex items-center gap-1.5">
+                        <span className="block font-semibold truncate leading-tight">{m.label}</span>
+                        <span className="text-[9px] opacity-70 block truncate leading-tight">{m.note}</span>
+                        <span
+                          className={`px-1.5 py-0.5 text-[8px] font-mono rounded ${capabilityColors[capability.capability]}`}
+                          title={capability.semantics}
+                        >
+                          {capabilityLabels[capability.capability]}
+                        </span>
+                      </div>
+                      <span className="text-[9px] font-mono opacity-65 flex-shrink-0">{m.tag}</span>
+                    </button>
+                  );
+                })
               )}
             </div>
           )}
@@ -1407,7 +1270,7 @@ export const GeneratePanel: React.FC = () => {
         </div>
         <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
           <div className="relative flex-1 flex items-center min-w-0">
-            <span className="text-xs pl-2 pr-1 text-zinc-200 select-none">🎲</span>
+            <Dices className="w-3.5 h-3.5 text-zinc-400 ml-2 mr-1 flex-shrink-0" />
             <input
               type="number"
               placeholder="Random (or 123456)"
@@ -1443,55 +1306,43 @@ export const GeneratePanel: React.FC = () => {
 
       {/* 5. Bottom Action CTA Button & Execution Progress (Pinned, Never Clipped) */}
       <div className="p-2.5 pt-2 border-t border-white/[0.06] bg-[hsl(var(--surface-1))] flex-shrink-0 space-y-2">
-        {/* Progress bar (only when executing) */}
+        {/* Execution progress — single source of truth from useWorkspace; no duplicated state here. */}
         {isExecuting && (
-          <div className="p-3 rounded-2xl bg-[#141524] border border-[#F9CF00]/30 shadow-xl space-y-2.5 animate-in fade-in">
-            {/* Live Progress Header */}
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2 min-w-0 pr-2">
-                <div className="w-4 h-4 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
-                <span className="font-semibold text-white truncate text-[11px]">
-                  {executionStep || 'Generating 3D model...'}
-                </span>
-              </div>
-              <span className="font-mono font-bold text-[#F9CF00] text-xs flex-shrink-0">
-                {Math.round(executionProgress)}%
-              </span>
-            </div>
-
-            {/* Progress Bar Track */}
-            <div className="w-full h-2 rounded-full bg-black/40 overflow-hidden border border-white/10">
-              <div
-                className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-300 rounded-full"
-                style={{ width: `${Math.max(4, Math.min(100, Math.round(executionProgress)))}%` }}
-              />
-            </div>
+          <div className="p-3 rounded-2xl bg-[#141524] border border-[#F9CF00]/30 shadow-xl space-y-2 animate-in fade-in">
+            <JobProgressStage
+              label={executionStep || 'Generating 3D model...'}
+              status={executionStatus === 'completed' ? 'completed' : executionStatus === 'failed' || executionStatus === 'interrupted' ? 'error' : 'loading'}
+            />
+            <JobProgressBar
+              progress={executionProgress}
+              label={executionStep || 'Generating 3D model...'}
+              status={executionStatus === 'completed' ? 'completed' : executionStatus === 'failed' || executionStatus === 'interrupted' ? 'error' : 'loading'}
+            />
           </div>
         )}
 
-        {/* Generate / Cancel Button — always in same position, state clearly changes */}
-        <button
-          type="button"
-          onClick={isExecuting ? handleCancel : handleGenerate}
-          disabled={!generationSettings.image && !imagePreview}
-          className={`w-full h-8 rounded-full font-semibold text-xs flex items-center justify-center gap-2 shadow-lg active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-            isExecuting
-              ? 'bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300'
-              : 'bg-[#F9CF00] hover:bg-[#ffdb29] text-black shadow-[#F9CF00]/15'
-          }`}
-        >
-          {isExecuting ? (
-            <>
-              <HugeiconsIcon icon={Cancel} size={14} className="text-[#F9CF00]" />
-              <span>Cancel Generation</span>
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-4 h-4 text-black" />
-              <span>Generate Model</span>
-            </>
-          )}
-        </button>
+        {/* Action CTAs: Generate/Cancel toggle + Export sibling — layout-stable glow buttons. */}
+        <div className="flex items-center gap-2">
+          <GlowButton
+            type="button"
+            variant={isExecuting ? 'cancel' : 'keep'}
+            size="md"
+            loading={isExecuting}
+            disabled={!generationSettings.image && !imagePreview}
+            onClick={isExecuting ? handleCancel : handleGenerate}
+            title={isExecuting ? 'Cancel the in-flight generation' : 'Generate 3D model from the uploaded image'}>
+            {isExecuting ? 'Cancel Generation' : 'Generate Model'}
+          </GlowButton>
+          <GlowButton
+            type="button"
+            variant="export"
+            size="md"
+            disabled={isExecuting || !generationSettings.image && !imagePreview}
+            onClick={() => setIsExportModalOpen(true)}
+            title="Export the generated mesh to a file">
+            Export
+          </GlowButton>
+        </div>
       </div>
     </div>
   );

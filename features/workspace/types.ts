@@ -4,7 +4,7 @@ import { getApiClient } from '@/services/apiClient';
 import { validate3DFile } from './lib/fileValidation';
 import { requireUploadFileId } from './lib/uploadResponse';
 
-export type WorkspaceExecutionState = 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'interrupted';
+export type WorkspaceExecutionState = 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'interrupted' | 'cancelled';
 export type WorkspacePersistenceState = 'not_saved' | 'saving' | 'saved' | 'save_failed' | 'discarded';
 
 export interface WorkspaceVersionItem {
@@ -49,7 +49,7 @@ export interface ActiveTask {
   inputImage?: string;
   inputImageName?: string;
   startedAt: number;
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'interrupted';
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'interrupted' | 'cancelled';
   progress: number; // 0 to 100
   currentStep: string;
   stage?: string;
@@ -90,8 +90,13 @@ export interface ModelAsset {
   id: string;
   workspace_id?: string;
   operation_id?: string;
+  operation_type?: string;
   version?: string;
   is_base_mesh?: boolean;
+  /** The asset this was derived from (input asset for operations). */
+  sourceAssetId?: string;
+  /** Snapshot of the settings used to produce this derived asset. */
+  settingsSnapshot?: Record<string, any>;
   fileId?: string;
   name: string;
   category: 'all' | 'mesh' | 'texture' | 'generation' | 'edit';
@@ -105,6 +110,10 @@ export interface ModelAsset {
   faces: number;
   vertices: number;
   triangles: number;
+  /** Requested target triangle count from the generation job (independent of the measured actual). */
+  requestedTriangles?: number;
+  /** Raw triangle count measured from the generated mesh (never inferred from requested). */
+  actualTriangles?: number;
   statsAvailable?: boolean;
   topology: 'Triangle' | 'Quad' | 'Adaptive';
   format: 'GLB' | 'GLTF' | 'OBJ' | 'PLY' | 'FBX' | 'STL' | 'IMAGE' | 'FILE';
@@ -257,6 +266,7 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
     id: String(raw.asset_id || raw.id || `asset-${Date.now()}`),
     workspace_id: raw.workspace_id || raw.workspaceId,
     operation_id: raw.operation_id || raw.operationId,
+    operation_type: raw.operation_type || raw.operationType || undefined,
     name: String(raw.name || '3D Model'),
     category: raw.category || 'mesh',
     thumbnail: raw.thumbnail || raw.thumbnail_url || '',
@@ -265,6 +275,8 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
     faces: hasStats ? Number(polyCount) : 0,
     vertices: hasStats ? Number(vertCount) : 0,
     triangles: hasStats ? Number(polyCount) : 0,
+    requestedTriangles: raw.requestedTriangles ?? raw.requested_triangles ?? undefined,
+    actualTriangles: raw.actualTriangles ?? raw.actual_triangles ?? undefined,
     statsAvailable: hasStats,
     topology: raw.topology || 'Triangle',
     format: raw.format || 'GLB',

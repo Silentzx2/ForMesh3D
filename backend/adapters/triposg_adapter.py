@@ -120,9 +120,8 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
             or 0
         )
         faces = int(inputs.get("faces", -1))
-        if native_target_polycount > 0:
-            faces = native_target_polycount
-            logger.info("TripoSG received native_target_polycount=%d, mapped to faces parameter", native_target_polycount)
+        # native_target_polycount is read for honest requested-vs-actual reporting only.
+        # It is NOT applied as a count-forcing post-process (Part I §7, Batch 2.2/2.5).
         remesh_option = str(inputs.get("remesh_option", "none") or "none").strip().lower()
 
         from scripts.inference_triposg import run_triposg
@@ -154,15 +153,6 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
 
         if not isinstance(mesh, trimesh.Trimesh):
             mesh = trimesh.Trimesh(vertices=mesh.vertices, faces=mesh.faces, process=False)
-
-        # Apply target polycount directly: if user requested target higher than upstream faces limit, subdivide
-        face_count = len(mesh.faces) if hasattr(mesh, "faces") else 0
-        target_budget = min(600_000, native_target_polycount) if native_target_polycount > 0 else 0
-        if target_budget > 0 and face_count > 0 and target_budget > face_count:
-            while len(mesh.faces) * 2 <= target_budget:
-                mesh = mesh.subdivide()
-                if len(mesh.faces) >= target_budget:
-                    break
 
         out = Path(tempfile.mkdtemp()) / f"triposg_{seed}.glb"
         mesh.export(str(out))

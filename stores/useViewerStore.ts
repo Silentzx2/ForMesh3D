@@ -78,6 +78,13 @@ interface ViewerState {
   executionState: WorkspaceExecutionState;
   persistenceState: WorkspacePersistenceState;
 
+  // Explicit mesh selection / viewer loading state machine (Part II §14.7).
+  // States: idle | selecting | verifying | loading | ready | error
+  assetSelectionState: 'idle' | 'selecting' | 'verifying' | 'loading' | 'ready' | 'error';
+  assetLoadError: string | null;
+  // Stale-response guard: only the most recent selection request may commit.
+  selectionRequestId: number;
+
   setLoadedModel: (url: string | null, name?: string | null, asset?: AssetItem | null) => void;
   setSelectedAsset: (asset: AssetItem | null) => void;
   setModelStats: (stats: ModelMeshStats | null) => void;
@@ -94,6 +101,12 @@ interface ViewerState {
   setActiveMeshAssetId: (assetId: string | null) => void;
   setExecutionState: (executionState: WorkspaceExecutionState) => void;
   setPersistenceState: (persistenceState: WorkspacePersistenceState) => void;
+  // Explicit transitions through the selection/viewer loading lifecycle.
+  requestAssetSelection: (asset: AssetItem | null) => void;
+  verifyAsset: (requestId: number) => void;
+  beginAssetLoad: (requestId: number) => void;
+  completeAssetLoad: (requestId: number, url: string, name: string | null, stats: ModelMeshStats | null) => void;
+  failAssetLoad: (requestId: number, error: string) => void;
   activeModelObject: THREE.Object3D | null;
   setActiveModelObject: (obj: THREE.Object3D | null) => void;
 }
@@ -115,12 +128,70 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   activeMeshAssetId: null,
   executionState: 'idle',
   persistenceState: 'not_saved',
+  // Mesh selection / viewer loading state machine initial values.
+  assetSelectionState: 'idle',
+  assetLoadError: null,
+  selectionRequestId: 0,
   activeModelObject: null,
   setActiveModelObject: (obj) => set({ activeModelObject: obj }),
   setWorkspaceId: (workspaceId) => set({ workspaceId }),
   setActiveMeshAssetId: (activeMeshAssetId) => set({ activeMeshAssetId }),
   setExecutionState: (executionState) => set({ executionState }),
   setPersistenceState: (persistenceState) => set({ persistenceState }),
+
+  // Request a new mesh selection. Starts the selection request counter so that
+  // slow earlier responses cannot overwrite a newer user selection (§14.7).
+  requestAssetSelection: (asset) => {
+    const nextId = (get().selectionRequestId || 0) + 1;
+    set({
+      selectionRequestId: nextId,
+      assetSelectionState: asset ? 'selecting' : 'idle',
+      assetLoadError: null,
+    });
+    return nextId;
+  },
+
+  // Verify the selected asset before loading. Only the most recent request may proceed.
+  verifyAsset: (requestId) => {
+    const state = get();
+    if (state.selectionRequestId !== requestId) return; // stale request; ignore
+    if (!state.selectedAsset) {
+      set({ assetSelectionState: 'idle' });
+      return;
+    }
+    set({ assetSelectionState: 'verifying' });
+  },
+
+  // Begin loading the verified asset into the viewer.
+  beginAssetLoad: (requestId) => {
+    const state = get();
+    if (state.selectionRequestId !== requestId) return; // stale request; ignore
+    set({ assetSelectionState: 'loading', assetLoadError: null });
+  },
+
+  // Commit a successful asset load. Only the most recent request may commit.
+  completeAssetLoad: (requestId, url, name, stats) => {
+    const state = get();
+    if (state.selectionRequestId !== requestId) return; // stale request; ignore
+    set({
+      loadedModelUrl: url,
+      loadedModelName: name,
+      modelStats: stats ?? null,
+      assetSelectionState: 'ready',
+      assetLoadError: null,
+    });
+  },
+
+  // Record a load failure while keeping the last valid selection visible.
+  failAssetLoad: (requestId, error) => {
+    const state = get();
+    if (state.selectionRequestId !== requestId) return; // stale request; ignore
+    set({
+      assetSelectionState: 'error',
+      assetLoadError: error,
+      // Do not clear loadedModelUrl / modelStats: keep last valid mesh visible.
+    });
+  },
 
   setLoadedModel: (url, name = null, asset = null) => {
     const prev = get().loadedModelUrl;

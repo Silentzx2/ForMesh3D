@@ -730,9 +730,14 @@ GET /api/v1/system/jobs/{job_id}
   "stage": "inference",
   "progress": 0.45,
   "output_path": null,
-  "error": null
+  "error": null,
+  "requested_triangles": 200000,
+  "actual_triangles": 184320
 }
 ```
+
+- `requested_triangles`: the user's requested triangle budget (independent of measured actual). `null` when no explicit target was set.
+- `actual_triangles`: measured triangle count from the generated GLB on disk (independent of the requested value). `null` until output exists or if the mesh could not be measured.
 
 ### Cancel Job
 

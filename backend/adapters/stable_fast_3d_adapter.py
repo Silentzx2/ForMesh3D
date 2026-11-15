@@ -245,9 +245,8 @@ class StableFast3DAdapter(BaseModel):
                 or 0
             )
             target_vertex_count = int(inputs.get("target_vertex_count", -1))
-            if target_vertex_count <= 0 and native_target_polycount > 0:
-                # Approximate vertex count budget from target triangle face count
-                target_vertex_count = max(100, native_target_polycount // 2)
+            # native_target_polycount is read for honest requested-vs-actual reporting only.
+            # It is NOT converted into a vertex budget / count-forcing post-process (Part I §7, Batch 2.2/2.5).
         except (TypeError, ValueError) as exc:
             raise ValueError(
                 "SF3D seed, texture_resolution, native_target_polycount, and target_vertex_count must be integers"
@@ -404,17 +403,6 @@ class StableFast3DAdapter(BaseModel):
         if not texture_enabled:
             import trimesh
             mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh)
-
-        # Direct polycount refinement: if user requested target polycount higher than
-        # native extracted triangles, apply direct subdivision to reach target density
-        if native_target_polycount > 0 and len(mesh.faces) > 0 and native_target_polycount > len(mesh.faces):
-            target_faces = min(600_000, native_target_polycount)
-            while len(mesh.faces) < target_faces:
-                if len(mesh.faces) * 2 > target_faces and len(mesh.faces) >= (target_faces * 0.7):
-                    break
-                mesh = mesh.subdivide()
-                if len(mesh.faces) >= target_faces:
-                    break
 
         vertices = getattr(mesh, "vertices", None)
         faces = getattr(mesh, "faces", None)

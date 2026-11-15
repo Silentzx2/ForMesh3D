@@ -140,14 +140,35 @@ function getUVCheckerTexture(): THREE.CanvasTexture {
   return sharedUVCheckerTexture!;
 }
 
+const disposeMaterialTextures = (m: any) => {
+  if (!m) return;
+  const textureKeys = [
+    'map', 'normalMap', 'roughnessMap', 'metalnessMap',
+    'aoMap', 'emissiveMap', 'lightMap', 'alphaMap',
+    'bumpMap', 'displacementMap'
+  ];
+  for (const k of textureKeys) {
+    if (m[k] && typeof m[k].dispose === 'function') {
+      m[k].dispose();
+    }
+  }
+};
+
 const disposeObject3D = (obj: THREE.Object3D) => {
   obj.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       child.geometry?.dispose();
       const orig = child.userData?.__originalMaterial;
       if (orig) {
-        if (Array.isArray(orig)) orig.forEach((m) => m?.dispose?.());
-        else orig?.dispose?.();
+        if (Array.isArray(orig)) {
+          orig.forEach((m) => {
+            disposeMaterialTextures(m);
+            m?.dispose?.();
+          });
+        } else {
+          disposeMaterialTextures(orig);
+          orig?.dispose?.();
+        }
       }
       const helperMats = [
         child.userData?.__clayMaterial,
@@ -157,11 +178,18 @@ const disposeObject3D = (obj: THREE.Object3D) => {
         child.userData?.__wireMaterial,
         child.userData?.__uvCheckerMaterial,
       ];
-      helperMats.forEach((m) => m?.dispose?.());
+      helperMats.forEach((m) => {
+        disposeMaterialTextures(m);
+        m?.dispose?.();
+      });
       if (child.material && child.material !== orig && !helperMats.includes(child.material)) {
         if (Array.isArray(child.material)) {
-          child.material.forEach((m) => m?.dispose?.());
+          child.material.forEach((m) => {
+            disposeMaterialTextures(m);
+            m?.dispose?.();
+          });
         } else {
+          disposeMaterialTextures(child.material);
           child.material?.dispose?.();
         }
       }
@@ -216,7 +244,18 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const [modelLoadStatus, setModelLoadStatus] = useState<'empty' | 'loading' | 'loaded' | 'error'>('empty');
   const [hasModel, setHasModel] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
   const [isComparisonLoading, setIsComparisonLoading] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const handler = () => setReducedMotion(mq.matches);
+    handler();
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
   const comparisonOpenRef = useRef(false);
   const comparisonPositionRef = useRef(50);
   const comparisonBeforeGroupRef = useRef<THREE.Group | null>(null);
@@ -269,7 +308,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       powerPreference: 'high-performance',
     });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.0;
@@ -296,8 +335,8 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     const keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
     keyLight.position.set(3, 5, 4);
     keyLight.castShadow = true;
-    keyLight.shadow.mapSize.width = 2048;
-    keyLight.shadow.mapSize.height = 2048;
+    keyLight.shadow.mapSize.width = 1024;
+    keyLight.shadow.mapSize.height = 1024;
     keyLight.shadow.bias = -0.0005;
     keyLight.shadow.normalBias = 0.02;
     keyLightRef.current = keyLight;
@@ -736,59 +775,9 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     const orig = mesh.userData.__originalMaterial;
     if (!orig) return;
 
-    if (mode === 'normals' || mode === 'matcap-normal') {
-      if (!mesh.userData.__normalMaterial) {
-        mesh.userData.__normalMaterial = new THREE.MeshNormalMaterial({
-          wireframe: Boolean(wireframe),
-        });
-      }
-      mesh.userData.__normalMaterial.wireframe = Boolean(wireframe);
-      mesh.material = mesh.userData.__normalMaterial;
-    } else if (mode === 'clay') {
-      if (!mesh.userData.__clayMaterial) {
-        mesh.userData.__clayMaterial = new THREE.MeshStandardMaterial({
-          color: 0xb0b3b8,
-          roughness: 0.85,
-          metalness: 0.05,
-          wireframe: Boolean(wireframe),
-        });
-      }
-      mesh.userData.__clayMaterial.wireframe = Boolean(wireframe);
-      mesh.material = mesh.userData.__clayMaterial;
-    } else if (mode === 'matcap-gold') {
-      if (!mesh.userData.__goldMaterial) {
-        mesh.userData.__goldMaterial = new THREE.MeshStandardMaterial({
-          color: 0xffd700,
-          roughness: 0.25,
-          metalness: 0.85,
-          wireframe: Boolean(wireframe),
-        });
-      }
-      mesh.userData.__goldMaterial.wireframe = Boolean(wireframe);
-      mesh.material = mesh.userData.__goldMaterial;
-    } else if (mode === 'matcap-chrome') {
-      if (!mesh.userData.__chromeMaterial) {
-        mesh.userData.__chromeMaterial = new THREE.MeshStandardMaterial({
-          color: 0xffffff,
-          roughness: 0.05,
-          metalness: 0.98,
-          wireframe: Boolean(wireframe),
-        });
-      }
-      mesh.userData.__chromeMaterial.wireframe = Boolean(wireframe);
-      mesh.material = mesh.userData.__chromeMaterial;
-    } else if (mode === 'uv-checker') {
-      if (!mesh.userData.__uvCheckerMaterial) {
-        mesh.userData.__uvCheckerMaterial = new THREE.MeshStandardMaterial({
-          map: getUVCheckerTexture(),
-          roughness: 0.4,
-          metalness: 0.05,
-          wireframe: Boolean(wireframe),
-        });
-      }
-      mesh.userData.__uvCheckerMaterial.wireframe = Boolean(wireframe);
-      mesh.material = mesh.userData.__uvCheckerMaterial;
-    } else if (mode === 'wireframe') {
+    // Instant zero-lag wireframe: use pre-compiled unlit MeshBasicMaterial.
+    // Avoids re-compiling heavy PBR/Standard shaders at 1M faces (no main-thread freeze).
+    if (wireframe || mode === 'wireframe') {
       if (!mesh.userData.__wireMaterial) {
         mesh.userData.__wireMaterial = new THREE.MeshBasicMaterial({
           color: 0x00ffcc,
@@ -796,18 +785,55 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         });
       }
       mesh.material = mesh.userData.__wireMaterial;
+      return;
+    }
+
+    if (mode === 'normals' || mode === 'matcap-normal') {
+      if (!mesh.userData.__normalMaterial) {
+        mesh.userData.__normalMaterial = new THREE.MeshNormalMaterial({ wireframe: false });
+      }
+      mesh.material = mesh.userData.__normalMaterial;
+    } else if (mode === 'clay') {
+      if (!mesh.userData.__clayMaterial) {
+        mesh.userData.__clayMaterial = new THREE.MeshStandardMaterial({
+          color: 0xb0b3b8,
+          roughness: 0.85,
+          metalness: 0.05,
+        });
+      }
+      mesh.material = mesh.userData.__clayMaterial;
+    } else if (mode === 'matcap-gold') {
+      if (!mesh.userData.__goldMaterial) {
+        mesh.userData.__goldMaterial = new THREE.MeshStandardMaterial({
+          color: 0xffd700,
+          roughness: 0.25,
+          metalness: 0.85,
+        });
+      }
+      mesh.material = mesh.userData.__goldMaterial;
+    } else if (mode === 'matcap-chrome') {
+      if (!mesh.userData.__chromeMaterial) {
+        mesh.userData.__chromeMaterial = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.05,
+          metalness: 0.98,
+        });
+      }
+      mesh.material = mesh.userData.__chromeMaterial;
+    } else if (mode === 'uv-checker') {
+      if (!mesh.userData.__uvCheckerMaterial) {
+        mesh.userData.__uvCheckerMaterial = new THREE.MeshStandardMaterial({
+          map: getUVCheckerTexture(),
+          roughness: 0.4,
+          metalness: 0.05,
+        });
+      }
+      mesh.material = mesh.userData.__uvCheckerMaterial;
     } else {
       // 'textured' or default
       mesh.material = orig;
-      const mats = Array.isArray(orig) ? orig : [orig];
-      mats.forEach((m) => {
-        if ('wireframe' in m) {
-          m.wireframe = Boolean(wireframe);
-          m.needsUpdate = true;
-        }
-      });
     }
-  }, []);
+  }, [getUVCheckerTexture]);
 
   const effectiveShadingMode: ShadingMode =
     shadingMode === 'uv-checker' || (activeTool === 'uv' && (shadingMode === 'textured' || !shadingMode))
@@ -822,6 +848,9 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         }
       });
     });
+    if (keyLightRef.current) {
+      keyLightRef.current.castShadow = !showWireframe;
+    }
   }, [showWireframe, effectiveShadingMode, applyShadingToMesh]);
 
   // 3. Reset Camera / Fit to screen helper
@@ -977,8 +1006,15 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         original.scale.setScalar(scale);
         original.traverse((child) => {
           if (child instanceof THREE.Mesh) {
-            child.castShadow = true;
+            const triCount = child.geometry?.index
+              ? child.geometry.index.count / 3
+              : (child.geometry?.attributes?.position?.count || 0) / 3;
+            // High-density meshes (>800k tris) bypass shadow-map rasterization to preserve 60 FPS
+            child.castShadow = triCount < 800_000;
             child.receiveShadow = true;
+            child.frustumCulled = true;
+            child.matrixAutoUpdate = false;
+            child.updateMatrix();
             applyShadingToMesh(child, shadingModeRef.current, Boolean(showWireframeRef.current));
           }
         });
@@ -1071,11 +1107,20 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       object.position.y += (size.y * scale) / 2;
       object.scale.setScalar(scale);
 
-      // Enable shadows, cache original materials, and apply active shading mode cleanly
+      const hasAnimations = Boolean(animations && animations.length > 0);
       object.traverse((child) => {
         if (child instanceof THREE.Mesh) {
-          child.castShadow = true;
+          const triCount = child.geometry?.index
+            ? child.geometry.index.count / 3
+            : (child.geometry?.attributes?.position?.count || 0) / 3;
+          // Ultra-dense meshes (>800k tris) bypass shadow-map rasterization to preserve 60 FPS
+          child.castShadow = triCount < 800_000;
           child.receiveShadow = true;
+          child.frustumCulled = true;
+          if (!hasAnimations) {
+            child.matrixAutoUpdate = false;
+            child.updateMatrix();
+          }
           applyShadingToMesh(child, shadingModeRef.current, Boolean(showWireframeRef.current));
         }
       });
@@ -1107,6 +1152,13 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         setLoadError(msg);
       }
     };
+
+    // Retry: fresh abort controller, reset to loading, re-run the loader effect.
+    const handleRetryLoad = useCallback(() => {
+      setRetryKey((k) => k + 1);
+      setLoadError(null);
+      setModelLoadStatus('loading');
+    }, []);
 
     // Load by format
     if (format === 'glb' || format === 'gltf') {
@@ -1195,7 +1247,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       isCancelled = true;
       abortController.abort();
     };
-  }, [modelUrl, assetFormat, fitCameraToModel, applyShadingToMesh]);
+  }, [modelUrl, assetFormat, fitCameraToModel, applyShadingToMesh, retryKey]);
 
   // 6. Highlight hovered part in main viewer (top-level hook — never nested inside another hook)
   useEffect(() => {
@@ -1360,8 +1412,16 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
       {viewportStatus === 'loading' && (
         <div role="status" aria-live="polite" className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
-          <div className="rounded-lg border border-white/10 bg-black/60 px-3 py-2 text-xs text-zinc-200">
-            Loading 3D model…
+          <div className="w-full max-w-xs mx-auto rounded-lg border border-white/10 bg-black/60 p-4 shadow-[0_0_24px_rgba(0,0,0,0.6)]">
+            <div className="flex flex-col items-center gap-4 mb-3">
+              <HugeiconsIcon icon={SparklesIcon} size={26} className="text-[#F9CF00] drop-shadow-[0_0_10px_rgba(249,207,0,0.5)]" />
+              <span className={`text-xs font-mono text-zinc-200 ${reducedMotion ? '' : 'animate-pulse'}`}>Loading 3D model…</span>
+            </div>
+            <div className="flex flex-col gap-2">
+              <div className={`h-2 w-2/3 rounded-full bg-white/10 ${reducedMotion ? '' : 'animate-pulse'}`} />
+              <div className={`h-1.5 w-1/2 rounded-full bg-white/10 ${reducedMotion ? '' : 'animate-pulse'}`} />
+              <div className={`h-2 w-3/4 rounded-full bg-white/10 ${reducedMotion ? '' : 'animate-pulse'}`} />
+            </div>
           </div>
         </div>
       )}
@@ -1444,10 +1504,21 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         </div>
       )}
 
-      {/* Error Toast */}
+      {/* Error Card — retry button */}
       {viewportStatus === 'error' && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-xl bg-red-950/90 border border-red-500/30 text-red-200 text-xs shadow-xl backdrop-blur-md">
-          {loadError}
+        <div role="alert" className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 px-4 py-3 rounded-xl bg-red-950/90 border border-red-500/30 text-red-200 shadow-xl backdrop-blur-md text-xs leading-relaxed">
+          <div className="flex items-start gap-2">
+            <span>{loadError ?? 'Failed to load 3D model'}</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleRetryLoad}
+            aria-label="Retry loading model"
+            className="mt-2.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F8FAFC] text-[#080808] text-[10px] font-semibold cursor-pointer transition-colors duration-200 hover:bg-[#F8FAFC]/90 focus-visible:ring-2 focus-visible:ring-[#000]"
+          >
+            <HugeiconsIcon icon={RefreshCw} size={14} className="text-[#080808]" />
+            <span>Retry</span>
+          </button>
         </div>
       )}
     </div>

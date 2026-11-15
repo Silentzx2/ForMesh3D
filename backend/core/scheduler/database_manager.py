@@ -226,6 +226,17 @@ class DatabaseManager:
         """
         self._backup_database_if_exists()
         Base.metadata.create_all(bind=self.engine)
+        # Idempotent column additions for existing databases (create_all won't
+        # alter tables). SQLite returns "duplicate column name" if already present.
+        with self.get_session() as session:
+            for column_def in (
+                "ALTER TABLE assets ADD COLUMN operation_type VARCHAR(32)",
+            ):
+                try:
+                    session.execute(text(column_def))
+                    session.commit()
+                except Exception:
+                    session.rollback()
 
     @contextmanager
     def get_session(self):
@@ -825,6 +836,33 @@ class DatabaseManager:
             session.commit()
             return True
 
+    def list_workspaces_by_asset_and_model(
+        self, source_asset_id: str, model_preference: str
+    ) -> List[WorkspaceModel]:
+        """Find workspaces for an image asset using the same model (identity match).
+
+        Part II §13.1: same source image + same model reuses the workspace.
+        Settings changes alone do not create a new route.
+        """
+        with self.get_session() as session:
+            rows = (
+                session.query(WorkspaceModel)
+                .filter_by(source_asset_id=source_asset_id)
+                .order_by(WorkspaceModel.created_at.desc())
+                .all()
+            )
+            matches: List[WorkspaceModel] = []
+            for ws in rows:
+                settings = {}
+                if ws.settings_json:
+                    try:
+                        settings = json.loads(ws.settings_json)
+                    except (TypeError, ValueError):
+                        settings = {}
+                if settings.get("model_preference") == model_preference:
+                    matches.append(ws)
+            return matches
+
     def add_asset(
         self,
         asset_id: str,
@@ -1308,6 +1346,7 @@ class DatabaseManager:
                     asset_id=asset_id,
                     workspace_id=op.workspace_id,
                     operation_id=operation_id,
+                    operation_type=op.operation_type,
                     file_type="mesh",
                     relative_path=published["relative_mesh_path"],
                     original_filename=mesh_file.name,

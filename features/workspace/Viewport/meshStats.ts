@@ -53,6 +53,16 @@ function countUniqueGeometryEdges(geometry: THREE.BufferGeometry): number | null
 }
 
 /**
+ * Counts triangles in one geometry from its index array, or position
+ * component count / 3 when the geometry is non-indexed.
+ */
+export function countGeometryTriangles(geometry: THREE.BufferGeometry): number {
+  const position = geometry.getAttribute('position');
+  if (!position) return 0;
+  return Math.floor((geometry.getIndex()?.count ?? position.count) / 3);
+}
+
+/**
  * Read mesh statistics from the loaded Three.js scene before MeshViewer
  * recenters/scales it for presentation.
  */
@@ -85,7 +95,7 @@ export function collectMeshStats(object: THREE.Object3D): ModelMeshStats | null 
     const position = geometry.getAttribute('position');
     if (!position || instances <= 0) continue;
 
-    const faces = Math.floor((geometry.getIndex()?.count ?? position.count) / 3);
+    const faces = countGeometryTriangles(geometry);
     vertices += position.count * instances;
     triangles += faces * instances;
     totalFaces += faces * instances;

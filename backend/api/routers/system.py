@@ -2384,6 +2384,51 @@ async def download_job_input(
         )
 
 
+def _count_glb_triangles(glb_path: str | Path) -> int | None:
+    """Count triangles in a GLB file without a mesh library.
+
+    Walks the GLB chunks, parses the JSON chunk, and sums
+    ``accessor.count // 3`` over every primitive's indices accessor, falling
+    back to ``POSITION`` vertex count / 3 for non-indexed primitives.
+
+    shortcut: assumes all primitives use TRIANGLES mode; upgrade if
+    non-triangle primitive modes appear in generated assets.
+    """
+    try:
+        data = Path(glb_path).read_bytes()
+    except OSError:
+        return None
+    if len(data) < 20 or data[:4] != b'glTF':
+        return None
+    offset = 12
+    while offset + 8 <= len(data):
+        chunk_len = int.from_bytes(data[offset:offset + 4], 'little')
+        chunk_type = data[offset + 4:offset + 8]
+        offset += 8
+        if offset + chunk_len > len(data):
+            return None
+        if chunk_type != b'JSON\x00':
+            offset += chunk_len
+            continue
+        try:
+            doc = json.loads(data[offset:offset + chunk_len].decode('utf-8'))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        accessors = doc.get('accessors') or []
+        total = 0
+        for mesh in doc.get('meshes') or []:
+            for prim in mesh.get('primitives') or []:
+                indices = prim.get('indices')
+                if indices is not None:
+                    total += int((accessors[indices] or {}).get('count', 0)) // 3
+                else:
+                    pos_attr = (prim.get('attributes') or {}).get('POSITION')
+                    if pos_attr is not None:
+                        total += int((accessors[pos_attr] or {}).get('count', 0)) // 3
+        return total
+    return None
+
+
 @router.get("/jobs/{job_id}/info", summary="Get job result information")
 async def get_job_result_info(job_id: str, request: Request):
     """
@@ -2413,9 +2458,30 @@ async def get_job_result_info(job_id: str, request: Request):
 
         # Get file information
         output_path = first_result_path(result)
+        file_exists = bool(output_path and os.path.exists(output_path))
+
+        # Requested target (from the job's generation parameters) and raw
+        # actual (parsed from the generated GLB on disk) are measured
+        # independently; actual is never derived from requested.
+        requested_triangles = None
+        generation_info = result.get("generation_info")
+        if not isinstance(generation_info, dict):
+            generation_info = {}
+        for source in (result, generation_info, job_status.get("inputs") or {}, job_status.get("parameters") or {}):
+            if not isinstance(source, dict):
+                continue
+            for key in ("target_polycount", "native_target_polycount", "targetPolycount"):
+                value = source.get(key)
+                if isinstance(value, (int, float)) and value > 0:
+                    requested_triangles = int(value)
+                    break
+            if requested_triangles is not None:
+                break
+
+        actual_triangles = _count_glb_triangles(output_path) if file_exists else None
 
         file_info = {}
-        if output_path and os.path.exists(output_path):
+        if file_exists:
             file_stats = os.stat(output_path)
             file_info = {
                 "filename": os.path.basename(output_path),
@@ -2431,6 +2497,10 @@ async def get_job_result_info(job_id: str, request: Request):
             }
         else:
             file_info = {"file_exists": False, "error": "Output file not found"}
+        if requested_triangles is not None:
+            file_info["requested_triangles"] = requested_triangles
+        if actual_triangles is not None:
+            file_info["actual_triangles"] = actual_triangles
 
         return {
             "job_id": job_id,

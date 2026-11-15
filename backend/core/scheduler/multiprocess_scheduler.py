@@ -2379,7 +2379,13 @@ class MultiprocessModelScheduler:
                         _mesh_dir.mkdir(parents=True, exist_ok=True)
                         _dst = _mesh_dir / _src.name
                         if not _dst.exists():
-                            shutil.copy2(str(_src), str(_dst))
+                            try:
+                                from pipelines.mesh_guard import guard_mesh_density
+                                pipe_res = guard_mesh_density(str(_src), str(_dst), max_faces=1_000_000)
+                                if not pipe_res.get("success"):
+                                    shutil.copy2(str(_src), str(_dst))
+                            except Exception:
+                                shutil.copy2(str(_src), str(_dst))
                         final_result["output_mesh_path"] = str(_dst)
                         final_result["mesh_path"] = str(_dst)
                 # The adapter output has now been copied to durable storage.

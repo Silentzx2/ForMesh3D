@@ -284,6 +284,7 @@ class AssetModel(Base):
     asset_id = Column(String(64), primary_key=True)
     workspace_id = Column(String(64), nullable=False, index=True)
     operation_id = Column(String(64), nullable=True, index=True)
+    operation_type = Column(String(32), nullable=True)
     file_type = Column(String(32), nullable=False)
     relative_path = Column(String(512), nullable=False)
     original_filename = Column(String(256), nullable=False)
@@ -304,6 +305,7 @@ class AssetModel(Base):
             "asset_id": self.asset_id,
             "workspace_id": self.workspace_id,
             "operation_id": self.operation_id,
+            "operation_type": self.operation_type,
             "file_type": self.file_type,
             "relative_path": self.relative_path,
             "original_filename": self.original_filename,

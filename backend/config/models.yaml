@@ -24,7 +24,7 @@ image_to_raw_mesh:
       supports_quad_topology: false
       default_topology: Triangle
       min_polycount: 500
-      max_polycount: 600000
+      max_polycount: 1000000
       default_polycount: 50000
       polycount_step: 2500
       output_resolution: 512
@@ -73,7 +73,7 @@ image_to_raw_mesh:
       supports_quad_topology: false
       default_topology: Triangle
       min_polycount: 500
-      max_polycount: 600000
+      max_polycount: 1000000
       default_polycount: 50000
       polycount_step: 2500
       output_resolution: 380
@@ -107,7 +107,7 @@ image_to_raw_mesh:
       supports_quad_topology: false
       default_topology: Triangle
       min_polycount: 500
-      max_polycount: 600000
+      max_polycount: 1000000
       default_polycount: 50000
       polycount_step: 2500
       output_resolution: 1024
@@ -140,7 +140,7 @@ image_to_raw_mesh:
       supports_quad_topology: false
       default_topology: Triangle
       min_polycount: 500
-      max_polycount: 600000
+      max_polycount: 1000000
       default_polycount: 50000
       polycount_step: 2500
       output_resolution: null
@@ -174,7 +174,7 @@ image_to_raw_mesh:
       supports_quad_topology: false
       default_topology: Triangle
       min_polycount: 500
-      max_polycount: 600000
+      max_polycount: 1000000
       default_polycount: 50000
       polycount_step: 2500
       output_resolution: null

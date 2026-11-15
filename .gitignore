@@ -36,7 +36,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
-
+.jcode
 # Logs
 *.log
 logs/

@@ -1,7 +1,7 @@
 # UI Design System & Component Reference
 
-> **Design Version**: 0.3.0
-> **Last Updated**: November 9, 2026
+> **Design Version**: 0.4.0
+> **Last Updated**: November 15, 2026
 > **Design System**: Studio Gold (`#FFCC00`, `48 100% 50%`) on Matte Black (`#080808`)
 
 ---
@@ -215,6 +215,9 @@ Universal motion specifications compatible with `motion/react`:
 
 ### Existing UI Primitives
 - `components/premium/*`: `GlassCard`, `NeonButton`, `Badge`, `StatusDot`, `MetricCard`, `ProgressBar`, `Spinner`.
+- `components/workspace/components/GlowButton.tsx` (NEW): Layout-stable glow button with 5 variants — Keep (Studio Gold #F9CF00), Discard (rose #F43F5E), Regenerate (indigo #6366F1), Cancel (alert #EF4444), Export (download). Resting #A1A1AA → active variant + drop-shadow. Hover: color/shadow only (150-300ms), NO scale/translate. Focus ring visible. Disabled: opacity 50%.
+- `components/workspace/components/JobProgressBar.tsx` (NEW): Determinate 0-100% progress bar + stage text. Consumes `executionProgress`/`executionStep`/`executionStatus` from `useWorkspace` (single source of truth, no duplicated state).
+- `components/workspace/components/JobProgressStage.tsx` (NEW): Label chip + status icon (spinner/check/alert). Status-driven: empty/loading/completed/error.
 
 ### Core Components
 - `components/ui/simple-tooltip.tsx`: Tooltip with configurable position and delay.

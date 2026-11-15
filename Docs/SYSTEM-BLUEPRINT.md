@@ -1,8 +1,8 @@
 # ForMesh3D — System Blueprint
 
-> **System Version**: 0.2.0 (FastAPI + Next.js 16, Python 3.10, GPU Doctor)
+> **System Version**: 0.3.0 (FastAPI + Next.js 16, Python 3.10, GPU Doctor)
 > **Target Deployment**: Single Personal VPS / Workstation (Trusted Local Network)
-> **Last Audited**: November 14, 2026
+> **Last Audited**: November 15, 2026
 > **Context Policy**: Max 250 lines strictly enforced.
 
 ---
