@@ -14,16 +14,15 @@
 3. [System APIs](#system-apis)
 4. [File Upload APIs](#file-upload-apis)
 5. [Mesh Generation APIs](#mesh-generation-apis)
-6. [Mesh Editing APIs](#mesh-editing-apis)
-7. [Auto Rigging APIs](#auto-rigging-apis)
-8. [Motion Generation APIs](#motion-generation-apis)
-9. [Mesh Tools APIs](#mesh-tools-apis)
-10. [Mesh Segmentation APIs](#mesh-segmentation-apis)
-11. [Mesh Retopology APIs](#mesh-retopology-apis)
-12. [Mesh UV Unwrapping APIs](#mesh-uv-unwrapping-apis)
-13. [Users APIs](#users-apis)
-14. [Error Handling](#error-handling)
-15. [Deployment Modes](#deployment-modes)
+6. [Auto Rigging APIs](#auto-rigging-apis)
+7. [Motion Generation APIs](#motion-generation-apis)
+8. [Mesh Tools APIs](#mesh-tools-apis)
+9. [Mesh Segmentation APIs](#mesh-segmentation-apis)
+10. [Mesh Retopology APIs](#mesh-retopology-apis)
+11. [Mesh UV Unwrapping APIs](#mesh-uv-unwrapping-apis)
+12. [Users APIs](#users-apis)
+13. [Error Handling](#error-handling)
+14. [Deployment Modes](#deployment-modes)
 
 ---
 
@@ -421,7 +420,7 @@ DELETE /api/v1/file-upload/{file_id}
 ## Mesh Generation APIs
 
 ```http
-POST /api/v1/mesh-generation/image-to-raw-mesh
+POST /api/v1/generate
 Content-Type: application/json
 
 {
@@ -520,7 +519,7 @@ Discard response (200):
 Generate a 3D mesh from an uploaded image.
 
 ```http
-POST /api/v1/mesh-generation/image-to-raw-mesh
+POST /api/v1/generate
 Content-Type: application/json
 
 {
@@ -622,12 +621,12 @@ The API returns HTTP 202 with `{"api_version": "1", "job_id": "...", "status": "
 - `metadata/asset.json`: Canonical manifest with stage trace and QA scores.
 
 
-### Image-to-Textured Mesh
+### Textured-only Model Generation
 
-Generate a textured 3D mesh from an uploaded image.
+Textured-only geometry models (for example Stable Fast 3D) use the same `/api/v1/generate` endpoint. The selected model's registered feature determines dispatch; the endpoint does not change when the texture toggle is disabled.
 
 ```http
-POST /api/v1/mesh-generation/image-to-textured-mesh
+POST /api/v1/generate
 Content-Type: application/json
 
 {
@@ -643,7 +642,7 @@ Content-Type: application/json
 Generate a UV-unwrapped textured mesh (PBR albedo + normal maps) from a single reference image in one forward pass using Stability AI's Stable Fast 3D (SF3D). SF3D is a complete image→textured-mesh pipeline — mesh and texture are produced together, with no separate texture stage. The model is gated on Hugging Face (`stabilityai/stable-fast-3d`) and requires `HF_TOKEN` with an accepted license before weights can be downloaded.
 
 ```http
-POST /api/v1/mesh-generation/image-to-raw-mesh
+POST /api/v1/generate
 Content-Type: application/json
 
 {
@@ -679,10 +678,10 @@ This returns the textured GLB with embedded albedo and normal maps. The immutabl
 
 ### Text Mesh Painting
 
-Paint textures onto an existing mesh using text prompts.
+Paint textures onto an existing mesh using text prompts. This is the prompt-only form of the unified `/api/v1/texture` request.
 
 ```http
-POST /api/v1/mesh-generation/text-mesh-painting
+POST /api/v1/texture
 Content-Type: application/json
 
 {
@@ -694,10 +693,10 @@ Content-Type: application/json
 
 ### Image Mesh Painting
 
-Paint textures onto an existing mesh using an image reference. The model's internal per-view settings (512/768) are independent from the requested final atlas dimension (1K/2K/4K/8K). RealESRGAN is enabled internally for Hunyuan Paint; there is no separate user-facing toggle.
+Paint textures onto an existing mesh using an image reference. This is the image-guided form of the unified `/api/v1/texture` request. The model's internal per-view settings (512/768) are independent from the requested final atlas dimension (1K/2K/4K/8K). RealESRGAN is enabled internally for Hunyuan Paint; there is no separate user-facing toggle.
 
 ```http
-POST /api/v1/mesh-generation/image-mesh-painting
+POST /api/v1/texture
 Content-Type: application/json
 
 {
@@ -713,7 +712,7 @@ Content-Type: application/json
 
 ### Textured Generation Flow
 
-Normal image-to-3D generation always submits the selected geometry model to `image-to-raw-mesh`. When Textured Generation is enabled, the selected model's own texture pipeline runs immediately after raw mesh generation in the same scheduler dispatch (no second weights load for models that share the texture-capable adapter). The scheduler routes to the model's texture adapter using the requested texture settings. The stage inspects the embedded base-colour texture in the exported GLB and reports success only when its observed square dimensions match the requested target. If texturing fails or the atlas cannot be verified, the immutable raw master is preserved and the texture-stage result reports failure. The legacy `image-to-textured-mesh` path remains for API compatibility; legacy geometry IDs resolve to raw-only aliases rather than re-enabling model-native texture generation.
+Normal image-to-3D generation always submits the selected geometry model to `image-to-raw-mesh`. When Textured Generation is enabled, the selected model's own texture pipeline runs immediately after raw mesh generation in the same scheduler dispatch (no second weights load for models that share the texture-capable adapter). The scheduler routes to the model's texture adapter using the requested texture settings. The stage inspects the embedded base-colour texture in the exported GLB and reports success only when its observed square dimensions match the requested target. If texturing fails or the atlas cannot be verified, the immutable raw master is preserved and the texture-stage result reports failure. Both raw-capable and textured-only geometry models use `/api/v1/generate`. The backend selects the registered feature for the selected model; no second generation route or legacy alias is mounted.
 
 ### Get Job Status
 
@@ -742,7 +741,7 @@ GET /api/v1/system/jobs/{job_id}
 ### Cancel Job
 
 ```http
-POST /api/v1/mesh-generation/cancel/{job_id}
+POST /api/v1/generate/cancel/{job_id}
 ```
 
 `POST /api/v1/system/jobs/{job_id}/cancel` is the equivalent system-scoped route.
@@ -835,24 +834,12 @@ Values populated by production post-processing are never overwritten; only missi
 
 ### Multi-view APIs (Removed 2026-10-11)
 
-The dedicated Zero123++ generation and multi-view reconstruction endpoints have been removed from the active API. Use the single-image `/api/v1/mesh-generation/image-to-raw-mesh` route for current image-to-3D requests.
+The dedicated Zero123++ generation and multi-view reconstruction endpoints have been removed from the active API. Use the single-image `/api/v1/generate` route for current image-to-3D requests.
 
 ### Model Parameters Schema
 
 ```http
 GET /api/v1/system/models/{model_id}/parameters
-```
-
----
-
-## Mesh Editing APIs
-
-### Text Edit
-
-Edit an existing mesh using a text prompt.
-
-```http
-POST /api/v1/mesh-editing/text-mesh-editing
 ```
 
 ---
@@ -864,7 +851,7 @@ POST /api/v1/mesh-editing/text-mesh-editing
 Generate a bipedal armature for a mesh.
 
 ```http
-POST /api/v1/auto-rigging/generate-rig
+POST /api/v1/rig
 Content-Type: application/json
 
 {
@@ -895,7 +882,7 @@ Content-Type: application/json
 Synthesize kinematically valid 3D human motion from a natural language text prompt using ARDY. Produces browser-playable `motion.json` format for Three.js. ForMesh3D runs ARDY and its local LLM2Vec text encoder in CPU-only mode; no GPU VRAM is reserved, and inference is slower and bounded by host CPU/RAM.
 
 ```http
-POST /api/v1/motion-generation/generate-motion
+POST /api/v1/motion
 Content-Type: application/json
 
 {
@@ -923,7 +910,7 @@ Content-Type: application/json
 Query installed and supported ARDY motion checkpoints.
 
 ```http
-GET /api/v1/motion-generation/checkpoints
+GET /api/v1/motion/checkpoints
 ```
 
 **Response:**
@@ -987,7 +974,7 @@ Mesh-producing terminal results include `result.artifacts`. Each artifact declar
 Retopologize a mesh using the fixed FastMesh V1K checkpoint.
 
 ```http
-POST /api/v1/mesh-retopology/retopologize-mesh
+POST /api/v1/retopo
 Content-Type: application/json
 
 {
@@ -1011,7 +998,7 @@ For generation jobs, `target_polycount` is **never an inference-quality control*
 Unwrap a mesh's UV coordinates.
 
 ```http
-POST /api/v1/mesh-uv-unwrapping/unwrap-mesh
+POST /api/v1/unwrap
 Content-Type: application/json
 
 {

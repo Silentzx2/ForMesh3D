@@ -49,8 +49,6 @@ const FEATURE_NAME_MAPPING: Record<string, string> = {
   'motion_generation': 'motion_generation',
   'animation': 'motion_generation',
   'part-completion': 'part_completion', 
-  'text-mesh-editing': 'text_mesh_editing', 
-  'image-mesh-editing': 'image_mesh_editing'
 };
 
 export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {

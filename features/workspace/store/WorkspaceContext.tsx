@@ -193,17 +193,6 @@ interface WorkspaceContextType {
     modelParameters?: Record<string, any>;
     modelPreference?: string;
   } | number) => Promise<void>;
-  runMeshEditing: (customSettings?: {
-    sourcePrompt?: string;
-    targetPrompt?: string;
-    resolution?: number;
-    bbox?: any;
-    outputFormat?: string;
-    mode?: 'text' | 'image';
-    targetImageFileId?: string;
-    targetImageBase64?: string;
-    strength?: number;
-  }) => Promise<void>;
   runAutoRigging: (options?: {
     skeletonTemplate?: string;
     bindPose?: string;
@@ -266,7 +255,7 @@ async function parseApiError(response: Response): Promise<Error> {
 }
 
 // ── Real backend (3DAIGC-API) job contract ────────────────────────────────
-// Submit: POST /api/v1/mesh-generation/{text,image}-to-{raw,textured}-mesh
+// Submit image-to-mesh jobs through the canonical POST /api/v1/generate endpoint.
 //   → { job_id, status, message }
 // Status: GET /api/v1/system/jobs/{job_id}
 //   → { job_id, status: queued|processing|completed|failed|cancelled,
@@ -2494,7 +2483,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         ...meshRef,
       };
 
-      const res = await fetch('/api/v1/mesh-retopology/retopologize-mesh', {
+      const res = await fetch('/api/v1/retopo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -2520,20 +2509,23 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   }, [remeshSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId, addAsset, selectAsset, setViewportResetTrigger]);
 
   const runTextureGeneration = useCallback(async () => {
-    // Honor the user's texture model pick (e.g. v2.0 vs v2.1); fall back to v2.1.
-    const modelPreference = textureSettings.modelId || 'hunyuan3d_paint_v21_image_mesh_painting';
+    const originalRefImage = currentAsset?.referenceImage || currentAsset?.inputImage || (currentAsset?.category === 'generation' ? currentAsset?.thumbnail : undefined);
+    const referenceImageFileId = currentAsset?.referenceImageFileId || (currentAsset as any)?.fileId;
+    const hasImageReference = Boolean(originalRefImage || referenceImageFileId);
+    const modelPreference = hasImageReference
+      ? (textureSettings.modelId || 'hunyuan3d_paint_v21_image_mesh_painting')
+      : 'trellis_text_mesh_painting';
 
     const localTaskId = startTask('texture', 'Texture generation', undefined, modelPreference, undefined, undefined, comparisonGroupId ?? undefined, comparisonSourceUrl(currentAsset));
     const signal = activeAbortControllerRef.current?.signal;
     try {
       const meshRef = await resolveMeshReference(currentAsset, signal);
-      const originalRefImage = currentAsset?.referenceImage || currentAsset?.inputImage || (currentAsset?.category === 'generation' ? currentAsset?.thumbnail : undefined);
       const { endpoint, body } = buildTextureGenerationParameters(
-        textureSettings,
+        { ...textureSettings, modelId: modelPreference },
         meshRef,
         {
           url: originalRefImage,
-          fileId: currentAsset?.referenceImageFileId || (currentAsset as any)?.fileId,
+          fileId: referenceImageFileId,
         },
       );
 
@@ -2691,7 +2683,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         body.model_parameters = customSettings.modelParameters;
       }
 
-      const res = await fetch('/api/v1/mesh-uv-unwrapping/unwrap-mesh', {
+      const res = await fetch('/api/v1/unwrap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -2831,7 +2823,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         body.model_parameters = settingsObj.modelParameters;
       }
 
-      const res = await fetch('/api/v1/mesh-segmentation/segment-mesh', {
+      const res = await fetch('/api/v1/segment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -2927,7 +2919,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         ...meshRef,
       };
 
-      const res = await fetch('/api/v1/auto-rigging/generate-rig', {
+      const res = await fetch('/api/v1/rig', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -2976,7 +2968,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         model_preference: 'ardy_motion_generation',
       };
 
-      const res = await fetch('/api/v1/motion-generation/generate-motion', {
+      const res = await fetch('/api/v1/motion', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -3000,78 +2992,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       toast.error('Motion generation failed', { description: message });
     }
   }, [startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
-
-  const runMeshEditing = useCallback(async (customSettings?: {
-    sourcePrompt?: string;
-    targetPrompt?: string;
-    resolution?: number;
-    bbox?: any;
-    outputFormat?: string;
-    mode?: 'text' | 'image';
-    targetImageFileId?: string;
-    targetImageBase64?: string;
-    strength?: number;
-  }) => {
-    const localTaskId = startTask('edit', customSettings?.mode === 'image' ? 'Mesh Editing (Image)' : 'Mesh Editing (Text)', undefined, undefined, undefined, undefined, comparisonGroupId ?? undefined, comparisonSourceUrl(currentAsset));
-    const signal = activeAbortControllerRef.current?.signal;
-    try {
-      const meshRef = await resolveMeshReference(currentAsset, signal);
-
-      const isImage = customSettings?.mode === 'image';
-      const endpoint = isImage ? '/api/v1/mesh-editing/image-mesh-editing' : '/api/v1/mesh-editing/text-mesh-editing';
-
-      const body: Record<string, unknown> = {
-        num_views: 150,
-        resolution: customSettings?.resolution || 512,
-        output_format: customSettings?.outputFormat || 'glb',
-        mask_bbox: customSettings?.bbox || {
-          center: [0.0, 0.45, -0.15],
-          dimensions: [0.42, 0.36, 0.50],
-        },
-        ...meshRef,
-      };
-
-      if (isImage) {
-        const defaultPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-        if (customSettings?.targetImageFileId) {
-          body.target_image_file_id = customSettings.targetImageFileId;
-        } else {
-          body.target_image_base64 = customSettings?.targetImageBase64 || defaultPngBase64;
-        }
-        body.source_image_base64 = defaultPngBase64;
-        body.mask_image_base64 = defaultPngBase64;
-        if (customSettings?.targetPrompt) {
-          body.target_prompt = customSettings.targetPrompt;
-        }
-      } else {
-        body.source_prompt = customSettings?.sourcePrompt || '3D mesh model';
-        body.target_prompt = customSettings?.targetPrompt || 'Add high-resolution surface details';
-      }
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal,
-      });
-      if (!res.ok) throw await parseApiError(res);
-      const data = await parseApiData<{ job_id?: string; id?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
-      const jobId = data.job_id ?? data.id;
-      if (!jobId) throw new Error('Backend did not return an editing job ID');
-      bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Queued on backend' }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
-      setExecutionStep('Mesh editing queued on backend');
-    } catch (error) {
-      if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
-        console.log('Mesh editing cancelled by user');
-        return;
-      }
-      const message = error instanceof Error ? error.message : 'Mesh editing submission failed';
-      setIsExecuting(false);
-      setExecutionStep(message);
-      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
-      toast.error('Mesh editing failed', { description: message });
-    }
-  }, [currentAsset, startTask]);
 
    // Batch processing function
     const processBatchQueue = useCallback(async () => {
@@ -3537,7 +3457,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       regeneratePreview,
       runRemeshGeneration, runTextureGeneration,
       runUVUnwrapGeneration, runSegmentation,
-      runMeshEditing,
       runAutoRigging,
       runMotionGeneration,
       processBatchQueue,
@@ -3546,7 +3465,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     }), [generate3DModel, regeneratePreview,
       runRemeshGeneration, runTextureGeneration,
       runUVUnwrapGeneration, runSegmentation,
-      runMeshEditing,
       runAutoRigging,
       runMotionGeneration,
       processBatchQueue,

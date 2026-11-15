@@ -9,7 +9,6 @@ export type ModelCategory =
   | 'mesh_retopology'
   | 'mesh_segmentation'
   | 'uv_unwrapping'
-  | 'mesh_editing'
   | 'auto_rig'
   | 'motion_generation';
 

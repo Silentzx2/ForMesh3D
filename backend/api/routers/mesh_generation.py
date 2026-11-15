@@ -13,7 +13,7 @@ import tempfile
 import time
 from pathlib import Path
 from uuid import uuid4
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -31,7 +31,7 @@ from core.utils.file_utils import get_workspace_storage_manager, save_base64_fil
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/mesh-generation", tags=["mesh_generation"])
+router = APIRouter(tags=["generation", "texture"])
 
 
 def _validate_regeneration_parent(
@@ -63,12 +63,6 @@ def _validate_regeneration_parent(
         raise HTTPException(status_code=409, detail="Parent operation settings snapshot is invalid")
     if parent_settings != settings:
         raise HTTPException(status_code=409, detail="Regeneration settings must match the parent's original snapshot")
-
-_LEGACY_TEXTURED_MODEL_ALIASES = {
-    "trellis_image_to_textured_mesh": "trellis_image_to_raw_mesh",
-    "trellis2_image_to_textured_mesh": "trellis2_image_to_raw_mesh",
-    "trellis2_image_to_3d": "trellis2_image_to_raw_mesh",
-}
 
 _TEXTURE_RESOLUTION_PRESETS = {"1K": 1024, "2K": 2048, "4K": 4096, "8K": 8192}
 _SUPPORTED_TEXTURE_RESOLUTIONS = {1024, 2048, 4096, 8192}
@@ -209,7 +203,7 @@ class TextMeshPaintingRequest(BaseModel):
     native_target_polycount: Optional[int] = Field(None, description="Direct model-native polycount target budget")
     intent: Optional[str] = Field(None, description="Intent preset: 'game_ready', 'cinematic', etc.")
     model_preference: str = Field(
-        "trellis_image_to_textured_mesh", description="Model name for mesh generation"
+        "trellis_text_mesh_painting", description="Registered model for text-prompt mesh painting"
     )
     model_parameters: Optional[dict] = Field(
         None,
@@ -306,6 +300,9 @@ class ImageToRawMeshRequest(BaseModel):
     image_file_id: Optional[str] = Field(
         None, description="File ID from upload endpoint"
     )
+    texture_image_path: Optional[str] = Field(None, description="Optional separate texture reference image path")
+    texture_image_base64: Optional[str] = Field(None, description="Optional separate texture reference image data")
+    texture_image_file_id: Optional[str] = Field(None, description="Optional separate texture reference image upload ID")
     workspace_id: Optional[str] = Field(
         None, description="Optional target workspace ID. If omitted, will resolve from source asset or create a new workspace."
     )
@@ -486,180 +483,6 @@ class ImageToRawMeshRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=("settings_",))
 
 
-class ImageToTexturedMeshRequest(BaseModel):
-    """Request for image-to-textured-mesh generation"""
-
-    image_path: Optional[str] = Field(None, description="Path to the input image")
-    image_base64: Optional[str] = Field(None, description="Base64 encoded image data")
-    image_file_id: Optional[str] = Field(
-        None, description="File ID from upload endpoint"
-    )
-    workspace_id: Optional[str] = Field(
-        None, description="Optional target workspace ID. If omitted, will resolve from source asset or create a new workspace."
-    )
-    parent_operation_id: Optional[str] = Field(None, description="Completed operation to regenerate from")
-    seed: Optional[int] = Field(None, ge=0, description="Random seed for reproducibility")
-    texture_image_path: Optional[str] = Field(
-        None, description="Path to the texture image"
-    )
-    texture_image_base64: Optional[str] = Field(
-        None, description="Base64 encoded texture image"
-    )
-    texture_image_file_id: Optional[str] = Field(
-        None, description="Texture image file ID from upload endpoint"
-    )
-    texture_resolution: Optional[int] = Field(
-        None, description="Texture atlas preset or size"
-    )
-    bake_normal_maps: bool = Field(True, description="Bake high-to-low detail maps when supported")
-    texture_enabled: Optional[bool] = None
-    generate_texture: Optional[bool] = None
-    texture_settings: Optional[dict] = Field(None, description="Model-specific texture settings passed to the adapter's texture pipeline")
-    low_vram: Optional[bool] = Field(None, description="Enable low-VRAM execution mode (<= 15GB VRAM via sequential offload). Set False to run full 24GB in-memory pipeline.")
-    output_format: str = Field("glb", description="Output mesh format")
-    quality_mode: Optional[str] = Field("high", description="Target quality budget")
-    target_polycount: Optional[int] = Field(None, description="Target triangle budget")
-    native_target_polycount: Optional[int] = Field(None, description="Direct model-native polycount target budget")
-    intent: Optional[str] = Field(None, description="Intent preset: 'game_ready', 'cinematic', etc.")
-    model_preference: Optional[str] = Field(
-        None, description="Explicit model override; intent presets choose a model when omitted"
-    )
-    auto_mode: Optional[bool] = Field(
-        None,
-        description="Enable smart model selection when model_preference is omitted; an explicit model_preference always takes precedence.",
-    )
-    input_prep: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Optional input image preparation overrides (e.g. remove_background, tight_crop, margin, resize, upscale_small).",
-    )
-    preprocessing_artifact_id: Optional[str] = Field(None, description="Approved preprocessing artifact ID")
-    preprocessing_review_override: bool = Field(False, description="Explicitly allow a flagged preprocessing preview after review")
-    enhancement_enabled: bool = Field(False, description="Use the approved preprocessing artifact")
-    enable_printability_check: Optional[bool] = Field(None, description="Run final printability QA; omitted values fall back to the intent preset")
-    enable_auto_repair: Optional[bool] = Field(None, description="Allow the shared repair stage to mutate the mesh for printability; omitted values fall back to the intent preset")
-    enable_auto_rig: Optional[bool] = Field(None, description="Run SkinTokens auto-rigging after production processing; omitted values fall back to the intent preset")
-    auto_rig_mode: str = Field("full", description="Auto-rig mode: full, skeleton, or skin")
-    generate_lod: Optional[bool] = Field(None, description="Build the LOD hierarchy; omitted values fall back to the intent preset")
-    lod_preset: Optional[str] = Field(None, description="LOD ratio preset: 'mobile', 'low', 'medium', 'high' or 'cinematic'")
-    lod_count: Optional[int] = Field(None, ge=0, le=4, description="Number of LOD levels to generate (0-4); 0 disables the LOD chain")
-    model_parameters: Optional[dict] = Field(
-        None,
-        description="Model-specific parameters (query /system/models/{model_id}/parameters for schema)"
-    )
-    physics_enabled: Optional[bool] = Field(None, description="Request physics-ready post-processing; omitted values fall back to the intent preset")
-    physics_config: Optional[dict] = Field(None, description="Provider-neutral physics controller values")
-    topology_mode: Optional[str] = Field("triangle", description="Topology mode: 'triangle' or 'quad'")
-    quad_topology: bool = Field(False, description="Request quad-dominant topology")
-    enable_postprocess: bool = Field(False, description="Run production postprocessing pipeline after mesh generation. If False, postprocessing is bypassed.")
-    candidate_count: int = Field(1, ge=1, le=4, description="Candidate variations to generate (1-4, default 1)")
-    part_count_range: Optional[str] = Field(None, description="Target part count range for segmentation: '1', '3-6', '6-15', '15+'")
-    rig_type: Optional[str] = Field(None, description="Rig type: 'none', 'generic', 'humanoid', 'quadruped', 'bird', 'insect', 'custom'")
-    export_formats: Optional[List[str]] = Field(None, description="Export formats: 'glb', 'fbx', 'obj', 'stl', '3mf'")
-    slicer_handoff: Optional[bool] = Field(None, description="Hand the print-ready mesh to a slicer (STL/3MF handoff); omitted values fall back to the intent preset")
-    asset_name: Optional[str] = Field(None, description="Asset base stem name")
-    image_name: Optional[str] = Field(None, description="Original image filename")
-    mesh_style: str = Field("auto", deprecated=True, description="Deprecated mesh style hint. Does not override locked adapter inference profiles.")
-    requested_quality: Optional[str] = Field(None, deprecated=True, description="Deprecated requested quality tier. Does not override locked adapter inference profiles.")
-    object_type: str = Field("general", deprecated=True, description="Deprecated object type. Does not override locked adapter inference profiles.")
-    symmetry: str = Field("none", deprecated=True, description="Deprecated symmetry setting. Does not override locked adapter inference profiles.")
-
-    @field_validator("auto_rig_mode")
-    @classmethod
-    def validate_auto_rig_mode(cls, value):
-        normalized = str(value or "full").strip().lower()
-        if normalized not in {"full", "skeleton", "skin"}:
-            raise ValueError("Invalid auto_rig_mode. Must be one of: 'full', 'skeleton', 'skin'")
-        return normalized
-
-    @field_validator("topology_mode")
-    @classmethod
-    def validate_topology_mode(cls, value):
-        if value is None:
-            return value
-        normalized = str(value).strip().lower()
-        if normalized not in {"triangle", "quad"}:
-            raise ValueError("Invalid topology_mode. Must be one of: 'triangle', 'quad'")
-        return normalized
-
-    @field_validator("lod_preset")
-    @classmethod
-    def validate_lod_preset(cls, value):
-        if value is None:
-            return value
-        normalized = str(value).strip().lower()
-        if normalized not in {"mobile", "low", "medium", "high", "cinematic"}:
-            raise ValueError(
-                "Invalid lod_preset. Must be one of: 'mobile', 'low', 'medium', 'high', 'cinematic'"
-            )
-        return normalized
-
-    @field_validator("mesh_style")
-    @classmethod
-    def validate_mesh_style(cls, v):
-        if not v:
-            return "auto"
-        v_str = str(v).strip().lower()
-        if v_str not in ("clean", "detailed", "auto"):
-            raise ValueError(f"Invalid mesh_style '{v}'. Must be one of: 'clean', 'detailed', 'auto'")
-        return v_str
-
-    @field_validator("requested_quality")
-    @classmethod
-    def validate_requested_quality(cls, v):
-        return validate_quality_tier(v)
-
-    @field_validator("object_type")
-    @classmethod
-    def validate_object_type(cls, v):
-        if not v:
-            return "general"
-        v_str = str(v).strip().lower()
-        if v_str not in ("mechanical", "organic", "character", "general"):
-            raise ValueError(f"Invalid object_type '{v}'. Must be one of: 'mechanical', 'organic', 'character', 'general'")
-        return v_str
-
-    @field_validator("symmetry")
-    @classmethod
-    def validate_symmetry(cls, v):
-        if not v:
-            return "none"
-        v_str = str(v).strip().lower()
-        if v_str not in ("bilateral", "radial", "none"):
-            raise ValueError(f"Invalid symmetry '{v}'. Must be one of: 'bilateral', 'radial', 'none'")
-        return v_str
-
-    @field_validator("texture_resolution", mode="before")
-    @classmethod
-    def normalize_texture_resolution(cls, value):
-        return _normalize_texture_resolution(value)
-
-    @field_validator("output_format")
-    @classmethod
-    def validate_output_format(cls, v):
-        allowed_formats = ["glb"]
-        if v not in allowed_formats:
-            raise ValueError(f"Output format must be one of: {allowed_formats}")
-        return v
-
-    @model_validator(mode="after")
-    def validate_inputs(self):
-        inputs_provided = sum(
-            bool(x) for x in [self.image_path, self.image_base64, self.image_file_id]
-        )
-
-        if inputs_provided == 0:
-            raise ValueError(
-                "One of image_path, image_base64, or image_file_id must be provided"
-            )
-        if inputs_provided > 1:
-            raise ValueError(
-                "Only one of image_path, image_base64, or image_file_id should be provided"
-            )
-        return self
-
-    model_config = ConfigDict(protected_namespaces=("settings_",))
-
-
 class ImageMeshPaintingRequest(BaseModel):
     """Request for image-based mesh painting"""
 
@@ -683,7 +506,7 @@ class ImageMeshPaintingRequest(BaseModel):
     native_target_polycount: Optional[int] = Field(None, description="Direct model-native polycount target budget")
     intent: Optional[str] = Field(None, description="Intent preset: 'game_ready', 'cinematic', etc.")
     model_preference: str = Field(
-        "trellis_image_mesh_painting", description="Model name for mesh generation"
+        "hunyuan3d_paint_v21_image_mesh_painting", description="Registered model for image-guided mesh painting"
     )
     text_prompt: Optional[str] = Field(
         None, description="Optional text prompt; Hunyuan3D-Paint is reference-image guided"
@@ -934,8 +757,7 @@ async def process_file_input(
 # Text-to-Motion is kept in ardy_adapter.py
 
 # Text-based mesh painting endpoint (supports both file path and base64)
-@router.post("/text-mesh-painting", response_model=MeshGenerationResponse)
-async def text_mesh_painting(
+async def _schedule_text_mesh_painting(
     mesh_request: TextMeshPaintingRequest,
     scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
     file_store: Optional[FileStore] = Depends(get_file_store),
@@ -1037,18 +859,21 @@ async def _resolve_generation_plan(request, *, default_model: str, default_featu
     preset = {}
     preset_metadata = {}
 
-    # Legacy textured-generation IDs remain accepted, but resolve to raw geometry.
-    # Optional texture generation is controlled by the request flags.
-    if model_id in _LEGACY_TEXTURED_MODEL_ALIASES:
-        model_id = _LEGACY_TEXTURED_MODEL_ALIASES[model_id]
-        feature = "image_to_raw_mesh"
+    # One /generate endpoint dispatches textured-only models by their registered feature.
+    if not scheduler.validate_model_preference(model_id, feature):
+        if (
+            feature == "image_to_raw_mesh"
+            and scheduler.validate_model_preference(model_id, "image_to_textured_mesh")
+        ):
+            feature = "image_to_textured_mesh"
+        else:
+            validate_model_preference(model_id, feature, scheduler)
 
-    validate_model_preference(model_id, feature, scheduler)
     return model_id, feature, preset, preset_metadata
 
 
 # Image-to-mesh endpoints (supports both file path and base64)
-@router.post("/image-to-raw-mesh", response_model=MeshGenerationResponse)
+@router.post("/generate", response_model=MeshGenerationResponse)
 async def image_to_raw_mesh(
     mesh_request: ImageToRawMeshRequest,
     scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
@@ -1078,8 +903,6 @@ async def image_to_raw_mesh(
         user_id = None
 
         # A concrete user model choice takes precedence over automatic selection.
-        if mesh_request.model_preference in _LEGACY_TEXTURED_MODEL_ALIASES:
-            mesh_request.model_preference = _LEGACY_TEXTURED_MODEL_ALIASES[mesh_request.model_preference]
         has_explicit_model = _is_explicit_model_preference(mesh_request.model_preference)
 
         model_id, feature, preset, preset_metadata = await _resolve_generation_plan(
@@ -1114,6 +937,20 @@ async def image_to_raw_mesh(
         )
 
         image_file_path = original_image_path
+        texture_image_path = None
+        if (
+            mesh_request.texture_image_path
+            or mesh_request.texture_image_base64
+            or mesh_request.texture_image_file_id
+        ):
+            texture_image_path = await process_file_input(
+                file_path=mesh_request.texture_image_path,
+                base64_data=mesh_request.texture_image_base64,
+                file_id=mesh_request.texture_image_file_id,
+                input_type="texture_image",
+                file_store=file_store,
+                tracked_temp_dirs=tracked_temp_dirs,
+            )
         preprocessing_metadata = {}
 
         chosen_stem = await resolve_asset_name(
@@ -1143,9 +980,17 @@ async def image_to_raw_mesh(
             "slicer_handoff",
         ):
             params.pop(key, None)
-        # Keep texture-stage controls out of model-specific inference parameters.
-        params.pop("texture_resolution", None)
-        params.pop("texture_resolution_preset", None)
+        # Keep texture-stage controls out of model-specific inference parameters,
+        # while preserving the textured-only endpoint's nested resolution contract.
+        source_texture_resolution = params.pop("texture_resolution", None)
+        legacy_texture_preset = params.pop("texture_resolution_preset", None)
+        if source_texture_resolution is not None or legacy_texture_preset is not None:
+            try:
+                source_texture_resolution = _normalize_texture_resolution(
+                    source_texture_resolution or legacy_texture_preset
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
         nested_texture_flags = [
             params.pop("texture_enabled", None),
             params.pop("generate_texture", None),
@@ -1156,7 +1001,10 @@ async def image_to_raw_mesh(
         top_level_texture_flags = [mesh_request.texture_enabled, mesh_request.generate_texture]
         texture_enabled = next(
             (bool(value) for value in top_level_texture_flags if value is not None),
-            next((bool(value) for value in nested_texture_flags if value is not None), False),
+            next(
+                (bool(value) for value in nested_texture_flags if value is not None),
+                feature == "image_to_textured_mesh" or texture_image_path is not None,
+            ),
         )
         nested_target_polycount = params.pop("target_polycount", None)
         target_polycount = _resolve_target_polycount_precedence(
@@ -1206,6 +1054,8 @@ async def image_to_raw_mesh(
         # Prioritize explicit user parameters over preset overrides
         if getattr(mesh_request, "texture_resolution", None) is not None:
             texture_resolution = int(mesh_request.texture_resolution)
+        elif source_texture_resolution is not None:
+            texture_resolution = int(source_texture_resolution)
         else:
             texture_resolution = int(
                 _resolve_preset_option(mesh_request.texture_resolution, preset, "texture_resolution", 2048)
@@ -1312,11 +1162,16 @@ async def image_to_raw_mesh(
             "target_polycount": target_polycount,
             "model_preference": model_id,
         }
+        operation_type = (
+            "generate_textured_mesh"
+            if feature == "image_to_textured_mesh"
+            else "generate_raw_mesh"
+        )
         _validate_regeneration_parent(
             db,
             mesh_request.parent_operation_id,
             target_ws_id,
-            "generate_raw_mesh",
+            operation_type,
             operation_input_asset_id,
             operation_settings,
         )
@@ -1349,7 +1204,7 @@ async def image_to_raw_mesh(
         op_res = db.enqueue_operation(
             operation_id=gen_op_id,
             workspace_id=target_ws_id,
-            operation_type="generate_raw_mesh",
+            operation_type=operation_type,
             input_asset_id=operation_input_asset_id,
             parent_operation_id=mesh_request.parent_operation_id,
             regenerate=bool(mesh_request.parent_operation_id),
@@ -1368,8 +1223,14 @@ async def image_to_raw_mesh(
                 "image_path": image_file_path,
                 "image_file_id": mesh_request.image_file_id,
                 "reference_image_path": original_image_path,
+                "texture_image_path": texture_image_path,
                 "output_format": mesh_request.output_format,
                 "texture_resolution": texture_resolution,
+                **(
+                    {"production_texture_resolution": texture_resolution}
+                    if feature == "image_to_textured_mesh"
+                    else {}
+                ),
                 "bake_normal_maps": mesh_request.bake_normal_maps,
                 "texture_enabled": texture_enabled,
                 "texture_settings": mesh_request.texture_settings,
@@ -1427,6 +1288,7 @@ async def image_to_raw_mesh(
                 "texture_enabled": texture_enabled,
                 "texture_settings": mesh_request.texture_settings,
                 "reference_image_path": original_image_path,
+                "texture_image_path": texture_image_path,
                 "physics_enabled": physics_enabled,
                 "physics_config": mesh_request.physics_config,
                 "intent": getattr(mesh_request, "intent", None),
@@ -1481,7 +1343,7 @@ async def image_to_raw_mesh(
             operation_id=operation_id,
             route_path=f"/workspace/generate/{target_ws_id}",
             status="queued",
-            message="Image-to-raw-mesh generation job queued successfully",
+            message="Image-to-mesh generation job queued successfully",
         )
 
     except HTTPException:
@@ -1499,459 +1361,7 @@ async def image_to_raw_mesh(
         logger.error(f"Error scheduling image-to-raw-mesh job: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=sanitize_error_message(f"Failed to schedule job: {e}"))
 
-@router.post("/image-to-textured-mesh", response_model=MeshGenerationResponse)
-async def image_to_textured_mesh(
-    mesh_request: ImageToTexturedMeshRequest,
-    scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
-    file_store: Optional[FileStore] = Depends(get_file_store),
-):
-    """
-    Generate a 3D textured mesh from image.
-
-    Args:
-        mesh_request: Image-to-textured-mesh generation parameters
-        scheduler: Model scheduler dependency
-        current_user: Current authenticated user (required if auth enabled)
-
-    Returns:
-        Job information for the mesh generation task
-    """
-    tracked_temp_dirs: List[str] = []
-    try:
-        user_id = None
-        # A concrete user model choice takes precedence over automatic selection.
-        if mesh_request.model_preference in _LEGACY_TEXTURED_MODEL_ALIASES:
-            mesh_request.model_preference = _LEGACY_TEXTURED_MODEL_ALIASES[mesh_request.model_preference]
-        has_explicit_model = _is_explicit_model_preference(mesh_request.model_preference)
-
-        model_id, feature, preset, preset_metadata = await _resolve_generation_plan(
-            mesh_request,
-            default_model="trellis_image_to_textured_mesh",
-            default_feature="image_to_textured_mesh",
-            scheduler=scheduler,
-        )
-        generation_plan = preset_metadata or {"chosen_model": model_id, "adapter": model_id}
-        req_qual = getattr(mesh_request, "requested_quality", None) or getattr(mesh_request, "quality_mode", None) or "balanced"
-
-        if mesh_request.enhancement_enabled and not mesh_request.preprocessing_artifact_id:
-            raise HTTPException(
-                status_code=400,
-                detail="enhancement_enabled requires an approved preprocessing_artifact_id",
-            )
-        if mesh_request.preprocessing_artifact_id and not mesh_request.enhancement_enabled:
-            raise HTTPException(
-                status_code=400,
-                detail="Choose the preprocessing artifact or disable enhancement and use the original image",
-            )
-        if mesh_request.preprocessing_review_override and not mesh_request.preprocessing_artifact_id:
-            raise HTTPException(status_code=400, detail="A review override requires a preprocessing artifact")
-
-        original_image_path = await process_file_input(
-            file_path=mesh_request.image_path,
-            base64_data=mesh_request.image_base64,
-            file_id=mesh_request.image_file_id,
-            input_type="image",
-            file_store=file_store,
-            tracked_temp_dirs=tracked_temp_dirs,
-        )
-
-        image_file_path = original_image_path
-        preprocessing_metadata = {}
-
-        texture_image_path = None
-        if mesh_request.texture_image_path or mesh_request.texture_image_base64 or mesh_request.texture_image_file_id:
-            texture_image_path = await process_file_input(
-                file_path=mesh_request.texture_image_path,
-                base64_data=mesh_request.texture_image_base64,
-                file_id=mesh_request.texture_image_file_id,
-                input_type="texture_image",
-                file_store=file_store,
-                tracked_temp_dirs=tracked_temp_dirs,
-            )
-
-        chosen_stem = await resolve_asset_name(
-            mesh_request,
-            file_store,
-            image_file_path,
-            mesh_request.image_file_id,
-        )
-        # Filter out None values from model_parameters so pop() fallbacks work correctly
-        params = {k: v for k, v in (mesh_request.model_parameters or {}).items() if v is not None}
-        for key in (
-            "candidate_count",
-            "enable_postprocess",
-            "topology_mode",
-            "quad_topology",
-            "part_count_range",
-            "rig_type",
-            "export_formats",
-            "slicer_handoff",
-        ):
-            params.pop(key, None)
-        # Preserve nested resolution from old clients, but never pass it to geometry inference.
-        source_texture_resolution = params.pop("texture_resolution", None)
-        legacy_preset = params.pop("texture_resolution_preset", None)
-        if source_texture_resolution is not None or legacy_preset is not None:
-            try:
-                source_texture_resolution = _normalize_texture_resolution(
-                    source_texture_resolution or legacy_preset
-                )
-            except ValueError as e:
-                raise HTTPException(status_code=422, detail=str(e))
-        nested_target_polycount = params.pop("target_polycount", None)
-        target_polycount = _resolve_target_polycount_precedence(
-            mesh_request.target_polycount,
-            nested_target_polycount,
-            preset.get("target_polycount"),
-        )
-        # Production options: explicit request value > intent preset > backend default.
-        # Legacy `model_parameters` production keys are ignored and never reach job inputs.
-        params.pop("generateLOD", None)
-        params.pop("lodPreset", None)
-        params.pop("lodCount", None)
-        lod_enabled = bool(_resolve_preset_option(mesh_request.generate_lod, preset, "generate_lod", True))
-        lod_preset = str(_resolve_preset_option(mesh_request.lod_preset, preset, "lod_preset", "high"))
-        lod_count = int(_resolve_preset_option(mesh_request.lod_count, preset, "lod_count", 4))
-
-        if "auto_uv" in preset:
-            auto_uv = bool(preset["auto_uv"])
-            params.pop("auto_uv", None)
-        else:
-            auto_uv = bool(params.pop("auto_uv", True))
-
-        # Resolve quality: cinematic intent or target >= 150k uses "ultra", others default to "high"
-        if getattr(mesh_request, "intent", None) == "cinematic" or (target_polycount is not None and target_polycount >= 150_000):
-            quality = "ultra"
-        elif preset.get("quality"):
-            quality = str(preset["quality"])
-        elif mesh_request.quality_mode and mesh_request.quality_mode != "high":
-            quality = str(mesh_request.quality_mode)
-        else:
-            quality = str(params.pop("quality", mesh_request.quality_mode or "high"))
-        params.pop("quality", None)
-
-        nested_texture_flags = [
-            params.pop("texture_enabled", None),
-            params.pop("generate_texture", None),
-            params.pop("generateTexture", None),
-            params.pop("auto_paint", None),
-            params.pop("texture_settings", None),
-        ]
-        top_level_texture_flags = [mesh_request.texture_enabled, mesh_request.generate_texture]
-        texture_enabled = next(
-            (bool(value) for value in top_level_texture_flags if value is not None),
-            next((bool(value) for value in nested_texture_flags if value is not None), True),
-        )
-        # Prioritize explicit user parameters over preset overrides
-        if getattr(mesh_request, "texture_resolution", None) is not None:
-            texture_resolution = int(mesh_request.texture_resolution)
-        elif source_texture_resolution is not None:
-            texture_resolution = int(source_texture_resolution)
-        else:
-            texture_resolution = int(
-                _resolve_preset_option(
-                    mesh_request.texture_resolution,
-                    preset,
-                    "texture_resolution",
-                    2048,
-                )
-            )
-
-        part_count_range = str(
-            _resolve_preset_option(mesh_request.part_count_range, preset, "part_count_range", "1")
-        )
-        rig_type = str(_resolve_preset_option(mesh_request.rig_type, preset, "rig_type", "none"))
-        export_formats = list(
-            _resolve_preset_option(mesh_request.export_formats, preset, "export_formats", ["glb"])
-        )
-        slicer_handoff = bool(
-            _resolve_preset_option(mesh_request.slicer_handoff, preset, "slicer_handoff", False)
-        )
-        params.pop("enable_printability_check", None)
-        params.pop("enable_auto_repair", None)
-        params.pop("enable_auto_rig", None)
-        enable_printability = bool(
-            _resolve_preset_option(mesh_request.enable_printability_check, preset, "enable_printability_check", False)
-        )
-        enable_auto_repair = bool(
-            _resolve_preset_option(mesh_request.enable_auto_repair, preset, "enable_auto_repair", False)
-        )
-        enable_auto_rig = bool(
-            _resolve_preset_option(mesh_request.enable_auto_rig, preset, "enable_auto_rig", False)
-        )
-        physics_enabled = bool(_resolve_preset_option(mesh_request.physics_enabled, preset, "collision", False))
-
-        native_target_polycount = int(
-            getattr(mesh_request, "native_target_polycount", 0)
-            or target_polycount
-            or 0
-        )
-        if not mesh_request.enable_postprocess:
-            # Native extraction only: drop the post-process polycount budget so
-            # no topology-changing count forcing runs (adapters no longer apply
-            # subdivision/simplification toward a requested count). native_target_polycount
-            # is preserved for honest requested-vs-actual triangle reporting (Part I §8).
-            lod_enabled = False
-            enable_printability = False
-            enable_auto_repair = False
-            enable_auto_rig = False
-            target_polycount = 0
-        elif mesh_request.intent == "native" or target_polycount == -1:
-            if mesh_request.intent == "native":
-                if mesh_request.texture_enabled is None and mesh_request.generate_texture is None:
-                    texture_enabled = False
-                lod_enabled = False
-                enable_printability = False
-                enable_auto_repair = False
-                enable_auto_rig = False
-                auto_uv = False
-            target_polycount = -1
-
-        db = DatabaseManager()
-        ws_storage = get_workspace_storage_manager()
-
-        target_ws_id = mesh_request.workspace_id
-        source_asset = None
-        if mesh_request.image_file_id:
-            source_asset = db.get_asset(mesh_request.image_file_id)
-
-        # ============================================================
-        # Workspace Identity & Reuse Logic (Part II §13.1, §13.2):
-        # - Same image + same model + COMPLETED → MINT NEW workspace
-        # - Same image + same model + FAILED/IN-PROGRESS → REUSE workspace (retry)
-        # - Settings changes alone do not create a new route.
-        # ============================================================
-        def workspace_has_completed_operations(ws_id: str) -> bool:
-            """Check if workspace has any COMPLETED generation operations."""
-            ops = db.list_workspace_operations(ws_id)
-            for op in ops:
-                if op.operation_type in ("generate_raw_mesh", "generate_textured_mesh"):
-                    if op.execution_status == ExecutionStatus.COMPLETED:
-                        return True
-            return False
-
-        def workspace_has_only_failed_or_no_generation_ops(ws_id: str) -> bool:
-            """Check if workspace has no COMPLETED ops but has FAILED/in-progress generation ops."""
-            ops = db.list_workspace_operations(ws_id)
-            gen_ops = [op for op in ops if op.operation_type in ("generate_raw_mesh", "generate_textured_mesh")]
-            if not gen_ops:
-                return True  # no generation ops yet
-            # All generation ops are FAILED/INTERRUPTED/CANCELLED/QUEUED/PROCESSING (none COMPLETED)
-            return all(op.execution_status != ExecutionStatus.COMPLETED for op in gen_ops)
-
-        def find_reusable_workspace() -> Optional[str]:
-            """Find workspace to reuse based on image+model and operation status."""
-            if not mesh_request.image_file_id:
-                return None
-            existing = db.list_workspaces_by_asset_and_model(
-                mesh_request.image_file_id, model_id
-            )
-            for ws in existing:
-                if workspace_has_only_failed_or_no_generation_ops(ws.workspace_id):
-                    return ws.workspace_id
-            return None
-
-        # If frontend provided explicit workspace_id, check if it has completed work
-        if target_ws_id and not mesh_request.parent_operation_id:
-            if workspace_has_completed_operations(target_ws_id):
-                target_ws_id = None  # force mint new
-
-        # If no workspace_id (or forced new), find reusable or mint
-        if not target_ws_id:
-            reusable_ws = find_reusable_workspace()
-            if reusable_ws:
-                target_ws_id = reusable_ws
-            else:
-                target_ws_id = ws_storage.mint_workspace_id(chosen_stem)
-
-        operation_input_asset_id = source_asset.asset_id if source_asset else mesh_request.image_file_id
-        operation_settings = {
-            "intent": getattr(mesh_request, "intent", None),
-            "quality_mode": mesh_request.quality_mode,
-            "target_polycount": target_polycount,
-            "model_preference": model_id,
-        }
-        _validate_regeneration_parent(
-            db,
-            mesh_request.parent_operation_id,
-            target_ws_id,
-            "generate_textured_mesh",
-            operation_input_asset_id,
-            operation_settings,
-        )
-        ws_storage.create_workspace_tree(target_ws_id)
-        if not db.get_workspace(target_ws_id):
-            # Store model_preference in workspace settings for future identity matching
-            import json as _json
-            ws_settings = {"model_preference": model_id}
-            db.create_workspace(
-                workspace_id=target_ws_id,
-                name=chosen_stem,
-                source_asset_id=source_asset.asset_id if source_asset else mesh_request.image_file_id,
-                settings_json=_json.dumps(ws_settings),
-            )
-        else:
-            # Update existing workspace settings with current model_preference
-            existing_ws = db.get_workspace(target_ws_id)
-            if existing_ws:
-                import json as _json
-                existing_settings = {}
-                if existing_ws.settings_json:
-                    try:
-                        existing_settings = _json.loads(existing_ws.settings_json)
-                    except Exception:
-                        existing_settings = {}
-                existing_settings["model_preference"] = model_id
-                db.update_workspace_settings(target_ws_id, _json.dumps(existing_settings))
-
-        gen_op_id = generate_operation_id()
-        op_res = db.enqueue_operation(
-            operation_id=gen_op_id,
-            workspace_id=target_ws_id,
-            operation_type="generate_textured_mesh",
-            input_asset_id=operation_input_asset_id,
-            parent_operation_id=mesh_request.parent_operation_id,
-            regenerate=bool(mesh_request.parent_operation_id),
-            settings=operation_settings,
-        )
-        op_row = op_res[0] if isinstance(op_res, tuple) else op_res
-        operation_id = op_row.operation_id
-
-        job_request = JobRequest(
-            feature=feature,
-            inputs={
-                "workspace_id": target_ws_id,
-                "operation_id": operation_id,
-                "asset_name": chosen_stem,
-                "image_name": chosen_stem,
-                "image_path": image_file_path,
-                "image_file_id": mesh_request.image_file_id,
-                "reference_image_path": original_image_path,
-                "texture_image_path": texture_image_path,
-                "output_format": mesh_request.output_format,
-                "texture_resolution": texture_resolution,
-                "production_texture_resolution": texture_resolution,
-                "bake_normal_maps": mesh_request.bake_normal_maps,
-                "texture_enabled": texture_enabled,
-                "texture_settings": mesh_request.texture_settings,
-                "intent": getattr(mesh_request, "intent", None),
-                "mesh_style": getattr(mesh_request, "mesh_style", "auto") or "auto",
-                "requested_quality": req_qual,
-                "object_type": getattr(mesh_request, "object_type", "general") or "general",
-                "symmetry": getattr(mesh_request, "symmetry", "none") or "none",
-                "plan": generation_plan,
-                "fallback_chain": generation_plan.get("fallback_chain", []),
-                "preprocessing_artifact_id": mesh_request.preprocessing_artifact_id,
-                "preprocessing_review_override": mesh_request.preprocessing_review_override,
-                "enhancement_enabled": mesh_request.enhancement_enabled,
-                "preprocessing_metadata": preprocessing_metadata,
-                "target_polycount": target_polycount,
-                "native_target_polycount": native_target_polycount,
-                "generateLOD": lod_enabled,
-                "lodPreset": lod_preset,
-                "lodCount": lod_count,
-                "auto_uv": auto_uv,
-                "quality": quality,
-                "physics_enabled": physics_enabled,
-                "physics_config": mesh_request.physics_config,
-                "enable_printability_check": enable_printability,
-                "enable_auto_repair": enable_auto_repair,
-                "enable_auto_rig": enable_auto_rig,
-                "auto_rig_mode": mesh_request.auto_rig_mode,
-                "topology_mode": mesh_request.topology_mode or ("quad" if mesh_request.quad_topology else "triangle"),
-                "quad_topology": bool(mesh_request.quad_topology or mesh_request.topology_mode == "quad"),
-                "enable_postprocess": mesh_request.enable_postprocess,
-                "candidate_count": int(mesh_request.candidate_count or 1),
-                "part_count_range": part_count_range,
-                "rig_type": rig_type,
-                "export_formats": export_formats,
-                "slicer_handoff": slicer_handoff,
-                "low_vram": mesh_request.low_vram if mesh_request.low_vram is not None else params.get("low_vram"),
-                **params,
-            },
-            model_preference=model_id,
-            priority=1,
-            metadata={
-                "asset_name": chosen_stem,
-                "image_name": chosen_stem,
-                "candidate_count": int(mesh_request.candidate_count or 1),
-                "part_count_range": part_count_range,
-                "rig_type": rig_type,
-                "export_formats": export_formats,
-                "slicer_handoff": slicer_handoff,
-                "postprocess_mode": "production_mesh" if mesh_request.enable_postprocess else "none",
-                "enable_postprocess": mesh_request.enable_postprocess,
-                "feature_type": feature,
-                "texture_resolution": texture_resolution,
-                "bake_normal_maps": mesh_request.bake_normal_maps,
-                "texture_enabled": texture_enabled,
-                "texture_settings": mesh_request.texture_settings,
-                "reference_image_path": original_image_path,
-                "physics_enabled": physics_enabled,
-                "physics_config": mesh_request.physics_config,
-                "intent": getattr(mesh_request, "intent", None),
-                "mesh_style": getattr(mesh_request, "mesh_style", "auto") or "auto",
-                "requested_quality": req_qual,
-                "object_type": getattr(mesh_request, "object_type", "general") or "general",
-                "symmetry": getattr(mesh_request, "symmetry", "none") or "none",
-                "plan": generation_plan,
-                "fallback_chain": generation_plan.get("fallback_chain", []),
-                **preset_metadata,
-                "model_selection": "explicit" if has_explicit_model else "automatic",
-                "preprocessing": preprocessing_metadata,
-                "preprocessing_review_override": mesh_request.preprocessing_review_override,
-                "enhancement_enabled": mesh_request.enhancement_enabled,
-                "target_polycount": target_polycount,
-                "native_target_polycount": native_target_polycount,
-                "generateLOD": lod_enabled,
-                "lodPreset": lod_preset,
-                "lodCount": lod_count,
-                "auto_uv": auto_uv,
-                "quality": quality,
-                "enable_printability_check": enable_printability,
-                "enable_auto_repair": enable_auto_repair,
-                "enable_auto_rig": enable_auto_rig,
-                "auto_rig_mode": mesh_request.auto_rig_mode,
-                "topology_mode": mesh_request.topology_mode or ("quad" if mesh_request.quad_topology else "triangle"),
-                "quad_topology": bool(mesh_request.quad_topology or mesh_request.topology_mode == "quad"),
-                "temp_input_dirs": list(tracked_temp_dirs),
-                "workspace_id": target_ws_id,
-                "operation_id": operation_id,
-                "route_path": f"/workspace/generate/{target_ws_id}",
-            },
-            user_id=user_id,
-            explicit_job_id=target_ws_id,
-        )
-
-        job_id = await scheduler.schedule_job(job_request)
-
-        return MeshGenerationResponse(
-            api_version="1",
-            job_id=job_id,
-            workspace_id=target_ws_id,
-            operation_id=operation_id,
-            route_path=f"/workspace/generate/{target_ws_id}",
-            status="queued",
-            message="Image-to-textured-mesh generation job queued successfully",
-        )
-
-    except HTTPException:
-        for td in tracked_temp_dirs:
-            shutil.rmtree(td, ignore_errors=True)
-        raise
-    except ValueError as e:
-        for td in tracked_temp_dirs:
-            shutil.rmtree(td, ignore_errors=True)
-        logger.warning(f"Validation error in image_to_textured_mesh: {e}")
-        raise HTTPException(status_code=400, detail=sanitize_error_message(str(e)))
-    except Exception as e:
-        for td in tracked_temp_dirs:
-            shutil.rmtree(td, ignore_errors=True)
-        logger.error(f"Error scheduling image-to-textured-mesh job: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=sanitize_error_message(f"Failed to schedule job: {e}"))
-
-@router.post("/image-mesh-painting", response_model=MeshGenerationResponse)
-async def image_mesh_painting(
+async def _schedule_image_mesh_painting(
     mesh_request: ImageMeshPaintingRequest,
     scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
     file_store: Optional[FileStore] = Depends(get_file_store),
@@ -1977,9 +1387,9 @@ async def image_mesh_painting(
                 detail="Localized UV-mask retexturing is not supported by Hunyuan3D-Paint yet. Submit a full-mesh texture request without a mask.",
             )
 
-        # All resolutions route to Hunyuan3D-Paint v2.1; Paint3D removed from main repo.
-        model_preference = mesh_request.model_preference
-        if model_preference in ("trellis_image_mesh_painting", "auto", "default", None, ""):
+        # Image-guided painting uses the explicitly selected registered paint adapter.
+        model_preference = mesh_request.model_preference or "hunyuan3d_paint_v21_image_mesh_painting"
+        if model_preference in {"auto", "default"}:
             model_preference = "hunyuan3d_paint_v21_image_mesh_painting"
 
         # Validate model preference
@@ -2078,8 +1488,24 @@ async def image_mesh_painting(
 
 
 
+@router.post("/texture", response_model=MeshGenerationResponse)
+async def texture_generation(
+    mesh_request: Union[ImageMeshPaintingRequest, TextMeshPaintingRequest],
+    scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
+    file_store: Optional[FileStore] = Depends(get_file_store),
+):
+    """Paint an existing mesh from either a reference image or a text prompt."""
+    if isinstance(mesh_request, ImageMeshPaintingRequest):
+        return await _schedule_image_mesh_painting(
+            mesh_request, scheduler=scheduler, file_store=file_store
+        )
+    return await _schedule_text_mesh_painting(
+        mesh_request, scheduler=scheduler, file_store=file_store
+    )
+
+
 # Utility endpoints
-@router.get("/supported-formats")
+@router.get("/generate/supported-formats")
 async def get_supported_formats():
     """Get list of supported input and output formats"""
     return {
@@ -2101,7 +1527,7 @@ async def get_supported_formats():
     }
 
 
-@router.post("/cancel/{job_id}")
+@router.post("/generate/cancel/{job_id}")
 async def cancel_mesh_generation(
     job_id: str,
     request: Request,

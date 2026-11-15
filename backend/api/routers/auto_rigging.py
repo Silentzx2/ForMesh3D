@@ -23,7 +23,7 @@ from core.utils.file_utils import get_storage_base_dir, get_workspace_storage_ma
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/auto-rigging", tags=["auto_rigging"])
+router = APIRouter(prefix="/rig", tags=["rigging"])
 
 
 def validate_model_preference(
@@ -110,7 +110,7 @@ class AutoRigResponse(BaseModel):
     operation_id: Optional[str] = Field(None, description="Operation ID")
 
 
-@router.post("/generate-rig", response_model=AutoRigResponse)
+@router.post("", response_model=AutoRigResponse)
 async def generate_rig(
     request: AutoRigRequest,
     scheduler: MultiprocessModelScheduler = Depends(get_scheduler),

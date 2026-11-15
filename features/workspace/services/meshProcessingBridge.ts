@@ -38,7 +38,7 @@ export const DEFAULT_SCRIPTS: ScriptDefinition[] = [
     engine: 'ai',
     description: 'FastMesh V1K checkpoint with fixed output of approximately 1K vertices.',
     requiresGpu: true,
-    endpoint: '/api/v1/mesh-retopology/retopologize-mesh',
+    endpoint: '/api/v1/retopo',
     defaultParams: { variant: 'V1K' },
   },
   {
@@ -60,7 +60,7 @@ export const DEFAULT_SCRIPTS: ScriptDefinition[] = [
     engine: 'ai',
     description: 'Neural boundary and packing optimizer for dense organic characters.',
     requiresGpu: true,
-    endpoint: '/api/v1/mesh-uv-unwrapping/unwrap-mesh',
+    endpoint: '/api/v1/unwrap',
     defaultParams: { distortion_threshold: 1.25, unwrap_strategy: 'hybrid', atlas_resolution: 2048 },
   },
   {
@@ -92,7 +92,7 @@ export const DEFAULT_SCRIPTS: ScriptDefinition[] = [
     engine: 'ai',
     description: 'Deep learning semantic part parsing with hierarchical anatomical labeling.',
     requiresGpu: true,
-    endpoint: '/api/v1/mesh-segmentation/segment-mesh',
+    endpoint: '/api/v1/segment',
     defaultParams: { num_parts: 8, output_format: 'glb' },
   },
   {
@@ -315,10 +315,10 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
     // 2. NEURAL AI MODE (Dispatched via Scheduler Router)
     const aiEndpoint =
       tool === 'remesh'
-        ? '/api/v1/mesh-retopology/retopologize-mesh'
+        ? '/api/v1/retopo'
         : tool === 'uv'
-        ? '/api/v1/mesh-uv-unwrapping/unwrap-mesh'
-        : '/api/v1/mesh-segmentation/segment-mesh';
+        ? '/api/v1/unwrap'
+        : '/api/v1/segment';
 
     const body: Record<string, any> = {
       output_format: 'glb',

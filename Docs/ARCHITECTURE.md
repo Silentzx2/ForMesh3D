@@ -120,7 +120,7 @@ flowchart TD
 | Tier | Component | Primary Responsibilities | Data Handled & Stripped |
 | :--- | :--- | :--- | :--- |
 | **1. UI** | `GeneratePanel.tsx`<br>`GenerationPresetDrawer.tsx` | Clean generation studio. Image intake, model selector with live hardware readiness, single Target Polycount / intent-preset card (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`, `native`), and an uncluttered Advanced drawer with real production controls (candidates 1–4, quad/tri, normal baking, LOD levels, repair, physics colliders). Presets configure parameters non-destructively; clicking a preset **never** auto-submits. | Emits user settings state. Exposes no fake inference sliders (steps, guidance, octree resolution, sampler overrides). |
-| **2. Request Builder** | `buildGenerationParameters.ts` | Pure client serialization function. Maps intent presets and explicit polycount budgets into clean API payloads for `POST /api/v1/mesh-generation/image-to-raw-mesh`. Isolates target budgets and flags; `model_parameters` carries only `seed`. | Emits `endpoint`, `body`, `modelParameters`. Does not construct or duplicate adapter-owned numeric inference schedules. |
+| **2. Request Builder** | `buildGenerationParameters.ts` | Pure client serialization function. Maps intent presets and explicit polycount budgets into clean API payloads for `POST /api/v1/generate`. Isolates target budgets and flags; `model_parameters` carries only `seed`. | Emits `endpoint`, `body`, `modelParameters`. Does not construct or duplicate adapter-owned numeric inference schedules. |
 | **3. API Gateway** | `mesh_generation.py`<br>`smart_generation.py` | Pydantic request validation and job queuing. Accepts production settings and routes to deterministic planner when active. | Enqueues job with request inputs. Legacy inference-style fields (`requested_quality`, `mesh_style`, `object_type`, `symmetry`) are accepted for planner routing only and never reach adapter inference; legacy `model_parameters` keys (`generateLOD`, `lodPreset`, `lodCount`) are popped and ignored. |
 | **4. Queue & Scheduler** | `job_queue.py`<br>`multiprocess_scheduler.py` | Durable SQLite FIFO queue with capacity cap of 10 operations (`QUEUE_FULL`), atomic single-worker claiming with process locks, immutable input snapshots, and request deduplication fingerprints. VRAM allocation, GPU dispatch locks, Best-of-N multi-seed scheduling (`candidate_count` 1..4), and composite quality scoring (`_score_and_select`). | Strips all post-process only fields (`_POSTPROCESS_ONLY_INPUTS`) and adapter-owned inference keys (`_ADAPTER_OWNED_INFERENCE_INPUTS`). |
 | **5. Model Adapter** | `adapters/*_adapter.py` | Model execution in dedicated worker processes. Owns locked native inference profile (`_LOCKED_INFERENCE_PROFILE`). Produces high-fidelity raw extraction without decimation or quality reduction. Direct model-native mesh delivery is the standard default workflow. | Overwrites request-side inference parameters with locked schedule. Output is staged to `storage/temp/<operation_id>/` in preview mode. |
@@ -443,7 +443,7 @@ sequenceDiagram
     participant Storage as backend/storage/
 
     User->>Frontend: Select image + polycount budget / texture
-    Frontend->>API: POST /api/v1/mesh-generation/image-to-raw-mesh
+    Frontend->>API: POST /api/v1/generate
     API->>SCHED: Submit job (VRAM-aware scheduler)
     SCHED->>Adapter: Run maximum-fidelity model inference (raw or textured)
     Adapter-->>SCHED: Model-native mesh output (.glb)
@@ -577,35 +577,22 @@ The only retained project runtime log is the repository-root `logs/master.log`. 
 - `POST /api/v1/file-upload/mesh`: Upload base mesh for post-processing.
 - `GET /api/v1/file-upload/download/{file_id}`: Stream stored file.
 
-### Mesh Generation & Processing
-- `POST /api/v1/mesh-generation/image-to-raw-mesh`: Primary image-to-3D route. It secures raw `master/source.glb` before optional post-processing texturing.
-- `POST /api/v1/mesh-generation/image-to-textured-mesh`: Backward-compatible endpoint; legacy textured geometry IDs map to their raw aliases, with optional centralized texturing controlled by the request.
-- Direct texture requests use the explicitly selected paint adapter; the generic legacy paint ID resolves to Hunyuan3D-Paint v2.0, while the Studio preserves an explicit v2.0 or v2.1 selection. Texture output is stored separately from the raw master.
-- `POST /api/v1/mesh-generation/image-mesh-painting`: Paint an existing mesh directly (Texture Studio/manual workflow).
-- `GET /api/v1/system/jobs/{job_id}`: Real-time generation job status.
-- `GET /api/v1/system/jobs/{job_id}/download?artifact_format=<format>`: Deliver canonical master, game-ready, LOD, collision, texture, preview, QA, or ZIP artifacts.
-- `GET /api/v1/system/jobs/{job_id}/candidates/{candidate_id}/download`: Download candidate mesh variation.
-- `GET /api/v1/system/jobs/{job_id}/candidates/{candidate_id}/thumbnail`: Download candidate variation thumbnail.
-- `POST /api/v1/system/jobs/{job_id}/candidates/{candidate_id}/select`: Promote chosen candidate to `master/source.glb` and garbage-collect unselected candidate files.
+### Canonical Workspace Endpoints
+- `POST /api/v1/generate`: Single image-to-mesh route. The selected model's registered feature determines raw versus textured-only dispatch; raw-capable models may also run their optional in-adapter texture stage.
+- `POST /api/v1/texture`: Single mesh-painting route. A reference image selects image-guided painting; a prompt without an image selects text-guided painting.
+- `POST /api/v1/retopo`: FastMesh retopology.
+- `POST /api/v1/unwrap`: UV unwrapping.
+- `POST /api/v1/rig`: SkinTokens auto-rigging.
+- `POST /api/v1/motion`: ARDY motion generation.
+- `POST /api/v1/segment`: Mesh segmentation.
+- `GET /api/v1/system/jobs/{job_id}` and its download/candidate routes remain the source of job status and artifacts.
 
-### Mesh Editing, Rigging, Segmentation, Retopology, UV
-- `POST /api/v1/mesh-editing/text-mesh-editing`: Edit mesh with text prompt.
-- `POST /api/v1/mesh-editing/image-mesh-editing`: Edit mesh with image reference.
-- `POST /api/v1/auto-rigging/generate-rig`: Generate skeletal rig with SkinTokens.
-- `POST /api/v1/mesh-segmentation/segment-mesh`: Decompose mesh into parts.
-- `POST /api/v1/mesh-retopology/retopologize-mesh`: Retopologize dense mesh.
-- `POST /api/v1/mesh-uv-unwrapping/unwrap-mesh`: Generate UV atlas.
-
-### Motion Generation
-- `POST /api/v1/motion-generation/generate-motion`: Synthesize 3D human motion from text.
-- `GET /api/v1/motion-generation/checkpoints`: Query installed ARDY checkpoints.
-- `model_preference` must use the registered ID `ardy_motion_generation`; Core and G1 are checkpoint variants (`ARDY-Core-RP-20FPS-Horizon40`, `ARDY-Core-RP-20FPS-Horizon8`, `ARDY-G1-RP-25FPS-Horizon52`, `ARDY-G1-RP-25FPS-Horizon8`), not separate scheduler model IDs.
-
+The handlers already owned by the existing routers are mounted directly at these canonical paths. No legacy endpoint aliases are mounted. The obsolete text/image mesh-editing API router and its frontend execution handler have been removed.
 ---
 
 ## 8. Model Catalog
 
-The active catalog is sourced from `backend/config/models.yaml`. Text-conditioned **mesh painting** and mesh editing remain supported; Text → 3D mesh generation is not registered.
+The active catalog is sourced from `backend/config/models.yaml`. Text-conditioned **mesh painting** remains supported through `/api/v1/texture`; text/image mesh-editing API routes are not part of the active API. Text → 3D mesh generation is not registered.
 
 | Model Family | Registered IDs | Category / Tasks | VRAM Budget |
 |---|---|---|---:|
@@ -794,7 +781,7 @@ The main runtime remains Python 3.10 + PyTorch 2.6.0 + CUDA 12.4.
 Physics is an opt-in layer after the existing generation and production post-processing pipeline. The immutable master remains unchanged. When requested, the scheduler passes a provider-neutral physics intent into post-processing; the existing collision service produces the collision representation and `metadata/physics.json` records the rigid-body configuration, material response, collision statistics, provenance, and capabilities. The browser viewer uses the canonical collision artifact with pinned Rapier 0.19.3 while remaining on the existing direct Three.js renderer. Physics preparation runs against derived geometry in the production pipeline; the optional centralized texture stage does not create a second physics job or replace the immutable raw master. The physics runtime is not an inference model and does not consume generation-model VRAM.
 
 ### Execution telemetry, queue reordering and cancellation
-The workspace treats `/api/v1/system/jobs/{job_id}` as the source of truth for live job state. The frontend uses adaptive, visibility-aware polling because the current backend exposes the system job status contract as REST; it does not claim a per-job SSE stream that is not implemented. Queue cancellation uses `POST /api/v1/mesh-generation/cancel/{job_id}` or `POST /api/v1/system/jobs/{job_id}/cancel` and preserves the job history record. Manual reordering for pending queued jobs is powered by `POST /api/v1/system/jobs/queue/reorder` and `job_queue.reorder_queued_jobs`, re-indexing queue priorities without disturbing active running tasks or single-GPU lock state.
+The workspace treats `/api/v1/system/jobs/{job_id}` as the source of truth for live job state. The frontend uses adaptive, visibility-aware polling because the current backend exposes the system job status contract as REST; it does not claim a per-job SSE stream that is not implemented. Queue cancellation uses `POST /api/v1/generate/cancel/{job_id}` or `POST /api/v1/system/jobs/{job_id}/cancel` and preserves the job history record. Manual reordering for pending queued jobs is powered by `POST /api/v1/system/jobs/queue/reorder` and `job_queue.reorder_queued_jobs`, re-indexing queue priorities without disturbing active running tasks or single-GPU lock state.
 
 Segmentation results carry `segmentation_info` through normalized asset metadata so inspectors render actual backend part statistics rather than static sample data.
 
@@ -949,7 +936,7 @@ flowchart TD
     EngineSel --> Bridge["Mesh Processing Bridge<br/>(meshProcessingBridge.ts)"]
 
     subgraph AI Path ["Path A: Neural AI Mode (GPU Scheduler)"]
-        Bridge -->|JSON Job Request| FastAPIAI["FastAPI AI Routers<br/>(/api/v1/mesh-retopology/*)<br/>(/api/v1/mesh-uv-unwrapping/*)<br/>(/api/v1/mesh-segmentation/*)"]
+        Bridge -->|JSON Job Request| FastAPIAI["FastAPI AI Routers<br/>(/api/v1/retopo/*)<br/>(/api/v1/unwrap/*)<br/>(/api/v1/segment/*)"]
         FastAPIAI --> Scheduler["Multiprocess Scheduler<br/>(GPU Worker Lock & VRAM Plan)"]
         Scheduler --> AIModels["Deep Learning Inference<br/>(FastMesh V1K, PartUV, Semantic Seg)"]
         AIModels --> Poll["WorkspaceContext Job Poller"]
@@ -973,7 +960,7 @@ flowchart TD
 
 ### 2. Dual AI / Script Execution Contracts
 1. **Neural AI Mode (`engine: 'ai'`)**:
-   - Dispatches requests to backend neural inference routers (`/api/v1/mesh-retopology/retopologize-mesh`, `/api/v1/mesh-uv-unwrapping/unwrap-mesh`, `/api/v1/mesh-segmentation/segment-mesh`).
+   - Dispatches requests to backend neural inference routers (`/api/v1/retopo`, `/api/v1/unwrap`, `/api/v1/segment`).
    - Managed by the multiprocess scheduler with GPU memory reservation, model warm-up locks, and queued background tracking.
    - Result is durable, tracked in SQLite/Redis, and polled by `WorkspaceContext`.
 2. **Fast Algorithmic Script Mode (`engine: 'script'`)**:

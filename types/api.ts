@@ -320,27 +320,15 @@ export interface ImageToMeshRequest {
   image_path?: string;
   image_base64?: string;
   image_file_id?: string; // preferred method
-  output_format: OutputFormat;
-  model_preference?: string;
-  model_parameters?: Record<string, any>;
-  preprocessing_artifact_id?: string;
-  preprocessing_review_override?: boolean;
-  enhancement_enabled?: boolean;
-  enable_printability_check?: boolean;
-  enable_auto_repair?: boolean;
-  enable_auto_rig?: boolean;
-  auto_rig_mode?: 'skeleton' | 'skin' | 'full';
-
-}
-
-export interface ImageToTexturedMeshRequest {
-  image_path?: string;
-  image_base64?: string;
-  image_file_id?: string; // preferred method
   texture_image_path?: string;
   texture_image_base64?: string;
-  texture_image_file_id?: string; //preferred method
+  texture_image_file_id?: string;
+  texture_enabled?: boolean;
+  generate_texture?: boolean;
   texture_resolution?: number;
+  texture_settings?: Record<string, any>;
+  workspace_id?: string;
+  parent_operation_id?: string;
   output_format: OutputFormat;
   model_preference?: string;
   model_parameters?: Record<string, any>;
@@ -562,56 +550,6 @@ export interface ModelParametersResponse {
     parameters: Record<string, ParameterSchema>;
   };
   timestamp: string;
-}
-
-// Mesh Editing Types
-export interface TextMeshEditingRequest {
-  mesh_path?: string;
-  mesh_base64?: string;
-  mesh_file_id?: string;
-  mask_bbox?: {
-    center: [number, number, number];
-    dimensions: [number, number, number];
-  };
-  mask_ellipsoid?: {
-    center: [number, number, number];
-    radii: [number, number, number];
-  };
-  source_prompt: string;
-  target_prompt: string;
-  num_views?: number;
-  resolution?: number;
-  output_format: OutputFormat;
-  model_preference?: string;
-  model_parameters?: Record<string, any>;
-}
-
-export interface ImageMeshEditingRequest {
-  mesh_path?: string;
-  mesh_base64?: string;
-  mesh_file_id?: string;
-  source_image_path?: string;
-  source_image_base64?: string;
-  source_image_file_id?: string;
-  target_image_path?: string;
-  target_image_base64?: string;
-  target_image_file_id?: string;
-  mask_image_path?: string;
-  mask_image_base64?: string;
-  mask_image_file_id?: string;
-  mask_bbox?: {
-    center: [number, number, number];
-    dimensions: [number, number, number];
-  };
-  mask_ellipsoid?: {
-    center: [number, number, number];
-    radii: [number, number, number];
-  };
-  num_views?: number;
-  resolution?: number;
-  output_format: OutputFormat;
-  model_preference?: string;
-  model_parameters?: Record<string, any>;
 }
 
 // Queue Stats Types

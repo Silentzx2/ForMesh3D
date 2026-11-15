@@ -21,7 +21,7 @@ from core.utils.file_utils import get_storage_base_dir, get_workspace_storage_ma
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/mesh-uv-unwrapping", tags=["mesh_uv_unwrapping"])
+router = APIRouter(prefix="/unwrap", tags=["uv-unwrapping"])
 
 
 def validate_model_preference(
@@ -127,7 +127,7 @@ class MeshUVUnwrappingResponse(BaseModel):
     operation_id: Optional[str] = Field(None, description="Operation ID")
 
 
-@router.post("/unwrap-mesh", response_model=MeshUVUnwrappingResponse)
+@router.post("", response_model=MeshUVUnwrappingResponse)
 async def unwrap_mesh(
     request: MeshUVUnwrappingRequest,
     scheduler: MultiprocessModelScheduler = Depends(get_scheduler),

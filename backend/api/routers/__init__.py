@@ -5,7 +5,6 @@ __all__ = [
     "auto_rigging",
     "database",
     "file_upload",
-    "mesh_editing",
     "mesh_generation",
     "mesh_retopology",
     "mesh_segmentation",

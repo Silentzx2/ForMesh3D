@@ -23,7 +23,7 @@ LEGACY_MODEL_PREFERENCES = {
     "ardy-g1": "ardy_motion_generation",
 }
 
-router = APIRouter(prefix="/motion-generation", tags=["motion_generation"])
+router = APIRouter(prefix="/motion", tags=["motion"])
 
 
 class MotionGenerationRequest(BaseModel):
@@ -64,7 +64,7 @@ class MotionGenerationResponse(BaseModel):
     operation_id: Optional[str] = Field(None, description="Operation ID")
 
 
-@router.post("/generate-motion", response_model=MotionGenerationResponse)
+@router.post("", response_model=MotionGenerationResponse)
 async def generate_motion(
     request: MotionGenerationRequest,
     scheduler: MultiprocessModelScheduler = Depends(get_scheduler),

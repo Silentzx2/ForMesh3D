@@ -43,20 +43,45 @@ def check_backend_routes():
         "/api/v1/file-upload/mesh",
         "/api/v1/file-upload/download/{file_id}",
         "/api/v1/file-upload/metadata/{file_id}",
-        "/api/v1/mesh-generation/image-to-textured-mesh",
-        "/api/v1/mesh-generation/image-to-raw-mesh",
-        "/api/v1/mesh-generation/text-mesh-painting",
-        "/api/v1/mesh-generation/image-mesh-painting",
-        "/api/v1/mesh-retopology/retopologize-mesh",
-        "/api/v1/mesh-retopology/available-models",
-        "/api/v1/mesh-uv-unwrapping/unwrap-mesh",
-        "/api/v1/mesh-uv-unwrapping/available-models",
-        "/api/v1/mesh-segmentation/segment-mesh",
-        "/api/v1/auto-rigging/generate-rig",
+        "/api/v1/generate",
+        "/api/v1/generate/supported-formats",
+        "/api/v1/generate/cancel/{job_id}",
+        "/api/v1/texture",
+        "/api/v1/retopo",
+        "/api/v1/retopo/available-models",
+        "/api/v1/unwrap",
+        "/api/v1/unwrap/available-models",
+        "/api/v1/segment",
+        "/api/v1/rig",
+        "/api/v1/motion",
+        "/api/v1/motion/checkpoints",
     ]
 
     for ep in required_endpoints:
         assert ep in paths, f"Missing required endpoint in FastAPI app: {ep}"
+
+    retired_endpoints = [
+        "/api/v1/mesh-generation/image-to-raw-mesh",
+        "/api/v1/mesh-generation/image-to-textured-mesh",
+        "/api/v1/mesh-generation/text-mesh-painting",
+        "/api/v1/mesh-generation/image-mesh-painting",
+        "/api/v1/mesh-generation/supported-formats",
+        "/api/v1/mesh-generation/cancel/{job_id}",
+        "/api/v1/mesh-retopology/retopologize-mesh",
+        "/api/v1/mesh-retopology/available-models",
+        "/api/v1/mesh-retopology/supported-formats",
+        "/api/v1/mesh-uv-unwrapping/unwrap-mesh",
+        "/api/v1/mesh-uv-unwrapping/available-models",
+        "/api/v1/mesh-uv-unwrapping/pack-methods",
+        "/api/v1/mesh-uv-unwrapping/supported-formats",
+        "/api/v1/auto-rigging/generate-rig",
+        "/api/v1/motion-generation/generate-motion",
+        "/api/v1/mesh-segmentation/segment-mesh",
+        "/api/v1/mesh-editing/text-mesh-editing",
+        "/api/v1/mesh-editing/image-mesh-editing",
+    ]
+    for ep in retired_endpoints:
+        assert ep not in paths, f"Retired endpoint is still mounted: {ep}"
     print(f"  ✓ All {len(required_endpoints)} required core endpoints exist in FastAPI OpenAPI schema ({len(paths)} total).")
     return paths
 
@@ -112,6 +137,22 @@ def check_frontend_drift(openapi_paths):
         "/api/v1/realtime/ws",
         "/api/v1/upload/assets",
         "/api/v1/upload/model",
+        "/api/v1/mesh-generation/image-to-raw-mesh",
+        "/api/v1/mesh-generation/image-to-textured-mesh",
+        "/api/v1/mesh-generation/text-mesh-painting",
+        "/api/v1/mesh-generation/image-mesh-painting",
+        "/api/v1/mesh-retopology/retopologize-mesh",
+        "/api/v1/mesh-uv-unwrapping/unwrap-mesh",
+        "/api/v1/mesh-segmentation/segment-mesh",
+        "/api/v1/mesh-segmentation/supported-formats",
+        "/api/v1/auto-rigging/generate-rig",
+        "/api/v1/auto-rigging/supported-formats",
+        "/api/v1/motion-generation/generate-motion",
+        "/api/v1/motion-generation/checkpoints",
+        "/api/v1/motion-generation/available-models",
+        "/api/v1/motion-generation/supported-formats",
+        "/api/v1/mesh-editing/text-mesh-editing",
+        "/api/v1/mesh-editing/image-mesh-editing",
     ]
 
     found_dead = []

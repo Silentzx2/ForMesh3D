@@ -84,7 +84,7 @@ sequenceDiagram
     participant Storage as Workspace Storage
 
     User->>Frontend: Submit Image + Parameters
-    Frontend->>API: POST /api/v1/mesh-generation/image-to-raw-mesh
+    Frontend->>API: POST /api/v1/generate
     API->>Queue: Enqueue Job (queued, not_saved)
     API-->>Frontend: Return job_id & workspace_id
     Scheduler->>Queue: Claim Job (processing)

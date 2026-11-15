@@ -33,7 +33,7 @@ from core.utils.file_utils import (
 logger = logging.getLogger(__name__)
 MAX_MESH_BASE64_BYTES = 200 * 1024 * 1024
 
-router = APIRouter(prefix="/mesh-segmentation", tags=["mesh_segmentation"])
+router = APIRouter(prefix="/segment", tags=["segmentation"])
 
 
 def validate_model_preference(
@@ -118,7 +118,7 @@ class MeshSegmentationResponse(BaseModel):
     operation_id: Optional[str] = Field(None, description="Operation ID")
 
 
-@router.post("/segment-mesh", response_model=MeshSegmentationResponse)
+@router.post("", response_model=MeshSegmentationResponse)
 async def segment_mesh(
     request: MeshSegmentationRequest,
     scheduler: MultiprocessModelScheduler = Depends(get_scheduler),

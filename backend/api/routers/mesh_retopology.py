@@ -21,7 +21,7 @@ from core.utils.file_utils import get_storage_base_dir, get_workspace_storage_ma
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/mesh-retopology", tags=["mesh_retopology"])
+router = APIRouter(prefix="/retopo", tags=["retopology"])
 
 
 def validate_model_preference(
@@ -125,7 +125,7 @@ class MeshRetopologyResponse(BaseModel):
     operation_id: Optional[str] = Field(None, description="Operation ID")
 
 
-@router.post("/retopologize-mesh", response_model=MeshRetopologyResponse)
+@router.post("", response_model=MeshRetopologyResponse)
 async def retopologize_mesh(
     request: MeshRetopologyRequest,
     scheduler: MultiprocessModelScheduler = Depends(get_scheduler),

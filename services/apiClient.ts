@@ -30,7 +30,6 @@ import {
   JobsHistoryResponse,
   JobsHistoryParams,
   ImageToMeshRequest,
-  ImageToTexturedMeshRequest,
   MeshPaintingRequest,
   MeshSegmentationRequest,
   AutoRiggingRequest,
@@ -44,8 +43,6 @@ import {
   SupportedFormats,
   ApiError,
   ModelParametersResponse,
-  TextMeshEditingRequest,
-  ImageMeshEditingRequest,
   QueueStatsResponse,
   MotionGenerationRequest,
   MotionCheckpointsResponse,
@@ -293,7 +290,7 @@ class ApiClient {
 
   async cancelGenerationJob(jobId: string): Promise<{ job_id: string; status: string; cancelled: boolean; message: string }> {
     const response = await this.client.post<{ job_id: string; status: string; cancelled: boolean; message: string }>(
-      `/api/v1/mesh-generation/cancel/${encodeURIComponent(jobId)}`
+      `/api/v1/generate/cancel/${encodeURIComponent(jobId)}`
     );
     return response.data;
   }
@@ -490,17 +487,9 @@ class ApiClient {
   }
 
   // Mesh Generation Endpoints
-  async imageToRawMesh(request: ImageToMeshRequest): Promise<BaseApiResponse> {
+  async generateMesh(request: ImageToMeshRequest): Promise<BaseApiResponse> {
     const response = await this.client.post<BaseApiResponse>(
-      '/api/v1/mesh-generation/image-to-raw-mesh',
-      request
-    );
-    return response.data;
-  }
-
-  async imageToTexturedMesh(request: ImageToTexturedMeshRequest): Promise<BaseApiResponse> {
-    const response = await this.client.post<BaseApiResponse>(
-      '/api/v1/mesh-generation/image-to-textured-mesh',
+      '/api/v1/generate',
       request
     );
     return response.data;
@@ -508,7 +497,7 @@ class ApiClient {
 
   async textMeshPainting(request: MeshPaintingRequest): Promise<BaseApiResponse> {
     const response = await this.client.post<BaseApiResponse>(
-      '/api/v1/mesh-generation/text-mesh-painting',
+      '/api/v1/texture',
       request
     );
     return response.data;
@@ -516,7 +505,7 @@ class ApiClient {
 
   async imageMeshPainting(request: MeshPaintingRequest): Promise<BaseApiResponse> {
     const response = await this.client.post<BaseApiResponse>(
-      '/api/v1/mesh-generation/image-mesh-painting',
+      '/api/v1/texture',
       request
     );
     return response.data;
@@ -526,7 +515,7 @@ class ApiClient {
   // Mesh Segmentation Endpoints
   async segmentMesh(request: MeshSegmentationRequest): Promise<BaseApiResponse> {
     const response = await this.client.post<BaseApiResponse>(
-      '/api/v1/mesh-segmentation/segment-mesh',
+      '/api/v1/segment',
       request
     );
     return response.data;
@@ -536,7 +525,7 @@ class ApiClient {
   // Auto Rigging Endpoints
   async generateRig(request: AutoRiggingRequest): Promise<BaseApiResponse> {
     const response = await this.client.post<BaseApiResponse>(
-      '/api/v1/auto-rigging/generate-rig',
+      '/api/v1/rig',
       request
     );
     return response.data;
@@ -546,21 +535,21 @@ class ApiClient {
   // Supported Formats Endpoints
   async getMeshGenerationSupportedFormats(): Promise<SupportedFormats> {
     const response = await this.retry(() => 
-      this.client.get<SupportedFormats>('/api/v1/mesh-generation/supported-formats')
+      this.client.get<SupportedFormats>('/api/v1/generate/supported-formats')
     );
     return response.data;
   }
 
   async getMeshSegmentationSupportedFormats(): Promise<SupportedFormats> {
     const response = await this.retry(() => 
-      this.client.get<SupportedFormats>('/api/v1/mesh-segmentation/supported-formats')
+      this.client.get<SupportedFormats>('/api/v1/segment/supported-formats')
     );
     return response.data;
   }
 
   async getAutoRiggingSupportedFormats(): Promise<SupportedFormats> {
     const response = await this.retry(() => 
-      this.client.get<SupportedFormats>('/api/v1/auto-rigging/supported-formats')
+      this.client.get<SupportedFormats>('/api/v1/rig/supported-formats')
     );
     return response.data;
   }
@@ -568,7 +557,7 @@ class ApiClient {
   // Mesh Retopology Endpoints
   async retopologizeMesh(request: MeshRetopologyRequest): Promise<BaseApiResponse> {
     const response = await this.client.post<BaseApiResponse>(
-      '/api/v1/mesh-retopology/retopologize-mesh',
+      '/api/v1/retopo',
       request
     );
     return response.data;
@@ -576,14 +565,14 @@ class ApiClient {
 
   async getRetopologyAvailableModels(): Promise<RetopologyAvailableModels> {
     const response = await this.retry(() => 
-      this.client.get<RetopologyAvailableModels>('/api/v1/mesh-retopology/available-models')
+      this.client.get<RetopologyAvailableModels>('/api/v1/retopo/available-models')
     );
     return response.data;
   }
 
   async getMeshRetopologySupportedFormats(): Promise<SupportedFormats> {
     const response = await this.retry(() => 
-      this.client.get<SupportedFormats>('/api/v1/mesh-retopology/supported-formats')
+      this.client.get<SupportedFormats>('/api/v1/retopo/supported-formats')
     );
     return response.data;
   }
@@ -591,7 +580,7 @@ class ApiClient {
   // Mesh UV Unwrapping Endpoints
   async unwrapMeshUV(request: MeshUVUnwrappingRequest): Promise<BaseApiResponse> {
     const response = await this.client.post<BaseApiResponse>(
-      '/api/v1/mesh-uv-unwrapping/unwrap-mesh',
+      '/api/v1/unwrap',
       request
     );
     return response.data;
@@ -599,38 +588,21 @@ class ApiClient {
 
   async getUVUnwrappingAvailableModels(): Promise<UVUnwrappingAvailableModels> {
     const response = await this.retry(() => 
-      this.client.get<UVUnwrappingAvailableModels>('/api/v1/mesh-uv-unwrapping/available-models')
+      this.client.get<UVUnwrappingAvailableModels>('/api/v1/unwrap/available-models')
     );
     return response.data;
   }
 
   async getUVUnwrappingPackMethods(): Promise<UVPackMethods> {
     const response = await this.retry(() => 
-      this.client.get<UVPackMethods>('/api/v1/mesh-uv-unwrapping/pack-methods')
+      this.client.get<UVPackMethods>('/api/v1/unwrap/pack-methods')
     );
     return response.data;
   }
 
   async getMeshUVUnwrappingSupportedFormats(): Promise<SupportedFormats> {
     const response = await this.retry(() => 
-      this.client.get<SupportedFormats>('/api/v1/mesh-uv-unwrapping/supported-formats')
-    );
-    return response.data;
-  }
-
-  // Mesh Editing Endpoints
-  async textMeshEditing(request: TextMeshEditingRequest): Promise<BaseApiResponse> {
-    const response = await this.client.post<BaseApiResponse>(
-      '/api/v1/mesh-editing/text-mesh-editing',
-      request
-    );
-    return response.data;
-  }
-
-  async imageMeshEditing(request: ImageMeshEditingRequest): Promise<BaseApiResponse> {
-    const response = await this.client.post<BaseApiResponse>(
-      '/api/v1/mesh-editing/image-mesh-editing',
-      request
+      this.client.get<SupportedFormats>('/api/v1/unwrap/supported-formats')
     );
     return response.data;
   }
@@ -638,7 +610,7 @@ class ApiClient {
   // Motion Generation Endpoints (ARDY)
   async generateMotion(request: MotionGenerationRequest): Promise<BaseApiResponse> {
     const response = await this.client.post<BaseApiResponse>(
-      '/api/v1/motion-generation/generate-motion',
+      '/api/v1/motion',
       request
     );
     return response.data;
@@ -646,21 +618,21 @@ class ApiClient {
 
   async getMotionCheckpoints(): Promise<MotionCheckpointsResponse> {
     const response = await this.retry(() =>
-      this.client.get<MotionCheckpointsResponse>('/api/v1/motion-generation/checkpoints')
+      this.client.get<MotionCheckpointsResponse>('/api/v1/motion/checkpoints')
     );
     return response.data;
   }
 
   async getMotionAvailableModels(): Promise<MotionAvailableModelsResponse> {
     const response = await this.retry(() =>
-      this.client.get<MotionAvailableModelsResponse>('/api/v1/motion-generation/available-models')
+      this.client.get<MotionAvailableModelsResponse>('/api/v1/motion/available-models')
     );
     return response.data;
   }
 
   async getMotionSupportedFormats(): Promise<SupportedFormats> {
     const response = await this.retry(() =>
-      this.client.get<SupportedFormats>('/api/v1/motion-generation/supported-formats')
+      this.client.get<SupportedFormats>('/api/v1/motion/supported-formats')
     );
     return response.data;
   }

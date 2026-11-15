@@ -447,7 +447,7 @@ docker compose -f docker-compose.yml up --build -d
 
 ## 11. REST & Streaming API Reference
 
-The FastAPI backend exposes 100 active API endpoints (98 mounted across 13 `APIRouter` modules plus `/health` and `/`) covering generation, tool operations, and cluster telemetry:
+The FastAPI backend exposes a consolidated workspace API for generation, texture painting, specialist mesh tools, rigging, motion, system telemetry, and durable job management:
 
 | Endpoint | Method | Description |
 |---|:---:|---|
@@ -455,17 +455,13 @@ The FastAPI backend exposes 100 active API endpoints (98 mounted across 13 `APIR
 | `/api/v1/system/info` | `GET` | System health, GPU specs, VRAM utilization, active worker mode |
 | `/api/v1/system/health` | `GET` | Lightweight system router health check |
 | `/api/v1/system/models` | `GET` | List registered models, readiness, capabilities, and VRAM requirements |
-| `/api/v1/mesh-generation/image-to-raw-mesh` | `POST` | Generate high-fidelity raw geometry from single reference image |
-| `/api/v1/mesh-generation/image-to-textured-mesh` | `POST` | Combined mesh generation + texturing |
-| `/api/v1/mesh-generation/image-mesh-painting` | `POST` | Paint PBR textures onto existing 3D geometry from image |
-| `/api/v1/mesh-generation/text-mesh-painting` | `POST` | Paint PBR textures onto existing 3D geometry from text prompt |
-| `/api/v1/mesh-retopology/retopologize-mesh` | `POST` | Run FastMesh quad retopology on mesh |
-| `/api/v1/mesh-uv-unwrapping/unwrap-mesh` | `POST` | Generate conformal UV atlas charts |
-| `/api/v1/mesh-segmentation/segment-mesh` | `POST` | Segment mesh into semantic parts |
-| `/api/v1/mesh-editing/*` | `POST` | Text and image guided localized mesh editing |
-| `/api/v1/image-enhancement/*` | `POST`/`GET` | Image enhancement preview and artifact resolution |
-| `/api/v1/auto-rigging/generate-rig` | `POST` | Generate bipedal skeleton armature |
-| `/api/v1/motion-generation/generate-motion` | `POST` | Synthesize motion sequence into playable JSON |
+| `/api/v1/generate` | `POST` | Unified image-to-mesh generation; model capability selects raw or textured-only dispatch |
+| `/api/v1/texture` | `POST` | Unified image-guided or text-guided PBR mesh painting |
+| `/api/v1/retopo` | `POST` | Run FastMesh quad retopology on mesh |
+| `/api/v1/unwrap` | `POST` | Generate conformal UV atlas charts |
+| `/api/v1/segment` | `POST` | Segment mesh into semantic parts |
+| `/api/v1/rig` | `POST` | Generate bipedal skeleton armature |
+| `/api/v1/motion` | `POST` | Synthesize motion sequence into playable JSON |
 | `/api/v1/system/jobs/{job_id}` | `GET` | Durable job status and production progress polling |
 | `/api/v1/system/jobs/{job_id}/postprocess/retry` | `POST` | Retry production processing from immutable master |
 | `/api/v1/mesh-tools/*` | `POST` | In-process Auto UV, Retopo, Repair, Optimize, LOD, Collision, Bake, and Convert tools |

@@ -186,3 +186,31 @@ test('forwards live SSE chunks immediately with proxy buffering disabled', async
   }
 });
 
+
+
+test('forwards the canonical generation endpoint without rewriting its route', async () => {
+  process.env.BACKEND_URL = 'http://127.0.0.1:7842';
+  let forwardedUrl;
+  let forwardedBody;
+  globalThis.fetch = async (input, init) => {
+    forwardedUrl = String(input);
+    forwardedBody = init.body;
+    return new Response('{"job_id":"rabbit_123abc","status":"queued"}', {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+
+  const request = new NextRequest('http://localhost/api/v1/generate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ image_file_id: 'ast_123456789abc' }),
+  });
+  const response = await POST(request, {
+    params: Promise.resolve({ path: ['generate'] }),
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(forwardedUrl, 'http://127.0.0.1:7842/api/v1/generate');
+  assert.equal(forwardedBody, '{"image_file_id":"ast_123456789abc"}');
+});

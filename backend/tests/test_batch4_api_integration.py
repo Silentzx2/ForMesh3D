@@ -1,6 +1,6 @@
 """
 Unit and Integration Tests for Milestone 4 (Batch 4):
-- B4-T1: Existing API Endpoint Refactor (/image-to-raw-mesh and /image-to-textured-mesh canonical envelopes & SQLite operations)
+- B4-T1: Canonical /generate request, feature dispatch, and SQLite operation contracts
 - B4-T2: Durable Route & Deep-Link Lookup (/jobs/{job_id} fallback, /workspace/generate/{workspace_id} DB query without inference)
 - B4-T3: Specialist Tool Endpoints Operation Integration (WorkspaceStorageManager, operation records, prerequisite validation)
 - B4-T4: API Deprecation Guard & Error Hardening (Path sanitization, /mesh-generation/cancel/{job_id} delegation)
@@ -24,7 +24,6 @@ from api.dependencies import sanitize_error_message
 from api.routers import (
     auto_rigging,
     file_upload,
-    mesh_editing,
     mesh_generation,
     mesh_retopology,
     mesh_segmentation,
@@ -82,6 +81,8 @@ class MockScheduler:
         return True
 
     def validate_model_preference(self, model_id: str, feature: str) -> bool:
+        if model_id == "stable_fast_3d_image_to_textured_mesh":
+            return feature == "image_to_textured_mesh"
         return True
 
     def get_available_models(self, feature: Optional[str] = None) -> Dict[str, Any]:
@@ -146,7 +147,6 @@ def batch4_app_client(tmp_path, monkeypatch):
     test_app.include_router(mesh_uv_unwrapping.router, prefix="/api/v1")
     test_app.include_router(mesh_segmentation.router, prefix="/api/v1")
     test_app.include_router(motion_generation.router, prefix="/api/v1")
-    test_app.include_router(mesh_editing.router, prefix="/api/v1")
     test_app.include_router(mesh_tools.router, prefix="/api/v1")
 
     client = TestClient(test_app)
@@ -181,7 +181,7 @@ def _create_sample_mesh(path: Path) -> bytes:
 # ==============================================================================
 
 def test_b4_t1_image_to_raw_mesh_response_and_operation_registration(batch4_app_client):
-    """Verify /image-to-raw-mesh resolves workspace_id, enqueues operation, and returns canonical envelope."""
+    """Verify /api/v1/generate resolves workspace_id, enqueues operation, and returns canonical envelope."""
     client = batch4_app_client["client"]
     db = batch4_app_client["db"]
     storage_root = batch4_app_client["storage_root"]
@@ -200,7 +200,7 @@ def test_b4_t1_image_to_raw_mesh_response_and_operation_registration(batch4_app_
 
     # Trigger image-to-raw-mesh
     gen_resp = client.post(
-        "/api/v1/mesh-generation/image-to-raw-mesh",
+        "/api/v1/generate",
         json={
             "image_file_id": asset_id,
             "workspace_id": ws_id,
@@ -226,6 +226,157 @@ def test_b4_t1_image_to_raw_mesh_response_and_operation_registration(batch4_app_
     assert op.persistence_status == PersistenceStatus.NOT_SAVED
 
 
+
+def test_b4_t1_generate_dispatches_textured_only_model_and_registers_operation(batch4_app_client):
+    """The single /generate endpoint dispatches textured-only models by their registry feature."""
+    client = batch4_app_client["client"]
+    db = batch4_app_client["db"]
+    scheduler = batch4_app_client["scheduler"]
+
+    image = io.BytesIO()
+    Image.new("RGB", (64, 64), color="red").save(image, format="PNG")
+    upload = client.post(
+        "/api/v1/file-upload/image",
+        files={"file": ("textured_input.png", image.getvalue(), "image/png")},
+    )
+    assert upload.status_code == 200, upload.text
+
+    workspace_id = upload.json()["workspace_id"]
+    response = client.post(
+        "/api/v1/generate",
+        json={
+            "image_file_id": upload.json()["asset_id"],
+            "workspace_id": workspace_id,
+            "model_preference": "stable_fast_3d_image_to_textured_mesh",
+            "model_parameters": {"texture_resolution": "4K"},
+        },
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    operation = db.get_operation(data["operation_id"])
+    job = scheduler.scheduled_jobs[data["job_id"]]
+
+    assert data["status"] == "queued"
+    assert data["workspace_id"] == workspace_id
+    assert data["route_path"] == f"/workspace/generate/{workspace_id}"
+    assert operation is not None
+    assert operation.operation_type == "generate_textured_mesh"
+    assert job.feature == "image_to_textured_mesh"
+    assert job.inputs["texture_enabled"] is True
+    assert job.inputs["texture_resolution"] == 4096
+    assert job.inputs["production_texture_resolution"] == 4096
+
+
+def test_b4_t1_generate_keeps_raw_models_on_raw_feature(batch4_app_client):
+    """Texture generation on a raw-capable adapter stays inside the raw feature."""
+    client = batch4_app_client["client"]
+    scheduler = batch4_app_client["scheduler"]
+
+    image = io.BytesIO()
+    Image.new("RGB", (64, 64), color="blue").save(image, format="PNG")
+    upload = client.post(
+        "/api/v1/file-upload/image",
+        files={"file": ("raw_input.png", image.getvalue(), "image/png")},
+    )
+    assert upload.status_code == 200, upload.text
+
+    response = client.post(
+        "/api/v1/generate",
+        json={
+            "image_file_id": upload.json()["asset_id"],
+            "workspace_id": upload.json()["workspace_id"],
+            "model_preference": "hunyuan3d_shape_v21_image_to_raw_mesh",
+            "texture_enabled": True,
+        },
+    )
+    assert response.status_code == 200, response.text
+    job = scheduler.scheduled_jobs[response.json()["job_id"]]
+    assert job.feature == "image_to_raw_mesh"
+    assert job.inputs["texture_enabled"] is True
+
+
+def test_b4_t1_texture_dispatches_prompt_only_painting(batch4_app_client):
+    """The unified /texture endpoint routes prompt-only painting to the text paint adapter."""
+    client = batch4_app_client["client"]
+    scheduler = batch4_app_client["scheduler"]
+    mesh = client.post(
+        "/api/v1/file-upload/mesh",
+        files={"file": ("paint_target.obj", b"v 0 0 0\\nv 1 0 0\\nv 0 1 0\\nf 1 2 3\\n", "application/octet-stream")},
+    )
+    assert mesh.status_code == 200, mesh.text
+
+    response = client.post(
+        "/api/v1/texture",
+        json={
+            "mesh_file_id": mesh.json()["file_id"],
+            "text_prompt": "weathered copper with dark patina",
+            "model_preference": "trellis_text_mesh_painting",
+        },
+    )
+    assert response.status_code == 200, response.text
+    job = scheduler.scheduled_jobs[response.json()["job_id"]]
+    assert job.feature == "text_mesh_painting"
+    assert job.inputs["text_prompt"] == "weathered copper with dark patina"
+
+
+def test_b4_t1_texture_dispatches_image_guided_painting(batch4_app_client):
+    """The unified /texture endpoint routes reference-image painting to the image paint adapter."""
+    client = batch4_app_client["client"]
+    scheduler = batch4_app_client["scheduler"]
+    mesh = client.post(
+        "/api/v1/file-upload/mesh",
+        files={"file": ("paint_target.obj", b"v 0 0 0\\nv 1 0 0\\nv 0 1 0\\nf 1 2 3\\n", "application/octet-stream")},
+    )
+    assert mesh.status_code == 200, mesh.text
+    image = io.BytesIO()
+    Image.new("RGB", (64, 64), color="green").save(image, format="PNG")
+    upload = client.post(
+        "/api/v1/file-upload/image",
+        files={"file": ("paint_reference.png", image.getvalue(), "image/png")},
+    )
+    assert upload.status_code == 200, upload.text
+
+    response = client.post(
+        "/api/v1/texture",
+        json={
+            "mesh_file_id": mesh.json()["file_id"],
+            "image_file_id": upload.json()["file_id"],
+            "model_preference": "hunyuan3d_paint_v21_image_mesh_painting",
+        },
+    )
+    assert response.status_code == 200, response.text
+    job = scheduler.scheduled_jobs[response.json()["job_id"]]
+    assert job.feature == "image_mesh_painting"
+
+
+def test_b4_t1_legacy_workspace_routes_are_not_mounted(batch4_app_client):
+    """No retired workspace API path remains registered as a redirect or alias."""
+    paths = {route.path for route in batch4_app_client["app"].routes}
+    canonical = {
+        "/api/v1/generate",
+        "/api/v1/texture",
+        "/api/v1/retopo",
+        "/api/v1/unwrap",
+        "/api/v1/rig",
+        "/api/v1/motion",
+        "/api/v1/segment",
+    }
+    retired = {
+        "/api/v1/mesh-generation/image-to-raw-mesh",
+        "/api/v1/mesh-generation/image-to-textured-mesh",
+        "/api/v1/mesh-generation/text-mesh-painting",
+        "/api/v1/mesh-generation/image-mesh-painting",
+        "/api/v1/mesh-retopology/retopologize-mesh",
+        "/api/v1/mesh-uv-unwrapping/unwrap-mesh",
+        "/api/v1/auto-rigging/generate-rig",
+        "/api/v1/motion-generation/generate-motion",
+        "/api/v1/mesh-segmentation/segment-mesh",
+        "/api/v1/mesh-editing/text-mesh-editing",
+        "/api/v1/mesh-editing/image-mesh-editing",
+    }
+    assert canonical <= paths
+    assert not (retired & paths)
+
 def test_b4_t1_regeneration_creates_new_operation_with_parent_lineage(batch4_app_client):
     """Regeneration must reuse the image/settings/workspace and preserve the parent operation."""
     client = batch4_app_client["client"]
@@ -247,7 +398,7 @@ def test_b4_t1_regeneration_creates_new_operation_with_parent_lineage(batch4_app
         "quality_mode": "high",
         "model_preference": "trellis2_image_to_raw_mesh",
     }
-    first = client.post("/api/v1/mesh-generation/image-to-raw-mesh", json=original_request)
+    first = client.post("/api/v1/generate", json=original_request)
     assert first.status_code == 200, first.text
     first_data = first.json()
     parent_id = first_data["operation_id"]
@@ -256,7 +407,7 @@ def test_b4_t1_regeneration_creates_new_operation_with_parent_lineage(batch4_app
 
     # An active parent cannot be regenerated.
     rejected = client.post(
-        "/api/v1/mesh-generation/image-to-raw-mesh",
+        "/api/v1/generate",
         json={**original_request, "parent_operation_id": parent_id},
     )
     assert rejected.status_code == 409
@@ -267,13 +418,13 @@ def test_b4_t1_regeneration_creates_new_operation_with_parent_lineage(batch4_app
     )
 
     changed_settings = client.post(
-        "/api/v1/mesh-generation/image-to-raw-mesh",
+        "/api/v1/generate",
         json={**original_request, "quality_mode": "low", "parent_operation_id": parent_id},
     )
     assert changed_settings.status_code == 409
 
     regenerated = client.post(
-        "/api/v1/mesh-generation/image-to-raw-mesh",
+        "/api/v1/generate",
         json={**original_request, "parent_operation_id": parent_id},
     )
     assert regenerated.status_code == 200, regenerated.text
@@ -312,7 +463,7 @@ def test_b4_t1_image_to_textured_mesh_response_and_operation_registration(batch4
     ws_id = up_resp.json()["workspace_id"]
 
     gen_resp = client.post(
-        "/api/v1/mesh-generation/image-to-textured-mesh",
+        "/api/v1/generate",
         json={
             "image_file_id": asset_id,
             "workspace_id": ws_id,
@@ -472,7 +623,7 @@ def test_b4_t3_auto_rigging_operation_and_prerequisites(batch4_app_client):
     )
 
     bad_resp = client.post(
-        "/api/v1/auto-rigging/generate-rig",
+        "/api/v1/rig",
         json={"mesh_file_id": img_ast.asset_id},
     )
     assert bad_resp.status_code == 400
@@ -494,7 +645,7 @@ def test_b4_t3_auto_rigging_operation_and_prerequisites(batch4_app_client):
     )
 
     good_resp = client.post(
-        "/api/v1/auto-rigging/generate-rig",
+        "/api/v1/rig",
         json={"mesh_file_id": mesh_ast.asset_id},
     )
     assert good_resp.status_code == 200, good_resp.text
@@ -601,7 +752,7 @@ def test_b4_t4_cancel_delegation_to_system_endpoint(batch4_app_client):
         inputs={},
     )
 
-    resp = client.post(f"/api/v1/mesh-generation/cancel/{job_id}")
+    resp = client.post(f"/api/v1/generate/cancel/{job_id}")
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["success"] is True
