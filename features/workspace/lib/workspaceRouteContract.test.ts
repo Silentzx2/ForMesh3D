@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute } from './workspaceRouteContract';
+import { parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute, mintWorkspaceId } from './workspaceRouteContract';
 
 describe('workspace tool route state machine', () => {
   const base = { status: 'base' } as const;
@@ -84,5 +84,13 @@ describe('workspace route identity contract', () => {
       workspaceId: null,
       legacyJobId: null,
     });
+  });
+
+  it('mints a clean workspace ID that matches the workspace route identity contract', () => {
+    const wsId = mintWorkspaceId('Tactical Sniper in Olive Gear');
+    assert.match(wsId, /^[a-z0-9][a-z0-9_-]{0,39}_[a-f0-9]{6,8}$/i);
+    const parsed = parseWorkspaceRouteIdentity(`/workspace/generate/${wsId}`);
+    assert.equal(parsed.workspaceId, wsId);
+    assert.equal(parsed.legacyJobId, null);
   });
 });

@@ -400,7 +400,19 @@ export const RightAssetsPanel: React.FC = () => {
                   </div>
 
                   {/* 3-Dots Menu */}
-                  <div className="relative" data-asset-menu={asset.id}>
+                  <div className="relative flex items-center gap-0.5" data-asset-menu={asset.id}>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${asset.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteAsset(asset.id);
+                      }}
+                      className="p-1 rounded-md text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer opacity-0 group-hover:opacity-100"
+                      title="Delete asset"
+                    >
+                      <HugeiconsIcon icon={Trash2} size={15} className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       type="button"
                       aria-label={`Options for ${asset.name}`}

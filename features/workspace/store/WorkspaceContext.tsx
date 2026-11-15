@@ -22,7 +22,7 @@ import {
 } from '../types';
 import type { BatchQueueItem } from '@/types';
 import { apiClient } from '../lib/api';
-import { parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute } from '../lib/workspaceRouteContract';
+import { parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute, mintWorkspaceId } from '../lib/workspaceRouteContract';
 import { captureWorkspacePreviewBaseline, createWorkspacePreviewRestorePlan } from '../lib/workspacePreviewSnapshot';
 import { createWorkspaceRegenerationRequest } from '../lib/workspaceRegeneration';
 import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
@@ -72,6 +72,7 @@ interface WorkspaceContextType {
   assets: ModelAsset[];
   isAssetsLoading?: boolean;
   selectedAssetId: string | null;
+  refreshAssets: () => Promise<void>;
   currentAsset: ModelAsset | null;
   selectAsset: (id: string) => void;
   updateAssetProperties: (id: string, updates: Partial<ModelAsset>) => void;
@@ -448,8 +449,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const name = promptName || `Model_${id.slice(0, 8)}`;
         const outputs = (h.outputs || {}) as Record<string, any>;
         const outputUrl = toProxyUrl(preferredGenerationPreviewUrl(outputs) || (outputs.glb as string) || (outputs.model_url as string) || (outputs.download_url as string) || `/api/v1/system/jobs/${id}/download?artifact_format=glb`);
+        const targetWsId = outputs.workspace_id || (h as any).workspace_id || id;
         return normalizeModelAsset({
           id: id || `hist-${i}`,
+          workspace_id: targetWsId,
           name,
           category: 'generation',
           thumbnail: (outputs.thumbnail as string) || (outputs.thumbnail_url as string) || '',
@@ -532,6 +535,13 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   });
 
   const [assets, setAssets] = useState<ModelAsset[]>([]);
+
+  const refreshAssets = useCallback(async () => {
+    await Promise.allSettled([
+      queryClient.invalidateQueries({ queryKey: ['history-assets'] }),
+      queryClient.invalidateQueries({ queryKey: ['uploaded-assets'] }),
+    ]);
+  }, [queryClient]);
 
   // Merge assets
   useEffect(() => {
@@ -1017,7 +1027,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=glb`;
       const previewStats = preferredPreviewStats(result);
       const cleanName = promptTitle && promptTitle !== 'generate' && promptTitle !== 'asset' ? promptTitle : `Model_${jobId.slice(0, 6)}`;
-      await prefetchGLB(modelUrl);
+      void prefetchGLB(modelUrl);
       const finalAssetId = isRetainedResult && retainedAssetId
         ? retainedAssetId
         : `preview_${resolvedOperationId || jobId}`;
@@ -1061,19 +1071,21 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         candidates: result.candidates,
       });
       addAsset(outputAsset);
+      void refreshAssets();
       if (shouldActivatePreview) {
         setSelectedAssetId(finalAssetId);
         setActiveMeshAssetId(finalAssetId);
         setExecutionState('completed');
-        // A completed operation is either an unsaved preview or a retained asset.
-        setPersistenceState(isRetainedResult ? 'saved' : 'not_saved');
+        // Newly generated meshes automatically belong to their freshly minted workspace.
+        const isMeshGen = matchingTask?.type === 'image-to-3d' || outputAsset.category === 'generation';
+        setPersistenceState(isMeshGen || isRetainedResult ? 'saved' : 'not_saved');
         setViewportResetTrigger(prev => prev + 1);
         loadModelInViewer(modelUrl, cleanName, outputAsset as any);
       }
       return outputAsset;
     }
     return null;
-  }, [addAsset, setWorkspaceId]);
+  }, [addAsset, setWorkspaceId, refreshAssets]);
 
   // Hydrate a deep link by workspace identity. UUID routes remain supported as legacy job links.
   useEffect(() => {
@@ -1589,7 +1601,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     if (modelUrl) {
       const promptTitle = job.title;
       const cleanName = promptTitle && promptTitle !== 'generate' ? promptTitle : `Model_${jobId.slice(0, 6)}`;
-      await prefetchGLB(modelUrl);
+      void prefetchGLB(modelUrl);
       const previewAssetId = `preview_${job.operationId || job.backendJobId || job.id}`;
       const outputAsset = normalizeModelAsset({
         id: previewAssetId,
@@ -1646,11 +1658,11 @@ function dataURLtoFile(dataURL: string, filename: string): File {
 
     // Clicking an asset should open its generate workspace so the user is
     // taken back to /workspace/generate/<workspace_id> from any tab or after
-    // a refresh. Mirrors navigateToTool: set active tool + main nav, then
-    // update the URL with replaceState (same shell, no MeshViewer remount)
-    // or router.push (outside shell, full navigation).
-    if (asset.workspace_id) {
-      const targetRoute = `/workspace/generate/${asset.workspace_id}`;
+    // a refresh.
+    const targetWsId = asset.workspace_id || (asset.id && !asset.id.startsWith('local_') && !asset.id.startsWith('upload_') ? asset.id.replace(/^job-/, '') : null);
+    if (targetWsId) {
+      setWorkspaceId(targetWsId);
+      const targetRoute = `/workspace/generate/${targetWsId}`;
       if (typeof window !== 'undefined' && window.location.pathname !== targetRoute) {
         setActiveTool('model');
         setMainNav('workspace');
@@ -1663,7 +1675,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         }
       }
     }
-  }, [addAsset, selectAsset, router, pathname, setActiveTool, setMainNav]);
+  }, [addAsset, selectAsset, router, pathname, setActiveTool, setMainNav, setWorkspaceId]);
 
   const duplicateAsset = useCallback((id: string) => {
     const existing = assets.find(a => a.id === id);
@@ -2031,6 +2043,16 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       return null;
     }
 
+    const newWorkspaceId = mintWorkspaceId(effective.imageName || 'mesh');
+    setWorkspaceId(newWorkspaceId);
+    setSelectedAssetId(null);
+    setActiveMeshAssetId(null);
+    setWorkspaceVersions([]);
+    useViewerStore.getState().setLoadedModel(null, null, null);
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', `/workspace/generate/${newWorkspaceId}`);
+    }
+
     const localTaskId = `queue_${crypto.randomUUID()}`;
     const queueIndex = Object.keys(jobsByIdRef.current).length + 1;
     const jobTitle = effective.imageName || `Queue #${queueIndex}`;
@@ -2039,6 +2061,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     const newTask: ActiveTask = {
       id: localTaskId,
       isLocal: true,
+      workspaceId: newWorkspaceId,
       type: 'image-to-3d',
       title: jobTitle,
       inputImage: inputThumbnail,
@@ -2060,6 +2083,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       const selectedCapabilities = modelDetails[resolvedModelId]?.capabilities || {};
       const modelCapabilities = resolveGenerationModelCapabilities(resolvedModelId, selectedCapabilities);
       const { endpoint, body } = buildGenerationParameters(finalSettings, modelCapabilities);
+      body.workspace_id = newWorkspaceId;
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -2131,6 +2155,18 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       return;
     }
 
+    // Initiating a new mesh generation MUST NOT reuse the current workspace.
+    // It must mint a fresh workspace ID and navigate immediately to the new route.
+    const newWorkspaceId = mintWorkspaceId(generationSettings.imageName || 'mesh');
+    setWorkspaceId(newWorkspaceId);
+    setSelectedAssetId(null);
+    setActiveMeshAssetId(null);
+    setWorkspaceVersions([]);
+    useViewerStore.getState().setLoadedModel(null, null, null);
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', `/workspace/generate/${newWorkspaceId}`);
+    }
+
     const inputThumbnail = imageInput || (imageFileId ? `/api/v1/file-upload/download/${imageFileId}` : undefined);
     const localTaskId = startTask(
       'image-to-3d',
@@ -2151,6 +2187,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       const selectedCapabilities = modelDetails[effectiveModelId]?.capabilities || {};
       const modelCapabilities = resolveGenerationModelCapabilities(effectiveModelId, selectedCapabilities);
       const { endpoint, body } = buildGenerationParameters(effectiveSettings, modelCapabilities);
+      body.workspace_id = newWorkspaceId;
       const submissionSnapshot = {
         endpoint,
         body: JSON.parse(JSON.stringify(body)) as Record<string, unknown>,
@@ -3438,6 +3475,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
   const assetValue = useMemo(() => ({
     assets, isAssetsLoading, selectedAssetId, currentAsset,
+    refreshAssets,
     selectAsset, updateAssetProperties, updateMaterialConfig,
     deleteAsset, addAsset, setCurrentAsset,
     assetFilter, setAssetFilter, duplicateAsset,
@@ -3445,6 +3483,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     activeMeshAssetId, setActiveMeshAssetId,
     workspaceVersions, setWorkspaceVersions,
   }), [assets, isAssetsLoading, selectedAssetId, currentAsset,
+    refreshAssets,
     selectAsset, updateAssetProperties, updateMaterialConfig,
     deleteAsset, addAsset, setCurrentAsset,
     assetFilter, setAssetFilter, duplicateAsset,

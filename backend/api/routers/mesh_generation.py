@@ -23,7 +23,7 @@ from api.routers.file_upload import resolve_file_id_async
 from api.utils.asset_name import resolve_asset_name
 from core.file_store import FileStore
 from core.scheduler.database_manager import DatabaseManager
-from core.scheduler.database_models import generate_operation_id
+from core.scheduler.database_models import generate_operation_id, ExecutionStatus
 from core.scheduler.job_queue import JobRequest
 from core.config import validate_quality_tier
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
@@ -1255,19 +1255,55 @@ async def image_to_raw_mesh(
         source_asset = None
         if mesh_request.image_file_id:
             source_asset = db.get_asset(mesh_request.image_file_id)
-            if not target_ws_id and source_asset and source_asset.workspace_id:
-                target_ws_id = source_asset.workspace_id
 
-        # Identity matching: same image + same model → reuse existing workspace.
-        if not target_ws_id and mesh_request.image_file_id:
+        # ============================================================
+        # Workspace Identity & Reuse Logic (Part II §13.1, §13.2):
+        # - Same image + same model + COMPLETED → MINT NEW workspace
+        # - Same image + same model + FAILED/IN-PROGRESS → REUSE workspace (retry)
+        # - Settings changes alone do not create a new route.
+        # ============================================================
+        def workspace_has_completed_operations(ws_id: str) -> bool:
+            """Check if workspace has any COMPLETED generation operations."""
+            ops = db.list_workspace_operations(ws_id)
+            for op in ops:
+                if op.operation_type in ("generate_raw_mesh", "generate_textured_mesh"):
+                    if op.execution_status == ExecutionStatus.COMPLETED:
+                        return True
+            return False
+
+        def workspace_has_only_failed_or_no_generation_ops(ws_id: str) -> bool:
+            """Check if workspace has no COMPLETED ops but has FAILED/in-progress generation ops."""
+            ops = db.list_workspace_operations(ws_id)
+            gen_ops = [op for op in ops if op.operation_type in ("generate_raw_mesh", "generate_textured_mesh")]
+            if not gen_ops:
+                return True  # no generation ops yet
+            # All generation ops are FAILED/INTERRUPTED/CANCELLED/QUEUED/PROCESSING (none COMPLETED)
+            return all(op.execution_status != ExecutionStatus.COMPLETED for op in gen_ops)
+
+        def find_reusable_workspace() -> Optional[str]:
+            """Find workspace to reuse based on image+model and operation status."""
+            if not mesh_request.image_file_id:
+                return None
             existing = db.list_workspaces_by_asset_and_model(
                 mesh_request.image_file_id, model_id
             )
-            if existing:
-                target_ws_id = existing[0].workspace_id
+            for ws in existing:
+                if workspace_has_only_failed_or_no_generation_ops(ws.workspace_id):
+                    return ws.workspace_id
+            return None
 
+        # If frontend provided explicit workspace_id, check if it has completed work
+        if target_ws_id and not mesh_request.parent_operation_id:
+            if workspace_has_completed_operations(target_ws_id):
+                target_ws_id = None  # force mint new
+
+        # If no workspace_id (or forced new), find reusable or mint
         if not target_ws_id:
-            target_ws_id = ws_storage.mint_workspace_id(chosen_stem)
+            reusable_ws = find_reusable_workspace()
+            if reusable_ws:
+                target_ws_id = reusable_ws
+            else:
+                target_ws_id = ws_storage.mint_workspace_id(chosen_stem)
 
         operation_input_asset_id = source_asset.asset_id if source_asset else mesh_request.image_file_id
         operation_settings = {
@@ -1286,11 +1322,28 @@ async def image_to_raw_mesh(
         )
         ws_storage.create_workspace_tree(target_ws_id)
         if not db.get_workspace(target_ws_id):
+            # Store model_preference in workspace settings for future identity matching
+            import json as _json
+            ws_settings = {"model_preference": model_id}
             db.create_workspace(
                 workspace_id=target_ws_id,
                 name=chosen_stem,
                 source_asset_id=source_asset.asset_id if source_asset else mesh_request.image_file_id,
+                settings_json=_json.dumps(ws_settings),
             )
+        else:
+            # Update existing workspace settings with current model_preference
+            existing_ws = db.get_workspace(target_ws_id)
+            if existing_ws:
+                import json as _json
+                existing_settings = {}
+                if existing_ws.settings_json:
+                    try:
+                        existing_settings = _json.loads(existing_ws.settings_json)
+                    except Exception:
+                        existing_settings = {}
+                existing_settings["model_preference"] = model_id
+                db.update_workspace_settings(target_ws_id, _json.dumps(existing_settings))
 
         gen_op_id = generate_operation_id()
         op_res = db.enqueue_operation(
@@ -1661,19 +1714,55 @@ async def image_to_textured_mesh(
         source_asset = None
         if mesh_request.image_file_id:
             source_asset = db.get_asset(mesh_request.image_file_id)
-            if not target_ws_id and source_asset and source_asset.workspace_id:
-                target_ws_id = source_asset.workspace_id
 
-        # Identity matching: same image + same model → reuse existing workspace.
-        if not target_ws_id and mesh_request.image_file_id:
+        # ============================================================
+        # Workspace Identity & Reuse Logic (Part II §13.1, §13.2):
+        # - Same image + same model + COMPLETED → MINT NEW workspace
+        # - Same image + same model + FAILED/IN-PROGRESS → REUSE workspace (retry)
+        # - Settings changes alone do not create a new route.
+        # ============================================================
+        def workspace_has_completed_operations(ws_id: str) -> bool:
+            """Check if workspace has any COMPLETED generation operations."""
+            ops = db.list_workspace_operations(ws_id)
+            for op in ops:
+                if op.operation_type in ("generate_raw_mesh", "generate_textured_mesh"):
+                    if op.execution_status == ExecutionStatus.COMPLETED:
+                        return True
+            return False
+
+        def workspace_has_only_failed_or_no_generation_ops(ws_id: str) -> bool:
+            """Check if workspace has no COMPLETED ops but has FAILED/in-progress generation ops."""
+            ops = db.list_workspace_operations(ws_id)
+            gen_ops = [op for op in ops if op.operation_type in ("generate_raw_mesh", "generate_textured_mesh")]
+            if not gen_ops:
+                return True  # no generation ops yet
+            # All generation ops are FAILED/INTERRUPTED/CANCELLED/QUEUED/PROCESSING (none COMPLETED)
+            return all(op.execution_status != ExecutionStatus.COMPLETED for op in gen_ops)
+
+        def find_reusable_workspace() -> Optional[str]:
+            """Find workspace to reuse based on image+model and operation status."""
+            if not mesh_request.image_file_id:
+                return None
             existing = db.list_workspaces_by_asset_and_model(
                 mesh_request.image_file_id, model_id
             )
-            if existing:
-                target_ws_id = existing[0].workspace_id
+            for ws in existing:
+                if workspace_has_only_failed_or_no_generation_ops(ws.workspace_id):
+                    return ws.workspace_id
+            return None
 
+        # If frontend provided explicit workspace_id, check if it has completed work
+        if target_ws_id and not mesh_request.parent_operation_id:
+            if workspace_has_completed_operations(target_ws_id):
+                target_ws_id = None  # force mint new
+
+        # If no workspace_id (or forced new), find reusable or mint
         if not target_ws_id:
-            target_ws_id = ws_storage.mint_workspace_id(chosen_stem)
+            reusable_ws = find_reusable_workspace()
+            if reusable_ws:
+                target_ws_id = reusable_ws
+            else:
+                target_ws_id = ws_storage.mint_workspace_id(chosen_stem)
 
         operation_input_asset_id = source_asset.asset_id if source_asset else mesh_request.image_file_id
         operation_settings = {
@@ -1692,11 +1781,28 @@ async def image_to_textured_mesh(
         )
         ws_storage.create_workspace_tree(target_ws_id)
         if not db.get_workspace(target_ws_id):
+            # Store model_preference in workspace settings for future identity matching
+            import json as _json
+            ws_settings = {"model_preference": model_id}
             db.create_workspace(
                 workspace_id=target_ws_id,
                 name=chosen_stem,
                 source_asset_id=source_asset.asset_id if source_asset else mesh_request.image_file_id,
+                settings_json=_json.dumps(ws_settings),
             )
+        else:
+            # Update existing workspace settings with current model_preference
+            existing_ws = db.get_workspace(target_ws_id)
+            if existing_ws:
+                import json as _json
+                existing_settings = {}
+                if existing_ws.settings_json:
+                    try:
+                        existing_settings = _json.loads(existing_ws.settings_json)
+                    except Exception:
+                        existing_settings = {}
+                existing_settings["model_preference"] = model_id
+                db.update_workspace_settings(target_ws_id, _json.dumps(existing_settings))
 
         gen_op_id = generate_operation_id()
         op_res = db.enqueue_operation(

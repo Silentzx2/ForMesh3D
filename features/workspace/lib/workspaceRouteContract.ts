@@ -34,6 +34,25 @@ export function isKnownWorkspaceRoute(segments: readonly string[]): boolean {
 const LEGACY_JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const WORKSPACE_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}_[a-f0-9]{6,8}$/i;
 
+/**
+ * Mint a fresh workspace identifier <clean_stem>_<6-char-hex> adhering to WORKSPACE_ID_PATTERN.
+ */
+export function mintWorkspaceId(stem?: string): string {
+  const raw = (stem || 'mesh')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/^[^a-z0-9]+/g, '');
+  const clean = (raw || 'mesh').slice(0, 32);
+  let hexSuffix = '';
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    hexSuffix = crypto.randomUUID().replace(/-/g, '').slice(0, 6).toLowerCase();
+  } else {
+    hexSuffix = Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0').slice(0, 6);
+  }
+  return `${clean}_${hexSuffix}`;
+}
+
 export interface WorkspaceRouteIdentity {
   tool: string | null;
   routeId: string | null;

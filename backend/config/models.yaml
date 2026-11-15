@@ -119,7 +119,7 @@ image_to_raw_mesh:
     model_name: "TRELLIS \u2014 Image to Raw Mesh"
     ui_label: TRELLIS
     ui_tag: Raw Mesh
-    ui_note: Stable production model
+    ui_note: Stable production model with PBR texture bake
     ui_badge: 12GB VRAM
     enabled: true
     upstream_repository: https://github.com/microsoft/TRELLIS
@@ -135,7 +135,7 @@ image_to_raw_mesh:
     model_path: backend/pretrained/TRELLIS
     capabilities:
       raw_mesh: true
-      texture_generation: false
+      texture_generation: true
       image_to_3d: true
       supports_quad_topology: false
       default_topology: Triangle
@@ -144,6 +144,12 @@ image_to_raw_mesh:
       default_polycount: 50000
       polycount_step: 2500
       output_resolution: null
+      supported_texture_resolutions:
+      - '512'
+      - 1K
+      - 2K
+      - 4K
+      default_texture_resolution: 2K
       multi_gpu: true
       multi_gpu_strategy: accelerate_component_dispatch
     model_type: mesh
@@ -169,7 +175,7 @@ image_to_raw_mesh:
     model_path: backend/pretrained/TRELLIS
     capabilities:
       raw_mesh: true
-      texture_generation: false
+      texture_generation: true
       image_to_3d: true
       supports_quad_topology: false
       default_topology: Triangle
@@ -178,6 +184,12 @@ image_to_raw_mesh:
       default_polycount: 50000
       polycount_step: 2500
       output_resolution: null
+      supported_texture_resolutions:
+      - '512'
+      - 1K
+      - 2K
+      - 4K
+      default_texture_resolution: 2K
       multi_gpu: true
       multi_gpu_strategy: accelerate_component_dispatch
     model_type: mesh
@@ -341,7 +353,7 @@ image_to_textured_mesh:
       supports_quad_topology: true
       default_topology: Triangle
       min_polycount: 500
-      max_polycount: 100000
+      max_polycount: 200000
       default_polycount: 30000
       polycount_step: 1000
       supported_texture_resolutions:

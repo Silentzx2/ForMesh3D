@@ -244,15 +244,45 @@ class StableFast3DAdapter(BaseModel):
                 or inputs.get("target_polycount")
                 or 0
             )
-            target_vertex_count = int(inputs.get("target_vertex_count", -1))
-            # native_target_polycount is read for honest requested-vs-actual reporting only.
-            # It is NOT converted into a vertex budget / count-forcing post-process (Part I §7, Batch 2.2/2.5).
+            raw_target_verts = inputs.get("target_vertex_count")
+            if raw_target_verts is None:
+                raw_target_verts = inputs.get("vertex_count")
+            target_vertex_count = int(raw_target_verts) if raw_target_verts is not None else -1
         except (TypeError, ValueError) as exc:
             raise ValueError(
                 "SF3D seed, texture_resolution, native_target_polycount, and target_vertex_count must be integers"
             ) from exc
 
-        remesh_option = str(inputs.get("remesh_option", "none") or "none").strip().lower()
+        # Determine remeshing option:
+        # 1. Explicit remesh_option input ("none", "triangle", "quad") takes precedence.
+        # 2. Otherwise derive from topology_mode ("triangle" / "quad") or quad_topology flag.
+        # 3. Default to "triangle" so SF3D uses its native high-quality geometry remesher.
+        remesh_input = inputs.get("remesh_option")
+        if remesh_input is not None:
+            remesh_option = str(remesh_input).strip().lower()
+        else:
+            topology_mode = str(inputs.get("topology_mode") or "").strip().lower()
+            if topology_mode in ("quad", "triangle"):
+                remesh_option = topology_mode
+            elif inputs.get("quad_topology"):
+                remesh_option = "quad"
+            else:
+                remesh_option = "triangle"
+
+        # Determine target vertex count:
+        # - If remesh is "none", vertex count is ignored (-1).
+        # - If target_vertex_count was not explicitly specified (> 0):
+        #   - If user provided target polycount: in a triangle mesh, vertices ≈ faces / 2
+        #   - If remesh is "triangle" and no count given: default to 50,000 vertices (~100,000 faces)
+        #     so SF3D performs upstream subdivision + Botsch remesh for high-detail geometry.
+        if remesh_option == "none":
+            target_vertex_count = -1
+        elif target_vertex_count <= 0:
+            if native_target_polycount > 0:
+                target_vertex_count = max(500, native_target_polycount // 2)
+            elif remesh_option == "triangle":
+                target_vertex_count = 50000
+
         texture_enabled = bool(
             inputs.get("texture_enabled", True) and inputs.get("generate_texture", True)
         )
@@ -380,12 +410,29 @@ class StableFast3DAdapter(BaseModel):
             if is_pre_ampere and sdpa_orig is not None:
                 torch.nn.functional.scaled_dot_product_attention = _guarded_pre_ampere_sdpa
             with torch.no_grad(), autocast_context:
-                mesh, _global_info = pipeline.run_image(
-                    image,
-                    bake_resolution=texture_resolution,
-                    remesh=remesh_option,
-                    vertex_count=target_vertex_count,
-                )
+                try:
+                    mesh, _global_info = pipeline.run_image(
+                        image,
+                        bake_resolution=texture_resolution,
+                        remesh=remesh_option,
+                        vertex_count=target_vertex_count,
+                    )
+                except Exception as remesh_exc:
+                    if remesh_option != "none":
+                        logger.warning(
+                            "SF3D remesh (%s, vertex_count=%d) failed: %s; falling back to raw mesh (none)",
+                            remesh_option,
+                            target_vertex_count,
+                            remesh_exc,
+                        )
+                        mesh, _global_info = pipeline.run_image(
+                            image,
+                            bake_resolution=texture_resolution,
+                            remesh="none",
+                            vertex_count=-1,
+                        )
+                    else:
+                        raise
         finally:
             if is_pre_ampere and sdpa_orig is not None:
                 torch.nn.functional.scaled_dot_product_attention = sdpa_orig
@@ -449,6 +496,7 @@ class StableFast3DAdapter(BaseModel):
                 "faces": len(faces),
                 "vertices": len(vertices),
                 "remesh_option": remesh_option if remesh_option != "none" else None,
+                "target_vertex_count": target_vertex_count if target_vertex_count > 0 else None,
             },
             # The scheduler removes this private temp directory after durable copy.
             "_temporary_output_dir": str(output_dir),

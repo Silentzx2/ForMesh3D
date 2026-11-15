@@ -836,6 +836,17 @@ class DatabaseManager:
             session.commit()
             return True
 
+    def update_workspace_settings(self, workspace_id: str, settings_json: str) -> bool:
+        """Update settings_json for a workspace."""
+        with self.get_session() as session:
+            ws = session.query(WorkspaceModel).filter_by(workspace_id=workspace_id).first()
+            if not ws:
+                return False
+            ws.settings_json = settings_json
+            ws.updated_at = datetime.utcnow()
+            session.commit()
+            return True
+
     def list_workspaces_by_asset_and_model(
         self, source_asset_id: str, model_preference: str
     ) -> List[WorkspaceModel]:

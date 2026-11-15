@@ -1410,15 +1410,7 @@ async def get_job_status(job_id: str, request: Request):
                         result["thumbnail_path"] = thumbnail_path
                         break
 
-            # Fallback to reference input image if thumbnail is absent
-            if not thumbnail_path or not os.path.exists(thumbnail_path):
-                inputs_dict = job_status.get("inputs", {})
-                cand_input = inputs_dict.get("image_path") or inputs_dict.get("image") or inputs_dict.get("texture_image_path")
-                if cand_input and os.path.exists(cand_input):
-                    thumbnail_path = str(cand_input)
-                    result["thumbnail_path"] = thumbnail_path
-
-            # If thumbnail is still absent, auto-generate thumbnail from the mesh
+            # If thumbnail is absent or 3D mesh thumbnail not found, prioritize auto-generating 3D mesh thumbnail
             if (not thumbnail_path or not os.path.exists(thumbnail_path)) and mesh_path and os.path.exists(mesh_path):
                 try:
                     from core.utils.thumbnail_utils import generate_mesh_thumbnail
@@ -1431,6 +1423,14 @@ async def get_job_status(job_id: str, request: Request):
                         result["thumbnail_path"] = thumbnail_path
                 except Exception as auto_thumb_err:
                     logger.debug("Failed to auto-render thumbnail for mesh: %s", auto_thumb_err)
+
+            # Fallback to reference input image only if 3D thumbnail generation is impossible
+            if not thumbnail_path or not os.path.exists(thumbnail_path):
+                inputs_dict = job_status.get("inputs", {})
+                cand_input = inputs_dict.get("image_path") or inputs_dict.get("image") or inputs_dict.get("texture_image_path")
+                if cand_input and os.path.exists(cand_input):
+                    thumbnail_path = str(cand_input)
+                    result["thumbnail_path"] = thumbnail_path
 
             # Always populate thumbnail_url for completed jobs
             thumbnail_url = (
@@ -2180,14 +2180,7 @@ async def download_job_thumbnail(
                     thumbnail_path = str(candidate)
                     break
 
-        # Fallback to reference input image if present
-        if not thumbnail_path or not os.path.exists(thumbnail_path):
-            inputs_dict = job_status.get("inputs", {})
-            cand_input = inputs_dict.get("image_path") or inputs_dict.get("image") or inputs_dict.get("texture_image_path")
-            if cand_input and os.path.exists(cand_input):
-                thumbnail_path = str(cand_input)
-
-        # If thumbnail is still absent, auto-generate thumbnail from the mesh
+        # Prioritize auto-generating 3D thumbnail from the mesh
         if not thumbnail_path or not os.path.exists(thumbnail_path):
             cand_mesh = result.get("mesh_path") or result.get("output_path") or result.get("output_mesh_path")
             if cand_mesh and os.path.exists(cand_mesh):
@@ -2201,6 +2194,13 @@ async def download_job_thumbnail(
                         thumbnail_path = str(auto_thumb)
                 except Exception as auto_err:
                     logger.debug("Failed to auto-render thumbnail: %s", auto_err)
+
+        # Fallback to reference input image only if mesh thumbnail is unavailable
+        if not thumbnail_path or not os.path.exists(thumbnail_path):
+            inputs_dict = job_status.get("inputs", {})
+            cand_input = inputs_dict.get("image_path") or inputs_dict.get("image") or inputs_dict.get("texture_image_path")
+            if cand_input and os.path.exists(cand_input):
+                thumbnail_path = str(cand_input)
 
         # Determine the response format
         response_format = format or "file"

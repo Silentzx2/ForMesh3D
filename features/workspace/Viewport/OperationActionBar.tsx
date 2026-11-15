@@ -20,7 +20,12 @@ export const OperationActionBar: React.FC = () => {
     : activeTask;
   const operationId = currentAsset?.operation_id || previewTask?.operationId || null;
   const taskWorkspaceId = previewTask?.workspaceId || currentAsset?.workspace_id || workspaceId;
-  const isPreviewActive = executionState === 'completed' &&
+  const isMeshGen =
+    activeTool === 'model' ||
+    previewTask?.type === 'image-to-3d' ||
+    currentAsset?.category === 'generation' ||
+    (typeof window !== 'undefined' && window.location.pathname.includes('/workspace/generate'));
+  const isPreviewActive = !isMeshGen && executionState === 'completed' &&
     (persistenceState === 'not_saved' || persistenceState === 'saving' || persistenceState === 'save_failed');
   if (!isPreviewActive) return null;
 
