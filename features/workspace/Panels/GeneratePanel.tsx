@@ -361,16 +361,8 @@ export const GeneratePanel: React.FC = () => {
     (modelCapabilities.supported_texture_resolutions as any) ||
     (modelCapabilities.texture_generation ? ['1K', '2K'] : []);
   const modelSupportsTexture = supportedResolutions.length > 0;
-  const modelSupportsQuad = Boolean(
-    modelCapabilities.supports_quad_topology ?? modelCapabilities.native_topology
-  );
-  const minPolycount = modelCapabilities.min_polycount ?? 500;
-  const maxPolycount = modelCapabilities.max_polycount ?? 600000;
-  const polycountStep = modelCapabilities.polycount_step ?? 2500;
-
-  // State synchronization when selectedModel changes
+  // Sync texture resolution fallback if model changes
   useEffect(() => {
-    // 1. Clamping texture resolution
     if (supportedResolutions.length > 0 && !supportedResolutions.includes(textureQuality)) {
       const fallback = supportedResolutions[supportedResolutions.length - 1];
       setTextureQuality(fallback);
@@ -380,34 +372,7 @@ export const GeneratePanel: React.FC = () => {
         texture_resolution: fallback as any,
       }));
     }
-    // 2. Clamping quad topology if model only supports triangles
-    if (!modelSupportsQuad && topologyMode === 'Quad') {
-      setTopologyMode('Triangle');
-      setGenerationSettings((prev) => ({
-        ...prev,
-        quadTopology: false,
-        topologyMode: 'triangle',
-      }));
-    }
-    // 3. Clamping polycount within model min/max bounds
-    if (polycount > maxPolycount) {
-      setPolycount(maxPolycount);
-      setGenerationSettings((prev) => ({
-        ...prev,
-        polycount: maxPolycount,
-        targetPolycount: maxPolycount,
-        target_polycount: maxPolycount,
-      }));
-    } else if (polycount < minPolycount) {
-      setPolycount(minPolycount);
-      setGenerationSettings((prev) => ({
-        ...prev,
-        polycount: minPolycount,
-        targetPolycount: minPolycount,
-        target_polycount: minPolycount,
-      }));
-    }
-  }, [selectedModel, supportedResolutions, modelSupportsQuad, textureQuality, topologyMode, minPolycount, maxPolycount]);
+  }, [selectedModel, supportedResolutions, textureQuality, setGenerationSettings]);
   const dragCounterRef = useRef(0);
 
   // Keep imagePreview in sync with workspace generationSettings
@@ -430,21 +395,8 @@ export const GeneratePanel: React.FC = () => {
       textureQuality: prev.textureQuality ?? (textureQuality === '4K' ? 'high' : 'medium'),
       removeBackground: prev.removeBackground ?? removeLighting,
       highResolutionNormalBaking: prev.highResolutionNormalBaking ?? enablePbr,
-      quadTopology: prev.quadTopology ?? (topologyMode === 'Quad'),
-      topologyMode: prev.topologyMode ?? (topologyMode === 'Quad' ? 'quad' : 'triangle'),
-      autoOptimizeSettings: {
-        ...prev.autoOptimizeSettings,
-        targetPolycount: prev.autoOptimizeSettings?.targetPolycount || polycount,
-      },
-      polycount: prev.polycount || polycount,
-      targetPolycount: prev.targetPolycount || polycount,
-      target_polycount: prev.target_polycount || polycount,
     }));
-  }, [setGenerationSettings]);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  }, [setGenerationSettings, selectedModel, enableTexture, textureQuality, removeLighting, enablePbr]);
 
 
 

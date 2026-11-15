@@ -203,8 +203,7 @@ export function DatabaseTab() {
   useEffect(() => {
     void fetchStats();
     void fetchJobs(0, false);
-    void fetchStorage();
-  }, [fetchStats, fetchJobs, fetchStorage]);
+  }, [fetchStats, fetchJobs]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -362,6 +361,10 @@ export function DatabaseTab() {
       setStorageLoading(false);
     }
   };
+
+  useEffect(() => {
+    void fetchStorage();
+  }, []);
 
   const handleCleanupStorage = async () => {
     if (cleanupState === 'executing') return;

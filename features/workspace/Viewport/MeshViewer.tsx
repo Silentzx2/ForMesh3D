@@ -21,7 +21,7 @@ import { loadGLBWithProgress } from '../lib/glbCache';
 
 import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { SparklesIcon } from '@hugeicons/core-free-icons';
+import { RefreshCw, SparklesIcon } from '@hugeicons/core-free-icons';
 
 // Setup shared loaders with Draco and Meshopt decompression
 const dracoLoader = new DRACOLoader();
@@ -247,6 +247,11 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const [retryKey, setRetryKey] = useState(0);
   const [isComparisonLoading, setIsComparisonLoading] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
+
+  const handleRetryLoad = useCallback(() => {
+    setLoadError(null);
+    setRetryKey((prev) => prev + 1);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

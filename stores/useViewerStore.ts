@@ -16,7 +16,7 @@ export interface AssetItem {
 
 export type ShadingPreset = 'default' | 'clay' | 'metallic' | 'wireframe' | 'normal' | 'gold' | 'cyberpunk' | 'uv';
 
-export type WorkspaceExecutionState = 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'interrupted';
+export type WorkspaceExecutionState = 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'interrupted' | 'cancelled';
 export type WorkspacePersistenceState = 'not_saved' | 'saving' | 'saved' | 'save_failed' | 'discarded';
 
 export interface ModelMeshStats {
@@ -102,7 +102,7 @@ interface ViewerState {
   setExecutionState: (executionState: WorkspaceExecutionState) => void;
   setPersistenceState: (persistenceState: WorkspacePersistenceState) => void;
   // Explicit transitions through the selection/viewer loading lifecycle.
-  requestAssetSelection: (asset: AssetItem | null) => void;
+  requestAssetSelection: (asset: AssetItem | null) => number;
   verifyAsset: (requestId: number) => void;
   beginAssetLoad: (requestId: number) => void;
   completeAssetLoad: (requestId: number, url: string, name: string | null, stats: ModelMeshStats | null) => void;

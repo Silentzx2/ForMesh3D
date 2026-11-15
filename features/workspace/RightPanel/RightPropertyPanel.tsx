@@ -635,9 +635,9 @@ export const RightPropertyPanel: React.FC = () => {
     : typeof currentQAReport?.score === 'number'
     ? currentQAReport.score
     : undefined;
-  const currentTopology = currentQA?.subscores?.geometry_topology ?? currentQAReport?.subscores?.geometry_topology;
-  const currentUV = currentQA?.subscores?.uv_material ?? currentQAReport?.subscores?.uv_material;
-  const currentBudget = currentQA?.subscores?.platform ?? currentQAReport?.subscores?.platform;
+  const currentTopology = (currentQA as any)?.subscores?.geometry_topology ?? (currentQAReport as any)?.subscores?.geometry_topology;
+  const currentUV = (currentQA as any)?.subscores?.uv_material ?? (currentQAReport as any)?.subscores?.uv_material;
+  const currentBudget = (currentQA as any)?.subscores?.platform ?? (currentQAReport as any)?.subscores?.platform;
 
   let compareScore: number | undefined;
   let compareTopology: number | undefined;
@@ -661,7 +661,7 @@ export const RightPropertyPanel: React.FC = () => {
       compareBudget = compQA?.subscores?.platform ?? compReport?.subscores?.platform;
     }
   } else if (selectedLineageUrl) {
-    const beforeQA = (currentQAReport?.before_postprocess?.qa as any) || (currentQAReport?.before_postprocess as any) || (currentQAReport?.before as any);
+    const beforeQA = ((currentQAReport as any)?.before_postprocess?.qa as any) || ((currentQAReport as any)?.before_postprocess as any) || ((currentQAReport as any)?.before as any);
     if (beforeQA) {
       compareScore = beforeQA.score;
       compareTopology = beforeQA.subscores?.geometry_topology;
@@ -669,8 +669,6 @@ export const RightPropertyPanel: React.FC = () => {
       compareBudget = beforeQA.subscores?.platform;
     }
   }
-
-  const activeCompareTarget = selectedLineageUrl || selectedCompareAssetId;
 
   // Group workspace assets into parent/base mesh + derived meshes by operation type.
   // Version labels (v001, v002…) assigned by creation order within each group.
@@ -687,11 +685,11 @@ export const RightPropertyPanel: React.FC = () => {
       if (!byType.has(key)) byType.set(key, []);
       byType.get(key)!.push(a);
     });
-    const rows: JSX.Element[] = [];
+    const rows: React.ReactNode[] = [];
     if (base.length) {
       const baseAsset = base[0];
       const handleBaseClick = () => {
-        const requestId = requestAssetSelection(baseAsset);
+        const requestId = requestAssetSelection(baseAsset as any);
         verifyAsset(requestId);
         beginAssetLoad(requestId);
         setCurrentAsset(baseAsset);
@@ -709,7 +707,7 @@ export const RightPropertyPanel: React.FC = () => {
       group.forEach((a, i) => {
         const isCurrent = currentAsset?.id === a.id;
         const handleDerivedClick = () => {
-          const requestId = requestAssetSelection(a);
+          const requestId = requestAssetSelection(a as any);
           verifyAsset(requestId);
           beginAssetLoad(requestId);
           setCurrentAsset(a);
@@ -717,7 +715,7 @@ export const RightPropertyPanel: React.FC = () => {
         rows.push(
           <div key={a.id} className="flex items-center gap-1 px-1 py-1 rounded cursor-pointer" onClick={handleDerivedClick}>
             <span className={`w-2 h-2 rounded-full shrink-0 ${isCurrent ? 'bg-primary' : 'bg-[hsl(var(--surface-3))]'}`} />
-            <span className="text-[9px] font-medium truncate" className={isCurrent ? 'text-primary' : 'text-[hsl(var(--muted-foreground))]'}>
+            <span className={`text-[9px] font-medium truncate ${isCurrent ? 'text-primary' : 'text-[hsl(var(--muted-foreground))]'}`}>
               {type.charAt(0).toUpperCase() + type.slice(1)} · v{i + 1}
             </span>
             <span className="ml-auto text-[9px] font-mono text-[hsl(var(--muted-foreground))]">{a.format}</span>

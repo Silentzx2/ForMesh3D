@@ -2430,8 +2430,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
             vertices: result.stats?.vertex_count || Math.round(targetPoly / 2),
             triangles: result.stats?.face_count || targetPoly,
             statsAvailable: true,
-+           sourceAssetId: currentAsset?.id,
-+           settingsSnapshot: { engineMode: engine, polyType, targetPolycount: targetPoly, preserveEdges: customSettings?.preserveEdges ?? true, featureAngle: customSettings?.featureAngle ?? 45, adaptiveDensity: customSettings?.adaptiveDensity ?? true, watertightHealing: customSettings?.watertightHealing ?? true },
+            sourceAssetId: currentAsset?.id,
+            settingsSnapshot: { engineMode: engine, polyType, targetPolycount: targetPoly, preserveEdges: customSettings?.preserveEdges ?? true, featureAngle: customSettings?.featureAngle ?? 45, adaptiveDensity: customSettings?.adaptiveDensity ?? true, watertightHealing: customSettings?.watertightHealing ?? true },
           });
 
           addAsset(newAsset);
@@ -2764,8 +2764,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
             faces: currentAsset?.faces || 0,
             vertices: currentAsset?.vertices || 0,
             statsAvailable: Boolean(currentAsset?.faces),
-+           sourceAssetId: currentAsset?.id,
-+           settingsSnapshot: { engineMode: engine, numParts, method: settingsObj.method || 'geometric', outputFormat },
+            sourceAssetId: currentAsset?.id,
+            settingsSnapshot: { engineMode: engine, numParts, method: settingsObj.method || 'geometric', outputFormat },
           });
 
           addAsset(newAsset);

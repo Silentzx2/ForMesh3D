@@ -29,7 +29,7 @@ export interface NativeTargetMapping {
   /** The native parameter name (e.g., 'vertex_count', 'octree_resolution', 'faces') */
   parameterName: string | null;
   /** The native parameter value to pass */
-  parameterValue: number | null;
+  parameterValue?: number | string | null;
   /** Unit of the native parameter */
   parameterUnit: 'vertices' | 'faces' | 'triangles' | 'resolution' | null;
   /** Human-readable semantics */
@@ -38,6 +38,8 @@ export interface NativeTargetMapping {
   reachesUpstream: boolean;
   /** Evidence source for this mapping */
   evidence: string;
+  /** Optional mapValue function attached at runtime */
+  mapValue?: NativeTargetMapValue | null;
 }
 
 /** Map a user triangle target into a model's native parameter value. */
