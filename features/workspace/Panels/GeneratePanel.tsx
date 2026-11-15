@@ -20,6 +20,7 @@ import {
   Edit2,
   ThumbsUp,
   Dices,
+  Loader2,
 } from 'lucide-react';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
@@ -347,8 +348,6 @@ export const GeneratePanel: React.FC = () => {
   // General Settings (Inline in Main Panel)
   const [enableTexture, setEnableTexture] = useState(true);
   const [textureQuality, setTextureQuality] = useState<'512' | '1K' | '2K' | '4K'>('2K');
-  const [removeLighting, setRemoveLighting] = useState(true);
-  const [enablePbr, setEnablePbr] = useState(true);
   const [seed, setSeed] = useState<number | ''>(typeof generationSettings.seed === 'number' ? generationSettings.seed : '');
 
   // ==========================================
@@ -358,9 +357,9 @@ export const GeneratePanel: React.FC = () => {
   const modelCapabilities = selectedModelDetail?.capabilities || {};
 
   const supportedResolutions: ('512' | '1K' | '2K' | '4K')[] =
-    (modelCapabilities.supported_texture_resolutions as any) ||
-    (modelCapabilities.texture_generation ? ['1K', '2K'] : []);
-  const modelSupportsTexture = supportedResolutions.length > 0;
+    (modelCapabilities.supported_texture_resolutions as any) || ['1K', '2K', '4K'];
+  const modelSupportsTexture = modelCapabilities.texture_generation !== false;
+
   // Sync texture resolution fallback if model changes
   useEffect(() => {
     if (supportedResolutions.length > 0 && !supportedResolutions.includes(textureQuality)) {
@@ -393,10 +392,8 @@ export const GeneratePanel: React.FC = () => {
       textureResolution: prev.textureResolution ?? textureQuality,
       texture_resolution: prev.texture_resolution ?? textureQuality,
       textureQuality: prev.textureQuality ?? (textureQuality === '4K' ? 'high' : 'medium'),
-      removeBackground: prev.removeBackground ?? removeLighting,
-      highResolutionNormalBaking: prev.highResolutionNormalBaking ?? enablePbr,
     }));
-  }, [setGenerationSettings, selectedModel, enableTexture, textureQuality, removeLighting, enablePbr]);
+  }, [setGenerationSettings, selectedModel, enableTexture, textureQuality]);
 
 
 
@@ -947,80 +944,10 @@ export const GeneratePanel: React.FC = () => {
           </div>
         )}
 
-      {/* Parameter Deck (Geometry, AI Model & Seed in natural flow below dropzone) */}
+      {/* Parameter Deck (AI Model, Texture & Seed in natural flow below dropzone) */}
       <div className="pt-2.5 space-y-2.5">
-        {/* 3. General Settings (Inline in Main Panel - Pure Native High-Res) */}
-        <div className="border-t border-[hsl(var(--border))] pt-2 space-y-2">
-          <div className="flex items-center justify-between pb-0.5">
-            <span className="text-[10px] font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">
-              General Settings
-            </span>
-            <span className="text-[9px] font-mono text-[#F9CF00] px-1.5 py-0.5 rounded bg-[#F9CF00]/10 border border-[#F9CF00]/20 font-bold">
-              Pure Native Output
-            </span>
-          </div>
-
-          {/* Toggle: Remove Lighting */}
-          <div className="flex items-center justify-between py-1 px-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-zinc-200 font-medium">Remove Lighting</span>
-              <span title="De-light albedo textures to extract true material colors" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00]" />
-              </span>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={removeLighting}
-              onClick={() => {
-                const next = !removeLighting;
-                setRemoveLighting(next);
-                setGenerationSettings((prev) => ({ ...prev, removeBackground: next }));
-              }}
-              className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer ${
-                removeLighting ? 'bg-[#6366F1]' : 'bg-white/15'
-              }`}
-            >
-              <div
-                className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
-                  removeLighting ? 'translate-x-3.5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-
-          {/* Toggle: PBR Materials */}
-          <div className="flex items-center justify-between py-1 px-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-zinc-200 font-medium">PBR Materials</span>
-              <span title="Generate physically based roughness, metallic and normal maps" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00]" />
-              </span>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={enablePbr}
-              onClick={() => {
-                const next = !enablePbr;
-                setEnablePbr(next);
-                setGenerationSettings((prev) => ({ ...prev, highResolutionNormalBaking: next }));
-              }}
-              className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer ${
-                enablePbr ? 'bg-[#6366F1]' : 'bg-white/15'
-              }`}
-            >
-              <div
-                className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
-                  enablePbr ? 'translate-x-3.5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-        </div>
-
-      {/* 4. AI Model Section */}
-      <div className="border-t border-[hsl(var(--border))] pt-2 space-y-1" ref={modelDropdownRef}>
+        {/* 3. AI Model Section */}
+        <div className="border-t border-[hsl(var(--border))] pt-2 space-y-1" ref={modelDropdownRef}>
         <label className="text-[10px] font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider block">
           AI Model
         </label>
@@ -1273,28 +1200,29 @@ export const GeneratePanel: React.FC = () => {
           </div>
         )}
 
-        {/* Action CTAs: Generate/Cancel toggle + Export sibling — layout-stable glow buttons. */}
-        <div className="flex items-center gap-2">
-          <GlowButton
+        {/* Action CTA: Bold primary Generate / Cancel button */}
+        {isExecuting ? (
+          <button
             type="button"
-            variant={isExecuting ? 'cancel' : 'keep'}
-            size="md"
-            loading={isExecuting}
+            onClick={handleCancel}
+            title="Cancel the in-flight generation"
+            className="w-full h-10 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/30 active:scale-[0.98]"
+          >
+            <Loader2 className="w-4 h-4 animate-spin text-white" />
+            <span>Cancel Generation</span>
+          </button>
+        ) : (
+          <button
+            type="button"
             disabled={!generationSettings.image && !imagePreview}
-            onClick={isExecuting ? handleCancel : handleGenerate}
-            title={isExecuting ? 'Cancel the in-flight generation' : 'Generate 3D model from the uploaded image'}>
-            {isExecuting ? 'Cancel Generation' : 'Generate Model'}
-          </GlowButton>
-          <GlowButton
-            type="button"
-            variant="export"
-            size="md"
-            disabled={isExecuting || !generationSettings.image && !imagePreview}
-            onClick={() => setIsExportModalOpen(true)}
-            title="Export the generated mesh to a file">
-            Export
-          </GlowButton>
-        </div>
+            onClick={handleGenerate}
+            title="Generate 3D model from the uploaded image"
+            className="w-full h-10 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer bg-[#F9CF00] hover:bg-[#F9CF00]/90 text-black shadow-lg shadow-[#F9CF00]/25 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+          >
+            <Sparkles className="w-4 h-4 fill-current text-black" />
+            <span>Generate 3D Model</span>
+          </button>
+        )}
       </div>
     </div>
   );

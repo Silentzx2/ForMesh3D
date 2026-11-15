@@ -1529,6 +1529,27 @@ export const RightPropertyPanel: React.FC = () => {
         )}
       </div>
 
+      {/* Pinned Bottom Export Action Bar */}
+      <div className="p-2.5 border-t border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] flex-shrink-0">
+        <button
+          id="btn-pinned-export-download"
+          onClick={handleExportDownload}
+          disabled={isExporting || !currentAsset}
+          className="w-full h-9 rounded-xl bg-primary hover:bg-primary/90 text-[hsl(var(--primary-foreground))] font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-md cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {isExporting ? (
+            <HugeiconsIcon icon={RefreshCw} size={16} className="w-4 h-4 animate-spin" />
+          ) : exportSuccess ? (
+            <HugeiconsIcon icon={CheckIcon} size={16} className="w-4 h-4 text-emerald-400" />
+          ) : (
+            <HugeiconsIcon icon={DownloadIcon} size={16} className="w-4 h-4" />
+          )}
+          <span>
+            {isExporting ? 'Packing 3D Bundle...' : exportSuccess ? 'Export Saved!' : `Export ${exportFormat.toUpperCase()}`}
+          </span>
+        </button>
+      </div>
+
     </div>
   );
 };

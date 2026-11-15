@@ -91,6 +91,12 @@ class _TrellisBaseAdapter(BaseModel):
             if major < 8:
                 os.environ.setdefault('SPARSE_ATTN_BACKEND', 'sdpa')
 
+        try:
+            import utils3d
+            import utils3d.torch
+        except Exception:
+            pass
+
         from trellis.pipelines.trellis_image_to_3d import TrellisImageTo3DPipeline
 
         # Resolve the weights directory. MODEL_KEY="TRELLIS" maps to
@@ -259,6 +265,11 @@ class _TrellisBaseAdapter(BaseModel):
             and self._paint_app_rep is not None
         ):
             try:
+                try:
+                    import utils3d
+                    import utils3d.torch
+                except Exception:
+                    pass
                 textured = self._paint_pipeline(
                     self._paint_app_rep, mesh, texture_size=texture_resolution
                 )

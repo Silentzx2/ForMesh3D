@@ -1158,13 +1158,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       }
     };
 
-    // Retry: fresh abort controller, reset to loading, re-run the loader effect.
-    const handleRetryLoad = useCallback(() => {
-      setRetryKey((k) => k + 1);
-      setLoadError(null);
-      setModelLoadStatus('loading');
-    }, []);
-
     // Load by format
     if (format === 'glb' || format === 'gltf') {
       void loadGLBWithProgress(modelUrl, undefined, abortController.signal).then((buffer) => {
