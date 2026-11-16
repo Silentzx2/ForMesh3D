@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import { Zap, Cpu } from 'lucide-react';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { ZapIcon, CpuIcon } from '@hugeicons/core-free-icons';
 import { EngineMode } from '../services/meshProcessingBridge';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
@@ -54,7 +55,7 @@ export const EngineModeSelector: React.FC<EngineModeSelectorProps> = ({
               aria-disabled="true"
               className="w-full h-6 rounded-md text-[10.5px] font-bold flex items-center justify-center gap-1 opacity-40 bg-zinc-800/80 text-zinc-500 cursor-not-allowed select-none"
             >
-              <Zap className="w-3 h-3 flex-shrink-0" />
+              <HugeiconsIcon icon={ZapIcon} size={12} className="flex-shrink-0" />
               <span>AI Model</span>
             </button>
           </SimpleTooltip>
@@ -68,7 +69,7 @@ export const EngineModeSelector: React.FC<EngineModeSelectorProps> = ({
                 : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
             }`}
           >
-            <Zap className="w-3 h-3 flex-shrink-0" />
+            <HugeiconsIcon icon={ZapIcon} size={12} className="flex-shrink-0" />
             <span>AI Model</span>
           </button>
         )}
@@ -82,7 +83,7 @@ export const EngineModeSelector: React.FC<EngineModeSelectorProps> = ({
               : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
           }`}
         >
-          <Cpu className="w-3 h-3 flex-shrink-0" />
+          <HugeiconsIcon icon={CpuIcon} size={12} className="flex-shrink-0" />
           <span>Fast Script</span>
         </button>
       </div>

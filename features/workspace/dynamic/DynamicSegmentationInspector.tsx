@@ -14,7 +14,7 @@ import {
   EyeOff,
   FolderArchive,
   Sparkles,
-} from 'lucide-react';
+} from '@/components/icons/hugeicons-components';
 import { toast } from 'sonner';
 
 interface SegmentPart {

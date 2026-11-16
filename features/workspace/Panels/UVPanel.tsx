@@ -7,7 +7,7 @@ import type { ModelAsset } from '../types';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import {
   Grid3X3,
-  Image as ImageIcon,
+  ImageIcon,
   Box,
   Lightbulb,
   SlidersHorizontal,
@@ -19,7 +19,7 @@ import {
   Cpu,
   ShieldCheck,
   Zap,
-} from 'lucide-react';
+} from '@/components/icons/hugeicons-components';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   CheckIcon,

@@ -57,6 +57,11 @@ scripts/.cloudflare_tunnels/*.url
 .goals
 *.dat
 .goals/
+
+# Agent scratch/context (not tracked)
+artifact/
+.agent/
+.agents_tmp/
 # OS
 .DS_Store
 Thumbs.db

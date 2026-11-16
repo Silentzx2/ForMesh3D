@@ -36,7 +36,7 @@ import { DynamicUVInspector } from '../dynamic/DynamicUVInspector';
 import { DynamicSegmentationInspector } from '../dynamic/DynamicSegmentationInspector';
 import { DynamicAnimationInspector } from '../dynamic/DynamicAnimationInspector';
 import { DynamicRiggingInspector } from '../dynamic/DynamicRiggingInspector';
-import { Grid3X3, Scissors, Film, Bone } from 'lucide-react';
+import { Grid3X3, Scissors, Film, Bone } from '@/components/icons/hugeicons-components';
 
 export const RightPropertyPanel: React.FC = () => {
   const {

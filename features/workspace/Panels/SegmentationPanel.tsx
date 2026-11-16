@@ -14,7 +14,7 @@ import {
   Palette,
   GitFork,
   FolderArchive,
-} from 'lucide-react';
+} from '@/components/icons/hugeicons-components';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   CheckIcon,

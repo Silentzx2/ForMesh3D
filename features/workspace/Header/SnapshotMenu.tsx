@@ -200,7 +200,11 @@ export const SnapshotMenu: React.FC = () => {
                 value={snapshotName}
                 onChange={(e) => setSnapshotName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSaveSnapshot();
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    handleSaveSnapshot();
+                  }
                   if (e.key === 'Escape') setIsCreating(false);
                 }}
                 placeholder="e.g. Hero Character Framing"

@@ -9,7 +9,7 @@ import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import {
   Sparkles,
   Palette,
-  Image as ImageIcon,
+  ImageIcon,
   Box,
   RotateCw,
   Lightbulb,
@@ -21,7 +21,7 @@ import {
   Cpu,
   Layers,
   Sun,
-} from 'lucide-react';
+} from '@/components/icons/hugeicons-components';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   CheckIcon,

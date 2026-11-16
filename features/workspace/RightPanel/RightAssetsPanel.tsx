@@ -5,6 +5,8 @@ import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
 import { MeshUploadStatus } from '../Panels/MeshUploadStatus';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import { toast } from 'sonner';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
@@ -48,6 +50,8 @@ export const RightAssetsPanel: React.FC = () => {
   const [failedThumbnails, setFailedThumbnails] = useState<Set<string>>(() => new Set());
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [activeMenuAssetId, setActiveMenuAssetId] = useState<string | null>(null);
+  const [collectionName, setCollectionName] = useState('');
+  const [collectionAssetId, setCollectionAssetId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -142,6 +146,7 @@ export const RightAssetsPanel: React.FC = () => {
   const paginatedAssets = filteredAssets.slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE);
 
   return (
+    <>
     <div id="panel-assets-library" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none">
       {/* Hidden file input for uploading custom 3D files */}
       <input
@@ -478,17 +483,8 @@ export const RightAssetsPanel: React.FC = () => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              const name = window.prompt('New collection name:');
-                              if (name && name.trim()) {
-                                const trimmed = name.trim();
-                                addAssetCollection(trimmed);
-                                updateAssetProperties(asset.id, {
-                                  collection: trimmed,
-                                  tags: Array.from(new Set([...(asset.tags || []), trimmed])),
-                                });
-                                toast.success(`Created "${trimmed}" and added asset`);
-                              }
-                              setActiveMenuAssetId(null);
+                              setCollectionAssetId(asset.id);
+                              setCollectionName('');
                             }}
                             className="w-full text-left px-2.5 py-1 text-[10px] text-primary hover:underline font-bold cursor-pointer"
                           >
@@ -570,5 +566,30 @@ export const RightAssetsPanel: React.FC = () => {
         </div>
       </div>
     </div>
+    <Dialog open={collectionAssetId !== null} onOpenChange={open => {
+      if (!open) {
+        setCollectionAssetId(null);
+        setActiveMenuAssetId(null);
+      }
+    }}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>New collection</DialogTitle></DialogHeader>
+        <form onSubmit={event => {
+          event.preventDefault();
+          const asset = assets.find(item => item.id === collectionAssetId);
+          const name = collectionName.trim();
+          if (!asset || !name) return;
+          addAssetCollection(name);
+          updateAssetProperties(asset.id, { collection: name, tags: Array.from(new Set([...(asset.tags || []), name])) });
+          toast.success(`Created "${name}" and added asset`);
+          setCollectionAssetId(null);
+          setActiveMenuAssetId(null);
+        }}>
+          <Input autoFocus aria-label="Collection name" value={collectionName} onChange={event => setCollectionName(event.target.value)} />
+          <DialogFooter><button type="submit" disabled={!collectionName.trim()} className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground">Create collection</button></DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 };

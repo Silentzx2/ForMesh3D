@@ -8,20 +8,20 @@ import { getNativeTargetCapability, type NativeTargetCapability } from '../utils
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import {
   Sparkles,
-  Image as ImageIcon,
+  ImageIcon,
   Box,
   RotateCw,
   Lightbulb,
   SlidersHorizontal,
   ChevronRight,
   ChevronDown,
-  X as CancelIcon,
+  CancelIcon,
   Trash2,
   Edit2,
   ThumbsUp,
   Dices,
   Loader2,
-} from 'lucide-react';
+} from '@/components/icons/hugeicons-components';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   CheckIcon,

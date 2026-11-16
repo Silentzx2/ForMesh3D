@@ -1,134 +1,129 @@
-# Active Task: Script Engine for Existing Mesh Tools
+# ForMesh3D — Task Tracker & Findings
 
-**Status:** Completed and verified.  
-**Repository:** Silentzx2/ForMesh3D, dev branch.  
-**Project profile:** Personal-use, self-hosted application; flat backend layout, durable workspace persistence.
+**Branch:** `dev` | **Profile:** Personal-use, self-hosted 3D studio | **Status:** Ready for next task
 
-## 1. Goal & Completed Integration
+---
 
-Connected Script Engine end to end for Retopo, Smart UV, and Segment:
-- Flat backend modules: `backend/pipelines/retopo.py`, `smart_uv.py`, `segment.py`, `mesh_utils.py` with density safety capping via `mesh_guard.py`.
-- FastAPI endpoints: `/api/v1/mesh-tools/auto-retopo`, `/auto-uv`, and `/segment` stream real SSE progress and register operations in SQLite FIFO queue.
-- Workspace Preview Lifecycle: operation temporary staging in `storage/temp/<op_id>/`, served via `/api/v1/workspace/operations/{operation_id}/preview`.
-- Operation Action Bar: Keep commits operation output to workspace immutable asset version; Discard purges temp directory and restores viewer baseline.
-- Bridge & Context: reconciled parameters across UI panels, bridge (`meshProcessingBridge.ts`), and `WorkspaceContext.tsx`.
+## 1. Completed Work
 
-## 2. Non-Negotiable Scope
+**Script Engine for Retopo, Smart UV, Segment** — Completed and verified (ADR-105, 2026-11-16).
 
-- In scope: Retopo, Smart UV, Segment only. No Model Generation or Texture pipeline; no Rig, Animate, Settings, repair, optimization, LOD, collision, or other operation files.
-- Keep the current navigation exactly as-is: Model, Texture, Retopo, Smart UV, Segment, Rig, Animate, Settings. No new, renamed, reordered, or removed navigation items, panels, or workspace areas.
-- Flat backend layout: backend/pipelines/retopo.py, smart_uv.py, segment.py, mesh_utils.py. Keep existing backend/pipelines/mesh_guard.py and reuse it; do not duplicate its density guard.
-- Reuse features/workspace/services/meshProcessingBridge.ts. No second bridge, engine-specific Python files, nested pipeline folders, manager framework, or extra registry unless repository evidence proves it necessary.
-- Do not alter AI inference paths or modern-GPU behavior while integrating CPU Script Engine operations. No new dependency until installed packages, Blender availability, and existing helpers are checked.
+- `backend/pipelines/retopo.py`, `smart_uv.py`, `segment.py`, `mesh_utils.py` with `mesh_guard.py` density capping.
+- FastAPI endpoints `/api/v1/mesh-tools/auto-retopo`, `/auto-uv`, `/segment` with real SSE progress + SQLite operation registration.
+- Workspace Preview Lifecycle: temp staging at `storage/temp/<op_id>/`, preview via `/api/v1/workspace/operations/{operation_id}/preview`, Keep/Discard/Regenerate.
+- SQLite: `backend/storage/job_queue.db` (WAL, `busy_timeout=30000`).
+- State machines: `ExecutionStatus` (queued→processing→completed|failed|interrupted|cancelled), `PersistenceStatus` (not_saved→saving→saved|save_failed|discarded|cleanup_pending|preview_expired).
+- Tests: 4/4 Python pipeline tests, 55/55 Bun frontend tests, no GPU regressions.
 
-## 3. Mandatory Discovery Before Coding
+---
 
-Read AGENTS.md completely and follow it. Review relevant current docs: Docs/ARCHITECTURE.md, DESIGN.md, DECISIONS.md, MEMORY.md, PRD.md, SYSTEM-BLUEPRINT.md, SECURITY.md, plus authoritative storage/database contracts.
+## 2. Debug Fix: API Workers Crash — `ModuleNotFoundError: No module named 'backend'`
 
-Trace the complete call graph and direct callers: LeftNavigation, WorkspaceShell, route mapping; RemeshPanel, UVPanel, SegmentationPanel, EngineModeSelector, right inspectors, upload hook and preview/progress components; WorkspaceContext, meshProcessingBridge, task persistence, route helpers, viewer store, asset normalization, preview snapshot, OperationActionBar and asset browser; mesh_tools.py, both app entrypoints, API proxy, file upload/download, database manager/models, storage manager, artifact utilities, cleanup/recovery and mesh_guard.py.
+**Root cause:** `backend/api/routers/mesh_tools.py` used absolute imports `from backend.pipelines.retopo import ...`. When uvicorn runs `api.main_multiworker:app` from inside the `backend/` directory, `sys.path` contains `backend/` but not its parent, so `import backend` fails. Same broken pattern in all 4 pipeline files (`retopo.py`, `smart_uv.py`, `segment.py`, `mesh_utils.py`) and the test file.
 
-Inspect tests, requirements, install scripts, Dockerfile, existing pipeline/util modules, and search for TODOs, placeholder responses, stale IDs, dead branches, dropped parameters, partially implemented algorithms and duplicate helpers. Record verified behavior and exact file/line locations before editing. Do not infer that something works from DEFAULT_SCRIPTS or requirements.txt alone.
+**Fix:** Changed `backend.pipelines.X` → `pipelines.X` in:
+- `backend/api/routers/mesh_tools.py` (lines 19-21)
+- `backend/pipelines/retopo.py` (line 16)
+- `backend/pipelines/smart_uv.py` (line 17)
+- `backend/pipelines/segment.py` (line 19)
+- `backend/pipelines/mesh_utils.py` (line 23)
+- `backend/tests/test_script_engine_pipelines.py` (lines 14-17)
 
-## 4. Existing Findings to Re-Verify and Resolve
+**Verification:** `PYTHONPATH=. python -c "from pipelines.retopo import execute_retopo"` now succeeds (was `ModuleNotFoundError: No module named 'backend'`).
 
-The bridge already supports AI/Script modes and a registry. Current script IDs include trimesh_autoretopo, xatlas_fast, blender_smart_uv and trimesh_decomposition. Reconcile IDs without gratuitous renaming that could break saved settings or callers.
+---
 
-The existing mesh-tools router exposes /auto-retopo, /auto-uv and /segment, but inspected handlers return a progress event followed by a rebuilding-service error. Replace placeholders with real execution while preserving the current endpoint and SSE contract.
+## 3. UI Legacy Audit Findings — Resolved (2026-11-16)
 
-The bridge currently reconstructs GLB from mesh_b64. Inspected Script branches in WorkspaceContext create browser object URLs and transient assets with operation_id unset. This bypasses durable operation identity and workspace preview persistence. A browser object URL or in-memory asset is not a storage integration.
+Scan scope: `app/`, `components/`, `features/`, `hooks/`, `lib/`, `services/`, `stores/`, `types/`, `constants/`.
+Deterministic legacy rules: 33 guides / 35 rules (~20% of corpus). Feature-specific guidance not yet searched (~80%).
 
-Known parameter gaps to audit against latest dev:
-- Retopo UI has target polycount, triangle/quad topology, preserve edges, feature angle, adaptive density, watertight healing and output format. Context sends adaptiveDensity/watertightHealing while bridge reads adaptive/watertight; bridge hard-codes GLB.
-- Smart UV UI has XAtlas/Blender selection, unwrap strategy, atlas resolution, island margin, save-individual-parts and output format. Script path forwards only a subset; verify each engine's actual support.
-- Segment UI has part count, semantic/geometric mode, hierarchy, individual-part output, output format and colorized preview. Context/bridge do not currently carry every setting through Script mode.
-- EngineModeSelector disables AI for Segment although the registry contains a neural segmentation entry. Resolve the intended behavior from actual server/model availability, not assumptions.
+### 2.1 IME-Unsafe Enter Handlers — Resolved
 
-These are findings to verify, not behavior to preserve blindly.
+| File | Line | Code |
+|------|------|------|
+| `features/workspace/Header/SnapshotMenu.tsx` | 203 | `if (e.key === 'Enter') handleSaveSnapshot();` |
+| `features/workspace/Modals/ExportModal.tsx` | 361 | `onKeyDown={e => { if (e.key === 'Enter') handleSaveCurrentAsProfile(); ... }}` |
 
-## 5. Required Backend Files and Responsibilities
+**Resolution:** Both handlers prevent implicit submission and return while `nativeEvent.isComposing` or `keyCode === 229`.
 
-Add only the following flat operation modules if the audit confirms they are needed:
-- backend/pipelines/retopo.py — retopology execution and algorithm selection.
-- backend/pipelines/smart_uv.py — UV unwrapping and atlas generation.
-- backend/pipelines/segment.py — only geometric/semantic segmentation genuinely supported by installed algorithms.
-- backend/pipelines/mesh_utils.py — cohesive shared helpers for safe input validation/path handling, mesh and Scene loading, format conversion, output writing, statistics, subprocess execution and common error/result handling.
+### 2.2 Hex Color Literals — Resolved
 
-mesh_utils.py can hold substantial shared logic, but must stay operation-agnostic. Reuse existing storage, validation, file utilities, mesh_guard, database and artifact helpers. Keep HTTP/SSE concerns in the existing router unless the architecture proves a better existing owner. Do not create a service framework.
+Replaced the listed direct hex color values with existing HSL theme variables from `app/globals.css`.
 
-## 6. UI-First Parameter Contract
+| File | Examples |
+|------|----------|
+| `components/premium/NeonButton.tsx` | `#FFE066`, `#E09800`, `text-[#080808]`, `WebkitMask: 'linear-gradient(#fff 0 0)...'` |
+| `components/premium/MetricCard.tsx` | `accent: '#FFD866'`, `accent: '#22C55E'` |
+| `components/premium/ProgressBar.tsx` | `#FFE066`, `#E09800`, `rgba(255, 204, 0, 0.45)` |
+| `app/error.tsx` | `text-[#080808]` |
+| `app/not-found.tsx` | `text-[#080808]` |
+| `app/admin/page.tsx` | `bg-[#0d0e12]` |
+| `app/layout.tsx` | `radial-gradient(... #171717 ..., #0d0d0d ..., #080808 ...)` |
+| `components/ui/chart.tsx` | `stroke='#ccc'`, `stroke='#fff'` |
+| `components/ui/shimmer-button.tsx` | `shadow-[inset_0_-8px_10px_#ffffff1f]` |
+| `components/ActivityLogger.tsx` | `text-[#080808]` |
+| `features/workspace/store/WorkspaceContext.tsx` | `color: '#FFCC00'`, `gridColor: '#222222'`, `backgroundColor: 'radial-gradient(#3a3c40..., #2d2f33..., #1e1f22..., #121315..., #08090a...)'` |
+| `features/workspace/Dashboard/StudioDashboard.tsx` | `from-[#181818]`, `to-[#0f0f0f]`, `bg-[#222222]`, `from-[#FFE066]`, `to-[#E09800]`, `text-[#080808]` |
 
-Before algorithms, inventory every visible control and map it through: UI state/default -> WorkspaceContext customSettings/call -> bridge key/serialization -> FastAPI options validation -> pipeline argument -> actual algorithm effect -> settings snapshot/result statistics.
+~30 occurrences across 12 files.
 
-- Retopo must honor target polycount/target faces, topology, preserve-edges/feature-angle, adaptive density, watertight option and supported format. Target face count is approximate where the algorithm says so; report actual counts.
-- Smart UV must honor selected XAtlas/Blender engine, supported unwrap strategy, atlas resolution, island margin/padding and format. Preserve geometry, materials and scene data; do not pretend both engines support identical parameters.
-- Segment must honor geometric/semantic mode, part count, hierarchy, individual-part output, colorized preview and format only where the selected algorithm really supports them. Never label geometric decomposition as semantic AI segmentation.
-- If a required algorithm option lacks a UI control, add the smallest control inside its existing panel only after proving it is needed and supported. If a control already exists but is dropped, wire it—never add a duplicate. Unsupported controls must be disabled with a clear reason or removed only with a documented product decision.
+### 2.3 `lucide-react` Imports — Resolved
 
-## 7. Backend Execution and SSE Contract
+Migrated all 15 listed workspace files to Hugeicons components backed by `@hugeicons/core-free-icons`; new UI should use `HugeiconsIcon` directly. Shared component wrappers are in `components/icons/hugeicons-components.tsx`.
 
-Use existing /api/v1/mesh-tools/auto-retopo, /auto-uv and /segment unless route audit proves otherwise. Preserve multipart names expected by the bridge (meshFile, options, format), or update both ends atomically with tests.
+Files: `GeneratePanel`, `TexturePanel`, `RemeshPanel`, `RiggingPanel`, `SegmentationPanel`, `AnimationPanel`, `EngineModeSelector`, `UVPanel`, `LeftNavigation`, `RightPropertyPanel`, `DynamicAnimationInspector`, `RealModelPreviewCanvas`, `DynamicUVInspector`, `DynamicSegmentationInspector`, `DynamicRiggingInspector`.
 
-Validate options, ranges, enums, file extensions, size/complexity limits and output format. Use server-controlled paths; never trust client filesystem paths. Run CPU-heavy work off the FastAPI event loop using the smallest established executor/subprocess pattern; bound runtime and terminate child work on cancellation/disconnect where feasible.
+### 2.4 Direct DOM Manipulation — Resolved
 
-Emit structured progress, stage, log, error and done SSE events; every terminal path must have one unambiguous outcome. Handle chunk boundaries, final unterminated buffers, malformed events, disconnects and cancellation in the bridge. Return operation_id, workspace_id, preview/output URL, format and actual statistics. Prefer storage-backed preview URLs over large base64 meshes. Do not report success until output exists, validates and is registered.
+| File | Code |
+|------|------|
+| `features/workspace/WorkspaceShell.tsx` | `document.querySelector<HTMLElement>('#left-tool-rail button')?.focus();` |
 
-## 8. Workspace Storage and Preview Lifecycle (Critical)
+Replaced the query with a React ref attached to the first workspace tool button.
 
-Use the existing authoritative workspace storage system and docs. SQLite is authoritative; metadata.json, where specified, is a projection—not a second source of truth.
+### 2.5 Browser APIs and SSR — Resolved
 
-Preserve workspace_id and current route. Create a real operation_id/operation row with operation_type, input asset, settings snapshot, parent lineage, execution/persistence statuses and temporary output location. Keep unsaved outputs in the established preview/temp location with documented TTL/cleanup; never overwrite retained assets.
+| File | Code |
+|------|------|
+| `features/admin/tabs/LogsTab.tsx` | `window.setInterval`, `window.setTimeout`, `window.clearInterval`, `window.clearTimeout` |
+| `features/workspace/lib/artifactDownload.ts` | `window.setTimeout(() => URL.revokeObjectURL(...), 0)` |
+| `features/workspace/RightPanel/RightAssetsPanel.tsx` | `window.prompt('New collection name:')` |
+| `features/workspace/Modals/GenerationPresetDrawer.tsx` | `window.confirm('Delete preset ...')` |
 
-Attach operation_id/workspace_id to preview task and asset so the existing OperationActionBar works. Keep uses the existing Keep endpoint and atomically retains a new immutable asset/version, updates active_mesh_asset_id and exposes it in the asset browser. Discard uses the existing endpoint, removes only the unsaved preview and restores the exact viewer/workspace baseline. Regenerate creates a new operation_id linked by parent_operation_id; never overwrites prior output.
+Replaced `prompt` and `confirm` with accessible dialogs. Artifact download now guards the browser-only save path; `LogsTab` timer calls remain inside `useEffect`.
 
-Workspace reload must restore retained script outputs from SQLite and verified files—not object URLs or in-memory state. Respect the established single metadata.json rule, storage hierarchy, version naming, path-containment checks, cleanup/trash rules and DB/file consistency. Do not invent a parallel storage tree or extra metadata files.
+### 2.6 `dangerouslySetInnerHTML` — Reviewed
 
-## 9. Explicit State-Machine Audit (Mandatory)
+| File | Line | Code |
+|------|------|------|
+| `components/ui/chart.tsx` | 82 | Injects CSS custom properties from the chart configuration. Kept as requested for review only; no behavior change to the injection. |
 
-Run the exact repository-required prompt before coding: "find all of the implicit state machines in my formesh3d app". Scope it to affected panels, WorkspaceContext, bridge, upload hook, SSE/backend worker, operation persistence, preview action bar, viewer store and direct callers.
+### 2.7 Already Compliant (No Issues)
 
-For each machine, document owner, states, allowed transitions, triggers, side effects, terminal states, cancellation/error behavior and file/line. Inspect engine/script selection; upload/verification/input selection; each operation; SSE/abort/disconnect; ExecutionStatus and PersistenceStatus; preview/Keep/Discard/Regenerate/expiry/reload; active asset/viewer loading; and worker recovery if script work enters that lifecycle.
+SSR guards (`typeof window`, `next/dynamic` `ssr:false`), ARIA labels on dialogs/switches/buttons, focus management, no `eval`/`new Function`/`innerHTML=`.
 
-Use existing explicit execution and persistence machines as authority. No parallel booleans or duplicate statuses. Guard legal transitions and cover queued/running/completed/failed/interrupted/cancelled plus not_saved/saving/saved/save_failed/discarded/cleanup_pending/preview_expired where applicable. Prevent impossible combinations, orphaned temp files and success-without-output states.
+---
 
-## 10. Modern UI Quality (Existing Surfaces Only)
+## 3. Implementation Status
 
-Make the existing Retopo, Smart UV and Segment panels feel like a modern production-quality 3D studio without changing navigation or adding panels. Follow Studio Gold / Matte Black tokens and existing components; preserve the current workspace/viewport composition.
+All actionable UI audit findings above are resolved. The chart CSS injection was reviewed and intentionally retained. No dependencies were installed, and no build was run.
 
-Use compact responsive layouts, clear labels/units/ranges/defaults, useful help, visible disabled states, readable progress and truthful result statistics. Cover idle, upload, queued/running, completed preview, failed, cancelled and expired states. Maintain keyboard access, focus visibility, semantic labels, contrast and reduced-motion support. Use purposeful subtle transitions; no new palette, gratuitous gradients, oversized cards, floating UI or decorative redesign. Prefer existing CSS tokens over hard-coded colors.
+---
 
-## 11. Upstream Research Findings and Selection Gates
+## 4. Verification Status
 
-Re-check exact APIs/versions during implementation; research is evidence, not automatic approval:
-- Blender Python API provides bpy.ops.object.quadriflow_remesh with target_faces, sharp/boundary preservation and preserve_attributes. It also warns data layers are lost, so test UV/material/attribute preservation. Blender is already installed by Dockerfile/install flow; prefer its bundled QuadriFlow only if headless execution and output fidelity pass. https://docs.blender.org/api/current/bpy.ops.object.html
-- Standalone QuadriFlow is MIT and supports Linux/macOS/Windows, but requires native dependencies (Boost, Eigen, optional OpenMP/TBB) and transitive license review. Use only if Blender's bundled operator is insufficient. https://github.com/hjwdzh/QuadriFlow
-- Instant Meshes has a permissive BSD-style license, but upstream documents an interactive orientation-field -> position-field -> export workflow, sibling datasets folder and Linux zenity dependency. No reliable unattended server CLI contract was established; do not make it default without proving headless use, packaging, maintenance and output quality. https://github.com/wjakob/instant-meshes
-- XAtlas Python bindings are MIT and xatlas is already in requirements. API returns vertex mapping, new indices and UVs; account for vertex duplication and preserve materials/scene attributes. https://github.com/mworchel/xatlas-python ; https://pypi.org/project/xatlas/
-- Trimesh is already installed and supports splitting by face connectivity. That is connected-component splitting, not a guarantee of an arbitrary requested part count. https://trimesh.org/trimesh.html
-- CoACD is already listed and MIT, but performs approximate convex decomposition for collision geometry—not semantic segmentation. Do not misrepresent it or add collision UI. Use in Segment only if geometric mode is explicitly defined as convex decomposition and output contract is accepted. https://github.com/SarahWeiii/CoACD
-- Do not add PyMeshLab or another dependency merely because it is installed. Verify license, filter semantics, format fidelity and necessity before using it inside an in-scope operation.
+| Check | Result |
+|-------|--------|
+| Python pipeline tests | 4/4 passing |
+| Bun frontend tests | 55/55 passing across 8 suites |
+| UI audit source checks | 123 TS/TSX files syntax-transpiled; Hugeicons imports resolve; no hex literals in the 12 audited files; `git diff --check` passes. Full typecheck and UI runtime checks were not run. |
+| GPU regression | None |
+| Git status | `dev` branch; changes remain uncommitted as requested. Remote status was not checked. |
+| .gitignore | `artifact/`, `.agent/` excluded |
 
-Select the simplest algorithm that meets actual panel behavior, runs unattended on the target Linux/VPS environment and passes real mesh tests. Do not promise unsupported capabilities.
+---
 
-## 12. Implementation Order
+## 5. Out of Scope
 
-1. Discovery: read docs, map call graph, inventory UI controls, audit implicit state machines, verify branch/tests and record exact gaps.
-2. Algorithm decisions: prove APIs/CLI, licensing, packaging, parameter semantics and output fidelity for all three operations.
-3. Shared utilities: implement only genuinely shared helpers in mesh_utils.py; reuse mesh_guard.py and existing storage helpers.
-4. Operations: implement retopo.py, smart_uv.py and segment.py; validate outputs and truthful statistics.
-5. Backend/SSE: replace placeholders, preserve routes/contracts, support cancellation/errors and operation-backed previews.
-6. Bridge: reconcile script IDs and schemas, serialize every supported setting and harden SSE/cancellation.
-7. Workspace lifecycle: durable IDs, preview URLs, settings snapshots, baseline restoration, Keep/Discard/Regenerate and saved reload.
-8. UI: wire all existing controls; add only proven missing controls within the same panels; polish with existing design system.
-9. Verification/docs: focused tests, state audit, Python/TypeScript checks, relevant CI and affected documentation.
-
-## 13. Tests and Acceptance Criteria
-
-Test representative triangle/quad, multi-object Scene, disconnected, non-manifold, empty, malformed, high-density and material/UV-bearing meshes. Retopo tests verify target forwarding, actual counts, valid topology and observable supported feature settings. UV tests verify valid non-overlapping UVs, atlas/padding, geometry/material preservation and engine-specific options. Segment tests verify actual parts, stable IDs/names, hierarchy/individual exports only when supported, and truthful part counts.
-
-API tests cover multipart/options validation, SSE progress/done/error, output URL/operation identity, disconnect/cancel and event-loop responsiveness. Frontend tests prove every visible setting reaches the intended backend argument. Lifecycle tests cover DB rows, temp previews, Keep, Discard, Regenerate lineage, expiry cleanup, route stability, reload and no retained-file overwrite/deletion. State tests cover legal transitions and all terminal/abort paths.
-
-Run relevant pytest, frontend tests, TypeScript/lint/build, Python compilation and available CI. Record exact commands/results; never claim an unrun check passed. Acceptance: all three Script operations run from existing panels, display modern responsive progress/preview UI, retain/discard correctly and reload from the same workspace—with no navigation additions, no Model/Texture script, no unrelated refactor, no duplicate storage system and no unnecessary enterprise abstractions.
-
-## 14. Out of Scope
-
-Do not rewrite AI adapters, change generation/texture flows, add a new tool framework or queue, move existing routes, redesign the whole Studio, or create separate UI surfaces. Keep the change focused on completing the existing Script Engine for Retopo, Smart UV and Segment.
+Do not rewrite AI adapters, change generation/texture flows, add new tool framework/queue, move routes, redesign Studio, or create separate UI surfaces. Keep changes focused.

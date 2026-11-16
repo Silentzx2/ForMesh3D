@@ -837,7 +837,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   });
 
   const [paintBrushSettings, setPaintBrushSettings] = useState<PaintBrushSettings>({
-    color: '#FFCC00',
+    color: 'hsl(var(--primary))',
     size: 24,
     opacity: 1.0,
     flow: 0.8,
@@ -853,8 +853,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     rimLightIntensity: 1.1,
     exposure: 1.0,
     gridVisible: true,
-    gridColor: '#222222',
-    backgroundColor: 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
+    gridColor: 'hsl(var(--surface-2))',
+    backgroundColor: 'radial-gradient(ellipse 75% 70% at 50% 50%, hsl(var(--surface-4)) 0%, hsl(var(--surface-3)) 30%, hsl(var(--surface-2)) 60%, hsl(var(--surface-0)) 85%, hsl(var(--background)) 100%)',
     autoRotate: false,
     showAxes: false,
     showStats: true,

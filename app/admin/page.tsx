@@ -112,7 +112,7 @@ export default function AdminPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex h-screen w-screen items-center justify-center bg-[#0d0e12] text-zinc-400">
+        <div className="flex h-screen w-screen items-center justify-center bg-[hsl(var(--background))] text-zinc-400">
           <HugeiconsIcon icon={LoaderCircleIcon} size={24} className="h-6 w-6 animate-spin text-purple-400" />
         </div>
       }

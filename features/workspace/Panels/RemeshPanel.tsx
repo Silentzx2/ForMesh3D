@@ -9,7 +9,7 @@ import {
   Sparkles,
   RefreshCw,
   Box,
-  Image as ImageIcon,
+  ImageIcon,
   RotateCw,
   Lightbulb,
   SlidersHorizontal,
@@ -21,7 +21,7 @@ import {
   Layers,
   ShieldCheck,
   Zap,
-} from 'lucide-react';
+} from '@/components/icons/hugeicons-components';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   CheckIcon,

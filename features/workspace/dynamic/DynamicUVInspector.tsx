@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as THREE from 'three';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { useViewerStore } from '@/stores/useViewerStore';
-import { Download, RefreshCw, Wand2, AlertCircle } from 'lucide-react';
+import { Download, RefreshCw, Wand2, AlertCircle } from '@/components/icons/hugeicons-components';
 import { toast } from 'sonner';
 
 export const DynamicUVInspector: React.FC = () => {

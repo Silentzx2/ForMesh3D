@@ -18,15 +18,15 @@ interface ProgressBarProps {
 }
 
 const COLORS: Record<ProgressColor, { from: string; to: string; glow: string }> = {
-  purple: { from: '#FFE066', to: '#E09800', glow: 'rgba(255, 204, 0, 0.45)' },
-  blue: { from: '#60A5FA', to: '#3B82F6', glow: 'rgba(59, 130, 246, 0.3)' },
-  cyan: { from: '#FFE066', to: '#FFCC00', glow: 'rgba(255, 204, 0, 0.45)' },
-  green: { from: '#4ADE80', to: '#22C55E', glow: 'rgba(34, 197, 94, 0.3)' },
-  pink: { from: '#FFCC00', to: '#FFE066', glow: 'rgba(255, 204, 0, 0.45)' },
-  amber: { from: '#FFE066', to: '#E09800', glow: 'rgba(255, 204, 0, 0.45)' },
+  purple: { from: 'hsl(var(--neon-cyan))', to: 'hsl(var(--neon-orange))', glow: 'hsl(var(--primary) / 0.45)' },
+  blue: { from: 'hsl(var(--blue-500))', to: 'hsl(var(--blue-500))', glow: 'hsl(var(--blue-500) / 0.3)' },
+  cyan: { from: 'hsl(var(--neon-cyan))', to: 'hsl(var(--primary))', glow: 'hsl(var(--primary) / 0.45)' },
+  green: { from: 'hsl(var(--neon-green))', to: 'hsl(var(--neon-green))', glow: 'hsl(var(--neon-green) / 0.3)' },
+  pink: { from: 'hsl(var(--primary))', to: 'hsl(var(--neon-cyan))', glow: 'hsl(var(--primary) / 0.45)' },
+  amber: { from: 'hsl(var(--neon-cyan))', to: 'hsl(var(--neon-orange))', glow: 'hsl(var(--primary) / 0.45)' },
 };
 
-function getGlowStyle(color: ProgressColor, intensity: 'normal' | 'strong'): string {
+function getGlowStyle(color: ProgressColor): string {
   const c = COLORS[color].glow;
   return `0 0 8px ${c}, 0 0 16px ${c}`;
 }
@@ -69,7 +69,7 @@ export function ProgressBar({
               style={{
                 background: `linear-gradient(90deg, ${c.from}, ${c.to})`,
                 animation: 'progress-indeterminate 2s cubic-bezier(0.4, 0, 0.2, 1) infinite',
-                boxShadow: getGlowStyle(color, 'strong'),
+                boxShadow: getGlowStyle(color),
                 filter: 'brightness(1.1)',
               }}
             />
@@ -82,7 +82,7 @@ export function ProgressBar({
             transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
             style={{
               background: `linear-gradient(90deg, ${c.from}, ${c.to})`,
-              boxShadow: showGlow ? getGlowStyle(color, 'strong') : `0 2px 8px ${c.glow} / 0.2`,
+              boxShadow: showGlow ? getGlowStyle(color) : `0 2px 8px ${c.glow}`,
             }}
           >
             {/* Animated gradient shimmer moving across the fill */}
@@ -101,7 +101,7 @@ export function ProgressBar({
                 style={{
                   background: 'white',
                   opacity: 0.6,
-                  filter: `drop-shadow(0 0 3px ${c.glow} / 0.8)`,
+                  filter: `drop-shadow(0 0 3px ${c.glow})`,
                 }}
               />
             )}

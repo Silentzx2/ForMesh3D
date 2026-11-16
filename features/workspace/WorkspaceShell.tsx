@@ -117,6 +117,7 @@ export const WorkspaceShell: React.FC = () => {
   // Mobile menu state: left navigation drawer
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const mobileNavRef = useRef<HTMLElement | null>(null);
+  const firstToolButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (!isMobileNavOpen) return;
@@ -156,7 +157,7 @@ export const WorkspaceShell: React.FC = () => {
         if (previouslyFocused.getClientRects().length > 0) {
           previouslyFocused.focus();
         } else {
-          document.querySelector<HTMLElement>('#left-tool-rail button')?.focus();
+          firstToolButtonRef.current?.focus();
         }
       }
     };
@@ -447,7 +448,7 @@ export const WorkspaceShell: React.FC = () => {
             >
               {/* Left Rail Column: 46px */}
               <div className="w-[46px] h-full flex-shrink-0 bg-[hsl(var(--surface-1))] border-r border-[hsl(var(--border))]">
-                <LeftNavigation />
+                <LeftNavigation firstToolButtonRef={firstToolButtonRef} />
               </div>
 
               {/* Right Tool Content Column: 228px */}

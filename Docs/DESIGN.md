@@ -116,7 +116,7 @@ flowchart TB
 
 **Primary Icon Library**: [Hugeicons](https://hugeicons.com) (`@hugeicons/react` + `@hugeicons/core-free-icons`).
 
-> Hugeicons is the canonical icon library; some panels still import lucide-react while migration finishes. Custom SVGs are restricted to brand/logo assets only.
+> Hugeicons is the canonical icon library. Legacy icon component imports in workspace panels are rendered through `components/icons/hugeicons-components.tsx`; new UI should use `HugeiconsIcon` with `@hugeicons/core-free-icons` directly. Custom SVGs are restricted to brand/logo assets only.
 
 ### Icon Size Hierarchy
 

@@ -13,11 +13,12 @@ import {
   Bone,
   Film,
   Settings2,
-} from 'lucide-react';
+} from '@/components/icons/hugeicons-components';
 
 interface LeftNavigationProps {
   isMobileDrawer?: boolean;
   onToolSelect?: () => void;
+  firstToolButtonRef?: React.Ref<HTMLButtonElement>;
 }
 
 interface ToolConfig {
@@ -32,6 +33,7 @@ interface ToolConfig {
 export const LeftNavigation: React.FC<LeftNavigationProps> = ({
   isMobileDrawer = false,
   onToolSelect,
+  firstToolButtonRef,
 }) => {
   const { activeTool, mainNav, navigateToTool, isExecuting, setIsSettingsOpen, setIsLeftPanelOpen } = useWorkspace();
 
@@ -112,6 +114,7 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
           return (
             <SimpleTooltip key={`${t.label}-${idx}`} label={t.tooltip} side="right">
               <button
+                ref={idx === 0 ? firstToolButtonRef : undefined}
                 type="button"
                 onClick={() => handleSelect(t.id)}
                 aria-current={active ? 'page' : undefined}

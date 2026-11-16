@@ -89,6 +89,7 @@ async function rejectErrorPayload(blob: Blob, format: ArtifactFormat): Promise<v
 }
 
 function saveArtifact(blob: Blob, filename: string): void {
+  if (typeof window === 'undefined') return;
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = objectUrl;

@@ -49,7 +49,7 @@ export default function RootLayout({
         {/* Global app background canvas gradient */}
         <div
           className="fixed inset-0 pointer-events-none z-[-1]"
-          style={{ background: "radial-gradient(120% 80% at 50% -10%, #171717 0%, #0d0d0d 45%, #080808 100%)" }}
+          style={{ background: "radial-gradient(120% 80% at 50% -10%, hsl(var(--surface-2)) 0%, hsl(var(--background)) 45%, hsl(var(--primary-foreground)) 100%)" }}
           aria-hidden="true"
         />
         {/* Overhead studio ambient warm light */}

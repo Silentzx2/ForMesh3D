@@ -15,7 +15,7 @@ import {
   Repeat,
   Download,
   Footprints,
-} from 'lucide-react';
+} from '@/components/icons/hugeicons-components';
 import { toast } from 'sonner';
 
 export const DynamicAnimationInspector: React.FC = () => {
