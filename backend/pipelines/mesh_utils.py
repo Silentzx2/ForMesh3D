@@ -20,7 +20,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 import numpy as np
 import trimesh
 
-from backend.pipelines.mesh_guard import guard_mesh_density
+from pipelines.mesh_guard import guard_mesh_density
 
 logger = logging.getLogger(__name__)
 

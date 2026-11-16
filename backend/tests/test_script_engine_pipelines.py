@@ -11,10 +11,10 @@ from pathlib import Path
 import pytest
 import trimesh
 
-from backend.pipelines.mesh_utils import compute_mesh_stats, export_mesh_safe, load_mesh_safe, to_single_trimesh
-from backend.pipelines.retopo import execute_retopo
-from backend.pipelines.smart_uv import execute_smart_uv
-from backend.pipelines.segment import execute_segment
+from pipelines.mesh_utils import compute_mesh_stats, export_mesh_safe, load_mesh_safe, to_single_trimesh
+from pipelines.retopo import execute_retopo
+from pipelines.smart_uv import execute_smart_uv
+from pipelines.segment import execute_segment
 
 
 @pytest.fixture

@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, Optional, Union
 
 import trimesh
 
-from backend.pipelines.mesh_utils import (
+from pipelines.mesh_utils import (
     compute_mesh_stats,
     export_mesh_safe,
     find_blender_binary,

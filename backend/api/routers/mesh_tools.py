@@ -16,9 +16,9 @@ from typing import Any, AsyncGenerator, Callable, Dict, Optional
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from backend.pipelines.retopo import execute_retopo
-from backend.pipelines.segment import execute_segment
-from backend.pipelines.smart_uv import execute_smart_uv
+from pipelines.retopo import execute_retopo
+from pipelines.segment import execute_segment
+from pipelines.smart_uv import execute_smart_uv
 
 try:
     from core.scheduler.database_manager import DatabaseManager, get_workspace_storage_manager
