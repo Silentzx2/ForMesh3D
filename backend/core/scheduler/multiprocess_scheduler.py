@@ -1732,66 +1732,6 @@ class MultiprocessModelScheduler:
 
         return loaded
 
-    def get_idle_workers_vram_by_gpu(self) -> Dict[int, int]:
-        """
-        Get total VRAM (in MB) held by idle workers per GPU.
-        A worker is considered idle if it is not currently executing a job.
-        Returns a dict mapping gpu_id -> total_idle_vram_mb.
-        """
-        idle_vram_by_gpu: Dict[int, int] = {}
-        current_jobs = getattr(self, "worker_current_job", {})
-        workers_dict = getattr(self, "workers", {})
-        configs_dict = getattr(self, "worker_configs", {})
-        for worker_id, is_busy in list(getattr(self, "worker_status", {}).items()):
-            if is_busy:
-                continue
-            if current_jobs.get(worker_id) is not None:
-                continue
-            proc = workers_dict.get(worker_id)
-            if proc is not None and hasattr(proc, "is_alive") and not proc.is_alive():
-                continue
-            config = configs_dict.get(worker_id)
-            if not config:
-                continue
-            resource_plan = getattr(config, "resource_plan", None)
-            reservation_mb = resource_plan.get("reservation_mb") if isinstance(resource_plan, dict) else None
-            if reservation_mb and isinstance(reservation_mb, dict):
-                for gid, vram_mb in reservation_mb.items():
-                    try:
-                        gid_int = int(gid)
-                        idle_vram_by_gpu[gid_int] = idle_vram_by_gpu.get(gid_int, 0) + int(vram_mb)
-                    except (ValueError, TypeError):
-                        pass
-            elif getattr(config, "gpu_id", None) is not None:
-                try:
-                    gid_int = int(config.gpu_id)
-                    model_cfg = getattr(config, "model_config", {})
-                    if not isinstance(model_cfg, dict):
-                        model_cfg = {}
-                    req_vram = int(model_cfg.get("vram_requirement", 1024))
-                    idle_vram_by_gpu[gid_int] = idle_vram_by_gpu.get(gid_int, 0) + req_vram
-                except (ValueError, TypeError):
-                    pass
-        return idle_vram_by_gpu
-
-    def get_freeable_vram_by_gpu(self) -> Dict[int, int]:
-        """
-        Get total available VRAM (in MB) per GPU including freeable VRAM from idle workers.
-        """
-        idle_map = self.get_idle_workers_vram_by_gpu()
-        result: Dict[int, int] = {}
-        gpu_status = self.gpu_monitor.get_gpu_status()
-        for gpu_info in gpu_status:
-            gpu_id = int(gpu_info["id"])
-            current_avail = self.gpu_monitor.get_gpu_available_vram(gpu_id)
-            idle_mb = idle_map.get(gpu_id, 0)
-            total_mb = int(gpu_info.get("memory_total") or gpu_info.get("total_mb") or 0)
-            freeable = current_avail + idle_mb
-            if total_mb > 0:
-                freeable = min(total_mb, freeable)
-            result[gpu_id] = freeable
-        return result
-
     def _is_job_impossible(self, job_request: JobRequest) -> tuple[bool, str]:
         """
         Check if a job is impossible to process.
@@ -1868,36 +1808,6 @@ class MultiprocessModelScheduler:
             "features": {
                 feature: len(models) for feature, models in self.model_features.items()
             },
-        }
-
-    async def get_queue_info(self) -> Dict:
-        """Get detailed queue information for monitoring FIFO behavior"""
-        queue_status = await self.job_queue.get_queue_status()
-
-        # Get the first few jobs in queue to verify FIFO order
-        queue_preview = []
-        async with self.job_queue._cache_lock:
-            for i, job in enumerate(
-                list(self.job_queue._queue_cache)[:5]
-            ):  # First 5 jobs
-                queue_preview.append(
-                    {
-                        "position": i + 1,
-                        "job_id": job.job_id,
-                        "feature": job.feature,
-                        "created_at": job.created_at.isoformat(),
-                        "priority": job.priority,
-                        "waiting_time_seconds": (
-                            datetime.utcnow() - job.created_at
-                        ).total_seconds(),
-                    }
-                )
-
-        return {
-            "queue_status": queue_status,
-            "queue_preview": queue_preview,
-            "fifo_processing": True,
-            "retry_mechanism": "disabled_for_resources",
         }
 
     async def _process_external_cancellations(self) -> None:
@@ -2778,13 +2688,6 @@ class MultiprocessModelScheduler:
         if managed is not None:
             managed.discard(resolved)
 
-    def _is_managed_input_dir(self, directory: Path) -> bool:
-        """Check whether a directory is explicitly managed by this scheduler."""
-        managed = getattr(self, "_managed_temp_input_dirs", None)
-        if not managed:
-            return False
-        return directory in managed
-
     def _cleanup_temporary_inputs(self, job_request: Any) -> None:
         """Remove per-request mesh_gen_* input directories once job ownership ends."""
         parents = set()
@@ -3321,98 +3224,6 @@ class MultiprocessModelScheduler:
                     self.gpu_monitor.deallocate_vram(int(plan_gpu), int(plan_vram))
             return None
 
-    async def _find_gpu_with_freeable_vram(self, required_vram: int) -> Optional[int]:
-        """
-        Find a GPU where we can free up enough VRAM by destroying idle workers.
-
-        Args:
-            required_vram: Required VRAM in MB
-
-        Returns:
-            GPU ID if a suitable GPU is found, None otherwise
-        """
-        # Get all available GPUs and check each one
-        gpu_status = self.gpu_monitor.get_gpu_status()
-
-        for gpu_info in gpu_status:
-            gpu_id = gpu_info["id"]
-            current_available = self.gpu_monitor.get_gpu_available_vram(gpu_id)
-
-            if current_available >= required_vram:
-                # This GPU already has enough VRAM
-                return gpu_id
-
-            # Check if we can free up enough VRAM on this GPU
-            needed_to_free = required_vram - current_available
-
-            # Find idle workers on this GPU
-            idle_workers_on_gpu = []
-            current_time = time.time()
-            current_jobs = getattr(self, "worker_current_job", {})
-
-            for worker_id, is_busy in list(getattr(self, "worker_status", {}).items()):
-                if not is_busy and current_jobs.get(worker_id) is None:
-                    worker_config = getattr(self, "worker_configs", {}).get(worker_id)
-                    if not worker_config:
-                        continue
-                    res_plan = getattr(worker_config, "resource_plan", None)
-                    res_mb = res_plan.get("reservation_mb") if isinstance(res_plan, dict) else {}
-                    if not isinstance(res_mb, dict):
-                        res_mb = {}
-                    worker_gpu_id = getattr(worker_config, "gpu_id", None)
-                    worker_gpu_ids = getattr(worker_config, "gpu_ids", None)
-                    if not isinstance(worker_gpu_ids, (list, tuple)):
-                        worker_gpu_ids = []
-                    if (
-                        worker_gpu_id == gpu_id
-                        or gpu_id in worker_gpu_ids
-                        or str(gpu_id) in res_mb
-                        or gpu_id in res_mb
-                    ):
-                        last_used = getattr(self, "worker_last_used", {}).get(worker_id, current_time)
-                        if not isinstance(last_used, (int, float)):
-                            last_used = current_time
-                        idle_time = current_time - last_used
-                        model_cfg = getattr(worker_config, "model_config", {})
-                        if not isinstance(model_cfg, dict):
-                            model_cfg = {}
-                        worker_vram = int(
-                            res_mb.get(gpu_id)
-                            or res_mb.get(str(gpu_id))
-                            or model_cfg.get("vram_requirement", 1024)
-                        )
-                        idle_workers_on_gpu.append(
-                            (worker_id, idle_time, worker_vram)
-                        )
-                        logger.info(
-                            f"Worker {worker_id} is idle ({idle_time:.1f}s) holding {worker_vram}MB on GPU {gpu_id}"
-                        )
-
-            # Sort by idle time (longest idle first)
-            idle_workers_on_gpu.sort(key=lambda x: x[1], reverse=True)
-
-            # Check if we can free up enough VRAM by destroying idle workers
-            potential_freed_vram = 0
-            for _, _, worker_vram in idle_workers_on_gpu:
-                potential_freed_vram += worker_vram
-                if potential_freed_vram >= needed_to_free:
-                    # We can free up enough VRAM on this GPU
-                    logger.info(
-                        f"Can free up {potential_freed_vram}MB VRAM on GPU {gpu_id} (need {needed_to_free}MB)"
-                    )
-
-                    # Actually free up the VRAM
-                    await self._ensure_vram_available(required_vram, gpu_id)
-
-                    # Verify that we now have enough VRAM
-                    final_available = self.gpu_monitor.get_gpu_available_vram(gpu_id)
-                    if final_available >= required_vram:
-                        return gpu_id
-                    break
-
-        logger.info(f"No GPU can be made to have {required_vram}MB VRAM available")
-        return None
-
     async def _evict_lru_workers_to_free_vram(
         self, required_vram: int, model_config: Dict[str, Any]
     ) -> bool:
@@ -3595,27 +3406,6 @@ class MultiprocessModelScheduler:
                 "_ensure_vram_available called without target_gpu_id - this should not happen in the new per-GPU logic"
             )
 
-    async def _find_worker_for_job(self, job_request: JobRequest) -> Optional[str]:
-        """Legacy method - now redirects to the new implementation"""
-        return await self._find_or_create_worker_for_job(job_request)
-
-    def _find_available_worker(self, worker_ids: List[str]) -> Optional[str]:
-        """
-        Find an available (not busy) worker from the given list.
-
-        Args:
-            worker_ids: List of worker IDs to check
-
-        Returns:
-            Available worker ID or None if all are busy
-        """
-        for worker_id in worker_ids:
-            # Check if worker exists, is alive, and is not busy
-            proc = self.workers.get(worker_id)
-            if proc and proc.is_alive() and not self.worker_status.get(worker_id, False):
-                return worker_id
-        return None
-
     async def _find_available_worker_async(self, worker_ids: List[str]) -> Optional[str]:
         """Async version that uses locks to prevent race conditions"""
         for worker_id in worker_ids:
@@ -3632,26 +3422,10 @@ class MultiprocessModelScheduler:
                         return worker_id
         return None
 
-    def _mark_worker_busy(
-        self, worker_id: str, job_id: Optional[str] = None, callback_id: Optional[str] = None
-    ):
-        """Mark a worker as busy"""
-        # Ensure lock exists for this worker
-        if worker_id not in self.worker_locks:
-            self.worker_locks[worker_id] = asyncio.Lock()
-
-        with self.worker_bookkeeping_lock:
-            self.worker_status[worker_id] = True
-            self.worker_last_used[worker_id] = time.time()
-            if job_id is not None:
-                self.worker_current_job[worker_id] = job_id
-            if callback_id is not None:
-                self.worker_current_callback[worker_id] = callback_id
-
     async def _mark_worker_busy_async(
         self, worker_id: str, job_id: Optional[str] = None, callback_id: Optional[str] = None
     ):
-        """Async version of _mark_worker_busy with lock to prevent race conditions"""
+        """Mark a worker as busy while holding its per-worker lock."""
         if worker_id not in self.worker_locks:
             self.worker_locks[worker_id] = asyncio.Lock()
 
