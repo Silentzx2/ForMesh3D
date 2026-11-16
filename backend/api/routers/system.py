@@ -2662,55 +2662,11 @@ async def retry_job_postprocess(
     job_id: str, request: Request, _: bool = Depends(verify_api_key)
 ):
     """Rebuild derived production artifacts from the immutable canonical master."""
-    try:
-        return {"job_id": job_id, "status": "unavailable", "message": "Post-processing pipeline is disabled / under reconstruction."}
-        from core.utils.artifact_utils import canonical_asset_workspace
-
-        scheduler = await get_scheduler(request)
-        job_status = await scheduler.get_job_status(job_id)
-        if job_status is None:
-            raise HTTPException(status_code=404, detail="Job not found")
-
-        result = job_status.get("result") or {}
-        asset_root = result.get("asset_root")
-        if not asset_root:
-            raise HTTPException(status_code=400, detail="Job has no canonical asset workspace to retry")
-
-        asset_root_path = Path(asset_root).resolve()
-        models_root = (get_storage_base_dir() / "models").resolve()
-        if asset_root_path == models_root or models_root not in asset_root_path.parents:
-            raise HTTPException(status_code=400, detail="Invalid asset workspace")
-
-        master_path = asset_root_path / "master" / "source.glb"
-        if not master_path.is_file():
-            raise HTTPException(status_code=409, detail="Immutable master source.glb is missing")
-
-        job = await scheduler.job_queue.prepare_postprocess_retry(job_id)
-        if job is None:
-            raise HTTPException(status_code=409, detail="Job is not retryable from its canonical master")
-
-        for name in ("game_ready", "lods", "collision", "textures", "previews", "metadata"):
-            shutil.rmtree(asset_root_path / name, ignore_errors=True)
-
-        try:
-            final_result = await asyncio.to_thread(
-                run_postprocess_job,
-                job_id,
-                {"success": True, "output_mesh_path": str(master_path)},
-                job.inputs,
-                job.metadata,
-            )
-        except Exception as exc:
-            await scheduler.job_queue.fail_job(job_id, f"Post-process retry failed: {exc}")
-            raise HTTPException(status_code=500, detail=f"Post-process retry failed: {exc}") from exc
-
-        await scheduler.job_queue.complete_job(job_id, final_result)
-        return {"job_id": job_id, "status": "completed", "postprocess_status": "completed", "result": final_result}
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("Post-process retry failed for %s: %s", job_id, exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error retrying post-processing: {exc}") from exc
+    return {
+        "job_id": job_id,
+        "status": "unavailable",
+        "message": "Post-processing pipeline is disabled / under reconstruction.",
+    }
 
 
 def _dir_size_bytes(path: Path) -> int:
