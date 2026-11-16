@@ -1,8 +1,27 @@
 # Architecture Decisions — ForMesh 3D
 
-> **Version**: 0.3.0
-> **Last Updated**: November 15, 2026
+> **Version**: 0.4.0
+> **Last Updated**: November 16, 2026
 > **Retention Policy**: Keep only the last 3 active Architectural Decision Records (ADRs) to preserve lean context.
+
+---
+
+## ADR-105: Script Engine End-to-End Execution for Retopo, Smart UV, and Segment (2026-11-16)
+
+**Context:** The UI studio supported switching between Neural AI and Script engines, but mesh-tools endpoints (`/auto-retopo`, `/auto-uv`, `/segment`) returned placeholder service rebuilding events. Furthermore, in-memory object URLs bypassed durable SQLite operation identity, preventing the Operation Action Bar from supporting Keep/Discard workflows.
+
+**Decision:**
+1. **Flat Backend Pipeline Architecture**: Added `backend/pipelines/retopo.py`, `smart_uv.py`, `segment.py`, and cohesive `mesh_utils.py` with density safety capping through `mesh_guard.py`.
+2. **Deterministic Algorithm Execution**:
+   - Retopo uses headless Blender QuadriFlow for quad topology and Trimesh quadric decimation for fast isotropic remeshing.
+   - Smart UV uses Blender Smart Project for dihedral angle-based unwrapping and XAtlas / Trimesh for chart packing.
+   - Segment uses Trimesh connected-component decomposition and spatial PCA clustering with vivid viewport colorization (pure numpy, zero scipy dependency).
+3. **Workspace Preview & Operation Persistence**:
+   - Every script operation registers in SQLite FIFO queue (`enqueue_operation`, `update_operation_execution_status`).
+   - Unsaved preview meshes stage in `storage/temp/<operation_id>/` and stream via `/api/v1/workspace/operations/{operation_id}/preview`.
+   - Keep commits the preview into an immutable workspace asset; Discard cleans the temporary directory and restores viewer baseline.
+
+**Consequences:** Complete end-to-end integration with truthful geometric statistics, zero regressions on modern GPU flows, and full Operation Action Bar support.
 
 ---
 
@@ -21,51 +40,17 @@
 - `native_target_polycount` is never silently used to subdivide/decimate a mesh after generation.
 - Requested vs actual triangle counts are reported separately and honestly (measured from the actual GLB on disk, never inferred from requested).
 - No change to modern GPU (`sm >= 80`) native execution path (Priority Rule 1 preserved).
-- ADR-102 is superseded on the point that adapters "apply direct geometric subdivision/simplification before export" — that behavior is removed.
 
 ---
 
 ## ADR-103: Decoupling and Elimination of Legacy Postprocess, Auth, and Quality Gate Bloat (2026-11-14)
 
-**Context:** The codebase contained legacy modules from earlier iterations and an external fork (`backend/postprocess/` adapted from 3DGenStudio, 16 files, 136KB), a multi-tenant authentication system (`backend/core/auth/` with JWT/passlib), artificial heuristic quality checks (`backend/core/quality/` and `backend/config/quality.yaml`), preprocessing bridging layers, and dummy mock model classes. ForMesh3D is a single-user, self-hosted 3D studio where modern upstream generative models (Hunyuan3D-2.1, TRELLIS.2, Stable Fast 3D) produce high-fidelity geometry directly. The postprocess pipeline was already disabled by default, and having 136KB of unmaintained postprocess code, restrictive third-party licensing conditions, and mock quality scoring created brittle imports, complex dependency trees, and maintenance drag.
+**Context:** The codebase contained legacy modules from earlier iterations and an external fork (`backend/postprocess/` adapted from 3DGenStudio, 16 files, 136KB), a multi-tenant authentication system (`backend/core/auth/` with JWT/passlib), artificial heuristic quality checks (`backend/core/quality/` and `backend/config/quality.yaml`), preprocessing bridging layers, and dummy mock model classes. ForMesh3D is a single-user, self-hosted 3D studio where modern upstream generative models (Hunyuan3D-2.1, TRELLIS.2, Stable Fast 3D) produce high-fidelity geometry directly.
 
 **Decision:**
-1. **Complete Removal of Legacy Postprocess**:
-   - Deleted `backend/postprocess/` in its entirety. Removed external 3DGenStudio community license constraints.
-   - Decoupled `multiprocess_scheduler.py` from `run_postprocess_job`. Generation jobs deliver direct model-native meshes to the workspace.
-   - Replaced heavy mesh processing dependencies in `artifact_utils.py` with lightweight, canonical asset workspace helpers (`canonical_asset_workspace`, `prepare_asset_job_workspace`, `register_asset_job_manifest`).
-2. **Elimination of Multi-Tenant Auth Bloat**:
-   - Deleted `backend/core/auth/` and associated user management scripts.
-   - Single-user local workstation/VPS requires no JWT tokens or password hashing overhead. Rate limiting and dependency checks operate without auth database lookups.
-3. **Removal of Heuristic Quality Gates**:
-   - Deleted `backend/core/quality/` and `backend/config/quality.yaml`.
-   - Cleaned `backend/core/config.py` of 100+ lines of quality YAML parsing; quality tiers are validated cleanly as known strings without hard-coded geometric threshold rejections.
-4. **Self-Contained Specialist Mesh Tools**:
-   - Refactored `backend/api/routers/mesh_tools.py` into a standalone, SSE streaming router that provides real-time progress events and strict mesh format validation (`.glb`, `.gltf`, `.obj`, `.ply`, `.stl`) without relying on the legacy postprocess pipeline.
-5. **Direct Preprocessing Intake**:
-   - Removed `backend/core/preprocess/image_enhancement.py` and `hi3dgen_bridging.py`, unmounting the unused image enhancement router. Image inputs are passed directly to model adapters.
-6. **Clean Model Architecture**:
-   - Deleted dummy model mock files (`mesh_models.py`, `retopo_models.py`, etc.) from `backend/core/models/`, retaining a clean, authoritative `BaseModel` and `ModelStatus`.
+1. **Complete Removal of Legacy Postprocess**: Deleted `backend/postprocess/` in its entirety. Decoupled `multiprocess_scheduler.py` from `run_postprocess_job`. Replaced heavy mesh processing dependencies in `artifact_utils.py` with lightweight asset workspace helpers.
+2. **Elimination of Multi-Tenant Auth Bloat**: Deleted `backend/core/auth/` and associated user management scripts. Single-user local workstation/VPS requires no JWT tokens or password hashing overhead.
+3. **Removal of Heuristic Quality Gates**: Deleted `backend/core/quality/` and `backend/config/quality.yaml`. Cleaned `backend/core/config.py` of 100+ lines of quality YAML parsing.
+4. **Self-Contained Specialist Mesh Tools**: Refactored `backend/api/routers/mesh_tools.py` into a standalone, SSE streaming router that provides real-time progress events and strict mesh format validation without relying on the legacy postprocess pipeline.
 
-**Consequences:**
-- Zero dead code or dangling postprocess imports across the entire backend.
-- Full 57-test pytest suite passing with zero regressions on upstream model flows or hardware isolation (`sm >= 80` vs `sm < 80`).
-- Dramatically reduced repository surface area, zero third-party licensing baggage from 3DGenStudio, and improved startup speed and maintainability.
-
----
-
-## ADR-102: Universal Model Adapter Parameter Passthrough and Dynamic Model-Aware UI Controls (2026-11-14)
-
-**Status:** Partially superseded by ADR-104 — the statement that "adapters apply direct geometric subdivision/simplification before export" is removed; adapters no longer perform post-generation count forcing. The dynamic model-aware UI controls and authoritative parameter passthrough portions remain valid.
-
-**Context:** Generation parameters explicitly configured by users in the UI (e.g. polycount target 400K, texture atlas resolution, texture enable toggle, remesh topology) were previously intercepted by router-level preset overrides or logged and dropped by adapters, resulting in meshes with default resolutions (e.g. 8K faces for SF3D regardless of slider setting). Furthermore, static UI buttons offered unsupported resolutions (e.g. 4K for SF3D which only supports up to 2K) and Quad topology buttons for models producing only native triangles.
-
-**Decision:**
-1. **Dynamic Model-Aware UI Controls**:
-   - `GeneratePanel` and `TexturePanel` resolve texture resolutions dynamically based on the active model: SF3D offers `512`, `1K`, `2K`; Hunyuan3D-Paint offers `1K`, `2K`, `4K`; raw mesh generators hide the texture section.
-   - Geometry topology selector dynamically disables/indicates when a model does not support Quad remeshing, preventing user confusion.
-2. **Authoritative Parameter Passthrough**:
-   - `buildGenerationParameters.ts` maps user-selected polycount directly to `native_target_polycount` and routes user parameters without intermediate decimation post-processing flags.
-   - `mesh_generation.py` router respects user-specified `native_target_polycount`, `texture_resolution`, and `seed` over preset fallbacks.
-
-**Consequences:** Users have full control over generation parameters with dynamic model-aware UI controls; parameter passthrough is authoritative without post-generation count forcing.
+**Consequences:** Zero dead code or dangling postprocess imports across the entire backend. Full test suites passing with zero regressions on upstream model flows or hardware isolation (`sm >= 80` vs `sm < 80`).

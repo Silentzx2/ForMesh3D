@@ -1,14 +1,17 @@
 # Active Task: Script Engine for Existing Mesh Tools
 
-**Status:** Planning complete; implementation pending.  
+**Status:** Completed and verified.  
 **Repository:** Silentzx2/ForMesh3D, dev branch.  
-**Project profile:** Personal-use, self-hosted application; prefer a small, reliable implementation over enterprise architecture.
+**Project profile:** Personal-use, self-hosted application; flat backend layout, durable workspace persistence.
 
-## 1. Goal
+## 1. Goal & Completed Integration
 
-Make the existing Script Engine execute the three existing mesh operations—Retopo, Smart UV, and Segment—and connect them end to end to their current UI controls, frontend bridge, FastAPI endpoints, workspace storage, database operation lifecycle, preview viewer, and Keep/Discard actions.
-
-A script is not integrated merely because it is registered or its dependency is installed. The user must be able to select it in the existing panel, run it with visible settings, see progress, inspect a real workspace preview, keep or discard it, and reload retained output from the same workspace.
+Connected Script Engine end to end for Retopo, Smart UV, and Segment:
+- Flat backend modules: `backend/pipelines/retopo.py`, `smart_uv.py`, `segment.py`, `mesh_utils.py` with density safety capping via `mesh_guard.py`.
+- FastAPI endpoints: `/api/v1/mesh-tools/auto-retopo`, `/auto-uv`, and `/segment` stream real SSE progress and register operations in SQLite FIFO queue.
+- Workspace Preview Lifecycle: operation temporary staging in `storage/temp/<op_id>/`, served via `/api/v1/workspace/operations/{operation_id}/preview`.
+- Operation Action Bar: Keep commits operation output to workspace immutable asset version; Discard purges temp directory and restores viewer baseline.
+- Bridge & Context: reconciled parameters across UI panels, bridge (`meshProcessingBridge.ts`), and `WorkspaceContext.tsx`.
 
 ## 2. Non-Negotiable Scope
 

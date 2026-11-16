@@ -2440,15 +2440,16 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         });
 
         if (result.success && result.modelUrl) {
+          const targetWsId = result.workspaceId || currentAsset?.workspace_id || workspaceIdRef.current || undefined;
           const newAssetId = `retopo-${Date.now()}`;
           const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
           const newAsset = normalizeModelAsset({
             id: newAssetId,
-            workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
-            operation_id: undefined,
+            workspace_id: targetWsId,
+            operation_id: result.operationId,
             name: `${cleanBaseName}_retopo_${polyType}`,
             category: 'edit',
-            source: { filename: `${cleanBaseName}_retopo.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'retopo' },
+            source: { filename: `${cleanBaseName}_retopo.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'retopology' },
             artifacts: { source: meshUrl || comparisonSourceUrl(currentAsset) },
             format: 'GLB',
             topology: polyType === 'quad' ? 'Quad' : 'Triangle',
@@ -2468,7 +2469,16 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
           setIsExecuting(false);
           setExecutionProgress(100);
           setExecutionStep('Retopology completed successfully');
-          setActiveTask((prev) => (prev ? { ...prev, status: 'completed', progress: 100, currentStep: 'Retopology completed' } : null));
+          setExecutionState('completed');
+          setPersistenceState('not_saved');
+          setActiveTask((prev) => (prev ? {
+            ...prev,
+            status: 'completed',
+            progress: 100,
+            currentStep: 'Retopology completed',
+            operationId: result.operationId,
+            workspaceId: targetWsId,
+          } : null));
           toast.success('Retopology completed!', { description: `Optimized to ${polyType.toUpperCase()} topology (${targetPoly.toLocaleString()} faces)` });
           return;
         }
@@ -2633,12 +2643,13 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         });
 
         if (result.success && result.modelUrl) {
+          const targetWsId = result.workspaceId || currentAsset?.workspace_id || workspaceIdRef.current || undefined;
           const newAssetId = `uv-${Date.now()}`;
           const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
           const newAsset = normalizeModelAsset({
             id: newAssetId,
-            workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
-            operation_id: undefined,
+            workspace_id: targetWsId,
+            operation_id: result.operationId,
             name: `${cleanBaseName}_uv_unwrapped`,
             category: 'edit',
             source: { filename: `${cleanBaseName}_uv.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'uv' },
@@ -2657,7 +2668,16 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
           setIsExecuting(false);
           setExecutionProgress(100);
           setExecutionStep('UV unwrapping completed');
-          setActiveTask((prev) => (prev ? { ...prev, status: 'completed', progress: 100, currentStep: 'UV unwrapping completed' } : null));
+          setExecutionState('completed');
+          setPersistenceState('not_saved');
+          setActiveTask((prev) => (prev ? {
+            ...prev,
+            status: 'completed',
+            progress: 100,
+            currentStep: 'UV unwrapping completed',
+            operationId: result.operationId,
+            workspaceId: targetWsId,
+          } : null));
           toast.success('UV Map generated successfully!', { description: 'Non-overlapping atlas packed into mesh' });
           return;
         }
@@ -2778,21 +2798,22 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         });
 
         if (result.success && result.modelUrl) {
+          const targetWsId = result.workspaceId || currentAsset?.workspace_id || workspaceIdRef.current || undefined;
           const newAssetId = `segment-${Date.now()}`;
           const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
           const newAsset = normalizeModelAsset({
             id: newAssetId,
-            workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
-            operation_id: undefined,
+            workspace_id: targetWsId,
+            operation_id: result.operationId,
             name: `${cleanBaseName}_segmented_${numParts}parts`,
             category: 'edit',
-            source: { filename: `${cleanBaseName}_segmented.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'segment' },
+            source: { filename: `${cleanBaseName}_segmented.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'segmentation' },
             artifacts: { source: meshUrl || comparisonSourceUrl(currentAsset) },
             format: 'GLB',
             topology: currentAsset?.topology || 'Triangle',
-            faces: currentAsset?.faces || 0,
-            vertices: currentAsset?.vertices || 0,
-            statsAvailable: Boolean(currentAsset?.faces),
+            faces: result.stats?.face_count || currentAsset?.faces || 0,
+            vertices: result.stats?.vertex_count || currentAsset?.vertices || 0,
+            statsAvailable: Boolean(result.stats?.face_count || currentAsset?.faces),
             sourceAssetId: currentAsset?.id,
             settingsSnapshot: { engineMode: engine, numParts, method: settingsObj.method || 'geometric', outputFormat },
           });
@@ -2801,13 +2822,23 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
           selectAsset(newAsset.id);
           loadModelInViewer(result.modelUrl);
           setViewportResetTrigger((p) => p + 1);
-        }
 
-        setIsExecuting(false);
-        setExecutionProgress(100);
-        setExecutionStep('Segmentation complete');
-        setActiveTask((prev) => (prev ? { ...prev, status: 'completed', progress: 100, currentStep: 'Segmentation complete' } : null));
-        toast.success('Mesh segmented successfully', { description: `Partitioned into ${numParts} parts (Trimesh)` });
+          setIsExecuting(false);
+          setExecutionProgress(100);
+          setExecutionStep('Segmentation complete');
+          setExecutionState('completed');
+          setPersistenceState('not_saved');
+          setActiveTask((prev) => (prev ? {
+            ...prev,
+            status: 'completed',
+            progress: 100,
+            currentStep: 'Segmentation complete',
+            operationId: result.operationId,
+            workspaceId: targetWsId,
+          } : null));
+          toast.success('Mesh segmented successfully', { description: `Partitioned into ${numParts} parts (Trimesh)` });
+          return;
+        }
         return;
       }
 

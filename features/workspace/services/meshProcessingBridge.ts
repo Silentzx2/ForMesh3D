@@ -193,28 +193,45 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
       // Format options payload according to backend schema.
       // Start from the registered script's defaults (algorithm sub-state), then let
       // explicit panel params override. Falls back to {} when no scriptId is given.
-      let scriptOptions: Record<string, any> = { ...(scriptDef?.defaultParams ?? {}) };
+      let scriptOptions: Record<string, any> = {
+        ...(scriptDef?.defaultParams ?? {}),
+        workspace_id: workspaceId,
+        parent_operation_id: parentOperationId,
+      };
+
       if (tool === 'remesh') {
-        scriptOptions = { ...scriptOptions,
+        scriptOptions = {
+          ...scriptOptions,
           target_faces: Number(params.targetPolycount ?? params.target_faces ?? 50000),
           quads: params.polyType === 'quad' || params.quads === true,
-          watertight: params.watertight === true,
-          adaptive: params.adaptive !== false,
+          watertight: params.watertightHealing ?? params.watertight ?? false,
+          adaptive: params.adaptiveDensity ?? params.adaptive ?? true,
           ...(params.featureAngle !== undefined || params.feature_angle !== undefined
             ? { feature_angle: Number(params.featureAngle ?? params.feature_angle) }
             : {}),
           preserve_features: params.preserveEdges !== false,
+          output_format: params.outputFormat || 'glb',
         };
       } else if (tool === 'uv') {
-        scriptOptions = { ...scriptOptions,
+        scriptOptions = {
+          ...scriptOptions,
           resolution: Number(params.atlasResolution || params.resolution || 2048),
           padding_texels: Number(params.islandMargin || params.padding_texels || 4),
-          method: params.packMethod === 'blender' ? 'auto' : 'xatlas',
+          method: params.packMethod === 'blender' || scriptId === 'blender_smart_uv' ? 'auto' : 'xatlas',
           max_cone_deg: params.unwrapStrategy === 'organic' ? 60.0 : 45.0,
+          unwrap_strategy: params.unwrapStrategy || 'hybrid',
+          save_individual_parts: Boolean(params.saveIndividualParts),
+          output_format: params.outputFormat || 'glb',
         };
       } else if (tool === 'segment') {
-        scriptOptions = { ...scriptOptions,
+        scriptOptions = {
+          ...scriptOptions,
           num_parts: Number(params.numParts ?? params.num_parts ?? 8),
+          method: params.method || 'geometric',
+          hierarchical: Boolean(params.hierarchical),
+          colorize_preview: params.colorizePreview !== false,
+          save_individual_parts: Boolean(params.saveIndividualParts),
+          output_format: params.outputFormat || 'glb',
           ...(params.proxyFaces !== undefined || params.proxy_faces !== undefined
             ? { proxy_faces: Number(params.proxyFaces ?? params.proxy_faces) }
             : {}),
@@ -285,19 +302,24 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
         }
       }
 
-      if (!doneResult || !doneResult.mesh_b64) {
+      if (!doneResult || (!doneResult.mesh_b64 && !doneResult.model_url && !doneResult.preview_url)) {
         throw new Error('Script execution completed without returning valid output geometry.');
       }
 
-      // Reconstruct GLB Blob from base64
-      const byteChars = atob(doneResult.mesh_b64);
-      const byteNums = new Array(byteChars.length);
-      for (let i = 0; i < byteChars.length; i++) {
-        byteNums[i] = byteChars.charCodeAt(i);
+      let localUrl = '';
+      if (doneResult.model_url || doneResult.preview_url) {
+        localUrl = doneResult.model_url || doneResult.preview_url;
+      } else if (doneResult.mesh_b64) {
+        // Reconstruct GLB Blob from base64
+        const byteChars = atob(doneResult.mesh_b64);
+        const byteNums = new Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) {
+          byteNums[i] = byteChars.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNums);
+        const blob = new Blob([byteArray], { type: 'model/gltf-binary' });
+        localUrl = URL.createObjectURL(blob);
       }
-      const byteArray = new Uint8Array(byteNums);
-      const blob = new Blob([byteArray], { type: 'model/gltf-binary' });
-      const localUrl = URL.createObjectURL(blob);
 
       onProgress?.('Presenting generated mesh in 3D viewport...', 100);
 
@@ -306,9 +328,9 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
         modelUrl: localUrl,
         format: doneResult.format || 'glb',
         stats: doneResult.stats,
-        workspaceId,
+        workspaceId: doneResult.workspace_id || workspaceId,
         operationId: doneResult.operation_id,
-        previewUrl: doneResult.preview_b64 ? `data:image/png;base64,${doneResult.preview_b64}` : undefined,
+        previewUrl: doneResult.preview_url || (doneResult.preview_b64 ? `data:image/png;base64,${doneResult.preview_b64}` : undefined),
       };
     }
 

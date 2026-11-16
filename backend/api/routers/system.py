@@ -1582,6 +1582,50 @@ async def discard_workspace_operation(operation_id: str):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.get("/workspace/operations/{operation_id}/preview", summary="Download operation preview mesh")
+@router.get("/operations/{operation_id}/preview", summary="Download operation preview mesh (alias)")
+async def get_workspace_operation_preview(operation_id: str):
+    """Download preview mesh for an in-flight or un-retained workspace operation."""
+    from core.scheduler.database_manager import DatabaseManager, get_workspace_storage_manager
+    from core.scheduler.database_models import AssetModel
+    from core.utils.file_utils import get_storage_base_dir
+
+    db = DatabaseManager()
+    op = db.get_operation(operation_id)
+    if not op:
+        raise HTTPException(status_code=404, detail=f"Operation {operation_id} not found")
+
+    mgr = get_workspace_storage_manager()
+    temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / operation_id)
+    temp_dir = temp_dir.resolve()
+    if temp_dir.is_dir():
+        candidates = sorted([*temp_dir.glob("*.glb"), *temp_dir.glob("*.obj")], key=lambda p: p.name)
+        for cand in candidates:
+            if cand.is_file() and not cand.is_symlink():
+                return FileResponse(
+                    path=str(cand),
+                    filename=cand.name,
+                    media_type=get_content_type_for_file(str(cand)),
+                )
+
+    # If already retained as an asset in the workspace
+    asset = db.get_asset(operation_id)
+    if not asset:
+        with db.get_session() as session:
+            asset = session.query(AssetModel).filter_by(operation_id=operation_id, is_retained=1).first()
+    if asset:
+        storage_base = get_storage_base_dir().resolve()
+        file_path = (storage_base / asset.workspace_id / asset.relative_path).resolve()
+        if file_path.is_file() and file_path.is_relative_to(storage_base):
+            return FileResponse(
+                path=str(file_path),
+                filename=asset.original_filename,
+                media_type=get_content_type_for_file(str(file_path)),
+            )
+
+    raise HTTPException(status_code=404, detail="Preview mesh not found for operation")
+
+
 @router.get("/workspace/generate/{workspace_id}", summary="Get workspace state for deep link")
 @router.get("/workspace/{workspace_id}", summary="Get workspace state")
 async def get_workspace_route_lookup(workspace_id: str, request: Request):
@@ -1740,6 +1784,20 @@ async def download_job_result(
                         filename=filename or asset.original_filename,
                         media_type=get_content_type_for_file(str(file_path)),
                     )
+            op = db.get_operation(job_id)
+            if op:
+                mgr = get_workspace_storage_manager()
+                temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / job_id)
+                temp_dir = temp_dir.resolve()
+                if temp_dir.is_dir():
+                    candidates = sorted([*temp_dir.glob("*.glb"), *temp_dir.glob("*.obj")], key=lambda p: p.name)
+                    for cand in candidates:
+                        if cand.is_file() and not cand.is_symlink():
+                            return FileResponse(
+                                path=str(cand),
+                                filename=filename or cand.name,
+                                media_type=get_content_type_for_file(str(cand)),
+                            )
             raise HTTPException(status_code=404, detail="Job not found")
 
         if job_status.get("status") != "completed":
