@@ -16,6 +16,17 @@ Before writing any code, stop at the first rung that holds:
 
 The ladder runs after you understand the problem, not instead of it: read the task and the code it touches, trace the real flow end to end, then climb.
 
+### Think Before Write (Mandatory)
+- Before every edit, pause and understand the requested outcome, constraints, and existing project decisions. Do not start writing code or changing files from a surface-level reading.
+- Trace the complete real execution path before deciding where to edit: existing UI controls and state -> caller/context -> frontend bridge -> API route and request schema -> backend operation/pipeline -> storage and database -> preview/viewer and user actions.
+- Inspect all relevant callers, consumers, tests, docs, installed dependencies, and existing helpers. Search for functionality that is already implemented, partially implemented, registered but disconnected, or duplicated.
+- Find and document every explicit and implicit state machine touched by the task before changing it. Identify states, transitions, triggers, ownership, cancellation/error paths, and impossible combinations.
+- Research external libraries and executables from authoritative upstream sources. Verify current API/CLI, license, maintenance signals, platform support, installation/build requirements, input/output formats, and whether the tool actually satisfies the UI operation. Mark unverified claims as unverified.
+- Write or update a concrete implementation plan before implementation. Record the chosen minimal design, files to change, parameter contracts, storage lifecycle, state transitions, risks, and tests. Do not silently skip discovery because a task sounds familiar.
+- Only after the investigation and plan are complete, make the smallest justified change. Preserve working behavior and existing project contracts; do not add speculative abstractions, dependencies, panels, routes, or features.
+- If the user asks for research, planning, or documentation only, do not implement code. Stop after the requested documentation/research work.
+- Before each write, re-check that the target file and branch are correct, that the edit preserves unrelated content, and that no newer repository change has made the planned edit stale.
+
 Bug fix = root cause, not symptom: a report names a symptom. Grep every caller of the function you touch and fix the shared function once — one guard there is a smaller diff than one per caller, and patching only the path the ticket names leaves a sibling caller still broken.
 
 ---
