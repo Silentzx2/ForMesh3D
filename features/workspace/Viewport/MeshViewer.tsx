@@ -307,14 +307,19 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     camera.position.set(0, 1.2, 3.2);
     cameraRef.current = camera;
 
-    // Renderer with preserveDrawingBuffer enabled for high-res snapshot capture
+    // Renderer with preserveDrawingBuffer enabled for high-res snapshot capture.
+    // failIfMajorPerformanceCaveat: false lets the renderer fall back to a
+    // software/compositor context instead of throwing when hardware WebGL is
+    // disabled or sandboxed (e.g. VENDOR = 0xffff, GL_RENDERER = Disabled).
+    // powerPreference omitted so the browser picks any available GPU instead of
+    // forcing high-performance which may not exist in a sandboxed env.
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({
         antialias: true,
         alpha: true,
         preserveDrawingBuffer: true,
-        powerPreference: 'high-performance',
+        failIfMajorPerformanceCaveat: false,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown WebGL error';
@@ -1413,8 +1418,9 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
             {webglError}
           </p>
           <p className="text-xs text-zinc-500 mb-4">
-            Try updating your graphics drivers, enabling WebGL in your browser, or using
-            a different browser.
+            WebGL is required for the 3D viewport. Retry only helps if WebGL has been
+            re-enabled in your browser. Otherwise, update graphics drivers or use a
+            different browser.
           </p>
           <button
             type="button"

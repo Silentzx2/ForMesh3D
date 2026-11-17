@@ -328,7 +328,15 @@ export const ModelComparisonViewer: React.FC<ModelComparisonViewerProps> = ({
   useEffect(() => {
     containerRefs.forEach((containerRef, index) => {
       if (containerRef && !renderers[index]) {
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        let renderer: THREE.WebGLRenderer;
+        try {
+          renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, failIfMajorPerformanceCaveat: false });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Unknown WebGL error';
+          setError(msg);
+          console.error('[ModelComparisonViewer] WebGL context creation failed:', msg);
+          return;
+        }
         renderer.setPixelRatio(window.devicePixelRatio || 1);
         renderer.setSize(containerRef.clientWidth, containerRef.clientHeight);
         containerRef.appendChild(renderer.domElement);
