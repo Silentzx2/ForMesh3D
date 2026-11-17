@@ -2284,20 +2284,30 @@ class MultiprocessModelScheduler:
                 if _out_mesh_path:
                     _src = Path(_out_mesh_path)
                     if _src.is_file():
-                        _storage_root = get_storage_base_dir()
-                        _mesh_dir = _storage_root / "models" / "meshes" / f"{job_id}"
-                        _mesh_dir.mkdir(parents=True, exist_ok=True)
-                        _dst = _mesh_dir / _src.name
-                        if not _dst.exists():
+                        from core.utils.artifact_utils import canonical_asset_workspace
+                        canonical_root = canonical_asset_workspace(job_id, final_result, job_request.inputs)
+                        canonical_root.mkdir(parents=True, exist_ok=True)
+                        # Copy to canonical workspace: master/source.glb (immutable master)
+                        _master_dir = canonical_root / "master"
+                        _master_dir.mkdir(parents=True, exist_ok=True)
+                        _master_dst = _master_dir / "source.glb"
+                        if not _master_dst.exists():
                             try:
                                 from pipelines.mesh_guard import guard_mesh_density
-                                pipe_res = guard_mesh_density(str(_src), str(_dst), max_faces=1_000_000)
+                                pipe_res = guard_mesh_density(str(_src), str(_master_dst), max_faces=1_000_000)
                                 if not pipe_res.get("success"):
-                                    shutil.copy2(str(_src), str(_dst))
+                                    shutil.copy2(str(_src), str(_master_dst))
                             except Exception:
-                                shutil.copy2(str(_src), str(_dst))
-                        final_result["output_mesh_path"] = str(_dst)
-                        final_result["mesh_path"] = str(_dst)
+                                shutil.copy2(str(_src), str(_master_dst))
+                        # Copy to game_ready/ so downloads resolve from canonical workspace
+                        _game_ready_dir = canonical_root / "game_ready"
+                        _game_ready_dir.mkdir(parents=True, exist_ok=True)
+                        _game_ready_dst = _game_ready_dir / f"{canonical_root.name}.glb"
+                        if not _game_ready_dst.exists():
+                            shutil.copy2(str(_master_dst), str(_game_ready_dst))
+                        final_result["output_mesh_path"] = str(_master_dst)
+                        final_result["mesh_path"] = str(_master_dst)
+                        final_result["asset_root"] = str(canonical_root)
                 # The adapter output has now been copied to durable storage.
                 # Remove its private temp directory before persisting the job result.
                 self._cleanup_adapter_temporary_output(final_result, nested=False)

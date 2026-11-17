@@ -142,8 +142,17 @@ export const ExportModal: React.FC = () => {
         selectedUrl = artifacts?.gameReadyFormats?.[exportFormat] || null;
       }
 
-      if (!selectedUrl && currentAsset?.category === 'generation' && currentAsset?.id) {
-        selectedUrl = `/api/v1/system/jobs/${currentAsset.id}/download?artifact_format=${exportFormat}`;
+      if (!selectedUrl && currentAsset?.category === 'generation') {
+        // Prefer source.fileId which carries job-${jobId} for non-retained results
+        // (matches MeshViewer's URL construction). Fall back to asset id lookup.
+        const fileId = currentAsset.source?.fileId;
+        if (fileId?.startsWith('job-')) {
+          selectedUrl = `/api/v1/system/jobs/${encodeURIComponent(fileId.slice(4))}/download?artifact_format=${exportFormat}`;
+        } else if (fileId) {
+          selectedUrl = `/api/v1/file-upload/download/${encodeURIComponent(fileId)}`;
+        } else if (currentAsset.id) {
+          selectedUrl = `/api/v1/system/jobs/${encodeURIComponent(currentAsset.id)}/download?artifact_format=${exportFormat}`;
+        }
       }
       downloadExtension = exportFormat;
     }

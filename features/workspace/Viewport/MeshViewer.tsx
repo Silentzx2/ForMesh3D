@@ -248,6 +248,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const [isComparisonLoading, setIsComparisonLoading] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [webglError, setWebglError] = useState<string | null>(null);
+  const [webglInitKey, setWebglInitKey] = useState(0);
 
   const handleRetryLoad = useCallback(() => {
     setLoadError(null);
@@ -475,7 +476,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       modelGroupRef.current = null;
       comparisonBeforeGroupRef.current = null;
     };
-  }, []);
+  }, [webglInitKey]);
 
   useEffect(() => {
     if (!currentAsset || currentAsset.category !== 'generation' || currentAsset.fileSize) return;
@@ -1417,7 +1418,10 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           </p>
           <button
             type="button"
-            onClick={() => setWebglError(null)}
+            onClick={() => {
+              setWebglError(null);
+              setWebglInitKey((prev) => prev + 1);
+            }}
             className="px-4 py-1.5 rounded-lg bg-[#F9CF00] text-[#080808] font-semibold hover:bg-[#FFE04D] transition-colors cursor-pointer"
           >
             Retry

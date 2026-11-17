@@ -222,6 +222,20 @@ export const RightPropertyPanel: React.FC = () => {
     }
   };
 
+  const buildGenerationDownloadUrl = (asset: { id: string; source?: { fileId?: string } | null }, format: string): string | undefined => {
+    const fileId = asset.source?.fileId;
+    if (fileId?.startsWith('job-')) {
+      return `/api/v1/system/jobs/${encodeURIComponent(fileId.slice(4))}/download?artifact_format=${format}`;
+    }
+    if (fileId) {
+      return `/api/v1/file-upload/download/${encodeURIComponent(fileId)}`;
+    }
+    if (asset.id) {
+      return `/api/v1/system/jobs/${encodeURIComponent(asset.id)}/download?artifact_format=${format}`;
+    }
+    return undefined;
+  };
+
   const handleExportDownload = async () => {
     if (!currentAsset) return;
     const sourceUrl =
@@ -229,9 +243,7 @@ export const RightPropertyPanel: React.FC = () => {
       (exportFormat === 'glb' ? currentAsset.artifacts?.gameReady : undefined) ||
       (exportFormat === 'glb' ? currentAsset.source?.localUrl || currentAsset.source?.viewUrl : undefined) ||
       (exportFormat === 'fbx' ? currentAsset.artifacts?.riggedFbx : undefined) ||
-      (currentAsset.category === 'generation' && currentAsset.id
-        ? `/api/v1/system/jobs/${currentAsset.id}/download?artifact_format=${exportFormat}`
-        : undefined);
+      (currentAsset.category === 'generation' ? buildGenerationDownloadUrl(currentAsset, exportFormat) : undefined);
 
     const assetBaseName = currentAsset.name.replace(/\.[^.]+$/, '');
 
