@@ -583,7 +583,7 @@ export function DatabaseTab() {
                       <span className="text-xs font-mono text-[hsl(var(--muted-foreground))]">{info.size_mb} MB ({info.percent}%)</span>
                     </div>
                     <div className="w-full h-1.5 bg-[hsl(var(--border)/0.3)] rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full transition-all duration-300 ${cat === 'master' ? 'bg-emerald-500' : 'bg-[hsl(var(--primary))]'}`} style={{ width: `${Math.min(info.percent ?? 0, 100)}%` }} />
+                      <div className={`h-full rounded-full transition-all duration-300 ${cat === 'mesh' ? 'bg-emerald-500' : 'bg-[hsl(var(--primary))]'}`} style={{ width: `${Math.min(info.percent ?? 0, 100)}%` }} /></div>
                     </div>
                   </div>
                 ))}
@@ -592,7 +592,7 @@ export function DatabaseTab() {
                 <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
                   <HugeiconsIcon icon={TriangleAlertIcon} size={14} className="w-3.5 h-3.5 text-amber-400" /> Cleanup Storage
                 </CardTitle>
-                <CardDescription className="text-xs">Removes temp/exports older than N days. Master/source.glb lineage and uploads are always protected.</CardDescription>
+                <CardDescription className="text-xs">Removes temp/exports older than N days. mesh/mesh.glb lineage and uploads are always protected.</CardDescription>
                 <div className="flex flex-wrap items-center gap-2 mt-2">
                   <Input type="number" value={cleanupDays} onChange={(e) => setCleanupDays(Number(e.target.value) || 0)} min="0" placeholder="7" className="w-20 text-xs font-mono" />
                   <Button size="sm" className="text-xs" onClick={() => setCleanupDryRun((p) => !p)}>
