@@ -1419,29 +1419,11 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     >
       {/* WebGL unavailable fallback — shown when the renderer cannot create a context */}
       {webglError && (
-        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-6 bg-black/80 text-white text-center">
-          <HugeiconsIcon icon={AlertCircle} size={32} className="text-[#F9CF00] mb-3" />
-          <h3 className="text-lg font-semibold mb-2">WebGL not available</h3>
-          <p className="text-sm text-zinc-300 max-w-xs mb-4">
-            The 3D viewport could not initialize because WebGL context creation failed.
-            <br />
-            {webglError}
-          </p>
-          <p className="text-xs text-zinc-500 mb-4">
-            WebGL is required for the 3D viewport. Retry only helps if WebGL has been
-            re-enabled in your browser. Otherwise, update graphics drivers or use a
-            different browser.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              setWebglError(null);
-              setWebglInitKey((prev) => prev + 1);
-            }}
-            className="px-4 py-1.5 rounded-lg bg-[#F9CF00] text-[#080808] font-semibold hover:bg-[#FFE04D] transition-colors cursor-pointer"
-          >
-            Retry
-          </button>
+        <div className="absolute top-0 left-0 right-0 z-50 flex flex-col items-center justify-center p-2 bg-black/90 text-white text-center border-b border-[#F9CF00]/40">
+          <HugeiconsIcon icon={AlertCircle} size={20} className="text-[#F9CF00] mr-2" />
+          <span className="text-xs text-zinc-200 font-medium">
+            WebGL not available — 3D viewport disabled. {webglError}
+          </span>
         </div>
       )}
       {/* Snapshot Button — top-left of viewport */}
