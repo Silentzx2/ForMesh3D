@@ -127,3 +127,221 @@ All actionable UI audit findings above are resolved. The chart CSS injection was
 ## 5. Out of Scope
 
 Do not rewrite AI adapters, change generation/texture flows, add new tool framework/queue, move routes, redesign Studio, or create separate UI surfaces. Keep changes focused.
+
+## 6. Active Plan: Storage System Migration — Workspace-ID Based (Per-Variant Subdirectories)
+
+**Goal:** Remove the old `master/` + `game_ready/` subdirectory structure entirely. Replace with workspace-id based storage where every variant has its own subdirectory under `<workspace_id>/`:
+
+`backend/storage/<workspace_id>/` — one directory per job, named by workspace ID.
+
+### File System Structure
+
+```
+backend/storage/
+├── uploads/                              ← user-uploaded images & thumbnails
+│   ├── <uuid>.jpg
+│   └── thumbnail_<uuid>.png
+├── <workspace_id>/                       ← one directory per job (named by workspace ID)
+│   ├── mesh/                             ← mesh variant (uploaded OR generated — SAME logic)
+│   │   └── mesh.glb
+│   ├── texture/                          ← textured variant + all PBR maps
+│   │   ├── textured.glb
+│   │   ├── base_color.png
+│   │   ├── normal.png
+│   │   ├── ao.png
+│   │   ├── roughness.png
+│   │   ├── metallic.png
+│   │   └── orm.png
+│   ├── rigging/                          ← rigged variant + all rig outputs (parts, skeleton, etc.)
+│   │   ├── rigged.glb
+│   │   └── <part_output>.glb
+│   ├── retopo/                           ← retopo variant
+│   │   └── retopo.glb
+│   ├── smart_uv/                         ← smart UV variant
+│   │   └── uv.glb
+│   ├── segment/                          ← segment variant + all segment parts
+│   │   ├── segment.glb
+│   │   └── <segment_part>.glb
+│   ├── previews/                         ← preview
+│   │   └── thumbnail.png
+│   ├── metadata/                         ← metadata (kept)
+│   │   ├── job.json
+│   │   ├── asset.json
+│   │   ├── quality_report.json
+│   │   └── physics.json
+│   └── temp/                             ← temp staging per operation
+│       └── <operation_id>/
+├── temp/                                 ← global temp staging
+│   └── <operation_id>/
+```
+
+**Removed entirely:** `master/`, `game_ready/`, `models/meshes/` parent dir, `collision/`, `lods/`
+
+**Key rule:** Generated mesh and uploaded mesh BOTH use `<workspace_id>/mesh/mesh.glb` — same logic, same path.
+
+### Database Tables & Rows (SQLite: `backend/storage/job_queue.db`)
+
+| Table | Purpose | Stores |
+|-------|---------|--------|
+| `jobs` | Job requests & results | `job_id`, `feature`, `inputs`, `model_preference`, `status`, `result` (JSON with `asset_root`, `output_mesh_path`, `mesh_path`, `artifacts`), `error`, `created_at`, `completed_at` |
+| `workspaces` | Workspace identity | `workspace_id`, `name`, `active_mesh_asset_id`, `source_asset_id`, `status`, `settings_json`, `created_at`, `updated_at` |
+| `assets` | File location registry | `asset_id`, `workspace_id`, `operation_id`, `operation_type`, `file_type`, `relative_path` (e.g. `mesh/mesh.glb`, `texture/textured.glb`), `original_filename`, `byte_size`, `sha256`, `thumbnail_path`, `is_retained`, `status`, `created_at` |
+| `operations` | Operation lifecycle | `operation_id`, `workspace_id`, `operation_type`, `execution_status`, `persistence_status`, `progress`, `result_json`, `error_json`, `temp_dir`, `created_at`, `completed_at` |
+
+**How file locations are tracked:**
+- `jobs.result.asset_root` = `backend/storage/<workspace_id>/`
+- `jobs.result.output_mesh_path` = `backend/storage/<workspace_id>/mesh/mesh.glb`
+- `jobs.result.mesh_path` = `backend/storage/<workspace_id>/mesh/mesh.glb`
+- `assets.relative_path` = `mesh/mesh.glb`, `texture/textured.glb`, `rigging/rigged.glb`, etc. (relative to workspace root)
+- `assets.thumbnail_path` = `previews/thumbnail.png` or operation-specific thumbnail
+- `workspaces.active_mesh_asset_id` = asset_id of the currently active mesh asset
+
+### State Machines
+
+**ExecutionStatus** (jobs & operations):
+```
+queued → processing → completed
+              ↘      ↘
+              failed ← cancelled
+              ↘
+              interrupted
+```
+Transitions enforced in `database_models.py` `ExecutionStatus.ALLOWED_TRANSITIONS`.
+
+**PersistenceStatus** (file saves):
+```
+not_saved → saving → saved
+              ↘      ↘
+            save_failed ← discarded
+              ↘
+            cleanup_pending
+              ↘
+            preview_expired
+```
+Transitions enforced in `database_models.py` `PersistenceStatus.ALLOWED_TRANSITIONS`.
+
+**Mesh Guard** (density capping at 2M faces):
+```
+mesh loaded → face count ≤ 2,000,000 → PASS (untouched)
+              → face count > 2,000,000 → decimate to 2M → CAPPED
+```
+
+### Complete Operation Flows
+
+**Flow A: User uploads mesh on any page → runs operation**
+1. Upload saves to `backend/storage/uploads/<uuid>.glb`
+2. `prepare_asset_job_workspace()` copies to `<workspace_id>/mesh/mesh.glb` → `saving` → `saved`
+3. `register_asset_job_manifest()` records `mesh_path: "mesh/mesh.glb"` in `<workspace_id>/metadata/job.json`
+4. User runs operation → `queued` → `processing`
+5. Operation output saved to variant subdir: `<workspace_id>/texture/textured.glb`, `<workspace_id>/rigging/rigged.glb`, etc.
+6. `output_mesh_path` updated to variant path → `completed`
+
+**Flow B: User generates mesh (Text-to-3D / Image-to-3D)**
+1. Adapter generates mesh → temp staging → `processing`
+2. Scheduler copies to `<workspace_id>/mesh/mesh.glb` → `saving` → `saved`
+3. `output_mesh_path`, `mesh_path`, `asset_root` all = `<workspace_id>/mesh/mesh.glb`
+4. `guard_mesh_density()` caps at 2M faces → `completed`
+
+**Flow C: User runs operation on existing job (re-operation)**
+1. System reads current mesh from `<workspace_id>/mesh/mesh.glb` → `completed`
+2. Operation writes output to its variant subdir → `queued` → `processing` → `saved` → `completed`
+3. Manifest updated with new artifact path
+4. Old mesh NOT deleted — user can re-operate multiple times
+
+**Flow D: User downloads mesh/variant**
+| Format | File Path |
+|--------|-----------|
+| `glb`/`gltf`/`obj`/`stl`/`ply` | `<workspace_id>/mesh/mesh.glb` |
+| `textured` | `<workspace_id>/texture/textured.glb` |
+| `rigged` | `<workspace_id>/rigging/rigged.glb` |
+| `retopo` | `<workspace_id>/retopo/retopo.glb` |
+| `smart_uv` | `<workspace_id>/smart_uv/uv.glb` |
+| `segment` | `<workspace_id>/segment/segment.glb` |
+| `texture_base_color` | `<workspace_id>/texture/base_color.png` |
+| `texture_normal` | `<workspace_id>/texture/normal.png` |
+| `texture_ao` | `<workspace_id>/texture/ao.png` |
+| `texture_roughness` | `<workspace_id>/texture/roughness.png` |
+| `texture_metallic` | `<workspace_id>/texture/metallic.png` |
+| `texture_orm` | `<workspace_id>/texture/orm.png` |
+| `thumbnail` | `<workspace_id>/previews/thumbnail.png` |
+| `qa_report` | `<workspace_id>/metadata/quality_report.json` |
+| `job_json` | `<workspace_id>/metadata/job.json` |
+| `asset_json` | `<workspace_id>/metadata/asset.json` |
+| `physics_json` | `<workspace_id>/metadata/physics.json` |
+
+**No fallback** to `master/` or `game_ready/` — those directories don't exist.
+
+**Flow E: User selects candidate (T-06)**
+1. User picks candidate → copied to `<workspace_id>/mesh/mesh.glb`
+2. Unselected candidates deleted → cleaned
+3. `output_mesh_path` = `<workspace_id>/mesh/mesh.glb` → `completed`
+
+### Edge Cases — What Happens If…
+
+| Scenario | Result |
+|----------|--------|
+| Upload mesh on Generate page, then Rig page runs rigging | Upload in `mesh/`, rig output in `rigging/` — both preserved |
+| Generate mesh, then texture on same job | Mesh in `mesh/`, texture + PBR maps in `texture/` — coexist |
+| Run same operation twice on same job | Second run overwrites variant file (same path), no duplicate dirs |
+| Mesh exceeds 2M faces | `guard_mesh_density()` decimates to 2M faces → saved capped |
+| Download variant that doesn't exist | 404: `"{format} artifact not found in workspace {job_id}"` |
+| Workspace already exists from previous job | Reused cleanly, new `mesh.glb` overwrites old |
+| Delete a job/workspace | Only `metadata/` removed; mesh & variant files remain (safe, no data loss) |
+
+### Implementation Phases
+
+**Phase 1: artifact_utils.py** ✅ DONE
+- `_storage_root()` → `get_storage_base_dir()` directly (`backend/storage/`)
+- `canonical_asset_workspace()` → `_storage_root() / clean_job_id` = `backend/storage/<workspace_id>/`
+- `prepare_asset_job_workspace()` → writes to `asset_root/mesh/mesh.glb` (subdirectory, not flat)
+- `register_asset_job_manifest()` → `master_path` param renamed to `mesh_path`, stores `mesh_path: "mesh/mesh.glb"`
+
+**Phase 2: scheduler.py** ✅ DONE
+- Copy adapter output to `<workspace_id>/mesh/mesh.glb` (subdirectory)
+- Set `output_mesh_path`, `mesh_path`, `asset_root` to `<workspace_id>/mesh/mesh.glb`
+- `guard_mesh_density` max_faces 1M → 2M ✅ DONE
+- Remove `master/` and `game_ready/` directory creation ✅ DONE
+- Fix `register_asset_job_manifest` calls → pass `mesh_path` not `master_path` ✅ DONE
+- Fix `source_master_path` metadata key → `source_mesh_path` ✅ DONE
+- Fix rigging `expected_dir` → `asset_root` ✅ DONE
+
+**Phase 3: system.py — Download endpoint** ✅ DONE
+- Mesh formats: `<workspace_id>/mesh/mesh.glb` first, then variants
+- Textured: `<workspace_id>/texture/textured.glb`
+- Rigged: `<workspace_id>/rigging/rigged.glb`
+- Retopo: `<workspace_id>/retopo/retopo.glb`
+- Smart UV: `<workspace_id>/smart_uv/uv.glb`
+- Segment: `<workspace_id>/segment/segment.glb`
+- Texture maps: `<workspace_id>/texture/<name>.png`
+- Thumbnail: `<workspace_id>/previews/thumbnail.png`
+- Metadata: `<workspace_id>/metadata/<name>`
+- Removed `lod0`…`lod3`, `collision` blocks entirely
+- Remove `game_ready/` fallback entirely
+- Fix `select_candidate_mesh()` → copy to `<workspace_id>/mesh/mesh.glb` ✅ DONE
+
+**Phase 4: file_upload.py — Upload/download** ✅ DONE
+- Upload validation: check `<workspace_id>/mesh/mesh.glb`
+- Upload write path: `<workspace_id>/mesh/mesh.glb`
+- Download candidates: `<workspace_id>/mesh/mesh.glb` first, then variant subdirs
+- Cleanup: `<workspace_id>/metadata/` only
+
+**Phase 5: database.py** ✅ DONE
+- Fix `_models_root()` → `_storage_root()` (no `/models`)
+- Fix disk stats path `storage / "models" / "meshes"` → `storage`
+- Fix `check_job_asset_persistence()` — removed `game_ready`/`lods`/`collision` refs, added `textured`/`rigged`/`retopo`/`smart_uv`/`segment`
+
+**Phase 6: Mesh guard** ✅ DONE
+- `GLOBAL_MAX_FACES` 1M → 2M
+
+**Phase 7: Verify** ✅ DONE
+- `ast.parse()` all 6 Python files — 0 syntax errors
+- Zero `master/`/`game_ready/` filesystem path references in backend code (only docstring comments remain)
+- `canonical_asset_workspace()` returns `backend/storage/<workspace_id>/`
+
+### Out of Scope
+- Do not rewrite AI adapters.
+- Do not change generation/texture inference flows.
+- Do not move API routes.
+- Do not add new tool framework or queue.
+- Do not push unless explicitly requested.
+

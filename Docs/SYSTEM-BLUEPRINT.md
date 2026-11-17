@@ -90,7 +90,7 @@ sequenceDiagram
     Scheduler->>Queue: Claim Job (processing)
     Scheduler->>Worker: Launch Model Adapter with user polycount/res
     Worker-->>Scheduler: Model-native mesh output (.glb)
-    Scheduler->>Storage: Persist canonical master/source.glb via artifact_utils
+    Scheduler->>Storage: Persist canonical mesh/mesh.glb via artifact_utils
     Scheduler->>Queue: Transition status (completed)
     Frontend->>API: Poll /api/v1/system/jobs/{job_id}
     API-->>Frontend: Terminal success + mesh URL
@@ -104,7 +104,7 @@ sequenceDiagram
 ### 4.1 Model-Native Source Fidelity
 - Generative models produce direct geometry; downstream lossy postprocessing is eliminated.
 - User parameter passthrough (`native_target_polycount`, `texture_resolution`, `seed`) routes directly from UI into adapters without router-level interceptors.
-- `master/source.glb` remains immutable once persisted in the workspace; derived tool operations generate preview assets (`_v002`, `_v003`) that can be explicitly Committed or Discarded via the Action Bar.
+- `mesh/mesh.glb` remains immutable once persisted in the workspace; derived tool operations generate preview assets (`_v002`, `_v003`) that can be explicitly Committed or Discarded via the Action Bar.
 
 ### 4.2 Hardware Isolation & Safety (Priority Rule 1)
 - **Modern GPUs (`sm >= 80`)**: Zero regressions. Executes in 100% native upstream mode (official FlashAttention, native BF16, locked inference schedules).

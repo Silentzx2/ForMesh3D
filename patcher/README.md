@@ -45,7 +45,7 @@ flowchart TD
         end
 
         THIRD_PARTY["Upstream ThirdParty Pipeline<br/>(backend/thirdparty/<Model>/)"]:::worker
-        OUTPUT["Immutable Raw Mesh Checkpoint<br/>master/source.glb (SHA-256 Verified)"]:::modern
+        OUTPUT["Immutable Raw Mesh Checkpoint<br/>mesh/mesh.glb (SHA-256 Verified)"]:::modern
     end
 
     ADAPTER --> INSPECT

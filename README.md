@@ -62,7 +62,7 @@
 ForMesh3D delivers **direct high-fidelity model-native generation**, preserving 100% of the raw neural surface detail without destructive downstream decimation or smoothing:
 
 - **100% Private & Self-Hosted**: Run neural inference locally on NVIDIA GPUs without cloud subscriptions, usage queues, or uploading proprietary concept art to external services.
-- **Immutable Source Preservation**: Raw model-native generation is snapshotted at `master/source.glb` with SHA-256 validation.
+- **Immutable Source Preservation**: Raw model-native generation is snapshotted at `mesh/mesh.glb` with SHA-256 validation.
 - **Direct Model-Native Output**: Upstream neural models (Hunyuan3D-2.1, TRELLIS.2, TaoFlowForge, TripoSG) output native, detailed geometry directly. The post-processing pipeline is permanently disabled by default (`postprocessing.enabled: false`) to ensure zero loss of fine surface features.
 - **Hardware-Adaptive GPU Doctor**: Standalone hardware compatibility and memory execution planner ([`patcher/doctor.py`](patcher/doctor.py)), guaranteeing 100% native BFloat16 FlashAttention on modern GPUs (`sm >= 80`) and mathematically exact query-chunked SDPA on pre-Ampere GPUs (`sm < 80`).
 
@@ -92,13 +92,13 @@ ForMesh3D delivers **direct high-fidelity model-native generation**, preserving 
 
 | Capability | Technical Implementation | Output Deliverable |
 |---|---|---|
-| **Neural 3D Generation** | Upstream model adapters with locked native inference contracts | Immutable `master/source.glb` |
+| **Neural 3D Generation** | Upstream model adapters with locked native inference contracts | Immutable `mesh/mesh.glb` |
 | **Source Preservation** | SHA-256 lineage tracking before any destructive modifications | Canonical source snapshot |
 | **Production Decimation** | Feature-preserving QEM decimation protecting crease edges ($>35^\circ$) | Targeted budget polygon count |
 | **Quad Retopology** | FastMesh V1K / V4K neural quad-dominant edge-loop reconstruction | Clean animatable quad mesh |
 | **Conformal UV Unwrapping** | Automated GPU PartUV routing with CPU/GPU xatlas fallback ($0\%$ overlap) | Single/Multi-chart UV atlas |
 | **PBR Material Baking** | Tangent-space normal baking (OpenGL Y+ convention) & packed RMA maps | Complete 5-channel PBR material maps |
-| **LOD Generation** | Cascaded LOD0 to LOD3 with `meshoptimizer` vertex-cache optimization | Multi-tier `lods/lod[0-3].glb` |
+| **LOD Generation** | Cascaded LOD0 to LOD3 with `meshoptimizer` vertex-cache optimization | Multi-tier `lod/lod[0-3].glb` |
 | **Physics Collision Hulls** | CoACD approximate convex decomposition with mass & inertia tensors | Watertight `collision.glb` & `physics.json` |
 | **Automated Rigging & Motion** | SkinTokens unified autoregressive armature generation & ARDY motion synthesis | Rigged FBX/GLB & playable motion JSON |
 | **Game Engine Packages** | Structured directory packaging for Unreal Engine 5, Unity, and Godot 4 | Complete engine-ready ZIP archive |
@@ -107,7 +107,7 @@ ForMesh3D delivers **direct high-fidelity model-native generation**, preserving 
 
 ## 3. End-to-End Asset Generation Pipeline
 
-ForMesh3D enforces an **immutable master preservation architecture**. The raw neural model output is directly generated and snapshotted at `master/source.glb` with SHA-256 validation. Post-processing (decimation, hole repair, automated LODs) is permanently disabled by default (`postprocessing.enabled: false`) to deliver the highest native surface fidelity:
+ForMesh3D enforces an **immutable mesh preservation architecture**. The raw neural model output is directly generated and snapshotted at `mesh/mesh.glb` with SHA-256 validation. Post-processing (decimation, hole repair, automated LODs) is permanently disabled by default (`postprocessing.enabled: false`) to deliver the highest native surface fidelity:
 
 ```mermaid
 flowchart LR
@@ -119,7 +119,7 @@ flowchart LR
 
     IMG["Input Concept Image<br/>(Single Reference)"]:::input
     MODEL["Neural Model Adapter<br/>TRELLIS.2 / Hunyuan3D / TaoFlowForge / TripoSG"]:::neural
-    MASTER["master/source.glb<br/>Immutable Native Mesh<br/>(SHA-256 Verified)"]:::master
+    MASTER["mesh/mesh.glb<br/>Immutable Native Mesh<br/>(SHA-256 Verified)"]:::master
     OUT["Direct Asset Delivery<br/>• Model-Native High-Fidelity GLB<br/>• Preserved Neural Geometry<br/>• Engine-Ready (UE5 / Unity / Godot)"]:::export
 
     IMG --> MODEL
@@ -232,7 +232,7 @@ The model registry is dynamically configured via `backend/config/models.yaml` an
 
 ### Texture Pipeline & Texture-Capable Models
 
-Texture generation runs inside the selected model's adapter after raw mesh inference, using already-loaded weights — no second weights load for models that share the texture-capable adapter. The raw `master/source.glb` stays immutable; textured output is stored as a separate artifact (`textures/<base>_textured.glb`).
+Texture generation runs inside the selected model's adapter after raw mesh inference, using already-loaded weights — no second weights load for models that share the texture-capable adapter. The raw `mesh/mesh.glb` stays immutable; textured output is stored as a separate artifact (`texture/textured.glb`).
 
 || Model | Texture Capability | Status |
 |---|---|---|
@@ -269,7 +269,7 @@ flowchart TD
     MODERN --> EXEC["Guarded Inference Execution<br/>(with doctor.track_stage)"]:::action
     PRE --> EXEC
 
-    EXEC --> OK["Clean Mesh Output<br/>(Immutable master/source.glb)"]:::modern
+    EXEC --> OK["Clean Mesh Output<br/>(Immutable mesh/mesh.glb)"]:::modern
     EXEC -->|Intercepted Exception| ERR{"Error Classifier<br/>(classify_error)"}:::action
 
     ERR -->|CUDA OOM| REC1["Cache Purge & GC<br/>empty_cache() + ipc_collect()"]:::action
@@ -305,7 +305,7 @@ The ForMesh3D Studio UI integrates neural generation and mesh finishing into a c
 - **Snapshot Capture**: Two separate capture buttons — Header Snapshot captures the entire workspace as-is (`<name>_<hash>-workspace.png`) at 1920×1080 PNG; Tool Rail Camera captures mesh only (grid/axes hidden) (`<name>_<hash>-mesh.png`) at 1080p 100% quality. Both save to current route identity.
 - **Real-Time Geometry Telemetry HUD**: Direct in-viewport telemetry tracking triangle count, vertex count, watertight manifold status, physical bounding box dimensions (W x H x D), and quality score — replaces the collapsible Mesh Details panel formerly in `ViewportToolOverlay`.
 - **Hardware-Aware Model Selector**: Real-time VRAM estimator comparing model memory reservations with live GPU telemetry (`torch.cuda.mem_get_info`) to prevent out-of-memory crashes before jobs are queued.
-- **Production Post-Processing Controls**: Toggle automated quad retopology, hole repair, conformal UV unwrapping, normal baking, and collision hull generation without mutating the immutable `master/source.glb`.
+- **Production Post-Processing Controls**: Toggle automated quad retopology, hole repair, conformal UV unwrapping, normal baking, and collision hull generation without mutating the immutable `mesh/mesh.glb`.
 
 ### 🧰 Creative Workspace Modules:
 - **Generate Studio (`/workspace`)**: Image-to-3D generation with reference image intake, model selector, unified Target Polycount, and Output Presets (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`, `native`).
@@ -344,16 +344,35 @@ When post-processing is disabled:
 
 ```text
 backend/storage/<workspace_id>/
-├── input/
-│   └── source_image.png        # Byte-for-byte original reference image (ast_<12hex>)
 ├── mesh/
-│   └── <workspace_id>.glb      # High-fidelity model-native mesh (SHA-256 verified)
-├── texture/pbr/                # PBR textured derived assets (_v002, _v003...)
-├── retopology/                 # Clean quad-topology derived assets
-├── segmentation/               # Segmented parts & labeled masks
-├── rigging/                    # Armatures and skinned assets
-├── animation/                  # Motion-rigged export files
-└── metadata.json               # Authoritative workspace manifest rebuilt from SQLite
+│   └── mesh.glb              # High-fidelity model-native mesh (SHA-256 verified)
+├── texture/
+│   ├── textured.glb           # PBR textured derived asset
+│   ├── base_color.png
+│   ├── normal.png
+│   ├── ao.png
+│   ├── roughness.png
+│   ├── metallic.png
+│   └── orm.png
+├── rigging/
+│   ├── rigged.glb            # Armatures and skinned assets
+│   └── <part_output>.glb
+├── retopo/
+│   └── retopo.glb            # Clean quad-topology derived asset
+├── smart_uv/
+│   └── uv.glb                # Conformal UV-unwrapped asset
+├── segment/
+│   ├── segment.glb           # Segmented parts & labeled masks
+│   └── <segment_part>.glb
+├── previews/
+│   └── thumbnail.png
+├── metadata/
+│   ├── job.json
+│   ├── asset.json
+│   ├── quality_report.json
+│   └── physics.json
+└── temp/
+    └── <operation_id>/
 ```
 
 ### Operation Lifecycle & Dual State Machines (Milestone 3)
@@ -503,7 +522,7 @@ bash scripts/tests/compute_mode_test.sh
 <details>
 <summary><strong>How does ForMesh3D protect source quality?</strong></summary>
 
-Source generation uses model-specific inference schedules and source-density settings. Upstream models (Hunyuan3D-2.1, TRELLIS.2, SF3D) export native geometry directly without destructive intermediate smoothing. The resulting `master/source.glb` is immutable; derived artifacts operate on isolated workspaces.
+Source generation uses model-specific inference schedules and source-density settings. Upstream models (Hunyuan3D-2.1, TRELLIS.2, SF3D) export native geometry directly without destructive intermediate smoothing. The resulting `mesh/mesh.glb` is immutable; derived artifacts operate on isolated workspaces.
 </details>
 
 <details>

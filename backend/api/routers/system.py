@@ -1439,7 +1439,7 @@ async def get_job_status(job_id: str, request: Request):
             result["thumbnail_url"] = thumbnail_url
 
             # Canonical production artifact URLs (game-ready GLB by default,
-            # master/source.glb for the source view). Stable across restarts
+            # mesh/mesh.glb for the source view). Stable across restarts
             # because they only reference this job's download endpoints.
             _ensure_production_result_urls(job_id, result)
 
@@ -1819,7 +1819,7 @@ async def download_job_result(
         asset_root = result.get("asset_root")
         asset_name = result.get("asset_name")
 
-        models_root = (get_storage_base_dir() / "models").resolve()
+        models_root = get_storage_base_dir().resolve()
         asset_root_path = Path(asset_root).resolve() if asset_root else None
         if asset_root_path and (asset_root_path == models_root or models_root not in asset_root_path.parents):
             raise HTTPException(status_code=400, detail="Invalid asset workspace")
@@ -1844,8 +1844,8 @@ async def download_job_result(
                             fbx_candidate = str(asset_root_path / fbx_candidate)
                     except (OSError, json.JSONDecodeError):
                         pass
-                if not fbx_candidate and (asset_root_path / "game_ready").is_dir():
-                    pre_exported = list((asset_root_path / "game_ready").glob("*.fbx"))
+                if not fbx_candidate and (asset_root_path / "rigging").is_dir():
+                    pre_exported = list((asset_root_path / "rigging").glob("*.fbx"))
                     if pre_exported:
                         fbx_candidate = str(pre_exported[0])
 
@@ -1919,16 +1919,16 @@ async def download_job_result(
                 if job_manifest.is_file():
                     try:
                         m_data = json.loads(job_manifest.read_text(encoding="utf-8"))
-                        master_rel = m_data.get("master_path")
+                        master_rel = m_data.get("mesh_path") or m_data.get("master_path")
                         if master_rel:
                             master_candidate = str(asset_root_path / master_rel)
                     except (OSError, json.JSONDecodeError):
                         pass
                 if not master_candidate:
-                    if (asset_root_path / "master" / "source.glb").is_file():
-                        master_candidate = str(asset_root_path / "master" / "source.glb")
-                    elif (asset_root_path / "master").is_dir():
-                        matches = list((asset_root_path / "master").glob("source.*"))
+                    if (asset_root_path / "mesh" / "mesh.glb").is_file():
+                        master_candidate = str(asset_root_path / "mesh" / "mesh.glb")
+                    elif (asset_root_path / "mesh").is_dir():
+                        matches = list((asset_root_path / "mesh").glob("*.glb"))
                         if matches:
                             master_candidate = str(matches[0])
             if not master_candidate:
@@ -1976,34 +1976,12 @@ async def download_job_result(
                 job_status.get("feature") == "auto_rig"
                 or (isinstance(result.get("artifacts"), dict) and "rigged" in result["artifacts"] and str(result.get("output_mesh_path", "")).endswith("rigged.glb"))
             )
-            if not is_auto_rig_job and canonical_format in {"glb", "gltf", "obj", "stl", "ply", "quad_obj"} and (asset_root_path / "game_ready").is_dir():
+            if not is_auto_rig_job and canonical_format in {"glb", "gltf", "obj", "stl", "ply", "quad_obj"}:
                 target_ext = "obj" if canonical_format == "quad_obj" else canonical_format
-                candidate = asset_root_path / "game_ready" / f"{asset_root_path.name}.{target_ext}"
-                if not candidate.exists() and asset_name:
-                    alt = asset_root_path / "game_ready" / f"{asset_name}.{target_ext}"
-                    if alt.exists():
-                        candidate = alt
+                # First preference: {workspace_id}/mesh/mesh.glb
+                candidate = asset_root_path / "mesh" / f"mesh.{target_ext}"
                 if not candidate.exists():
-                    matches = list((asset_root_path / "game_ready").glob(f"*.{target_ext}"))
-                    if matches:
-                        candidate = matches[0]
-                if not candidate.exists():
-                    # On-demand conversion from game-ready GLB
-                    glb_matches = list((asset_root_path / "game_ready").glob("*.glb"))
-                    if glb_matches:
-                        src_glb = glb_matches[0]
-                        target_file = asset_root_path / "game_ready" / f"{src_glb.stem}.{target_ext}"
-                        try:
-                            import trimesh
-                            mesh = trimesh.load(src_glb, file_type="glb", process=False)
-                            if isinstance(mesh, trimesh.Scene):
-                                mesh = trimesh.util.concatenate([g for g in mesh.geometry.values() if isinstance(g, trimesh.Trimesh)])
-                            mesh.export(str(target_file), file_type=target_ext)
-                            if target_file.exists():
-                                candidate = target_file
-                        except Exception as conv_err:
-                            logger.warning(f"On-demand conversion to {canonical_format} failed: {conv_err}")
-                output_path = candidate
+                    candidate = None
             elif canonical_format in {"glb", "gltf", "obj", "stl", "ply", "quad_obj"}:
                 target_ext = "obj" if canonical_format == "quad_obj" else canonical_format
                 candidates = [
@@ -2018,20 +1996,16 @@ async def download_job_result(
                         if p.is_file() and p.suffix.lower() == f".{target_ext}":
                             output_path = p
                             break
-            elif canonical_format in {"lod0", "lod1", "lod2", "lod3"}:
-                output_path = asset_root_path / "lods" / f"{canonical_format}.glb"
             elif canonical_format == "textured":
-                output_path = asset_root_path / "textures" / "textured.glb"
+                output_path = asset_root_path / "texture" / "textured.glb"
                 if not output_path.exists() and asset_name:
-                    alt = asset_root_path / "textures" / f"{asset_name}_textured.glb"
+                    alt = asset_root_path / "texture" / f"{asset_name}_textured.glb"
                     if alt.exists():
                         output_path = alt
                 if not output_path.exists():
-                    matches = list((asset_root_path / "textures").glob("*_textured.glb"))
+                    matches = list((asset_root_path / "texture").glob("*_textured.glb"))
                     if matches:
                         output_path = matches[0]
-            elif canonical_format == "collision":
-                output_path = asset_root_path / "collision" / "collision.glb"
             elif canonical_format == "thumbnail":
                 output_path = asset_root_path / "previews" / "thumbnail.png"
             elif canonical_format == "qa_report":
@@ -2046,7 +2020,7 @@ async def download_job_result(
                 texture_name = canonical_format.removeprefix("texture_")
                 if texture_name not in {"base_color", "normal", "ao", "roughness", "metallic", "orm"}:
                     raise HTTPException(status_code=400, detail="Unsupported texture artifact")
-                output_path = asset_root_path / "textures" / f"{texture_name}.png"
+                output_path = asset_root_path / "texture" / f"{texture_name}.png"
             elif canonical_format == "zip":
                 temp_dir = Path(tempfile.mkdtemp(prefix=f"formash3d-{job_id}-"))
                 archive_path = temp_dir / f"{asset_root_path.name}.zip"
@@ -2655,7 +2629,7 @@ async def select_candidate_mesh(
     request: Request,
 ):
     """
-    T-06: On selection, promote chosen candidate through master/source.glb lineage,
+    T-06: On selection, promote chosen candidate through mesh/mesh.glb lineage,
     and garbage-collect unselected candidate files.
     """
     scheduler = await get_scheduler(request)
@@ -2674,12 +2648,11 @@ async def select_candidate_mesh(
 
     from core.utils.artifact_utils import canonical_asset_workspace
     asset_root = canonical_asset_workspace(job_id, result, job_status.get("inputs"))
-    master_dir = asset_root / "master"
-    master_dir.mkdir(parents=True, exist_ok=True)
-    master_source = master_dir / "source.glb"
 
-    # Promote chosen candidate to master/source.glb
-    shutil.copy2(chosen_mesh, master_source)
+    # Promote chosen candidate to {workspace_id}/mesh/mesh.glb (no master/ subdirectory)
+    mesh_dst = asset_root / "mesh" / "mesh.glb"
+    mesh_dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(chosen_mesh, mesh_dst)
 
     # Garbage-collect unselected candidate files
     cleaned = 0
@@ -2698,18 +2671,18 @@ async def select_candidate_mesh(
             cand["selected"] = True
 
     # Update primary output mesh path to chosen mesh
-    result["output_mesh_path"] = str(master_source)
+    result["output_mesh_path"] = str(mesh_dst)
     result["selected_candidate_id"] = candidate_id
     result["candidates"] = candidates
 
     await scheduler.job_queue.update_job_result(job_id, result)
-    logger.info(f"[T-06 CANDIDATE PROMOTED] job_id={job_id} promoted candidate #{candidate_id} to {master_source}, cleaned {cleaned} files")
+    logger.info(f"[T-06 CANDIDATE PROMOTED] job_id={job_id} promoted candidate #{candidate_id} to {mesh_dst}, cleaned {cleaned} files")
 
     return {
         "success": True,
         "job_id": job_id,
         "selected_candidate_id": candidate_id,
-        "promoted_to_master": str(master_source),
+        "promoted_to_mesh": str(mesh_dst),
         "cleaned_candidates_count": cleaned,
         "candidates": candidates,
     }
@@ -2757,7 +2730,7 @@ async def get_system_storage():
     used_percent = round((stat.used / stat.total) * 100, 1) if stat.total > 0 else 0.0
 
     directories = {}
-    for sub in ["models", "uploads", "exports", "thumbnails", "temp"]:
+    for sub in ["uploads", "exports", "thumbnails", "temp"]:
         sub_path = storage_base_dir / sub
         size_bytes = _dir_size_bytes(sub_path)
         directories[sub] = {
@@ -2830,10 +2803,8 @@ async def get_storage_breakdown():
     storage_base_dir = get_storage_base_dir()
 
     categories: Dict[str, Dict[str, Any]] = {
-        "master": {"bytes": 0, "count": 0},
-        "game_ready": {"bytes": 0, "count": 0},
-        "textures": {"bytes": 0, "count": 0},
-        "lods": {"bytes": 0, "count": 0},
+        "mesh": {"bytes": 0, "count": 0},
+        "texture": {"bytes": 0, "count": 0},
         "rigging": {"bytes": 0, "count": 0},
         "temp": {"bytes": 0, "count": 0},
     }
@@ -2855,15 +2826,11 @@ async def get_storage_breakdown():
                     elif "rigging" in rel or "skintokens" in rel or "unirig" in rel or "rigged" in fname or "skeleton" in fname:
                         cat = "rigging"
                     elif "lod" in rel or any(f"lod{i}" in fname for i in range(4)):
-                        cat = "lods"
+                        cat = "lod"
                     elif "texture" in rel or ext in (".png", ".jpg", ".jpeg", ".webp", ".tga", ".exr", ".hdr"):
-                        cat = "textures"
-                    elif "game_ready" in rel or "game_ready" in fname or "game-ready" in fname:
-                        cat = "game_ready"
-                    elif "master" in rel or "source" in fname or "/uploads" in rel or rel.startswith("uploads"):
-                        cat = "master"
-                    elif ext in (".glb", ".gltf", ".fbx", ".obj", ".stl", ".ply"):
-                        cat = "game_ready"
+                        cat = "texture"
+                    elif "mesh" in rel or ext in (".glb", ".gltf", ".fbx", ".obj", ".stl", ".ply"):
+                        cat = "mesh"
                     else:
                         cat = "temp"
 
@@ -2896,7 +2863,7 @@ async def cleanup_intermediate_storage(
 ):
     """
     Identifies and cleans up obsolete scratch/temp outputs older than N days.
-    Guarantees master/source.glb lineage and uploads are strictly protected.
+    Guarantees mesh/mesh.glb lineage and uploads are strictly protected.
     """
     from core.utils.file_utils import get_storage_base_dir
     import shutil
@@ -2917,8 +2884,8 @@ async def cleanup_intermediate_storage(
         if root.is_dir():
             for p in list(root.iterdir()):
                 try:
-                    # Protection rule: Never touch master/source.glb lineage
-                    if "source." in p.name.lower() or "master" in p.name.lower():
+                    # Protection rule: Never touch mesh/mesh.glb lineage
+                    if "source." in p.name.lower() or "mesh" in p.name.lower():
                         continue
                     stat = p.stat()
                     if stat.st_mtime <= cutoff_time:
@@ -3077,7 +3044,7 @@ async def delete_job(
             from core.utils.file_utils import get_storage_base_dir
 
             asset_root_path = Path(asset_root).resolve()
-            models_root = (get_storage_base_dir() / "models").resolve()
+            models_root = get_storage_base_dir().resolve()
             if asset_root_path == models_root or models_root not in asset_root_path.parents:
                 raise HTTPException(status_code=400, detail="Invalid asset workspace")
 

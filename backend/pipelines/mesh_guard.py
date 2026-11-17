@@ -4,8 +4,8 @@ Handles density guarding, 1,000,000 face safety capping, and topology validation
 before saving or loading mesh assets in Formesh3D.
 
 Rules:
-- Meshes <= max_faces (1,000,000) are preserved 100% untouched (pure native AI output or user upload).
-- Meshes > max_faces are safely capped to 1,000,000 faces via fast quadric decimation to protect Three.js WebGL viewport.
+- Meshes <= max_faces (2,000,000) are preserved 100% untouched (pure native AI output or user upload).
+- Meshes > max_faces are safely capped to 2,000,000 faces via fast quadric decimation to protect Three.js WebGL viewport.
 - Never performs artificial subdivision.
 """
 
@@ -17,7 +17,7 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-GLOBAL_MAX_FACES = 1_000_000
+GLOBAL_MAX_FACES = 2_000_000
 
 
 def guard_mesh_density(
@@ -30,7 +30,7 @@ def guard_mesh_density(
     Args:
         raw_mesh_path: Path to the raw mesh file.
         output_path: Optional destination path. If omitted or same as input, updates in-place.
-        max_faces: Safety cap for maximum allowable polygon faces (default 1,000,000).
+        max_faces: Safety cap for maximum allowable polygon faces (default 2,000,000).
 
     Returns:
         Dict with status, original_faces, final_faces, capped flag, and output_path.

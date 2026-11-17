@@ -27,7 +27,7 @@ Creating production 3D assets typically demands expensive commercial suites, man
 
 ### 1. Direct Neural Shape Generation
 - **Image-to-3D**: Direct generation of detailed 3D meshes from single reference images using Hunyuan3D-2.1, TRELLIS, TRELLIS.2, Stable Fast 3D, and TripoSG.
-- **Source Preservation**: Master mesh is immutably stored in the workspace (`master/source.glb`).
+- **Source Preservation**: Master mesh is immutably stored in the workspace (`mesh/mesh.glb`).
 - **Dynamic Parameter Passthrough**: User-configured budgets (`native_target_polycount`, `texture_resolution`, `seed`) pass directly to model adapters without router-level interceptors.
 
 ### 2. Texture Generation & Painting

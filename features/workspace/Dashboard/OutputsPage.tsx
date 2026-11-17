@@ -311,21 +311,17 @@ export const OutputsPage: React.FC = () => {
           {storageData?.categories && (
             <div className="space-y-3">
               <div className="h-2.5 w-full bg-black/40 rounded-full overflow-hidden flex">
-                <div style={{ width: `${storageData.categories.master?.percent || 0}%` }} className="bg-blue-500 h-full" title={`Master: ${storageData.categories.master?.percent || 0}%`} />
-                <div style={{ width: `${storageData.categories.game_ready?.percent || 0}%` }} className="bg-emerald-500 h-full" title={`Game-Ready: ${storageData.categories.game_ready?.percent || 0}%`} />
-                <div style={{ width: `${storageData.categories.textures?.percent || 0}%` }} className="bg-amber-500 h-full" title={`Textures: ${storageData.categories.textures?.percent || 0}%`} />
-                <div style={{ width: `${storageData.categories.lods?.percent || 0}%` }} className="bg-purple-500 h-full" title={`LODs: ${storageData.categories.lods?.percent || 0}%`} />
+                <div style={{ width: `${storageData.categories.mesh?.percent || 0}%` }} className="bg-blue-500 h-full" title={`Mesh: ${storageData.categories.mesh?.percent || 0}%`} />
+                <div style={{ width: `${storageData.categories.texture?.percent || 0}%` }} className="bg-amber-500 h-full" title={`Texture: ${storageData.categories.texture?.percent || 0}%`} />
                 <div style={{ width: `${storageData.categories.rigging?.percent || 0}%` }} className="bg-cyan-500 h-full" title={`Rigging: ${storageData.categories.rigging?.percent || 0}%`} />
                 <div style={{ width: `${storageData.categories.temp?.percent || 0}%` }} className="bg-zinc-500 h-full" title={`Temp: ${storageData.categories.temp?.percent || 0}%`} />
               </div>
 
               {/* Categorized Badges */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
                 {[
-                  { id: 'master', label: 'Master Lineage', color: 'bg-blue-500', data: storageData.categories.master },
-                  { id: 'game_ready', label: 'Game-Ready', color: 'bg-emerald-500', data: storageData.categories.game_ready },
-                  { id: 'textures', label: 'PBR Textures', color: 'bg-amber-500', data: storageData.categories.textures },
-                  { id: 'lods', label: 'LOD Meshes', color: 'bg-purple-500', data: storageData.categories.lods },
+                  { id: 'mesh', label: 'Mesh', color: 'bg-blue-500', data: storageData.categories.mesh },
+                  { id: 'texture', label: 'PBR Textures', color: 'bg-amber-500', data: storageData.categories.texture },
                   { id: 'rigging', label: 'Rigging / Skeletons', color: 'bg-cyan-500', data: storageData.categories.rigging },
                   { id: 'temp', label: 'Temp / Scratch', color: 'bg-zinc-500', data: storageData.categories.temp },
                 ].map(cat => (

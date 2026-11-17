@@ -29,7 +29,7 @@ def cleanup_canonical_asset_workspace(result: Optional[Dict[str, Any]]) -> Optio
     asset_root = (result or {}).get("asset_root")
     if not asset_root:
         return None
-    models_root = (get_storage_base_dir() / "models").resolve()
+    models_root = get_storage_base_dir().resolve()
     candidate = Path(asset_root).resolve()
     if candidate == models_root or models_root not in candidate.parents:
         logger.warning("Skipping retention cleanup for invalid asset workspace: %s", candidate)

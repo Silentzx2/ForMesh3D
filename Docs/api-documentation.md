@@ -175,7 +175,7 @@ GET /api/v1/system/auth-status
 
 Mounted at `/api/v1/system/database` and backing the admin Database tab (`/admin?tab=database`). Every endpoint requires the API key (`verify_api_key`); when a user is authenticated, the **admin** role is required (`403` otherwise).
 
-**Safety model**: every destructive endpoint requires an explicit typed confirmation token in the JSON body. A job's canonical asset workspace under `backend/storage/models/meshes/<asset>_<job_id>/` is removed **only after** the durable dual-store deletion (Redis hot keys + SQLite row, ADR-062) succeeds, and every path is validated against the storage root before removal. The job-key sweep never touches user/token auth keys.
+**Safety model**: every destructive endpoint requires an explicit typed confirmation token in the JSON body. A job's canonical asset workspace under `backend/storage/<workspace_id>/` is removed **only after** the durable dual-store deletion (Redis hot keys + SQLite row, ADR-062) succeeds, and every path is validated against the storage root before removal. The job-key sweep never touches user/token auth keys.
 
 #### Database Statistics
 
@@ -614,10 +614,8 @@ The pipeline builds at most 4 levels (LOD0-LOD3) and clamps `lod_count` to 1-4. 
 
 #### Output Semantics & Artifact Tree
 The API returns HTTP 202 with `{"api_version": "1", "job_id": "...", "status": "queued"}`. When execution completes:
-- `master/source.glb`: Immutable raw mesh with SHA-256 hash in metadata.
-- `game_ready/<name>.glb`: Production engine-ready model satisfying the target budget.
-- `lods/lod[0-3].glb`: Multi-resolution chain (when `generate_lod` is enabled).
-- `collision/collision.glb`: Watertight CoACD collision geometry (when `physics_enabled` is enabled).
+- `mesh/mesh.glb`: Immutable raw mesh with SHA-256 hash in metadata.
+- `texture/textured.glb`: Production engine-ready model satisfying the target budget.
 - `metadata/asset.json`: Canonical manifest with stage trace and QA scores.
 
 
@@ -670,7 +668,7 @@ Content-Type: application/json
 GET /api/v1/system/jobs/{job_id}/download?artifact_format=glb
 ```
 
-This returns the textured GLB with embedded albedo and normal maps. The immutable raw master (`master/source.glb`) is not produced by SF3D — use `hunyuan3d_shape_v21_image_to_raw_mesh` for raw-only generation.
+This returns the textured GLB with embedded albedo and normal maps. The immutable raw master (`mesh/mesh.glb`) is not produced by SF3D — use `hunyuan3d_shape_v21_image_to_raw_mesh` for raw-only generation.
 
 **VRAM:** ~6 GB for single-image input; fits T4 and 16 GB consumer cards. Inference runs in ~0.5 seconds on a GPU with 7 GB+ VRAM.
 
@@ -826,7 +824,7 @@ GET /api/v1/system/jobs/history?limit=100&offset=0&status=completed&feature=imag
 Returns durable job history (SQLite page, falling back to the Redis job listing when the SQLite page is empty). Every completed job carries canonical production artifact URLs regardless of what was persisted, so the workspace can resolve models and thumbnails from the backend after a page refresh or backend restart:
 
 - `model_url`, `game_ready_url`, `download_url` — `/api/v1/system/jobs/{job_id}/download?artifact_format=glb` (game-ready GLB; the default viewer artifact)
-- `source_model_url`, `high_fidelity_url` — `/api/v1/system/jobs/{job_id}/download?artifact_format=master` (immutable `master/source.glb`)
+- `source_model_url`, `high_fidelity_url` — `/api/v1/system/jobs/{job_id}/download?artifact_format=master` (immutable `mesh/mesh.glb`)
 - `GET /api/v1/system/jobs/{job_id}/download?artifact_format=fbx` — native FBX from a completed rigging job or an already-baked game-ready FBX. Generic on-demand `trimesh` FBX conversion is unsupported and returns HTTP 422 when no actual FBX is available.
 - `thumbnail_url` — `/api/v1/system/jobs/{job_id}/thumbnail` (rendered preview, input-image, or placeholder fallback)
 
@@ -960,7 +958,7 @@ The migrated mesh-processing tools are exposed by the main FastAPI process. Brow
 
 ### Production post-process retry
 
-`POST /api/v1/system/jobs/{job_id}/postprocess/retry` rebuilds derived artifacts from immutable `master/source.glb` without re-running model inference.
+`POST /api/v1/system/jobs/{job_id}/postprocess/retry` rebuilds derived artifacts from immutable `mesh/mesh.glb` without re-running model inference.
 
 ### Canonical artifact manifest
 
@@ -987,7 +985,7 @@ Content-Type: application/json
 
 FastMesh V1K is a checkpoint-fixed model that produces approximately 1K vertices; it does not accept an arbitrary vertex target. target_vertex_count remains accepted only as a deprecated compatibility field and is ignored. target_polycount is a final production triangle budget applied by the canonical post-processing stage after FastMesh; it does not change FastMesh inference and accepts 5,000–200,000 triangles. FastMesh emits its checkpoint-native topology; poly_type does not change the model output.
 
-For generation jobs, `target_polycount` is **never an inference-quality control**. The scheduler removes this production-only field (along with `auto_optimize` and LOD/physics controls) before neural model adapters run. The raw model output is requested at the registered model's maximum supported geometry fidelity, persisted unchanged as `master/source.glb`, and only then reduced to the requested production budget.
+For generation jobs, `target_polycount` is **never an inference-quality control**. The scheduler removes this production-only field (along with `auto_optimize` and LOD/physics controls) before neural model adapters run. The raw model output is requested at the registered model's maximum supported geometry fidelity, persisted unchanged as `mesh/mesh.glb`, and only then reduced to the requested production budget.
 
 ---
 

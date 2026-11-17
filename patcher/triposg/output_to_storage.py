@@ -4,10 +4,10 @@ ForMesh3D storage system so artifact downloads resolve correctly.
 
 The TripoSG adapter writes the mesh to a temp directory (tempfile.mkdtemp()).
 This patcher wraps _process_request so that, on success, the mesh file is also
-copied into the canonical storage root (get_storage_base_dir()/models/meshes/)
+copied into the canonical storage root (get_storage_base_dir()/triposg_output/)
 and the result's output_mesh_path/mesh_path point at the canonical copy.
 The scheduler then copies it into the per-job workspace
-(storage_root/models/meshes/<job_id>/) for artifact download.
+(storage_root/<job_id>/mesh/) for artifact download.
 
 This patcher runs strictly inside the TripoSG worker process — it is imported
 from triposg_adapter._load_model() and never affects other models.
@@ -74,7 +74,7 @@ def apply_patch() -> None:
         try:
             storage_root = get_storage_base_dir()
             canonical_dir = (
-                storage_root / "models" / "meshes" / "triposg_output"
+                storage_root / "triposg_output"
             )
             canonical_dir.mkdir(parents=True, exist_ok=True)
             dst = canonical_dir / f"{uuid.uuid4().hex}_{src.name}"

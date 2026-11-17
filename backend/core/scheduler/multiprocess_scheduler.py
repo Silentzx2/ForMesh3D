@@ -2131,7 +2131,7 @@ class MultiprocessModelScheduler:
                     raise RuntimeError("SkinTokens auto-rigging completed without a durable output_mesh_path")
 
                 asset_root = Path(result["asset_root"]).resolve()
-                storage_root = (get_storage_base_dir() / "models" / "meshes").resolve()
+                storage_root = get_storage_base_dir().resolve()
                 asset_root.relative_to(storage_root)
 
                 rig_dir = asset_root / "rigging" / child_job_id
@@ -2187,14 +2187,14 @@ class MultiprocessModelScheduler:
                 }
                 from core.utils.artifact_utils import register_asset_job_manifest
 
-                master_path = Path(result.get("source_model_path") or asset_root / "master" / "source.glb")
+                mesh_path = Path(result.get("source_model_path") or asset_root / "mesh" / "mesh.glb")
                 manifest_artifacts = {
                     "rigged": {"path": str(rig_path), "format": "glb"},
                 }
                 if rig_fbx_path:
                     manifest_artifacts["fbx"] = {"path": str(rig_fbx_path), "format": "fbx"}
                 register_asset_job_manifest(
-                    asset_root, parent_job_id, master_path, master_path, manifest_artifacts
+                    asset_root, parent_job_id, mesh_path, mesh_path, manifest_artifacts
                 )
             else:
                 error = (
@@ -2287,26 +2287,21 @@ class MultiprocessModelScheduler:
                         from core.utils.artifact_utils import canonical_asset_workspace
                         canonical_root = canonical_asset_workspace(job_id, final_result, job_request.inputs)
                         canonical_root.mkdir(parents=True, exist_ok=True)
-                        # Copy to canonical workspace: master/source.glb (immutable master)
-                        _master_dir = canonical_root / "master"
-                        _master_dir.mkdir(parents=True, exist_ok=True)
-                        _master_dst = _master_dir / "source.glb"
-                        if not _master_dst.exists():
+                        # Copy to canonical workspace: {workspace_id}/mesh/mesh.glb
+                        # One directory per job, named by workspace ID. Mesh subdirectory holds the mesh.
+                        mesh_dir = canonical_root / "mesh"
+                        mesh_dir.mkdir(parents=True, exist_ok=True)
+                        _dst = mesh_dir / "mesh.glb"
+                        if not _dst.exists():
                             try:
                                 from pipelines.mesh_guard import guard_mesh_density
-                                pipe_res = guard_mesh_density(str(_src), str(_master_dst), max_faces=1_000_000)
+                                pipe_res = guard_mesh_density(str(_src), str(_dst), max_faces=2_000_000)
                                 if not pipe_res.get("success"):
-                                    shutil.copy2(str(_src), str(_master_dst))
+                                    shutil.copy2(str(_src), str(_dst))
                             except Exception:
-                                shutil.copy2(str(_src), str(_master_dst))
-                        # Copy to game_ready/ so downloads resolve from canonical workspace
-                        _game_ready_dir = canonical_root / "game_ready"
-                        _game_ready_dir.mkdir(parents=True, exist_ok=True)
-                        _game_ready_dst = _game_ready_dir / f"{canonical_root.name}.glb"
-                        if not _game_ready_dst.exists():
-                            shutil.copy2(str(_master_dst), str(_game_ready_dst))
-                        final_result["output_mesh_path"] = str(_master_dst)
-                        final_result["mesh_path"] = str(_master_dst)
+                                shutil.copy2(str(_src), str(_dst))
+                        final_result["output_mesh_path"] = str(_dst)
+                        final_result["mesh_path"] = str(_dst)
                         final_result["asset_root"] = str(canonical_root)
                 # The adapter output has now been copied to durable storage.
                 # Remove its private temp directory before persisting the job result.
@@ -2490,8 +2485,8 @@ class MultiprocessModelScheduler:
                     )
                     child_request.metadata["asset_root"] = final_result["asset_root"]
                     child_request.metadata["source_path"] = final_result["output_mesh_path"]
-                    child_request.metadata["source_master_path"] = str(
-                        Path(final_result["asset_root"]).resolve() / "master" / "source.glb"
+                    child_request.metadata["source_mesh_path"] = str(
+                        Path(final_result["asset_root"]).resolve() / "mesh" / "mesh.glb"
                     )
                     child_id = await self.schedule_job(child_request)
                     final_result["rigging"] = {
@@ -2517,16 +2512,16 @@ class MultiprocessModelScheduler:
 
                 if job_request.feature == "auto_rig":
                     asset_root = Path(job_request.metadata["asset_root"]).resolve(strict=True)
-                    meshes_root = (get_storage_base_dir() / "models" / "meshes").resolve()
+                    meshes_root = get_storage_base_dir().resolve()
                     asset_root.relative_to(meshes_root)
-                    expected_dir = asset_root / "rigging" / job_id
+                    expected_dir = asset_root
                     preview_path = Path(final_result.get("output_mesh_path") or "").resolve(strict=True)
                     preview_path.relative_to(expected_dir.resolve())
                     if preview_path.suffix.lower() != ".glb" or preview_path.stat().st_size == 0:
                         raise RuntimeError("SkinTokens did not produce a valid GLB preview artifact")
 
                     source_path = Path(job_request.metadata["source_path"]).resolve(strict=True)
-                    master_path = Path(job_request.metadata["source_master_path"]).resolve(strict=True)
+                    master_path = Path(job_request.metadata["source_mesh_path"]).resolve(strict=True)
                     from core.utils.artifact_utils import sha256_file
 
                     if sha256_file(source_path) != job_request.metadata.get("source_sha256"):

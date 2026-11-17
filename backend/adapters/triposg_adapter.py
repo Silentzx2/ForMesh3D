@@ -162,7 +162,7 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
         # under the shared storage root for the download endpoint to find it.
         try:
             storage_root = get_storage_base_dir()
-            canonical_dir = storage_root / "models" / "meshes" / "triposg_output"
+            canonical_dir = storage_root / "triposg_output"
             canonical_dir.mkdir(parents=True, exist_ok=True)
             canonical_path = canonical_dir / f"{uuid.uuid4().hex}_{out.name}"
             if not canonical_path.exists():

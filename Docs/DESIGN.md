@@ -227,7 +227,7 @@ Universal motion specifications compatible with `motion/react`:
 ### Texture Studio & Generation Panel Components
 - `TexturePanel.tsx`: Atlas resolution presets (1K, 2K, 4K, 8K), explicit selection between registered paint engines including Hunyuan3D-Paint v2.0 and v2.1, reference image binding/upload, PBR map inspection. RealESRGAN runs within the v2.1 adapter; there is no separate UI toggle.
 - `GeneratePanel.tsx`: Simplified Studio Interface with single Target Polycount / Output Preset card (six canonical preset chips derived from the backend catalogue), locked model inference profiles, and clean Advanced production drawer. Universal Textured Generation toggle for all image-to-3D geometry models, atlas resolution preset selector, VRAM warning for 4K/8K.
-- Source-generation controls output raw geometry; texturing runs as a separate, optional, non-destructive stage preserving `master/source.glb`.
+- Source-generation controls output raw geometry; texturing runs as a separate, optional, non-destructive stage preserving `mesh/mesh.glb`.
 - `systemStats`: Real-time GPU/VRAM telemetry in texture panel
 - Spot-mask mode draws to a separate UV mask canvas; localized inference remains visibly unavailable until supported by Hunyuan adapter calls.
 - UV Inspector is bound to the loaded viewport mesh's UV attributes; sampled edges are for responsiveness and only computed counts/bounds are shown.
@@ -255,10 +255,10 @@ The Generate studio interface is organized into a clean beginner-friendly flow a
 - **Generate Button**: Fixed-position button that toggles state inline — yellow "Generate Model" when idle (disabled without an image), red "Cancel Generation" while executing with an inline progress bar above it (gray track, white fill growing with progress, percentage count below). Returns to "Generate Model" on completion or cancel.
 
 #### 2. Advanced Production Drawer (Genuine Production Controls Only)
-- **Candidate Variations (Pick-Best-of-N)**: Multi-variation selector (1 to 4 seeds) with deterministic stepping (`base_seed + i × seed_step`) and composite quality scoring (`_score_and_select`) promoting the highest-scoring candidate to `master/source.glb`; the completed-asset card also allows manual promotion of any variation.
+- **Candidate Variations (Pick-Best-of-N)**: Multi-variation selector (1 to 4 seeds) with deterministic stepping (`base_seed + i × seed_step`) and composite quality scoring (`_score_and_select`) promoting the highest-scoring candidate to `mesh/mesh.glb`; the completed-asset card also allows manual promotion of any variation.
 - **Topology Target**: Triangle decimation vs. quad-dominant retopology (AutoRetopo quad conversion).
 - **Automatic UV Unwrapping**: Conformal seam placement and atlas chart packing (xatlas / PartUV) run inside the production pipeline. There is no user-facing UV-unwrapping toggle.
-- **High-to-Low Normal Map Baking**: `Bake Normal Maps` toggle for ray-cast detail transfer from immutable `master/source.glb` to the decimated output mesh.
+- **High-to-Low Normal Map Baking**: `Bake Normal Maps` toggle for ray-cast detail transfer from immutable `mesh/mesh.glb` to the decimated output mesh.
 - **LOD Generation**: On/off toggle plus a ratio preset (mobile / low / medium / high) and a level count of 2, 3 or 4 levels — the pipeline supports at most LOD0–LOD3. Ratios come from the backend preset table (for example `high` = 100% / 60% / 30% / 15%, `medium` = 100% / 50% / 25% / 12.5%).
 - **Topology Gate & Targeted Hole Repair**: The topology gate always runs as part of the production pipeline; the `Auto-Repair` toggle only decides whether the repair step may mutate the mesh (targeted boundary loop hole closure, ≤50 vertices).
 - **Physics Preparation**: Collision toggle plus body behaviour, collision quality, density, mass and material quick presets (Default, Rubber, Stone, Wood, Ice, Metal), backed by convex hull generation (Trimesh) with optional CoACD multi-part decomposition.
@@ -280,7 +280,7 @@ There is no `output_preset` body field and no `auto_optimize` field. The output 
 
 
 ### Generation & Texture Power Tools (Batch 2)
-- `GeneratePanel.tsx` (Pick-Best-of-N Candidate Generation): Multi-variation count selector (1 to 4) stepping seeds deterministically. Interactive Candidate Comparison Grid rendered on completion with individual candidate seed display, 3D viewport previewing (`loadModelInViewer`), and one-click promotion to `master/source.glb` with unselected candidate file garbage collection.
+- `GeneratePanel.tsx` (Pick-Best-of-N Candidate Generation): Multi-variation count selector (1 to 4) stepping seeds deterministically. Interactive Candidate Comparison Grid rendered on completion with individual candidate seed display, 3D viewport previewing (`loadModelInViewer`), and one-click promotion to `mesh/mesh.glb` with unselected candidate file garbage collection.
 
 ### Viewport Operation Controls & Action Bar (Batch 5)
 
@@ -338,7 +338,7 @@ flowchart TD
     classDef output fill:#1e293b,stroke:#ec4899,stroke-width:2px,color:#fff
     classDef guard fill:#0f172a,stroke:#f59e0b,stroke-width:2px,color:#fff
 
-    IN["Immutable master/source.glb<br/>Raw Geometry"]:::input
+    IN["Immutable mesh/mesh.glb<br/>Raw Geometry"]:::input
     IN --> TEXTURE{"Textured Generation enabled?"}:::guard
     TEXTURE -->|No| RAW["Keep raw master<br/>No texture stage"]:::output
     TEXTURE -->|Yes| SIZE{"Requested atlas preset"}:::guard
@@ -353,7 +353,7 @@ flowchart TD
     classDef output fill:#1e293b,stroke:#ec4899,stroke-width:2px,color:#fff
     classDef guard fill:#0f172a,stroke:#f59e0b,stroke-width:2px,color:#fff
 
-    IN["Immutable master/source.glb<br/>Raw Geometry"]:::input
+    IN["Immutable mesh/mesh.glb<br/>Raw Geometry"]:::input
     IN --> TEXTURE{"Textured Generation enabled?"}:::guard
     TEXTURE -->|No| RAW["Keep raw master<br/>No texture stage"]:::output
     TEXTURE -->|Yes| SIZE{"Requested atlas preset"}:::guard
@@ -537,7 +537,7 @@ Post-processing stage and progress reuse the existing job status model rather th
 
 Export Quick-Profiles (`ExportModal.tsx`) enable 1-click loading and custom creation of format/LOD/collision combinations (e.g. "GLB Game-Ready", "Unity Mobile", "Unreal High-Poly", "Blender Raw") persisted in `services/settingsPersistence.ts`. Profiles only pre-fill validated toggles and reuse the single canonical export execution pipeline.
 
-Storage Breakdown & Safe Cleanup (`OutputsPage.tsx`, `/api/v1/system/storage-breakdown`, `/api/v1/system/storage-cleanup`) provides an authentic byte-level overview across `master/`, `game_ready/`, `textures/`, `lods/`, `rigging/`, and `temp/` using canonical server filesystem sizes. The safe cleanup action removes obsolete intermediate processing artifacts older than a user-specified day threshold while strictly preserving `master/source.glb` lineage and primary game-ready files.
+Storage Breakdown & Safe Cleanup (`OutputsPage.tsx`, `/api/v1/system/storage-breakdown`, `/api/v1/system/storage-cleanup`) provides an authentic byte-level overview across `master/`, `game_ready/`, `textures/`, `lods/`, `rigging/`, and `temp/` using canonical server filesystem sizes. The safe cleanup action removes obsolete intermediate processing artifacts older than a user-specified day threshold while strictly preserving `mesh/mesh.glb` lineage and primary game-ready files.
 
 ## Physics UX
 The Generate panel keeps Physics Preparation behind a compact Advanced Generation drawer so the primary workflow stays short and scroll-light. The viewer exposes a top-level Test Physics action. On Physics Ready assets it uses the canonical collision runtime; on ordinary loaded meshes it falls back to a lightweight bounds-based rigid-body smoke test without mutating the asset or running post-processing. The viewer still provides Play, Pause, Step, Reset, collider debug, Drop, Bounce, Slide, and Spin controls. Deformable/jiggle simulation remains capability-gated and is not faked.

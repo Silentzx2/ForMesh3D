@@ -324,7 +324,7 @@ class ApiClient {
       total_mb: number;
       total_gb: number;
       categories: Record<
-        'master' | 'game_ready' | 'textures' | 'lods' | 'rigging' | 'temp',
+        'mesh' | 'texture' | 'rigging' | 'temp',
         { bytes: number; count: number; percent: number; size_mb: number; size_gb: number }
       >;
     };

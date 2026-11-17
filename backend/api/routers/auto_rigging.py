@@ -256,16 +256,14 @@ async def generate_rig(
         from core.utils.artifact_utils import sha256_file
         from core.utils.artifact_utils import prepare_asset_job_workspace
 
-        asset_root, master_path = await run_in_threadpool(
+        asset_root, mesh_path = await run_in_threadpool(
             prepare_asset_job_workspace, mesh_file_path, job_request.job_id
         )
-        job_request.inputs["output_dir"] = str(
-            asset_root / "rigging" / job_request.job_id
-        )
+        job_request.inputs["output_dir"] = str(asset_root)
         job_request.metadata.update({
             "asset_root": str(asset_root),
             "source_path": str(Path(mesh_file_path).resolve()),
-            "source_master_path": str(master_path),
+            "source_mesh_path": str(mesh_path),
             "source_sha256": await run_in_threadpool(sha256_file, mesh_file_path),
         })
 

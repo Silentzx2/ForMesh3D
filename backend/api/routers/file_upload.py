@@ -176,16 +176,15 @@ def _is_uploaded_source(file_id: str, file_type: str, file_path: Path) -> bool:
                 file_path.stem == f"upload_{file_id}"
                 and file_path.suffix.lower() in SUPPORTED_MESH_FORMATS
             )
-        workspace = storage_base / "models" / "meshes" / f"upload_{file_id}"
+        workspace = storage_base / f"upload_{file_id}"
         if (
-            file_path.parent == workspace / "master"
-            and file_path.stem == "source"
+            file_path == workspace / "mesh" / "mesh.glb"
             and file_path.suffix.lower() in SUPPORTED_MESH_FORMATS
         ):
             return True
-        # Allow registered meshes inside models/meshes storage
+        # Allow registered meshes inside storage workspace directories
         try:
-            file_path.resolve(strict=True).relative_to(storage_base / "models" / "meshes")
+            file_path.resolve(strict=True).relative_to(storage_base)
             return file_path.suffix.lower() in SUPPORTED_MESH_FORMATS
         except (ValueError, OSError):
             pass
@@ -196,7 +195,7 @@ def _is_uploaded_source(file_id: str, file_type: str, file_path: Path) -> bool:
 def _upload_manifest_path(file_id: str, file_type: str) -> Path:
     storage_base = get_storage_base_dir()
     if file_type == "mesh":
-        return storage_base / "models" / "meshes" / f"upload_{file_id}" / "metadata" / "asset.json"
+        return storage_base / f"upload_{file_id}" / "metadata" / "asset.json"
     return UPLOAD_BASE_DIR / file_type / file_id[:2] / f"upload_{file_id}.json"
 
 
@@ -329,7 +328,7 @@ def _list_upload_manifests(file_type: Optional[str] = None) -> List[Dict]:
     """Read only canonical upload manifests; never infer assets from broad globs."""
     manifest_ids = set()
     if file_type in (None, "mesh"):
-        mesh_root = get_storage_base_dir() / "models" / "meshes"
+        mesh_root = get_storage_base_dir()
         if mesh_root.is_dir():
             for manifest_path in mesh_root.glob("upload_*/metadata/asset.json"):
                 match = re.fullmatch(
@@ -491,7 +490,7 @@ _JOB_ARTIFACT_FORMATS = {
 
 
 def _find_job_workspace(job_id: str, raw_id: str, metadata: Optional[Dict]) -> Optional[Path]:
-    models_root = (get_storage_base_dir() / "models").resolve()
+    models_root = get_storage_base_dir().resolve()
     possible_roots = []
     if metadata:
         metadata_path = metadata.get("file_path")
@@ -585,8 +584,8 @@ def _artifact_path(workspace: Path, artifact_format: str, job_id: str) -> Option
                 resolved = resolve_declared_artifact(workspace, declared, "rigged")
                 if resolved:
                     return resolved
-            if selector == "master" and manifest_data.get("master_path"):
-                cand = workspace / manifest_data["master_path"]
+            if selector == "master":
+                cand = workspace / "mesh" / "mesh.glb"
                 safe = _storage_path(cand)
                 if safe:
                     return safe
@@ -600,38 +599,31 @@ def _artifact_path(workspace: Path, artifact_format: str, job_id: str) -> Option
         asset_name = None
 
     if selector == "master":
-        candidates = [workspace / "master" / "source.glb"]
-        if (workspace / "master").is_dir():
-            candidates.extend(sorted((workspace / "master").glob("source.*")))
+        candidates = [workspace / "mesh" / "mesh.glb"]
     elif selector in {"glb", "gltf", "fbx", "obj", "stl", "ply", "quad_obj", "usdz"}:
         extension = "obj" if selector == "quad_obj" else selector
         stems = list(dict.fromkeys(stem for stem in (asset_name, workspace.name) if stem))
-        candidates = [workspace / "game_ready" / f"{stem}.{extension}" for stem in stems]
+        candidates = [workspace / "mesh" / f"mesh.{extension}" for stem in stems]
         if selector == "fbx":
             candidates.extend([
-                workspace / "rigging" / job_id / "rigged.fbx",
-                workspace / "rigging" / "game_ready_rigged.fbx",
+                workspace / "rigging" / "rigged.fbx",
             ])
-            candidates.extend(sorted((workspace / "rigging").glob("*/rigged.fbx")))
+            candidates.extend(sorted((workspace / "rigging").glob("*.fbx")))
         elif selector == "glb":
             candidates.extend([
-                workspace / "rigging" / job_id / "rigged.glb",
-                workspace / "derived" / job_id / "result.glb",
+                workspace / "rigging" / "rigged.glb",
             ])
-    elif selector.startswith("lod"):
-        candidates = [workspace / "lods" / f"{selector}.glb"]
     elif selector == "textured":
         names = ["textured.glb"]
         if asset_name:
             names.append(f"{asset_name}_textured.glb")
-        candidates = [workspace / "textures" / name for name in names]
+        candidates = [workspace / "texture" / name for name in names]
     elif selector == "derived":
-        candidates = sorted((workspace / "derived" / job_id).glob("result.*")) if (workspace / "derived" / job_id).is_dir() else []
+        candidates = []
     else:
         fixed_paths = {
-            "rigged": workspace / "rigging" / job_id / "rigged.glb",
-            "rigged_fbx": workspace / "rigging" / job_id / "rigged.fbx",
-            "collision": workspace / "collision" / "collision.glb",
+            "rigged": workspace / "rigging" / "rigged.glb",
+            "rigged_fbx": workspace / "rigging" / "rigged.fbx",
             "thumbnail": workspace / "previews" / "thumbnail.png",
             "qa_report": workspace / "metadata" / "quality_report.json",
             "job_json": workspace / "metadata" / "job.json",
@@ -639,19 +631,17 @@ def _artifact_path(workspace: Path, artifact_format: str, job_id: str) -> Option
             "physics_json": workspace / "metadata" / "physics.json",
         }
         if selector.startswith("texture_"):
-            candidates = [workspace / "textures" / f"{selector.removeprefix('texture_')}.png"]
+            candidates = [workspace / "texture" / f"{selector.removeprefix('texture_')}.png"]
         elif selector == "rigged":
             candidates = [
-                workspace / "rigging" / job_id / "rigged.glb",
-                workspace / "rigging" / "game_ready_rigged.glb",
+                workspace / "rigging" / "rigged.glb",
             ]
-            candidates.extend(sorted((workspace / "rigging").glob("*/rigged.glb")))
+            candidates.extend(sorted((workspace / "rigging").glob("*.glb")))
         elif selector == "rigged_fbx":
             candidates = [
-                workspace / "rigging" / job_id / "rigged.fbx",
-                workspace / "rigging" / "game_ready_rigged.fbx",
+                workspace / "rigging" / "rigged.fbx",
             ]
-            candidates.extend(sorted((workspace / "rigging").glob("*/rigged.fbx")))
+            candidates.extend(sorted((workspace / "rigging").glob("*.fbx")))
         else:
             candidates = [fixed_paths[selector]]
     for candidate in candidates:
@@ -669,7 +659,7 @@ def _resolve_job_artifact(job_id: str, file_path: Path, artifact_format: str) ->
 
     selector = (artifact_format or "").strip().lower()
     expected_suffix = {"glb": ".glb", "gltf": ".gltf", "fbx": ".fbx", "obj": ".obj", "stl": ".stl", "ply": ".ply", "usdz": ".usdz"}.get(selector)
-    models_root = (get_storage_base_dir() / "models").resolve()
+    models_root = get_storage_base_dir().resolve()
     if expected_suffix and file_path.suffix.lower() == expected_suffix:
         try:
             file_path.relative_to(models_root)
@@ -724,16 +714,15 @@ async def upload_file_with_validation(
     workspace = None
     manifest_path = _upload_manifest_path(file_id, file_type)
     if file_type == "mesh":
-        workspace = get_storage_base_dir() / "models" / "meshes" / f"upload_{file_id}"
-        upload_dir = workspace / "master"
+        workspace = get_storage_base_dir() / f"upload_{file_id}"
+        upload_dir = workspace / "mesh"
     else:
         upload_dir = UPLOAD_BASE_DIR / file_type / file_id[:2]
     file_path = None
     registered = False
     try:
         upload_dir.mkdir(parents=True, exist_ok=True)
-        file_ext = Path(file.filename).suffix
-        filename = f"source{file_ext}" if file_type == "mesh" else f"upload_{file_id}{file_ext}"
+        filename = "mesh.glb" if file_type == "mesh" else f"upload_{file_id}{Path(file.filename).suffix}"
         file_path = upload_dir / filename
 
         max_size_bytes = max_size_mb * 1024 * 1024
@@ -837,7 +826,7 @@ async def upload_file_with_validation(
             if file_path:
                 file_path.unlink(missing_ok=True)
             if workspace:
-                for directory in (workspace / "master", workspace / "metadata", workspace):
+                for directory in (workspace / "metadata", workspace):
                     try:
                         directory.rmdir()
                     except OSError:
@@ -1251,8 +1240,8 @@ async def delete_file(
         file_path.unlink(missing_ok=True)
         manifest_path.unlink(missing_ok=True)
         if metadata.get("file_type") == "mesh":
-            workspace = get_storage_base_dir() / "models" / "meshes" / f"upload_{file_id}"
-            for directory in (workspace / "master", workspace / "metadata", workspace):
+            workspace = get_storage_base_dir() / f"upload_{file_id}"
+            for directory in (workspace / "metadata", workspace):
                 try:
                     directory.rmdir()
                 except OSError:

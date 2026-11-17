@@ -50,7 +50,7 @@ async def _admin_user(request: Request, _: bool = Depends(verify_api_key)):
 
 
 def _models_root() -> Path:
-    return (_storage_root() / "models").resolve()
+    return _storage_root().resolve()
 
 
 def _storage_root() -> Path:
@@ -353,7 +353,7 @@ async def database_stats(
         )
         if db_manager is not None
         else 0,
-        "meshes_bytes": await asyncio.to_thread(_dir_size, storage / "models" / "meshes"),
+        "meshes_bytes": await asyncio.to_thread(_dir_size, storage),
         "uploads_bytes": await asyncio.to_thread(_dir_size, storage / "uploads"),
     }
 
@@ -531,10 +531,10 @@ async def clear_all_jobs(
     if db_manager is not None:
         rows_deleted = await asyncio.to_thread(db_manager.delete_all_jobs)
 
-    # Every top-level directory under models/meshes is a canonical job workspace.
+    # Every top-level directory under backend/storage is a canonical job workspace.
     workspaces_removed = 0
     workspace_errors: List[str] = []
-    meshes_root = _storage_root() / "models" / "meshes"
+    meshes_root = _storage_root()
     if meshes_root.is_dir():
         for child in meshes_root.iterdir():
             if not child.is_dir():
@@ -676,23 +676,21 @@ async def clear_all_files(
 
 def check_job_asset_persistence(job_status: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Verify that postprocessing outputs (LODs, collisions, formats, quad OBJ, FBX)
+    Verify that postprocessing outputs (textured, rigged, retopo, smart_uv, segment)
     and metadata are correctly persisted in job and asset records.
     """
     result = job_status.get("result") or {}
     asset_root = result.get("asset_root")
     artifacts = result.get("artifacts") or {}
-    game_ready = artifacts.get("game_ready") or result.get("game_ready_formats") or {}
-    lods = artifacts.get("lods") or result.get("lods") or result.get("lod_urls") or {}
 
     outputs_check = {
         "has_result": bool(result),
         "asset_root": asset_root,
-        "lods_persisted": bool(lods),
-        "collision_persisted": bool(result.get("collision") or result.get("collision_url") or artifacts.get("collision")),
-        "formats_persisted": bool(game_ready),
-        "quad_obj_persisted": bool("obj" in game_ready),
-        "fbx_persisted": bool("fbx" in game_ready),
+        "textured_persisted": bool(artifacts.get("textured") or result.get("textured")),
+        "rigged_persisted": bool(artifacts.get("rigged") or result.get("rigged")),
+        "retopo_persisted": bool(artifacts.get("retopo") or result.get("retopo")),
+        "smart_uv_persisted": bool(artifacts.get("smart_uv") or result.get("smart_uv")),
+        "segment_persisted": bool(artifacts.get("segment") or result.get("segment")),
         "metadata_persisted": bool(artifacts.get("qa_report") or result.get("qa_report") or result.get("quality_trace")),
         "asset_record_on_disk": False,
         "job_record_on_disk": False,

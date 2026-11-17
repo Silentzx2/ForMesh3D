@@ -182,7 +182,7 @@ flowchart TD
     MODERN --> TRACK
     PRE_AMPERE --> TRACK
     TRACK --> PIPELINE
-    PIPELINE -->|Success| OUT["master/source.glb"]:::modern
+    PIPELINE -->|Success| OUT["mesh/mesh.glb"]:::modern
     PIPELINE -->|Exception| CLASSIFIER
     CLASSIFIER --> RECOVER
     RECOVER -->|Retry Approved| TRACK
@@ -227,7 +227,7 @@ This static audit does not replace supported-host inference tests. Preserve mode
   - `prepare_asset_job_workspace(workspace_id, job_id, is_preview=True)`: Prepares isolated staging directories for model inference.
   - `register_asset_job_manifest(...)`: Projects atomic manifests (`manifest.json`) recording asset provenance, model parameters, and output paths.
   - `persist_manual_mesh_result(...)`: Atomically stages derived tool results (UV, retopo, etc.) for preview or commit.
-  - Master immutability guarantees: `master/source.glb` is snapshotted immediately upon generative completion with SHA-256 verification, preventing mutation from downstream derived operations.
+  - Master immutability guarantees: `mesh/mesh.glb` is snapshotted immediately upon generative completion with SHA-256 verification, preventing mutation from downstream derived operations.
 
 ### Direct Preprocessing & Parameter Passthrough
 
@@ -290,7 +290,7 @@ flowchart TB
 
     subgraph POST["⚙️ Production Post-Processing Core"]
         direction TB
-        SRC_CHECK["master/source.glb<br/>Immutable Master Checkpoint"]:::green
+        SRC_CHECK["mesh/mesh.glb<br/>Immutable Master Checkpoint"]:::green
         GATE["Topology Gate (Task 2A)<br/>14 Metric Audit & Repair Routing"]:::green
         HOLE_REP["Targeted Hole Repair (Task 1C)<br/>Directed Boundary Loop Fans"]:::green
         MEM_DEC["Memory-Safe Decimation (Task 2B)<br/>Staged QEM & Crease Guard"]:::green
@@ -308,7 +308,7 @@ flowchart TB
 
     subgraph DATA["📦 Canonical Storage Layer"]
         direction TB
-        LOCAL["Asset Workspace<br/>backend/storage/models/meshes/<asset>_<job_id>/"]:::slate
+        LOCAL["Asset Workspace<br/>backend/storage/<workspace_id>/"]:::slate
         ZIP["Engine-Ready Delivery<br/>Unreal Engine 5 · Unity · Godot 4"]:::slate
     end
 
@@ -392,9 +392,20 @@ The current adapter uses `pipeline_type="1024_cascade"` and `max_num_tokens=4915
 
 Located at `backend/storage/`:
 - **Uploads** (`uploads/`): User-uploaded reference images, image manifests, and matching mesh thumbnails.
-- **Uploaded Mesh Workspaces** (`models/meshes/upload_<file-id>/`): Immutable original source at `master/source.<ext>` and its durable `metadata/asset.json` manifest. The manifest records source identity, original name/format, byte size, SHA-256, and upload time; Redis or the single-worker in-memory store is an index/cache.
-- **Models** (`models/meshes/<asset_name>_<job_id>/`): Canonical per-generation mesh asset workspaces.
-- **Asset workspace**: `master/` (`source.glb` immutable master), `game_ready/` (engine-optimized final output), `lods/` (LOD0..3), `collision/` (CoACD convex decomposition derived from final `game_ready.glb`), `textures/`, `previews/`, and `metadata/` (`quality_report.json`, `asset.json`, `physics.json`). Directory creation is deferred until writing begins.
+- **Workspace directories** (`<workspace_id>/`): One directory per job, named by workspace ID. Variants stored in subdirectories:
+  - `mesh/mesh.glb` — main generated/uploaded mesh (always present)
+  - `texture/textured.glb` — textured mesh variant + PBR maps (`base_color.png`, `normal.png`, `ao.png`, `roughness.png`, `metallic.png`, `orm.png`)
+  - `rigging/rigged.glb` — rigged mesh variant + part outputs
+  - `retopo/retopo.glb` — retopologized mesh variant
+  - `smart_uv/uv.glb` — UV-unwrapped mesh variant
+  - `segment/segment.glb` — segmented mesh variant + segment parts
+  - `previews/thumbnail.png` — workspace thumbnail
+  - `metadata/job.json` — job manifest
+  - `metadata/asset.json` — asset manifest
+  - `metadata/quality_report.json` — QA report
+  - `metadata/physics.json` — physics data
+  - `temp/<operation_id>/` — temp staging per operation
+- **Removed entirely:** `models/meshes/`, `master/`, `game_ready/`, `lods/`, `collision/`, `previews/` top-level subdirectories. Variant subdirectories only — no flat files at workspace root except none.
 - **ZIP delivery**: Generated on demand from the canonical workspace; no persistent `exports/` tree is required.
 
 Upload manifests restore file-ID resolution, listing, and counts after restart. Mesh uploads are limited to 200 MiB and geometry parsing is bounded by the configured vertex/face limits using at most two AnyIO worker threads. `.gltf` uploads must contain buffers and images as data URIs; external dependencies are not fetched. Upload deletion owns only its source, manifest, and matching thumbnail, not generated job workspaces. `GET /api/v1/file-upload/download/{file_id}` serves UUID uploads and registered `job-<job_id>` mesh sources only when the canonical workspace manifest identifies that job; baked and other derived artifacts use the system job download route.
@@ -447,7 +458,7 @@ sequenceDiagram
     API->>SCHED: Submit job (VRAM-aware scheduler)
     SCHED->>Adapter: Run maximum-fidelity model inference (raw or textured)
     Adapter-->>SCHED: Model-native mesh output (.glb)
-    SCHED->>Storage: Preserve canonical master/source.glb via artifact_utils
+    SCHED->>Storage: Preserve canonical mesh/mesh.glb via artifact_utils
     SCHED-->>API: Job complete (status: completed, persistence_status: not_saved)
     API-->>Frontend: Return {job_id, status: "completed", outputs}
     Frontend->>User: Render 3D model in Three.js Viewport (preview mode)
@@ -463,7 +474,7 @@ flowchart LR
     classDef file fill:#0f172a,stroke:#64748b,stroke-width:1px,color:#cbd5e1
 
     ROOT["backend/storage/"]:::dir --> UPLOADS["uploads/<br/>Reference Images"]:::dir
-    ROOT --> MODELS["models/meshes/<asset_name>_<job_id>/<br/>Canonical Asset Workspace"]:::dir
+    ROOT --> MODELS["<workspace_id>/<br/>Canonical Asset Workspace"]:::dir
     ROOT --> THUMBS["thumbnails/<br/>Preview PNGs"]:::dir
     ROOT --> DELIVERY["On-demand ZIP delivery"]:::dir
 
@@ -559,16 +570,16 @@ The only retained project runtime log is the repository-root `logs/master.log`. 
 - `GET /api/v1/system/health`: Extended system health.
 - `GET /api/v1/system/info`: Host hardware specs, OS, RAM, GPU telemetry.
 - `GET /api/v1/system/models`: Model registry with VRAM budgets and weights status.
-- `GET /api/v1/system/jobs/history`: Job history with search and status filtering. Reads the SQLite page and falls back to the Redis job listing when SQLite is empty; completed jobs always carry canonical production URLs (game-ready GLB, `master/source.glb`, thumbnail) so assets remain resolvable after refresh/restart.
+- `GET /api/v1/system/jobs/history`: Job history with search and status filtering. Reads the SQLite page and falls back to the Redis job listing when SQLite is empty; completed jobs always carry canonical production URLs (game-ready GLB, `mesh/mesh.glb`, thumbnail) so assets remain resolvable after refresh/restart.
 
 ### Database Administration (`/api/v1/system/database`)
 - `GET /api/v1/system/database/stats`: Combined statistics — SQLite status counts + db file size, Redis key count + `used_memory`, queue counts, file-metadata count, and meshes/uploads disk sizes.
 - `GET /api/v1/system/database/keys?pattern=3daigc:*&limit=500`: Read-only SCAN-based Redis key inspector (key, type, size, TTL; `limit` capped 1..1000); `503` when Redis is unavailable.
 - `DELETE /api/v1/system/database/jobs`: Bulk delete by `job_ids`, `status`, or `feature`. Requires `{"confirm": true}`; running/queued jobs are skipped unless `force: true`. Each job is removed from Redis hot keys and the SQLite jobs table (ADR-062) and its canonical asset workspace is removed only after the durable delete succeeds.
-- `POST /api/v1/system/database/jobs/clear`: Clear every job. Requires `{"confirm": "CLEAR_ALL_JOBS"}`; sweeps only job-owned Redis key patterns (never user/token auth keys), deletes all SQLite rows, removes every job workspace under `storage/models/meshes`, then VACUUMs SQLite. Uploads and file metadata are preserved.
+- `POST /api/v1/system/database/jobs/clear`: Clear every job. Requires `{"confirm": "CLEAR_ALL_JOBS"}`; sweeps only job-owned Redis key patterns (never user/token auth keys), deletes all SQLite rows, removes every job workspace under `storage/`, then VACUUMs SQLite. Uploads and file metadata are preserved.
 - `DELETE /api/v1/system/database/files/clear`: Clear all file metadata and the referenced upload files. Requires `{"confirm": "CLEAR_ALL_FILES"}`. Job records and assets are preserved.
-- `GET /api/v1/system/storage-breakdown`: Storage breakdown by category (`master`, `game_ready`, `textures`, `lods`, `rigging`, `temp`) returning accurate byte sizes and percentages from canonical filesystem.
-- `POST /api/v1/system/storage-cleanup`: Safe removal of obsolete scratch/temp assets older than N days while strictly preserving `master/source.glb` lineage.
+- `GET /api/v1/system/storage-breakdown`: Storage breakdown by category (`mesh`, `texture`, `rigging`, `temp`) returning accurate byte sizes and percentages from canonical filesystem.
+- `POST /api/v1/system/storage-cleanup`: Safe removal of obsolete scratch/temp assets older than N days while strictly preserving `mesh/mesh.glb` lineage.
 - `POST /api/v1/system/jobs/queue/reorder`: Reorder queued jobs by priority list without interrupting active worker tasks or single-GPU lock.
 - `POST /api/v1/system/jobs/{job_id}/cancel`: Cancel a pending or running job directly via scheduler state machine.
 
@@ -629,7 +640,7 @@ official/vendored model pipeline
         ↓
 high-fidelity supported extraction
         ↓
-immutable master/source.glb
+immutable mesh/mesh.glb
 ```
 
 Quality-critical extraction settings are aligned to the current upstream implementation wherever possible. Hardware safety guards may downshift a request only when the configured density would be unsafe on the available GPU.
@@ -768,12 +779,12 @@ bash -n manager.sh backend/scripts/*.sh scripts/*.sh
 
 ForMesh3D operates on a direct, model-native mesh delivery pipeline. Successful neural generation jobs persist canonical output directly to the workspace layout under `backend/storage/<workspace_id>/`:
 
-Pipeline: MODEL INFERENCE -> canonical `master/source.glb` (SHA-256 pre-verification via `artifact_utils.py`) -> manifest projection (`manifest.json`) -> preview staging (`storage/temp/<operation_id>/`) -> user commit / discard lifecycle.
+Pipeline: MODEL INFERENCE -> canonical `mesh/mesh.glb` (SHA-256 pre-verification via `artifact_utils.py`) -> manifest projection (`manifest.json`) -> preview staging (`storage/temp/<operation_id>/`) -> user commit / discard lifecycle.
 
 - **Direct Extraction**: Generative models (Hunyuan3D-2.1, TRELLIS.2, Stable Fast 3D, TripoSG) export high-detail native geometry without lossy postprocessing.
 - **On-Demand Specialist Tools**: Advanced mesh processing (FastMesh Retopo, PartUV Unwrapping, SkinTokens Rigging) is executed on-demand via dedicated specialist endpoints and self-contained SSE streaming tools (`/api/v1/mesh-tools`).
 - **Dynamic Canonical Storage Resolution**: `canonical_asset_workspace()` dynamically resolves storage roots relative to project root or `backend/storage`, preventing directory nesting bugs across artifact delivery and storage mounts.
-- **Master Immutability Enforcement**: The SHA-256 hash of `master/source.glb` is recorded at generation time and guaranteed immutable; all derived tool executions write versioned child previews without mutating the base mesh.
+- **Master Immutability Enforcement**: The SHA-256 hash of `mesh/mesh.glb` is recorded at generation time and guaranteed immutable; all derived tool executions write versioned child previews without mutating the base mesh.
 
 The main runtime remains Python 3.10 + PyTorch 2.6.0 + CUDA 12.4.
 
@@ -795,7 +806,7 @@ Filesystem inputs are restricted to explicit asset roots by default; file upload
 
 ## Review Audit — Direct Model Delivery Boundary
 
-The current scheduler provides direct, high-fidelity model delivery. Generative model workers produce uncompromised native meshes, secured immediately under the immutable master checkpoint (`master/source.glb`) via `backend/core/utils/artifact_utils.py`. The job transitions cleanly to terminal completion with preview staging (`persistence_status = not_saved`), enabling instant 3D viewport inspection and explicit Keep or Discard user decisions.
+The current scheduler provides direct, high-fidelity model delivery. Generative model workers produce uncompromised native meshes, secured immediately under the immutable master checkpoint (`mesh/mesh.glb`) via `backend/core/utils/artifact_utils.py`. The job transitions cleanly to terminal completion with preview staging (`persistence_status = not_saved`), enabling instant 3D viewport inspection and explicit Keep or Discard user decisions.
 
 Workspace state is keyed by backend job ID and workspace ID. The backend model manifest is the source of truth for model readiness, capabilities, supported IO, VRAM reservation, and worker limits. Frontend model selectors consume the runtime model-details endpoint; static model definitions remain presentation fallbacks only.
 
@@ -820,7 +831,7 @@ The shared image-to-3D contract distinguishes the adapter's raw output from prod
 
 - An explicit positive top-level target-polycount (or the `-1` native sentinel) wins over nested model parameters and presets; `0` means "no explicit budget" and falls back to the intent preset. Native/Raw is requested with `intent=native` or `enable_postprocess=false`.
 - Native/Raw cannot auto-optimize or invoke adaptive shell remesh. Production budget optimization/remesh requires a positive target, and the workspace default does not create LODs from a raw request unless explicitly enabled.
-- `master/source.glb` remains the canonical immutable model-native artifact. Quality metadata records the adapter output SHA-256 and master SHA-256, marks whether they match, and fails the pipeline if the canonical master changes during downstream processing.
+- `mesh/mesh.glb` remains the canonical immutable model-native artifact. Quality metadata records the adapter output SHA-256 and master SHA-256, marks whether they match, and fails the pipeline if the canonical master changes during downstream processing.
 - Schema-v2 `raw_geometry_telemetry` persists source/reference-image identity and dimensions, adapter/checkpoint, effective inference parameters, inference wall time, CUDA per-device peak allocation/reservation when available, extraction-resolution status and downgrade warnings, native geometry counts, and recorded mesh operations. Requested settings are never relabeled as achieved resolution.
 - Hunyuan adapters only claim the configured octree resolution; achieved geometry resolution remains unknown when upstream does not expose it. TRELLIS.2 reports the actual returned cascade resolution.
 

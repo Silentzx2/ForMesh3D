@@ -34,7 +34,7 @@ def _safe_name(value: str) -> str:
 
 
 def _storage_root() -> Path:
-    root = get_storage_base_dir() / "models" / "meshes"
+    root = get_storage_base_dir()
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -52,33 +52,17 @@ def canonical_asset_workspace(
     generation_result: Dict[str, Any],
     job_inputs: Optional[Dict[str, Any]] = None,
 ) -> Path:
-    """Resolve the canonical workspace path used by jobs."""
+    """Resolve the canonical workspace path used by jobs.
+
+    One directory per job named `{workspace_id}` under `backend/storage/`.
+    Variant subdirectories — no `master/` or `game_ready/` directories. The mesh
+    lives at `{workspace_id}/mesh/mesh.glb`.
+    """
     job_inputs = job_inputs or {}
-    raw_candidate = (
-        generation_result.get("output_mesh_path")
-        or generation_result.get("mesh_path")
-        or generation_result.get("output_path")
-        or generation_result.get("file_path")
-    )
-    try:
-        raw_path = resolve_server_file_path(raw_candidate)
-    except Exception:
-        raw_path = raw_candidate
-    source_stem = (
-        job_inputs.get("asset_name")
-        or job_inputs.get("image_name")
-        or job_inputs.get("source_stem")
-        or job_inputs.get("original_filename")
-        or job_inputs.get("image_path")
-        or job_inputs.get("text_prompt")
-        or (Path(raw_path).stem if raw_path else "asset")
-    )
-    stem_val = Path(str(source_stem)).stem
-    if stem_val.startswith("upload_") and job_inputs.get("text_prompt"):
-        stem_val = str(job_inputs["text_prompt"])[:32]
-    asset_name = _safe_name(stem_val)
+    # workspace_id is the canonical directory name. asset_name is kept only
+    # in metadata for readability, never in the filesystem path.
     clean_job_id = _safe_name(job_id)
-    return _storage_root() / f"{asset_name}_{clean_job_id}"
+    return _storage_root() / clean_job_id
 
 
 def prepare_asset_job_workspace(source_path: Path | str, job_id: str) -> tuple[Path, Path]:
@@ -102,44 +86,34 @@ def prepare_asset_job_workspace(source_path: Path | str, job_id: str) -> tuple[P
         asset_root.mkdir(parents=True, exist_ok=True)
 
     asset_root.relative_to(meshes_root)
-    master_dir = asset_root / "master"
-    master_dir.mkdir(parents=True, exist_ok=True)
-    source_candidates = list(master_dir.glob("source.*"))
-    if source_candidates:
-        matching = [candidate for candidate in source_candidates if candidate.suffix.lower() == source.suffix.lower()]
-        if len(matching) == 1:
-            master_path = matching[0]
-        elif len(source_candidates) == 1:
-            master_path = source_candidates[0]
-        elif master_dir / "source.glb" in source_candidates:
-            master_path = master_dir / "source.glb"
-        else:
-            raise RuntimeError(f"Ambiguous immutable master in asset workspace: {asset_root}")
-    else:
-        master_path = master_dir / f"source{source.suffix.lower() or '.glb'}"
-        if source != master_path.resolve():
-            shutil.copy2(source, master_path)
+    # Write source mesh to mesh subdirectory: {workspace_id}/mesh/mesh.glb.
+    # Both uploaded and generated mesh use the same path logic.
+    mesh_dir = asset_root / "mesh"
+    mesh_dir.mkdir(parents=True, exist_ok=True)
+    mesh_path = mesh_dir / "mesh.glb"
+    if source != mesh_path.resolve():
+        shutil.copy2(source, mesh_path)
 
-    return asset_root, master_path
+    return asset_root, mesh_path
 
 
 def register_asset_job_manifest(
     asset_root: Path | str,
     job_id: str,
     source_path: Path | str,
-    master_path: Path | str,
+    mesh_path: Path | str,
     artifacts: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Path:
     """Persist a per-job artifact declaration without replacing the asset manifest."""
     root = Path(asset_root).resolve(strict=True)
     root.relative_to(_storage_root().resolve())
-    master = Path(master_path).resolve(strict=True)
-    master.relative_to(root)
+    mesh = Path(mesh_path).resolve(strict=True)
+    mesh.relative_to(root)
     source = Path(source_path).resolve(strict=True)
     try:
         source_ref = source.relative_to(root).as_posix()
     except ValueError:
-        source_ref = master.relative_to(root).as_posix()
+        source_ref = mesh.relative_to(root).as_posix()
 
     declared = {}
     for name, artifact in (artifacts or {}).items():
@@ -159,7 +133,7 @@ def register_asset_job_manifest(
         "job_id": job_id,
         "asset_root": str(root),
         "source_path": source_ref,
-        "master_path": master.relative_to(root).as_posix(),
+        "mesh_path": mesh.relative_to(root).as_posix(),
         "artifacts": declared,
     }
     _write_json(temporary_path, manifest_payload)

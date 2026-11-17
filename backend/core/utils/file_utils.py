@@ -726,7 +726,7 @@ class OutputPathGenerator:
     def __init__(self, base_output_dir: Optional[Union[str, Path]] = None):
         storage_base = get_storage_base_dir()
         if base_output_dir is None or str(base_output_dir).strip() in ("outputs", "./outputs", "storage", "./storage"):
-            self.base_output_dir = storage_base / "models"
+            self.base_output_dir = storage_base
         else:
             p = Path(base_output_dir)
             if not p.is_absolute():
