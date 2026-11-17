@@ -865,10 +865,11 @@ async def upload_image(
     workspace_id = ws_manager.mint_workspace_id(stem)
     asset_id = generate_asset_id()
 
-    ws_dir = ws_manager.create_workspace_tree(workspace_id)
-    input_dir = ws_dir / "input"
-    input_dir.mkdir(parents=True, exist_ok=True)
-    target_path = input_dir / f"source_image{file_ext}"
+    # Save uploaded image to temp storage under backend/storage/temp/upload_<uuid>/
+    # Workspace directory and mesh/mesh.glb will be created when mesh generation starts.
+    temp_upload_dir = get_storage_base_dir() / "temp" / f"upload_{asset_id}"
+    temp_upload_dir.mkdir(parents=True, exist_ok=True)
+    target_path = temp_upload_dir / f"source_image{file_ext}"
 
     max_size_bytes = MAX_IMAGE_UPLOAD_SIZE_MB * 1024 * 1024
     total_bytes = 0
@@ -901,7 +902,7 @@ async def upload_image(
         file_size_mb = total_bytes / (1024 * 1024)
         sha256 = digest.hexdigest()
 
-        # Database records
+        # Database records — workspace dir created on mesh gen, not on upload
         db = DatabaseManager()
         db.create_workspace(
             workspace_id=workspace_id,
@@ -912,7 +913,7 @@ async def upload_image(
             asset_id=asset_id,
             workspace_id=workspace_id,
             file_type="image",
-            relative_path=f"input/source_image{file_ext}",
+            relative_path=f"temp/upload_{asset_id}/source_image{file_ext}",
             original_filename=file.filename,
             byte_size=total_bytes,
             sha256=sha256,

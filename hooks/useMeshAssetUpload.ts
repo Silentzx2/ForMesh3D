@@ -85,7 +85,7 @@ export function useMeshAssetUpload() {
 
     // Reflect the uploaded mesh in the URL so it's bookmarkable: /workspace/generate/<name>_<hash>
     if (typeof window !== 'undefined') {
-      window.history.replaceState(null, '', `/workspace/generate/${friendlyLocalId}`);
+      // URL route change on upload removed per user request - stay on current page
     }
 
     setState({ status: 'uploading', fileName: file.name, loadedBytes: 0, totalBytes: file.size, percent: 0, error: null });
