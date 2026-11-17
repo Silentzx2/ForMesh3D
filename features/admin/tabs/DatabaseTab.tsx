@@ -583,7 +583,7 @@ export function DatabaseTab() {
                       <span className="text-xs font-mono text-[hsl(var(--muted-foreground))]">{info.size_mb} MB ({info.percent}%)</span>
                     </div>
                     <div className="w-full h-1.5 bg-[hsl(var(--border)/0.3)] rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full transition-all duration-300 ${cat === 'mesh' ? 'bg-emerald-500' : 'bg-[hsl(var(--primary))]'}`} style={{ width: `${Math.min(info.percent ?? 0, 100)}%` }} /></div>
+                      <div className={`h-full rounded-full transition-all duration-300 ${cat === 'mesh' ? 'bg-emerald-500' : 'bg-[hsl(var(--primary))]'}`} style={{ width: `${Math.min(info.percent ?? 0, 100)}%` }} />
                     </div>
                   </div>
                 ))}
