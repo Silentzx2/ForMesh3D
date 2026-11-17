@@ -21,7 +21,7 @@ import { loadGLBWithProgress } from '../lib/glbCache';
 
 import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { RefreshCw, SparklesIcon } from '@hugeicons/core-free-icons';
+import { RefreshCw, SparklesIcon, AlertCircle } from '@hugeicons/core-free-icons';
 
 // Setup shared loaders with Draco and Meshopt decompression
 const dracoLoader = new DRACOLoader();
@@ -247,6 +247,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const [retryKey, setRetryKey] = useState(0);
   const [isComparisonLoading, setIsComparisonLoading] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [webglError, setWebglError] = useState<string | null>(null);
 
   const handleRetryLoad = useCallback(() => {
     setLoadError(null);
@@ -306,12 +307,22 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     cameraRef.current = camera;
 
     // Renderer with preserveDrawingBuffer enabled for high-res snapshot capture
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: true,
-      preserveDrawingBuffer: true,
-      powerPreference: 'high-performance',
-    });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+        preserveDrawingBuffer: true,
+        powerPreference: 'high-performance',
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown WebGL error';
+      setWebglError(msg);
+      rendererRef.current = null;
+      console.error('[MeshViewer] WebGL context creation failed:', msg);
+      return;
+    }
+
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -322,6 +333,17 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     rendererRef.current = renderer;
 
     container.appendChild(renderer.domElement);
+
+    // WebGL context loss / restore handling
+    const handleContextLost = (event: Event) => {
+      event.preventDefault();
+      setWebglError('WebGL context was lost');
+    };
+    const handleContextRestored = () => {
+      setWebglError(null);
+    };
+    renderer.domElement.addEventListener('webglcontextlost', handleContextLost);
+    renderer.domElement.addEventListener('webglcontextrestored', handleContextRestored);
 
     // OrbitControls
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -439,6 +461,8 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     return () => {
       cancelAnimationFrame(animId);
       resizeObserver.disconnect();
+      renderer.domElement.removeEventListener('webglcontextlost', handleContextLost);
+      renderer.domElement.removeEventListener('webglcontextrestored', handleContextRestored);
       if (renderer.domElement.parentElement) {
         renderer.domElement.parentElement.removeChild(renderer.domElement);
       }
@@ -1377,6 +1401,29 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           : 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
       }}
     >
+      {/* WebGL unavailable fallback — shown when the renderer cannot create a context */}
+      {webglError && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-6 bg-black/80 text-white text-center">
+          <HugeiconsIcon icon={AlertCircle} size={32} className="text-[#F9CF00] mb-3" />
+          <h3 className="text-lg font-semibold mb-2">WebGL not available</h3>
+          <p className="text-sm text-zinc-300 max-w-xs mb-4">
+            The 3D viewport could not initialize because WebGL context creation failed.
+            <br />
+            {webglError}
+          </p>
+          <p className="text-xs text-zinc-500 mb-4">
+            Try updating your graphics drivers, enabling WebGL in your browser, or using
+            a different browser.
+          </p>
+          <button
+            type="button"
+            onClick={() => setWebglError(null)}
+            className="px-4 py-1.5 rounded-lg bg-[#F9CF00] text-[#080808] font-semibold hover:bg-[#FFE04D] transition-colors cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
       {/* Snapshot Button — top-left of viewport */}
       <div className="absolute top-3 left-3 z-50 flex gap-1 pointer-events-auto">
         <button
