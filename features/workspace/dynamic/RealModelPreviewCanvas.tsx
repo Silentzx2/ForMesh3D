@@ -58,15 +58,19 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
     const camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 50);
     camera.position.set(0, 0.4, 3.2);
 
-    let renderer: THREE.WebGLRenderer;
-    try {
-      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, failIfMajorPerformanceCaveat: false });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown WebGL error';
+    // Pre-check WebGL availability before constructing the renderer (getContext
+    // returns null silently when WebGL is disabled/sandboxed — no throw, no
+    // Three.js console spam).
+    const webglProbe = document.createElement('canvas');
+    const webglContext =
+      webglProbe.getContext('webgl') || webglProbe.getContext('webgl2');
+    if (!webglContext) {
+      const msg = 'WebGL context is not available in this browser/environment.';
       setWebglError(msg);
-      console.error('[RealModelPreviewCanvas] WebGL context creation failed:', msg);
+      console.warn('[RealModelPreviewCanvas] WebGL not available:', msg);
       return;
     }
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     renderer.setSize(w, h);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     el.appendChild(renderer.domElement);

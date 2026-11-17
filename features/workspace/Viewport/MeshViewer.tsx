@@ -308,11 +308,21 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     cameraRef.current = camera;
 
     // Renderer with preserveDrawingBuffer enabled for high-res snapshot capture.
-    // failIfMajorPerformanceCaveat: false lets the renderer fall back to a
-    // software/compositor context instead of throwing when hardware WebGL is
-    // disabled or sandboxed (e.g. VENDOR = 0xffff, GL_RENDERER = Disabled).
-    // powerPreference omitted so the browser picks any available GPU instead of
-    // forcing high-performance which may not exist in a sandboxed env.
+    // Pre-check WebGL availability with an offscreen canvas BEFORE constructing
+    // WebGLRenderer. getContext() returns null silently when WebGL is disabled,
+    // blacklisted, or sandboxed — no throw, no Three.js console spam. Only call
+    // the constructor when a context is actually available; keep try/catch as a
+    // safety net for any other constructor failure.
+    const webglProbe = document.createElement('canvas');
+    const webglContext =
+      webglProbe.getContext('webgl') || webglProbe.getContext('webgl2');
+    if (!webglContext) {
+      const msg = 'WebGL context is not available in this browser/environment.';
+      setWebglError(msg);
+      rendererRef.current = null;
+      console.warn('[MeshViewer] WebGL not available:', msg);
+      return;
+    }
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({

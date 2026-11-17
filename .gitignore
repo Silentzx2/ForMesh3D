@@ -62,6 +62,7 @@ scripts/.cloudflare_tunnels/*.url
 artifact/
 .agent/
 .agents_tmp/
+.claude/
 # OS
 .DS_Store
 Thumbs.db

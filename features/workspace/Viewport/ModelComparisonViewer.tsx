@@ -328,15 +328,18 @@ export const ModelComparisonViewer: React.FC<ModelComparisonViewerProps> = ({
   useEffect(() => {
     containerRefs.forEach((containerRef, index) => {
       if (containerRef && !renderers[index]) {
-        let renderer: THREE.WebGLRenderer;
-        try {
-          renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, failIfMajorPerformanceCaveat: false });
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : 'Unknown WebGL error';
+        // Pre-check WebGL availability before constructing the renderer
+        // (getContext returns null silently when WebGL is disabled/sandboxed).
+        const webglProbe = document.createElement('canvas');
+        const webglContext =
+          webglProbe.getContext('webgl') || webglProbe.getContext('webgl2');
+        if (!webglContext) {
+          const msg = 'WebGL context is not available in this browser/environment.';
           setError(msg);
-          console.error('[ModelComparisonViewer] WebGL context creation failed:', msg);
+          console.warn('[ModelComparisonViewer] WebGL not available:', msg);
           return;
         }
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setPixelRatio(window.devicePixelRatio || 1);
         renderer.setSize(containerRef.clientWidth, containerRef.clientHeight);
         containerRef.appendChild(renderer.domElement);
