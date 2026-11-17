@@ -115,44 +115,6 @@ image_to_raw_mesh:
       multi_gpu: true
       multi_gpu_strategy: accelerate_component_dispatch
     model_type: mesh
-  trellis_image_to_raw_mesh:
-    model_name: "TRELLIS \u2014 Image to Raw Mesh"
-    ui_label: TRELLIS
-    ui_tag: Raw Mesh
-    ui_note: Stable production model with PBR texture bake
-    ui_badge: 12GB VRAM
-    enabled: true
-    upstream_repository: https://github.com/microsoft/TRELLIS
-    upstream_ref: null
-    checkpoint_license: unverified
-    vram_requirement: 11776
-    max_workers: 1
-    supported_inputs:
-    - image
-    supported_outputs:
-    - glb
-    - obj
-    model_path: backend/pretrained/TRELLIS
-    capabilities:
-      raw_mesh: true
-      texture_generation: true
-      image_to_3d: true
-      supports_quad_topology: false
-      default_topology: Triangle
-      min_polycount: 500
-      max_polycount: 1000000
-      default_polycount: 50000
-      polycount_step: 2500
-      output_resolution: null
-      supported_texture_resolutions:
-      - '512'
-      - 1K
-      - 2K
-      - 4K
-      default_texture_resolution: 2K
-      multi_gpu: true
-      multi_gpu_strategy: accelerate_component_dispatch
-    model_type: mesh
   trellis_image_to_3d:
     model_name: "TRELLIS \u2014 Image to 3D"
     ui_label: TRELLIS
@@ -233,51 +195,6 @@ image_to_raw_mesh:
     - glb
     - obj
     model_path: backend/pretrained/Pixal3D
-    capabilities:
-      raw_mesh: true
-      texture_generation: false
-      image_to_3d: true
-    model_type: mesh
-  pixal3d_image_to_3d:
-    model_name: "Pixal3D \u2014 Image to 3D"
-    ui_label: Pixal3D
-    ui_tag: Experimental
-    ui_note: Disabled per user direction
-    ui_badge: 18GB VRAM
-    enabled: false
-    alias_of: pixal3d_image_to_raw_mesh
-    upstream_repository: https://github.com/TencentARC/Pixal3D
-    checkpoint_license: unverified
-    vram_requirement: 18432
-    max_workers: 1
-    supported_inputs:
-    - image
-    supported_outputs:
-    - glb
-    - obj
-    model_path: backend/pretrained/Pixal3D
-    capabilities:
-      raw_mesh: true
-      texture_generation: false
-      image_to_3d: true
-    model_type: mesh
-  trellis2_image_to_raw_mesh:
-    model_name: "TRELLIS.2 \u2014 Image to Raw Mesh"
-    ui_label: TRELLIS.2
-    ui_tag: Not Stable
-    ui_note: Disabled per user direction
-    ui_badge: 24GB VRAM
-    enabled: false
-    upstream_repository: https://github.com/microsoft/TRELLIS.2
-    checkpoint_license: unverified
-    vram_requirement: 23552
-    max_workers: 1
-    supported_inputs:
-    - image
-    supported_outputs:
-    - glb
-    - obj
-    model_path: backend/pretrained/TRELLIS.2
     capabilities:
       raw_mesh: true
       texture_generation: false
@@ -365,59 +282,6 @@ image_to_textured_mesh:
       supports_delighting: true
       low_vram_supported: true
       multi_gpu: false
-    model_type: mesh
-  trellis_image_to_textured_mesh:
-    model_name: "TRELLIS \u2014 Legacy Textured Mesh Alias"
-    ui_label: TRELLIS
-    ui_tag: Legacy Alias
-    ui_note: Routes to TRELLIS geometry
-    ui_badge: 12GB VRAM
-    enabled: true
-    alias_of: trellis_image_to_3d
-    deprecated: true
-    upstream_repository: https://github.com/microsoft/TRELLIS
-    checkpoint_license: unverified
-    vram_requirement: 11776
-    max_workers: 1
-    supported_inputs:
-    - image
-    supported_outputs:
-    - glb
-    - obj
-    model_path: backend/pretrained/TRELLIS
-    capabilities:
-      raw_mesh: true
-      texture_generation: false
-      image_to_3d: true
-      supports_quad_topology: false
-      supported_texture_resolutions:
-      - 1K
-      - 2K
-      default_texture_resolution: 2K
-    model_type: mesh
-  trellis2_image_to_textured_mesh:
-    model_name: "TRELLIS.2 \u2014 Legacy Textured Mesh Alias"
-    ui_label: TRELLIS.2
-    ui_tag: Disabled
-    ui_note: Disabled per user direction
-    ui_badge: 24GB VRAM
-    enabled: false
-    alias_of: trellis2_image_to_3d
-    deprecated: true
-    upstream_repository: https://github.com/microsoft/TRELLIS.2
-    checkpoint_license: unverified
-    vram_requirement: 23552
-    max_workers: 1
-    supported_inputs:
-    - image
-    supported_outputs:
-    - glb
-    - obj
-    model_path: backend/pretrained/TRELLIS.2
-    capabilities:
-      raw_mesh: true
-      texture_generation: false
-      image_to_3d: true
     model_type: mesh
 image_mesh_painting:
   hunyuan3d_paint_v21_image_mesh_painting:
