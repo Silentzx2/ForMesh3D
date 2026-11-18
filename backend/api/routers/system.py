@@ -1800,6 +1800,16 @@ async def download_job_result(
                                 filename=filename or cand.name,
                                 media_type=get_content_type_for_file(str(cand)),
                             )
+            # Direct fallback: generated mesh is saved at <workspace_id>/mesh/mesh.glb
+            # by the scheduler. asset_root/output_mesh_path may not be in Redis when
+            # job_id is actually a workspace_id (frontend passes workspace_id as job_id).
+            direct_mesh_path = storage_base / ws.workspace_id / "mesh" / "mesh.glb"
+            if direct_mesh_path.is_file() and direct_mesh_path.is_relative_to(storage_base):
+                return FileResponse(
+                    path=str(direct_mesh_path),
+                    filename=filename or "mesh.glb",
+                    media_type=get_content_type_for_file(str(direct_mesh_path)),
+                )
             raise HTTPException(status_code=404, detail="Job not found")
 
         if job_status.get("status") != "completed":
