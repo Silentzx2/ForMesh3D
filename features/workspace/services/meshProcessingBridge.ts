@@ -48,7 +48,7 @@ export const DEFAULT_SCRIPTS: ScriptDefinition[] = [
     engine: 'script',
     description: 'Fast CPU-based isotropic remesher with curvature-adaptive surface drift gates.',
     requiresGpu: false,
-    endpoint: '/api/v1/mesh-tools/auto-retopo',
+    endpoint: '/api/v1/retopo',
     defaultParams: { target_faces: 50000, quads: true, watertight: false, adaptive: true },
   },
 
@@ -70,7 +70,7 @@ export const DEFAULT_SCRIPTS: ScriptDefinition[] = [
     engine: 'script',
     description: 'Ultra-fast, zero-GPU seam generation and non-overlapping chart packing.',
     requiresGpu: false,
-    endpoint: '/api/v1/mesh-tools/auto-uv',
+    endpoint: '/api/v1/unwrap',
     defaultParams: { resolution: 2048, padding_texels: 4, method: 'xatlas' },
   },
   {
@@ -80,7 +80,7 @@ export const DEFAULT_SCRIPTS: ScriptDefinition[] = [
     engine: 'script',
     description: 'Headless Blender operator projecting islands based on dihedral angle thresholds.',
     requiresGpu: false,
-    endpoint: '/api/v1/mesh-tools/auto-uv',
+    endpoint: '/api/v1/unwrap',
     defaultParams: { resolution: 2048, padding_texels: 4, method: 'auto', max_cone_deg: 66.0 },
   },
 
@@ -102,7 +102,7 @@ export const DEFAULT_SCRIPTS: ScriptDefinition[] = [
     engine: 'script',
     description: 'Curvature, thickness SDF and connected component part clustering on CPU.',
     requiresGpu: false,
-    endpoint: '/api/v1/mesh-tools/segment',
+    endpoint: '/api/v1/segment',
     defaultParams: { num_parts: 8 },
   },
 ];
@@ -185,10 +185,10 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
 
       const scriptDef = scriptId ? SCRIPT_REGISTRY.get(scriptId) : undefined;
       const endpoint = scriptDef?.endpoint ?? (tool === 'remesh'
-        ? '/api/v1/mesh-tools/auto-retopo'
+        ? '/api/v1/retopo'
         : tool === 'uv'
-        ? '/api/v1/mesh-tools/auto-uv'
-        : '/api/v1/mesh-tools/segment');
+        ? '/api/v1/unwrap'
+        : '/api/v1/segment');
 
       // Format options payload according to backend schema.
       // Start from the registered script's defaults (algorithm sub-state), then let

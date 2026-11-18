@@ -318,7 +318,6 @@ app.include_router(database.router, prefix="/api/v1/system/database", tags=["Dat
 app.include_router(file_upload.router, prefix="/api/v1", tags=["File Upload"])
 
 app.include_router(mesh_generation.router, prefix="/api/v1", tags=["Mesh Generation"])
-app.include_router(mesh_tools.router, prefix="/api/v1", tags=["Mesh Tools"])
 
 app.include_router(auto_rigging.router, prefix="/api/v1", tags=["Auto Rigging"])
 

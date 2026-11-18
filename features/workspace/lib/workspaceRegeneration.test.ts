@@ -24,7 +24,7 @@ describe('workspace regeneration request', () => {
     };
     assert.throws(() => createWorkspaceRegenerationRequest(snapshot, '', 'op_123'), /identities/);
     assert.throws(() => createWorkspaceRegenerationRequest({
-      ...snapshot, endpoint: '/api/v1/mesh-tools/remesh',
+      ...snapshot, endpoint: '/api/v1/retopo',
     }, 'rabbit_a82f31', 'op_123'), /does not support/);
   });
 });

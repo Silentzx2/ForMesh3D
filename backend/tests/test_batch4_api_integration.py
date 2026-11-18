@@ -27,7 +27,6 @@ from api.routers import (
     mesh_generation,
     mesh_retopology,
     mesh_segmentation,
-    mesh_tools,
     mesh_uv_unwrapping,
     motion_generation,
     system,
@@ -144,10 +143,9 @@ def batch4_app_client(tmp_path, monkeypatch):
     test_app.include_router(mesh_generation.router, prefix="/api/v1")
     test_app.include_router(auto_rigging.router, prefix="/api/v1")
     test_app.include_router(mesh_retopology.router, prefix="/api/v1")
-    test_app.include_router(mesh_uv_unwrapping.router, prefix="/api/v1")
     test_app.include_router(mesh_segmentation.router, prefix="/api/v1")
+    test_app.include_router(mesh_uv_unwrapping.router, prefix="/api/v1")
     test_app.include_router(motion_generation.router, prefix="/api/v1")
-    test_app.include_router(mesh_tools.router, prefix="/api/v1")
 
     client = TestClient(test_app)
 
@@ -659,19 +657,6 @@ def test_b4_t3_auto_rigging_operation_and_prerequisites(batch4_app_client):
     assert op is not None
     assert op.operation_type == "rigging"
     assert op.workspace_id == ws_id
-
-
-def test_b4_t3_mesh_tools_format_validation(batch4_app_client):
-    """Verify mesh_tools rejects unsupported file formats."""
-    client = batch4_app_client["client"]
-
-    # Upload invalid file extension (.xyz)
-    resp = client.post(
-        "/api/v1/mesh-tools/inspect",
-        files={"meshFile": ("test.xyz", b"some random data", "application/octet-stream")},
-    )
-    assert resp.status_code == 400
-    assert "Unsupported mesh format" in resp.text
 
 
 def test_b4_t3_keep_and_discard_api_endpoints(batch4_app_client):
