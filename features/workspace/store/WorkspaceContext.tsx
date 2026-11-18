@@ -546,7 +546,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const a = normalizeModelAsset(rawItem);
         // Add prefix to IDs to prevent collisions (MED-002)
         if (local.includes(rawItem as any)) {
-          if (!a.id.startsWith('local_')) a.id = `local_${a.id}`;
+          // Preserve operation previews and canonical asset IDs across refreshes.
+          if (!a.id.startsWith('local_') && !a.id.startsWith('preview_') && !a.id.startsWith('ast_')) {
+            a.id = `local_${a.id}`;
+          }
         } else if (uploaded.includes(rawItem as any)) {
           if (!a.id.startsWith('upload_')) a.id = `upload_${a.id}`;
         } else if (history.includes(rawItem as any)) {
@@ -900,7 +903,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const cleanStem = (asset.name || 'mesh').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
     const shortHash = (asset.id || crypto.randomUUID()).replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(asset.id);
-    const finalId = asset.id.startsWith('local_') || asset.id.startsWith('ast_')
+    const finalId = asset.id.startsWith('local_') || asset.id.startsWith('ast_') || asset.id.startsWith('preview_')
       ? asset.id
       : (asset.id.startsWith('job-') || asset.id.startsWith('upload_') || asset.id.startsWith('hist_')
           ? asset.id
