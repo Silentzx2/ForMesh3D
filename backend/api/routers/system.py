@@ -1760,19 +1760,26 @@ async def download_job_result(
             from core.scheduler.database_manager import DatabaseManager
             db = DatabaseManager()
             ws = db.get_workspace(job_id)
+            storage_base = get_storage_base_dir().resolve()
+            asset = None
             if ws and ws.active_mesh_asset_id:
-                asset = db.get_asset(ws.active_mesh_asset_id)
+                active_asset = db.get_asset(ws.active_mesh_asset_id)
+                if active_asset and active_asset.file_type == "mesh":
+                    asset = active_asset
+            if asset and ws:
+                file_path = (storage_base / ws.workspace_id / asset.relative_path).resolve()
+                if file_path.is_file() and file_path.is_relative_to(storage_base):
+                    return FileResponse(
+                        path=str(file_path),
+                        filename=filename or asset.original_filename,
+                        media_type=get_content_type_for_file(str(file_path)),
+                    )
             elif ws and ws.source_asset_id:
-                asset = db.get_asset(ws.source_asset_id)
-                if asset:
-                    storage_base = get_storage_base_dir().resolve()
-                    file_path = (storage_base / ws.workspace_id / asset.relative_path).resolve()
-                    if file_path.is_file() and file_path.is_relative_to(storage_base):
-                        return FileResponse(
-                            path=str(file_path),
-                            filename=filename or asset.original_filename,
-                            media_type=get_content_type_for_file(str(file_path)),
-                        )
+                source_asset = db.get_asset(ws.source_asset_id)
+                if source_asset and source_asset.file_type == "image":
+                    source_path = Path(source_asset.relative_path).resolve()
+                    if source_path.is_file() and not source_path.is_relative_to(storage_base):
+                        return FileResponse(path=str(source_path), filename=filename or source_asset.original_filename, media_type=get_content_type_for_file(str(source_path)))
             asset = db.get_asset(job_id)
             if asset:
                 storage_base = get_storage_base_dir().resolve()
@@ -1800,8 +1807,8 @@ async def download_job_result(
             # Direct fallback: generated mesh is saved at <workspace_id>/mesh/mesh.glb
             # by the scheduler. asset_root/output_mesh_path may not be in Redis when
             # job_id is actually a workspace_id (frontend passes workspace_id as job_id).
-            direct_mesh_path = storage_base / ws.workspace_id / "mesh" / "mesh.glb"
-            if direct_mesh_path.is_file() and direct_mesh_path.is_relative_to(storage_base):
+            direct_mesh_path = (storage_base / ws.workspace_id / "mesh" / "mesh.glb") if ws else None
+            if direct_mesh_path and direct_mesh_path.is_file() and direct_mesh_path.is_relative_to(storage_base):
                 return FileResponse(
                     path=str(direct_mesh_path),
                     filename=filename or "mesh.glb",
@@ -1989,7 +1996,9 @@ async def download_job_result(
                 target_ext = "obj" if canonical_format == "quad_obj" else canonical_format
                 # First preference: {workspace_id}/mesh/mesh.glb
                 candidate = asset_root_path / "mesh" / f"mesh.{target_ext}"
-                if not candidate.exists():
+                if candidate.is_file():
+                    output_path = candidate
+                else:
                     candidate = None
             elif canonical_format in {"glb", "gltf", "obj", "stl", "ply", "quad_obj"}:
                 target_ext = "obj" if canonical_format == "quad_obj" else canonical_format
