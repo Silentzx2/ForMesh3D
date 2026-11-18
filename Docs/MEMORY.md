@@ -15,7 +15,7 @@
   - `smart_uv.py`: Blender Smart Project and XAtlas / Trimesh for non-overlapping UV chart packing.
   - `segment.py`: Connected-component decomposition and spatial PCA clustering with vivid viewport colorization (pure numpy, zero scipy dependency).
   - `mesh_utils.py`: Safe format conversion, Truthful geometric stats, and bounded subprocess execution with density safety capping via `mesh_guard.py`.
-- **FastAPI Endpoints**: `/api/v1/mesh-tools/auto-retopo`, `/auto-uv`, and `/segment` stream real-time SSE progress events and register operations in SQLite queue.
+- **FastAPI Endpoints**: Removed `/api/v1/mesh-tools/auto-retopo`, `/auto-uv`, and `/segment` SSE endpoints; pending replacement pipeline.
 - **Workspace Preview & Action Bar Lifecycle**:
   - Unsaved preview meshes stage in `storage/temp/<operation_id>/` and stream via `/api/v1/workspace/operations/{operation_id}/preview`.
   - Keep commits the preview into an immutable workspace asset; Discard cleans the temporary directory and restores viewer baseline.

@@ -8,7 +8,7 @@
 
 ## ADR-105: Script Engine End-to-End Execution for Retopo, Smart UV, and Segment (2026-11-16)
 
-**Context:** The UI studio supported switching between Neural AI and Script engines, but mesh-tools endpoints (`/auto-retopo`, `/auto-uv`, `/segment`) returned placeholder service rebuilding events. Furthermore, in-memory object URLs bypassed durable SQLite operation identity, preventing the Operation Action Bar from supporting Keep/Discard workflows.
+**Context:** The UI studio supported switching between Neural AI and Script engines, but mesh-tools endpoints returned placeholder service rebuilding events. Furthermore, in-memory object URLs bypassed durable SQLite operation identity, preventing the Operation Action Bar from supporting Keep/Discard workflows.
 
 **Decision:**
 1. **Flat Backend Pipeline Architecture**: Added `backend/pipelines/retopo.py`, `smart_uv.py`, `segment.py`, and cohesive `mesh_utils.py` with density safety capping through `mesh_guard.py`.

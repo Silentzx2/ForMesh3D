@@ -19,9 +19,8 @@
 
 ## 2026-11-16 — Script Engine for Mesh Tools: Retopo, Smart UV & Segment
 
-- **End-to-End Execution**: Connected the existing Script Engine for Retopo, Smart UV, and Segment across UI panels, bridge (`meshProcessingBridge.ts`), FastAPI endpoints, and SQLite workspace lifecycle.
-- **Flat Backend Pipelines**: Added `backend/pipelines/retopo.py`, `smart_uv.py`, `segment.py`, and `mesh_utils.py` with density safety capping (`mesh_guard.py`). Retopo supports QuadriFlow & Trimesh decimation; UV supports Blender Smart Project & XAtlas; Segment supports connected components and spatial PCA clustering with vivid viewport colorization.
-- **FastAPI SSE Streaming**: Replaced rebuilding placeholders at `/api/v1/mesh-tools/auto-retopo`, `/auto-uv`, and `/segment` with real-time SSE progress streaming and operation registration.
+- **Mesh Tools Module Removed**: All `/api/v1/mesh-tools/*` endpoints removed from codebase. Deleted `backend/api/routers/mesh_tools.py` and removed all route registrations from `main_multiworker.py`, `main_singleworker.py`, `routers/__init__.py`, `system.py`, test files, and frontend `meshProcessingBridge.ts`.
+- **Flat Backend Pipelines**: Retained `backend/pipelines/retopo.py`, `smart_uv.py`, `segment.py`, and `mesh_utils.py` with density safety capping (`mesh_guard.py`). Retopo supports QuadriFlow & Trimesh decimation; UV supports Blender Smart Project & XAtlas; Segment supports connected components and spatial PCA clustering.
 - **Workspace Preview & Action Bar Lifecycle**: Staged outputs in `storage/temp/<operation_id>/`, served via `/api/v1/workspace/operations/{operation_id}/preview`. Keep persists an immutable workspace asset version; Discard purges temp preview and restores viewer baseline.
 
 ## 2026-11-15 — Canonical Workspace API Consolidation

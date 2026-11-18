@@ -39,7 +39,7 @@ Creating production 3D assets typically demands expensive commercial suites, man
 - **Smart UV Unwrapping**: Automated UV island generation and packing via PartUV and xatlas.
 - **Auto-Rigging**: Armature generation powered by SkinTokens.
 - **Motion Generation**: Text-to-motion generation via ARDY, outputting playable Three.js JSON animations.
-- **Specialist Tools API**: Standalone SSE streaming router (`/api/v1/mesh-tools`) for format validation and real-time event streaming.
+- **Specialist Tools API**: Removed `/api/v1/mesh-tools` standalone SSE streaming router for format validation and real-time event streaming. Specialist tools retired pending new pipeline implementation.
 
 ### 4. Interactive 3D Viewport & Workspace
 - **Viewport Engine**: Three.js WebGL viewport with 7 shading modes (`textured`, `solid`, `clay`, `matcap-gold`, `matcap-chrome`, `uv-checker`, `wireframe`).

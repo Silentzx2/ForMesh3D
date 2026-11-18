@@ -782,7 +782,7 @@ ForMesh3D operates on a direct, model-native mesh delivery pipeline. Successful 
 Pipeline: MODEL INFERENCE -> canonical `mesh/mesh.glb` (SHA-256 pre-verification via `artifact_utils.py`) -> manifest projection (`manifest.json`) -> preview staging (`storage/temp/<operation_id>/`) -> user commit / discard lifecycle.
 
 - **Direct Extraction**: Generative models (Hunyuan3D-2.1, TRELLIS.2, Stable Fast 3D, TripoSG) export high-detail native geometry without lossy postprocessing.
-- **On-Demand Specialist Tools**: Advanced mesh processing (FastMesh Retopo, PartUV Unwrapping, SkinTokens Rigging) is executed on-demand via dedicated specialist endpoints and self-contained SSE streaming tools (`/api/v1/mesh-tools`).
+- **On-Demand Specialist Tools**: Advanced mesh processing retired pending new pipeline implementation.
 - **Dynamic Canonical Storage Resolution**: `canonical_asset_workspace()` dynamically resolves storage roots relative to project root or `backend/storage`, preventing directory nesting bugs across artifact delivery and storage mounts.
 - **Master Immutability Enforcement**: The SHA-256 hash of `mesh/mesh.glb` is recorded at generation time and guaranteed immutable; all derived tool executions write versioned child previews without mutating the base mesh.
 
@@ -812,7 +812,7 @@ Workspace state is keyed by backend job ID and workspace ID. The backend model m
 
 Each canonical asset manifest carries asset_id, job_id, optional parent_job_id, model/feature information, seed/settings, and SHA-256 input hashes for reproducibility.
 
-Mesh tools run inside the main FastAPI process under `/api/v1/mesh-tools/*`. There is no browser-direct or default-startup port 8200 sidecar. All specialist tools provide real-time SSE progress streaming.
+Mesh tools retired pending new pipeline implementation.
 
 ## 2026-10-08 Gap-Closure Audit
 
@@ -954,7 +954,7 @@ flowchart TD
     end
 
     subgraph Script Path ["Path B: Fast Algorithmic Script Mode (CPU / SSE)"]
-        Bridge -->|FormData + Options JSON| FastAPIScript["FastAPI Mesh Tools<br/>(/api/v1/mesh-tools/auto-retopo)<br/>(/api/v1/mesh-tools/auto-uv)<br/>(/api/v1/mesh-tools/segment)"]
+        Bridge -->|FormData + Options JSON| FastAPIScript["FastAPI Script Mode<br/>(/api/v1/script/auto-retopo)<br/>(/api/v1/script/auto-uv)<br/>(/api/v1/script/segment)"]
         FastAPIScript --> Algorithmic["Zero-GPU Algorithms<br/>(Trimesh Taubin, XAtlas, Blender Smart UV)"]
         Algorithmic --> SSEStream["Direct SSE Progress Stream<br/>(Real-time chunks & Base64 GLB)"]
     end
@@ -975,7 +975,7 @@ flowchart TD
    - Managed by the multiprocess scheduler with GPU memory reservation, model warm-up locks, and queued background tracking.
    - Result is durable, tracked in SQLite/Redis, and polled by `WorkspaceContext`.
 2. **Fast Algorithmic Script Mode (`engine: 'script'`)**:
-   - Executes direct CPU / algorithmic operations with zero GPU dependencies (`/api/v1/mesh-tools/auto-retopo`, `/api/v1/mesh-tools/auto-uv`, `/api/v1/mesh-tools/segment`).
+   - Executes direct CPU / algorithmic operations with zero GPU dependencies (`/api/v1/script/auto-retopo`, `/api/v1/script/auto-uv`, `/api/v1/script/segment`).
    - Streams live progress chunks via Server-Sent Events (SSE) (`data: {"type": "progress", "frac": 0.45}`).
    - Returns base64-encoded GLB geometry directly in terminal `done` event chunk, reconstructing local blobs instantly without file server polling delays.
    - Dynamic parameter passthrough: Target polycount budget, Quad vs Triangle topology, feature angles, adaptive density, target parts count (2–32), UV atlas resolution (1K/2K/4K), and island margin texels (2–16px).

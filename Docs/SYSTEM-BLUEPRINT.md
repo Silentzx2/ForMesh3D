@@ -40,7 +40,7 @@ graph TD
 
     subgraph Gateway["⚡ FastAPI Gateway (:7842)"]
         direction TB
-        ROUTER["Routers: mesh-generation, mesh-tools, system, file-upload"]:::cyan
+        ROUTER["Routers: mesh-generation, system, file-upload"]:::cyan
         QUEUE["Authoritative SQLite JobQueue (WAL)"]:::cyan
         SCHED["VRAM-Aware Model Scheduler"]:::cyan
     end

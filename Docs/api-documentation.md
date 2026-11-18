@@ -16,10 +16,9 @@
 5. [Mesh Generation APIs](#mesh-generation-apis)
 6. [Auto Rigging APIs](#auto-rigging-apis)
 7. [Motion Generation APIs](#motion-generation-apis)
-8. [Mesh Tools APIs](#mesh-tools-apis)
-9. [Mesh Segmentation APIs](#mesh-segmentation-apis)
-10. [Mesh Retopology APIs](#mesh-retopology-apis)
-11. [Mesh UV Unwrapping APIs](#mesh-uv-unwrapping-apis)
+8. [Mesh Segmentation APIs](#mesh-segmentation-apis)
+9. [Mesh Retopology APIs](#mesh-retopology-apis)
+10. [Mesh UV Unwrapping APIs](#mesh-uv-unwrapping-apis)
 12. [Users APIs](#users-apis)
 13. [Error Handling](#error-handling)
 14. [Deployment Modes](#deployment-modes)
@@ -938,23 +937,6 @@ GET /api/v1/motion/checkpoints
 
 ---
 
-## Mesh Tools APIs
-
-The migrated mesh-processing tools are exposed by the main FastAPI process. Browser requests use the same-origin `/api/v1` proxy; there is no direct port 8200 dependency.
-
-| Endpoint | Method | Contract |
-|---|---|---|
-| `/api/v1/mesh-tools/inspect` | POST | JSON game-ready inspection |
-| `/api/v1/mesh-tools/auto-uv` | POST | SSE mesh result |
-| `/api/v1/mesh-tools/auto-retopo` | POST | SSE mesh result |
-| `/api/v1/mesh-tools/repair` | POST | SSE mesh result |
-| `/api/v1/mesh-tools/optimize` | POST | JSON optimized mesh |
-| `/api/v1/mesh-tools/lods` | POST | JSON LOD set |
-| `/api/v1/mesh-tools/collision` | POST | SSE collision scene |
-| `/api/v1/mesh-tools/bake` | POST | SSE texture maps |
-| `/api/v1/mesh-tools/flatten` | POST | SSE texture map |
-| `/api/v1/mesh-tools/convert` | POST | SSE FBX result |
-| `/api/v1/mesh-tools/segment` | POST | SSE segmentation hierarchy |
 
 ### Production post-process retry
 

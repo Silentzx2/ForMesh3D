@@ -483,10 +483,8 @@ The FastAPI backend exposes a consolidated workspace API for generation, texture
 | `/api/v1/motion` | `POST` | Synthesize motion sequence into playable JSON |
 | `/api/v1/system/jobs/{job_id}` | `GET` | Durable job status and production progress polling |
 | `/api/v1/system/jobs/{job_id}/postprocess/retry` | `POST` | Retry production processing from immutable master |
-| `/api/v1/mesh-tools/*` | `POST` | In-process Auto UV, Retopo, Repair, Optimize, LOD, Collision, Bake, and Convert tools |
 
 ---
-
 ## 12. Verification & Test Suite
 
 ForMesh3D maintains unit and regression test suites across frontend and backend. Counts below reflect execution under conda environment `3daigc-api` and Bun:
