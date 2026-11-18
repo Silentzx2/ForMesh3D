@@ -498,6 +498,14 @@ def _find_job_workspace(job_id: str, raw_id: str, metadata: Optional[Dict]) -> O
                     possible_roots.append(parent)
                     break
 
+    # Canonical workspace mesh storage is keyed by workspace/job ID.
+    # Accept only exact safe IDs and require the canonical mesh to exist.
+    for identifier in (job_id, raw_id):
+        if re.fullmatch(r"[A-Za-z0-9_-]{1,128}", identifier):
+            workspace_root = models_root / identifier
+            if (workspace_root / "mesh" / "mesh.glb").is_file():
+                possible_roots.append(workspace_root)
+
     meshes_root = models_root / "meshes"
     if meshes_root.is_dir():
         for child in meshes_root.iterdir():
@@ -515,7 +523,7 @@ def _find_job_workspace(job_id: str, raw_id: str, metadata: Optional[Dict]) -> O
             if any(
                 (resolved_root / "metadata" / "jobs" / f"{id_val}.json").is_file()
                 for id_val in (job_id, raw_id)
-            ):
+            ) or (resolved_root.name in (job_id, raw_id) and (resolved_root / "mesh" / "mesh.glb").is_file()):
                 matching_roots.append(resolved_root)
                 continue
             manifest_file = resolved_root / "metadata" / "job.json"
