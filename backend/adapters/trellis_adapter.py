@@ -269,7 +269,27 @@ class _TrellisBaseAdapter(BaseModel):
                     import utils3d
                     import utils3d.torch
                 except Exception:
-                    pass
+                    # utils3d not installed — texture generation unavailable;
+                    # fall back to raw mesh instead of crashing.
+                    logger.warning(
+                        "TRELLIS texture generation skipped: utils3d not installed; "
+                        "returning raw mesh"
+                    )
+                    return {
+                        "success": True,
+                        "output_mesh_path": str(out),
+                        "mesh_path": str(out),
+                        "textured_mesh_path": None,
+                        "texture_enabled": False,
+                        "actual_face_count": len(tmesh.faces),
+                        "actual_vertex_count": len(tmesh.vertices),
+                        "generation_info": {
+                            "seed": seed,
+                            "texture_resolution": texture_resolution,
+                            "remesh_option": remesh_option,
+                            "native_target_polycount": native_target_polycount or None,
+                        },
+                    }
                 textured = self._paint_pipeline(
                     self._paint_app_rep, mesh, texture_size=texture_resolution
                 )
