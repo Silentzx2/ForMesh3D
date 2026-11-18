@@ -900,15 +900,10 @@ async def upload_image(
         file_size_mb = total_bytes / (1024 * 1024)
         sha256 = digest.hexdigest()
 
-        # Create workspace tree and stage image into <workspace_id>/input/
-        ws_dir = ws_manager.create_workspace_tree(workspace_id)
-        input_dir = ws_dir / "input"
-        final_image_path = input_dir / f"source_image{file_ext}"
-        shutil.copy2(target_path, final_image_path)
-        # Temp staging no longer needed; image lives in workspace input dir
-        shutil.rmtree(temp_upload_dir, ignore_errors=True)
-
-        # Database records — image stored in workspace input dir
+        # Image stays in temp staging; the workspace directory is created when
+        # the generation job starts (<workspace_id>/input/). No storage-root
+        # directory is created at upload time, so one job == one workspace dir.
+        # Database records — image stored in temp upload dir
         db = DatabaseManager()
         db.create_workspace(
             workspace_id=workspace_id,
@@ -919,18 +914,15 @@ async def upload_image(
             asset_id=asset_id,
             workspace_id=workspace_id,
             file_type="image",
-            relative_path=f"input/source_image{file_ext}",
+            relative_path=f"temp/upload_{asset_id}/source_image{file_ext}",
             original_filename=file.filename,
             byte_size=total_bytes,
             sha256=sha256,
         )
 
-        # Manifest projection
-        ws_manager.build_manifest_projection(workspace_id, db)
-
         # Register in file_store and manifest for backward compatibility
         file_info = {
-            "file_path": str(final_image_path),
+            "file_path": str(target_path),
             "original_filename": file.filename,
             "saved_filename": f"source_image{file_ext}",
             "file_size_mb": file_size_mb,

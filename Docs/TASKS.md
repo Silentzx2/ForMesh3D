@@ -287,6 +287,7 @@ mesh loaded → face count ≤ 2,000,000 → PASS (untouched)
 | Download variant that doesn't exist | 404: `"{format} artifact not found in workspace {job_id}"` |
 | Workspace already exists from previous job | Reused cleanly, new `mesh.glb` overwrites old |
 | Delete a job/workspace | Only `metadata/` removed; mesh & variant files remain (safe, no data loss) |
+| Image upload then generation on same job | Upload stages image to `temp/upload_<asset_id>/` only (no storage-root dir). Generation creates one `<workspace_id>/` and copies image to `<workspace_id>/input/source_image<ext>` — one workspace dir per job |
 
 ### Implementation Phases
 

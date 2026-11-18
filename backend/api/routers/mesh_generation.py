@@ -1175,7 +1175,16 @@ async def image_to_raw_mesh(
             operation_input_asset_id,
             operation_settings,
         )
-        ws_storage.create_workspace_tree(target_ws_id)
+        ws_dir = ws_storage.create_workspace_tree(target_ws_id)
+        # Stage the uploaded reference image into the workspace input dir so it
+        # lives next to the generated mesh: <workspace_id>/input/source_image<ext>
+        if image_file_path and Path(image_file_path).is_file():
+            _input_dir = ws_dir / "input"
+            _input_dir.mkdir(parents=True, exist_ok=True)
+            _img_ext = Path(image_file_path).suffix
+            _dst_img = _input_dir / f"source_image{_img_ext}"
+            if not _dst_img.exists():
+                shutil.copy2(image_file_path, _dst_img)
         if not db.get_workspace(target_ws_id):
             # Store model_preference in workspace settings for future identity matching
             import json as _json
