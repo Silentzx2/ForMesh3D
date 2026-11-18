@@ -2303,6 +2303,29 @@ class MultiprocessModelScheduler:
                         final_result["output_mesh_path"] = str(_dst)
                         final_result["mesh_path"] = str(_dst)
                         final_result["asset_root"] = str(canonical_root)
+                        # Register the durable generated mesh and make it the workspace active mesh.
+                        try:
+                            from core.scheduler.database_manager import DatabaseManager
+                            _db = DatabaseManager()
+                            _workspace_id = canonical_root.name
+                            _asset_id = f"ast_{uuid.uuid4().hex[:12]}"
+                            _digest = hashlib.sha256()
+                            with _dst.open("rb") as _mesh_handle:
+                                for _chunk in iter(lambda: _mesh_handle.read(1024 * 1024), b""):
+                                    _digest.update(_chunk)
+                            _mesh_asset = _db.add_asset(
+                                asset_id=_asset_id,
+                                workspace_id=_workspace_id,
+                                file_type="mesh",
+                                relative_path="mesh/mesh.glb",
+                                original_filename="mesh.glb",
+                                byte_size=_dst.stat().st_size,
+                                sha256=_digest.hexdigest(),
+                                operation_id=job_request.metadata.get("operation_id"),
+                            )
+                            _db.update_workspace_active_mesh(_workspace_id, _mesh_asset.asset_id)
+                        except Exception as _db_error:
+                            logger.warning(f"Failed to sync generated mesh asset to workspace DB: {_db_error}")
                 # The adapter output has now been copied to durable storage.
                 # Remove its private temp directory before persisting the job result.
                 self._cleanup_adapter_temporary_output(final_result, nested=False)
