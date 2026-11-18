@@ -86,8 +86,6 @@ async def system_status(
     memory = psutil.virtual_memory()
     disk = psutil.disk_usage("/")
 
-    mesh_tools_status = {"status": "rebuilding", "mode": "in_process", "routes_prefix": "/api/v1/mesh-tools"}
-
     status = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "system": {
@@ -108,7 +106,6 @@ async def system_status(
         "gpu": [],
         "models": {"loaded": 0, "available": 0, "total_vram_used": 0},
         "queue": {"pending_jobs": 0, "processing_jobs": 0, "completed_jobs": 0},
-        "mesh_tools": mesh_tools_status,
     }
 
     # Try to get GPU information

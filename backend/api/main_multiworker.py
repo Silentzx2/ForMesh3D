@@ -38,7 +38,6 @@ from .routers import (
     auto_rigging,
     database,
     file_upload,
-    mesh_tools,
     mesh_generation,
     mesh_retopology,
     mesh_segmentation,
