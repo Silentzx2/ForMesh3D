@@ -199,44 +199,6 @@ def _upload_manifest_path(file_id: str, file_type: str) -> Path:
     return storage_base / f"upload_{file_id}.json"
 
 
-def _write_upload_manifest(
-    file_id: str,
-    file_info: Dict,
-    manifest_path: Path,
-) -> None:
-    storage_base = get_storage_base_dir().resolve()
-    source_path = Path(file_info["file_path"]).resolve(strict=True)
-    try:
-        source_relative = source_path.relative_to(storage_base).as_posix()
-    except ValueError:
-        # File stored outside storage root (e.g. system temp during upload);
-        # keep absolute path so get_file_path_impl can resolve it later.
-        source_relative = source_path.as_posix()
-    manifest = {
-        "manifest_version": "1",
-        "asset_id": file_id,
-        "file_id": file_id,
-        "file_type": file_info["file_type"],
-        "durable": True,
-        "original_filename": file_info["original_filename"],
-        "original_format": file_info["original_format"],
-        "source_path": source_path.relative_to(storage_base).as_posix(),
-        "file_size_bytes": file_info["file_size_bytes"],
-        "file_size_mb": file_info["file_size_mb"],
-        "sha256": file_info["sha256"],
-        "upload_time": file_info["upload_time"],
-        "expires_at": None,
-        "is_available": True,
-    }
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = manifest_path.with_name(f"{manifest_path.name}.tmp")
-    try:
-        temporary_path.write_text(json.dumps(manifest), encoding="utf-8")
-        temporary_path.replace(manifest_path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
-
-
 def _read_upload_manifest(file_id: str) -> Optional[Dict]:
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", file_id):
         return None
@@ -478,6 +440,7 @@ async def get_file_path_impl(
     if disk_metadata and artifact_format is None:
         return disk_metadata.get("source_path") or disk_metadata.get("file_path")
 
+    # SQLite fallback: asset row stores relative_path (absolute path under storage/uploads/<asset_id>/)
     clean_id = file_id.removeprefix("job-")
     if re.fullmatch(r"[A-Za-z0-9_-]{1,128}", clean_id):
         workspace = _find_job_workspace(clean_id, file_id, metadata)
@@ -485,6 +448,21 @@ async def get_file_path_impl(
             resolved = _artifact_path(workspace, artifact_format or "glb", clean_id)
             if resolved:
                 return str(resolved)
+
+    # Last resort: direct asset lookup from SQLite
+    try:
+        from core.scheduler.database_manager import DatabaseManager
+        db = DatabaseManager()
+        asset = db.get_asset(clean_id)
+        if asset and asset.relative_path:
+            candidate = Path(asset.relative_path)
+            if not candidate.is_absolute():
+                candidate = get_storage_base_dir().resolve() / candidate
+            candidate = candidate.resolve(strict=False)
+            if candidate.is_file() and candidate.is_relative_to(get_storage_base_dir().resolve()):
+                return str(candidate)
+    except Exception:
+        pass
 
     if artifact_format is not None:
         return None
@@ -726,7 +704,6 @@ async def upload_file_with_validation(
     # the legacy UUID directory layout for compatibility.
     file_id = generate_file_id()
     workspace = None
-    manifest_path = _upload_manifest_path(file_id, file_type)
     if file_type == "mesh":
         workspace = get_storage_base_dir() / f"upload_{file_id}"
         upload_dir = workspace / "mesh"
@@ -794,7 +771,6 @@ async def upload_file_with_validation(
             "durable": True,
         }
 
-        _write_upload_manifest(file_id, file_info, manifest_path)
         if not await store_file_metadata_impl(file_store, file_id, file_info):
             raise HTTPException(status_code=503, detail="File metadata could not be registered")
         registered = True
@@ -836,7 +812,6 @@ async def upload_file_with_validation(
                     await file_store.delete_file_metadata(file_id)
                 except Exception:
                     logger.warning("Failed to remove partial metadata for upload %s", file_id)
-            manifest_path.unlink(missing_ok=True)
             if file_path:
                 file_path.unlink(missing_ok=True)
             if workspace:
@@ -927,6 +902,7 @@ async def upload_image(
             workspace_id=workspace_id,
             name=stem,
             source_asset_id=asset_id,
+            active_mesh_asset_id=asset_id,
         )
         db.add_asset(
             asset_id=asset_id,
@@ -954,11 +930,6 @@ async def upload_image(
             "workspace_id": workspace_id,
             "asset_id": asset_id,
         }
-        manifest_path = _upload_manifest_path(asset_id, "image")
-        try:
-            _write_upload_manifest(asset_id, file_info, manifest_path)
-        except Exception:
-            pass
         if file_store is not None:
             await store_file_metadata_impl(file_store, asset_id, file_info)
 
@@ -1107,11 +1078,6 @@ async def upload_mesh(
             "workspace_id": workspace_id,
             "asset_id": asset_id,
         }
-        manifest_path = _upload_manifest_path(asset_id, "mesh")
-        try:
-            _write_upload_manifest(asset_id, file_info, manifest_path)
-        except Exception:
-            pass
         if file_store is not None:
             await store_file_metadata_impl(file_store, asset_id, file_info)
 

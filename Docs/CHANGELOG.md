@@ -2,11 +2,13 @@
 
 ## 2026-11-18 — Mesh download, thumbnail, and TRELLIS texture fixes
 - **Download 404 fix**: `download_job_result` now falls back to `<workspace_id>/mesh/mesh.glb` when the job result lacks `asset_root`/`output_mesh_path`, resolving 404s when clicking assets or after mesh generation.
+- **Workspace active asset**: `upload_image` now sets `active_mesh_asset_id=asset_id` in workspace creation, so download can resolve via `source_asset_id` fallback when `active_mesh_asset_id` is None.
 - **Job result persistence**: `update_job_result` now called after mesh copy so `asset_root`/`output_mesh_path` are persisted to Redis for all successful generation jobs (including raw-mesh with post-processing disabled).
 - **One workspace dir per job**: Image upload no longer creates a storage-root directory; generation creates exactly one `<workspace_id>/` and copies the image to `<workspace_id>/input/source_image<ext>`. Mesh saves to `<workspace_id>/mesh/mesh.glb`.
 - **TRELLIS texture fallback**: When `utils3d` is not installed, texture generation is skipped and the raw mesh is returned instead of crashing with `AttributeError: module 'utils3d' has no attribute 'torch'`.
 - **Manifest write fix**: `write_manifest` now creates the workspace directory before writing `.metadata_<hash>.tmp`, preventing `FileNotFoundError` on image upload manifest projection.
 - **Storage root cleanup**: Removed `models/`, `images/`, `thumbnails/` directory creation at `backend/storage/` root (setup.sh and build_docker.sh); only `uploads/` and `temp/` are created at root.
+- **No JSON manifest files**: Removed `_write_upload_manifest` from all upload paths; SQLite `assets` table is the single source of truth for file metadata.
 
 ## 2026-11-16 — Workspace UI Audit Cleanup
 

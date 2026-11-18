@@ -1765,6 +1765,8 @@ async def download_job_result(
             ws = db.get_workspace(job_id)
             if ws and ws.active_mesh_asset_id:
                 asset = db.get_asset(ws.active_mesh_asset_id)
+            elif ws and ws.source_asset_id:
+                asset = db.get_asset(ws.source_asset_id)
                 if asset:
                     storage_base = get_storage_base_dir().resolve()
                     file_path = (storage_base / ws.workspace_id / asset.relative_path).resolve()
@@ -2167,6 +2169,8 @@ async def download_job_thumbnail(
             ws = db.get_workspace(job_id)
             if ws and ws.active_mesh_asset_id:
                 asset = db.get_asset(ws.active_mesh_asset_id)
+            elif ws and ws.source_asset_id:
+                asset = db.get_asset(ws.source_asset_id)
                 if asset and asset.thumbnail_path:
                     storage_base = get_storage_base_dir().resolve()
                     thumb_path = (storage_base / ws.workspace_id / asset.thumbnail_path).resolve()
