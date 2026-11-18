@@ -16,6 +16,7 @@ import mimetypes
 import os
 import re
 import shutil
+import tempfile
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -194,9 +195,9 @@ def _is_uploaded_source(file_id: str, file_type: str, file_path: Path) -> bool:
 
 def _upload_manifest_path(file_id: str, file_type: str) -> Path:
     storage_base = get_storage_base_dir()
-    if file_type == "mesh":
-        return storage_base / f"upload_{file_id}" / "metadata" / "asset.json"
-    return UPLOAD_BASE_DIR / file_type / file_id[:2] / f"upload_{file_id}.json"
+    # Flat manifest at storage root — no uploads/ images/ thumbnails/
+    # subdirectories are created at storage root.
+    return storage_base / f"upload_{file_id}.json"
 
 
 def _write_upload_manifest(
@@ -206,7 +207,12 @@ def _write_upload_manifest(
 ) -> None:
     storage_base = get_storage_base_dir().resolve()
     source_path = Path(file_info["file_path"]).resolve(strict=True)
-    source_path.relative_to(storage_base)
+    try:
+        source_relative = source_path.relative_to(storage_base).as_posix()
+    except ValueError:
+        # File stored outside storage root (e.g. system temp during upload);
+        # keep absolute path so get_file_path_impl can resolve it later.
+        source_relative = source_path.as_posix()
     manifest = {
         "manifest_version": "1",
         "asset_id": file_id,
@@ -863,9 +869,12 @@ async def upload_image(
     workspace_id = ws_manager.mint_workspace_id(stem)
     asset_id = generate_asset_id()
 
-    # Save uploaded image to temp storage under backend/storage/temp/upload_<uuid>/
-    # Workspace directory and mesh/mesh.glb will be created when mesh generation starts.
-    temp_upload_dir = get_storage_base_dir() / "temp" / f"upload_{asset_id}"
+    # Save uploaded image to system temp (NOT under storage root) so no
+    # directory is created at storage root during upload. The image is copied
+    # to <workspace_id>/input/source_image<ext> when mesh generation starts.
+    # This keeps one workspace dir per job — workspace_id is the single
+    # source of truth for storage layout.
+    temp_upload_dir = Path(tempfile.gettempdir()) / f"upload_{asset_id}"
     temp_upload_dir.mkdir(parents=True, exist_ok=True)
     target_path = temp_upload_dir / f"source_image{file_ext}"
 
@@ -1098,8 +1107,6 @@ async def upload_mesh(
             pass
         if file_store is not None:
             await store_file_metadata_impl(file_store, asset_id, file_info)
-        # Clean up temporary upload directory – no permanent files should remain
-        shutil.rmtree(temp_upload_dir, ignore_errors=True)
 
         mesh_stats = {
             "vertex_count": validation_info.get("vertex_count", 0),
