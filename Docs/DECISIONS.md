@@ -1,7 +1,7 @@
 # Architecture Decisions — ForMesh 3D
 
 > **Version**: 0.4.0
-> **Last Updated**: November 16, 2026
+> **Last Updated**: November 18, 2026
 > **Retention Policy**: Keep only the last 3 active Architectural Decision Records (ADRs) to preserve lean context.
 
 ---
@@ -22,6 +22,8 @@
    - Keep commits the preview into an immutable workspace asset; Discard cleans the temporary directory and restores viewer baseline.
 
 **Consequences:** Complete end-to-end integration with truthful geometric statistics, zero regressions on modern GPU flows, and full Operation Action Bar support.
+
+**Superseding clarification (2026-11-18):** The legacy `backend/api/routers/mesh_tools.py` router and its `/api/v1/mesh-tools/*` endpoint surface are retired. The flat pipelines and their dedicated canonical routes remain active; the old router description in ADR-104/105-era history is not current implementation guidance.
 
 ---
 
