@@ -466,7 +466,7 @@ async def get_file_path_impl(
 
     disk_metadata = _read_upload_manifest(file_id)
     if disk_metadata and artifact_format is None:
-        return disk_metadata["file_path"]
+        return disk_metadata.get("source_path") or disk_metadata.get("file_path")
 
     clean_id = file_id.removeprefix("job-")
     if re.fullmatch(r"[A-Za-z0-9_-]{1,128}", clean_id):
@@ -923,7 +923,7 @@ async def upload_image(
             asset_id=asset_id,
             workspace_id=workspace_id,
             file_type="image",
-            relative_path=f"temp/upload_{asset_id}/source_image{file_ext}",
+            relative_path=str(target_path),  # absolute path to system temp file; resolved at generation time
             original_filename=file.filename,
             byte_size=total_bytes,
             sha256=sha256,
