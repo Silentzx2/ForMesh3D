@@ -955,6 +955,7 @@ class WorkspaceStorageManager:
     def write_manifest(self, workspace_id: str, manifest_data: Dict[str, Any]) -> Path:
         """Atomic write of unified workspace metadata.json."""
         ws_dir = self.get_workspace_dir(workspace_id)
+        ws_dir.mkdir(parents=True, exist_ok=True)
         manifest_path = ws_dir / "metadata.json"
         temp_manifest = ws_dir / f".metadata_{uuid.uuid4().hex}.tmp"
         temp_manifest.write_text(json.dumps(manifest_data, indent=2), encoding="utf-8")
