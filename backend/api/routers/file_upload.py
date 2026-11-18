@@ -53,8 +53,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/file-upload", tags=["file_upload"])
 
-# Configuration: store uploaded files under canonical backend/storage/uploads
+# Configuration: store uploaded files under canonical backend/storage
 UPLOAD_BASE_DIR = get_storage_base_dir() / "uploads"
+# Thumbnails are stored alongside the mesh file – no separate thumbnail directory is created.
 MAX_IMAGE_UPLOAD_SIZE_MB = 50
 MAX_MESH_UPLOAD_SIZE_MB = 200
 MESH_VALIDATION_CONCURRENCY = 2
@@ -354,18 +355,15 @@ def _list_upload_manifests(file_type: Optional[str] = None) -> List[Dict]:
 
 
 def _upload_thumbnail_path(file_id: str) -> Optional[Path]:
+    """Return thumbnail path for a mesh asset.
+    Thumbnails are stored alongside the mesh under
+    <storage>/upload_<file_id>/mesh/thumbnail.png.
+    """
     if not re.fullmatch(r"[0-9a-fA-F-]{36}", file_id):
         return None
     storage_base = get_storage_base_dir().resolve()
-    expected_parent = storage_base / "uploads" / "thumbnails"
-    try:
-        thumbnail_parent = _THUMBNAIL_DIR.resolve(strict=False)
-        thumbnail_parent.relative_to(storage_base)
-        if thumbnail_parent != expected_parent:
-            return None
-        return _THUMBNAIL_DIR / f"{file_id}.png"
-    except (OSError, ValueError):
-        return None
+    thumb_path = storage_base / f"upload_{file_id}" / "mesh" / "thumbnail.png"
+    return thumb_path if thumb_path.is_file() else None
 
 
 async def get_file_metadata_impl(
@@ -672,13 +670,15 @@ def _resolve_job_artifact(job_id: str, file_path: Path, artifact_format: str) ->
 # File Upload Logic
 # ============================================================================
 
-_THUMBNAIL_DIR = UPLOAD_BASE_DIR / "thumbnails"
+# Removed legacy thumbnail directory handling – thumbnails are stored alongside mesh files.
+# _THUMBNAIL_DIR = UPLOAD_BASE_DIR / "thumbnails"
+
 
 
 def _generate_thumbnail_for_mesh(file_path: str, file_id: str) -> Optional[str]:
     """Generate a thumbnail PNG for a mesh file. Returns thumbnail path or None on failure."""
     try:
-        thumbnail_path = _THUMBNAIL_DIR / f"{file_id}.png"
+        thumbnail_path = Path(file_path).parent / "thumbnail.png"
         success = generate_mesh_thumbnail(file_path, str(thumbnail_path))
         if success and thumbnail_path.exists():
             return str(thumbnail_path)
@@ -943,6 +943,8 @@ async def upload_image(
             pass
         if file_store is not None:
             await store_file_metadata_impl(file_store, asset_id, file_info)
+        # Clean up temporary upload directory – no permanent files should remain
+        shutil.rmtree(temp_upload_dir, ignore_errors=True)
 
         return {
             "file_id": asset_id,
@@ -1047,9 +1049,6 @@ async def upload_mesh(
         thumb_path = mesh_dir / "thumbnail.png"
         try:
             generate_mesh_thumbnail(str(mesh_target_path), str(thumb_path))
-            legacy_thumb = _THUMBNAIL_DIR / f"{asset_id}.png"
-            if thumb_path.exists():
-                shutil.copy2(str(thumb_path), str(legacy_thumb))
         except Exception as thumb_err:
             logger.warning("Thumbnail generation error for mesh %s: %s", asset_id, thumb_err)
 
@@ -1099,6 +1098,8 @@ async def upload_mesh(
             pass
         if file_store is not None:
             await store_file_metadata_impl(file_store, asset_id, file_info)
+        # Clean up temporary upload directory – no permanent files should remain
+        shutil.rmtree(temp_upload_dir, ignore_errors=True)
 
         mesh_stats = {
             "vertex_count": validation_info.get("vertex_count", 0),
@@ -1361,8 +1362,8 @@ async def get_thumbnail(
             )
         raise HTTPException(status_code=404, detail="Image not available")
 
-    # Look for existing thumbnail (meshes)
-    thumbnail_path = _THUMBNAIL_DIR / f"{file_id}.png"
+    # Look for existing thumbnail (meshes) – stored alongside the mesh in its workspace
+    thumbnail_path = file_path.parent / "thumbnail.png"
     if thumbnail_path.exists() and thumbnail_path.stat().st_size > 0:
         return FileResponse(
             path=str(thumbnail_path),

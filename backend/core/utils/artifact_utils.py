@@ -82,17 +82,28 @@ def prepare_asset_job_workspace(source_path: Path | str, job_id: str) -> tuple[P
             break
 
     if asset_root is None:
-        asset_root = meshes_root / f"{_safe_name(source.stem)}_{_safe_name(job_id)}"
-        asset_root.mkdir(parents=True, exist_ok=True)
+        # Deterministic name: reuse existing workspace for same source stem if present
+        candidate = meshes_root / _safe_name(source.stem)
+        if candidate.is_dir():
+            asset_root = candidate
+        else:
+            asset_root = meshes_root / f"{_safe_name(source.stem)}_{_safe_name(job_id)}"
+            asset_root.mkdir(parents=True, exist_ok=True)
 
     asset_root.relative_to(meshes_root)
     # Write source mesh to mesh subdirectory: {workspace_id}/mesh/mesh.glb.
-    # Both uploaded and generated mesh use the same path logic.
     mesh_dir = asset_root / "mesh"
     mesh_dir.mkdir(parents=True, exist_ok=True)
     mesh_path = mesh_dir / "mesh.glb"
     if source != mesh_path.resolve():
         shutil.copy2(source, mesh_path)
+
+    # Ensure original source is also placed in input directory for downstream steps.
+    input_dir = asset_root / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    input_path = input_dir / source.name
+    if source != input_path.resolve():
+        shutil.copy2(source, input_path)
 
     return asset_root, mesh_path
 
@@ -106,9 +117,15 @@ def register_asset_job_manifest(
 ) -> Path:
     """Persist a per-job artifact declaration without replacing the asset manifest."""
     root = Path(asset_root).resolve(strict=True)
-    root.relative_to(_storage_root().resolve())
+    try:
+        root.relative_to(_storage_root().resolve())
+    except ValueError:
+        raise ValueError("asset_root must be within storage root")
     mesh = Path(mesh_path).resolve(strict=True)
-    mesh.relative_to(root)
+    try:
+        mesh.relative_to(root)
+    except ValueError:
+        raise ValueError("mesh_path must be within asset_root")
     source = Path(source_path).resolve(strict=True)
     try:
         source_ref = source.relative_to(root).as_posix()

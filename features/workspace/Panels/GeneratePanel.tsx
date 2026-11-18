@@ -327,10 +327,13 @@ export const GeneratePanel: React.FC = () => {
 
   const [selectedModel, setSelectedModel] = useState(defaultMeshModel);
 
-  // Keep selectedModel synced with whatever model actually has downloaded weights
+  // Keep selectedModel synced with available models.
+  // Only reset to the first available model when there is no explicit selection;
+  // never override a user-chosen model (e.g. TripoSG) just because weightsStatus
+  // re-computes meshModels — that silently switched the request to Hunyuan Mini.
   useEffect(() => {
-    if (meshModels.length > 0 && !meshModels.some((m) => m.id === selectedModel)) {
-      setSelectedModel(meshModels[0].id);
+    if (!selectedModel || selectedModel.trim() === '') {
+      setSelectedModel(meshModels.length > 0 ? meshModels[0].id : 'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh');
     }
   }, [meshModels, selectedModel]);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);

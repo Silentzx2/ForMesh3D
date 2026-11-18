@@ -1821,7 +1821,7 @@ async def download_job_result(
 
         models_root = get_storage_base_dir().resolve()
         asset_root_path = Path(asset_root).resolve() if asset_root else None
-        if asset_root_path and (asset_root_path == models_root or models_root not in asset_root_path.parents):
+        if asset_root_path and (asset_root_path == models_root or not asset_root_path.is_relative_to(models_root)):
             raise HTTPException(status_code=400, detail="Invalid asset workspace")
 
         if canonical_format in {"fbx", "rigged_fbx"}:
@@ -2045,7 +2045,24 @@ async def download_job_result(
                 raise HTTPException(status_code=400, detail=f"Unsupported artifact format: {canonical_format}")
         else:
             output_path = first_result_path(result)
-
+            if not output_path:
+                # Robust fallback: build path from workspace_id when result lacks
+                # asset_root/output_mesh_path (e.g. older job records or raw-mesh
+                # jobs where result fields were not persisted). Mesh is saved at
+                # <workspace_id>/mesh/mesh.glb by the scheduler.
+                workspace_id = (
+                    result.get("workspace_id")
+                    or (isinstance(job_status, dict) and job_status.get("workspace_id"))
+                )
+                if not workspace_id and isinstance(job_status, dict):
+                    inputs = job_status.get("inputs") or {}
+                    workspace_id = inputs.get("workspace_id")
+                if workspace_id:
+                    fallback_candidate = (
+                        get_storage_base_dir().resolve() / workspace_id / "mesh" / "mesh.glb"
+                    )
+                    if fallback_candidate.is_file():
+                        output_path = str(fallback_candidate)
         if not output_path:
             raise HTTPException(status_code=404, detail="No output file path found in job result")
 
