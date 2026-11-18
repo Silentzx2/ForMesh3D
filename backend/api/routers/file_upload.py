@@ -875,7 +875,7 @@ async def upload_image(
     total_bytes = 0
     digest = hashlib.sha256()
 
-    staging_path = input_dir / f".staging_{uuid.uuid4().hex}{file_ext}"
+    staging_path = temp_upload_dir / f".staging_{uuid.uuid4().hex}{file_ext}"
     try:
         async with aiofiles.open(staging_path, "wb") as handle:
             while chunk := await file.read(1024 * 1024):
