@@ -253,26 +253,37 @@ def _read_upload_manifest(file_id: str) -> Optional[Dict]:
                 continue
             manifest = json.loads(safe_manifest_path.read_text(encoding="utf-8"))
             file_type = manifest["file_type"]
-            source_relative = Path(manifest["source_path"])
+            source_path_str = manifest["source_path"]
             if (
                 manifest.get("manifest_version") != "1"
                 or manifest.get("asset_id") != file_id
                 or manifest.get("file_id") != file_id
                 or manifest.get("durable") is not True
                 or file_type != expected_type
-                or source_relative.is_absolute()
             ):
                 continue
-            source_path = (storage_base / source_relative).resolve(strict=True)
-            source_path.relative_to(storage_base)
-            if source_path != (storage_base / source_relative).absolute():
+            # source_path can be absolute (system temp during upload) or relative
+            # (under storage root). Resolve accordingly.
+            if Path(source_path_str).is_absolute():
+                source_path = Path(source_path_str).resolve(strict=True)
+            else:
+                source_relative = Path(source_path_str)
+                source_path = (storage_base / source_relative).resolve(strict=True)
+                source_path.relative_to(storage_base)
+            if not source_path.is_file():
                 continue
             file_size_bytes = manifest["file_size_bytes"]
             original_format = manifest["original_format"]
             sha256 = manifest["sha256"]
+            # _is_uploaded_source requires paths under storage root; absolute temp
+            # paths (system temp during upload) are intentionally outside storage.
+            source_is_under_storage = (
+                not Path(source_path_str).is_absolute()
+                or source_path.is_relative_to(storage_base)
+            )
             if (
-                not source_path.is_file()
-                or not _is_uploaded_source(file_id, file_type, source_path)
+                source_is_under_storage
+                and not _is_uploaded_source(file_id, file_type, source_path)
                 or isinstance(file_size_bytes, bool)
                 or not isinstance(file_size_bytes, int)
                 or file_size_bytes < 0
