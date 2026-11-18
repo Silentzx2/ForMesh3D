@@ -833,7 +833,7 @@ class WorkspaceStorageManager:
             self.storage_root = get_storage_base_dir().resolve()
         self.storage_root.mkdir(parents=True, exist_ok=True)
         self.temp_root = self.storage_root / "temp"
-        self.temp_root.mkdir(parents=True, exist_ok=True)
+        # Do not create temp_root eagerly — only when an operation needs it
 
     def assert_safe_id(self, identifier: str) -> None:
         """Validate that an identifier contains no path traversal sequences."""

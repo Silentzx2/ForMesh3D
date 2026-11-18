@@ -16,7 +16,6 @@ import mimetypes
 import os
 import re
 import shutil
-import tempfile
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -880,20 +879,21 @@ async def upload_image(
     workspace_id = ws_manager.mint_workspace_id(stem)
     asset_id = generate_asset_id()
 
-    # Save uploaded image to system temp (NOT under storage root) so no
-    # directory is created at storage root during upload. The image is copied
-    # to <workspace_id>/input/source_image<ext> when mesh generation starts.
-    # This keeps one workspace dir per job — workspace_id is the single
-    # source of truth for storage layout.
-    temp_upload_dir = Path(tempfile.gettempdir()) / f"upload_{asset_id}"
-    temp_upload_dir.mkdir(parents=True, exist_ok=True)
-    target_path = temp_upload_dir / f"source_image{file_ext}"
+    # Save uploaded image directly under storage/uploads/<asset_id>/
+    # (flat, persistent — no temp dir, no storage-root clutter).
+    # During generation, it is copied to <workspace_id>/input/source_image<ext>.
+    # workspace_id is the single source of truth for storage layout.
+    uploads_root = get_storage_base_dir() / "uploads"
+    uploads_root.mkdir(parents=True, exist_ok=True)
+    upload_dir = uploads_root / asset_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    target_path = upload_dir / f"source_image{file_ext}"
 
     max_size_bytes = MAX_IMAGE_UPLOAD_SIZE_MB * 1024 * 1024
     total_bytes = 0
     digest = hashlib.sha256()
 
-    staging_path = temp_upload_dir / f".staging_{uuid.uuid4().hex}{file_ext}"
+    staging_path = upload_dir / f".staging_{uuid.uuid4().hex}{file_ext}"
     try:
         async with aiofiles.open(staging_path, "wb") as handle:
             while chunk := await file.read(1024 * 1024):
@@ -920,10 +920,8 @@ async def upload_image(
         file_size_mb = total_bytes / (1024 * 1024)
         sha256 = digest.hexdigest()
 
-        # Image stays in temp staging; the workspace directory is created when
-        # the generation job starts (<workspace_id>/input/). No storage-root
-        # directory is created at upload time, so one job == one workspace dir.
-        # Database records — image stored in temp upload dir
+        # Image stored under storage/uploads/<asset_id>/ during upload.
+        # During generation, it is copied to <workspace_id>/input/source_image<ext>.
         db = DatabaseManager()
         db.create_workspace(
             workspace_id=workspace_id,
@@ -963,8 +961,6 @@ async def upload_image(
             pass
         if file_store is not None:
             await store_file_metadata_impl(file_store, asset_id, file_info)
-        # Clean up temporary upload directory – no permanent files should remain
-        shutil.rmtree(temp_upload_dir, ignore_errors=True)
 
         return {
             "file_id": asset_id,
