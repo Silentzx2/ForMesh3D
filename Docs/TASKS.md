@@ -1,57 +1,42 @@
-# Task List – Mesh Tools Cleanup
+# Task List – Retired Mesh-Tools Router Cleanup
 
-## Current State (Already Done)
-- `backend/api/routers/mesh_tools.py` — Reduced to empty router stub (no endpoints)
-- All 11 endpoint definitions removed from the file (3 real + 8 placeholder)
+## Status: Complete
 
-## Pending Tasks
+The legacy `/api/v1/mesh-tools/*` router was retired. The supported mesh-processing pipelines and canonical routes (`/api/v1/retopo`, `/api/v1/unwrap`, and `/api/v1/segment`) remain in place; this cleanup does not remove those capabilities.
 
-### Phase 1: Remove Router Imports & Registrations
-- [ ] Remove `mesh_tools` import from `backend/api/main_multiworker.py`
-- [ ] Remove `mesh_tools` import from `backend/api/main_singleworker.py`
-- [ ] Remove `"mesh_tools"` from `backend/api/routers/__init__.py`
+### Completed
 
-### Phase 2: Remove Frontend Usage
-- [ ] Remove `auto-retopo`, `auto-uv`, `segment` calls from `features/workspace/services/meshProcessingBridge.ts`
-- [ ] Remove any frontend references to `/api/v1/mesh-tools/*` endpoints
+- [x] Removed legacy router imports/registrations from both worker entrypoints and router exports.
+- [x] Removed legacy `/api/v1/mesh-tools/*` calls and references from the workspace bridge.
+- [x] Removed legacy router test/import/app registration references from the affected integration test.
+- [x] Removed obsolete endpoint-table entries from API documentation.
+- [x] Reconciled architecture, README, changelog, and memory documentation.
+- [x] Checked the dev branch for legacy router and endpoint references.
 
-### Phase 3: Remove Tests
-- [ ] Remove `test_b4_t3_mesh_tools_format_validation` from `backend/tests/test_batch4_api_integration.py`
-- [ ] Remove `mesh_tools` import from `backend/tests/test_batch4_api_integration.py`
-- [ ] Remove `mesh_tools.router` inclusion from test app setup in `test_batch4_api_integration.py`
+### Verification notes
 
-### Phase 4: Update Documentation
-- [ ] Update `Docs/api-documentation.md` — Remove mesh-tools endpoint table entries
-- [ ] Update `Docs/ARCHITECTURE.md` — Remove mesh_tools router references
-- [ ] Update `Docs/TASKS.md` — Mark tasks complete as done
-- [ ] Update `Docs/CHANGELOG.md` — Add entry about mesh tools removal
-- [ ] Update `Docs/MEMORY.md` — Remove mesh-tools references if present
-- [ ] Update `README.md` — Remove mesh-tools endpoint references
+- Branch inspection confirmed the legacy router is not present in the tree and its imports, registrations, test references, bridge calls, and API-documentation references are absent.
+- The documentation audit identified and corrected stale architecture/README material.
+- Local execution of the full Bun/Python/shell test suites was not available during this remote-only review; CI/runtime test results should not be inferred from this audit.
 
-### Phase 5: Verification
-- [ ] Run `bun run test` (TypeScript type check)
-- [ ] Run `python3 -m py_compile` on all modified Python files
-- [ ] Run `bash -n` on shell scripts
-- [ ] Commit changes to version control
-- [ ] Push to `dev` branch
+## Legacy Endpoint Inventory (Retired)
 
-## Current Mesh Tools Endpoints Status
-| Endpoint | Status | Action |
-|----------|--------|--------|
-| `/api/v1/mesh-tools/auto-uv` | Removed | Delete |
-| `/api/v1/mesh-tools/auto-retopo` | Removed | Delete |
-| `/api/v1/mesh-tools/segment` | Removed | Delete |
-| `/api/v1/mesh-tools/lods` | Was placeholder | Delete |
-| `/api/v1/mesh-tools/optimize` | Was placeholder | Delete |
-| `/api/v1/mesh-tools/repair` | Was placeholder | Delete |
-| `/api/v1/mesh-tools/convert-fbx` | Was placeholder | Delete |
-| `/api/v1/mesh-tools/inspect` | Was placeholder | Delete |
-| `/api/v1/mesh-tools/bake` | Was placeholder | Delete |
-| `/api/v1/mesh-tools/flatten` | Was placeholder | Delete |
-| `/api/v1/mesh-tools/collision` | Was placeholder | Delete |
+| Endpoint | Status |
+|---|---|
+| `/api/v1/mesh-tools/auto-uv` | Retired |
+| `/api/v1/mesh-tools/auto-retopo` | Retired |
+| `/api/v1/mesh-tools/segment` | Retired |
+| `/api/v1/mesh-tools/lods` | Retired placeholder |
+| `/api/v1/mesh-tools/optimize` | Retired placeholder |
+| `/api/v1/mesh-tools/repair` | Retired placeholder |
+| `/api/v1/mesh-tools/convert-fbx` | Retired placeholder |
+| `/api/v1/mesh-tools/inspect` | Retired placeholder |
+| `/api/v1/mesh-tools/bake` | Retired placeholder |
+| `/api/v1/mesh-tools/flatten` | Retired placeholder |
+| `/api/v1/mesh-tools/collision` | Retired placeholder |
 
-## Rules to Follow (from AGENTS.md)
-- Complete-Removal Rule: Clean every trace — imports, registrations, routes, config/env keys, types, styles, tests, startup references.
-- Delete orphaned dead files with zero references.
-- Do not skip scope: fix all callers, tests, fixtures, config, exports.
-- No speculative surface patches; fix root cause once.
+## Cleanup Rules
+
+- Complete removal means checking imports, registrations, routes, config/environment keys, types, styles, tests, and startup references.
+- Delete orphaned files only when they are unused and in-scope.
+- Keep the canonical processing pipelines and their supported API routes intact.

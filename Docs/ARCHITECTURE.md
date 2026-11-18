@@ -32,7 +32,7 @@ Use this map to find the owner of a behavior before editing it.
 | Model choice and worker lifecycle | `backend/core/scheduler/` | Explicit model selection, resource feasibility, model loading, or queue behavior changes | `backend/config/models.yaml`, GPU resource planner |
 | Model inference contract | `backend/adapters/` and adapter-owned model schemas | A model's native call, supported runtime input, or fixed inference profile changes | Adapter profile and model facts in `backend/config/models.yaml`; GPU behavior still requires runtime validation |
 | Asset production and derivatives | `backend/core/utils/artifact_utils.py` | Direct model-native master storage, workspace management, and custom post-processing scripts | `backend/config/models.yaml` |
-| Specialist mesh tools & streaming | `backend/api/routers/mesh_tools.py` | In-process mesh validation and SSE progress streaming for studio tools | `.glb`, `.gltf`, `.obj`, `.ply`, `.stl` format specs |
+| Mesh processing pipelines | `backend/pipelines/` and canonical processing routers | Retopo, UV unwrap, segmentation, or related processing behavior changes | Pipeline-specific contracts and focused tests |
 | Cross-cutting contracts and verification | `backend/tests/`, frontend `*.test.mjs`, `.github/workflows/` | A request, artifact, route, or runtime contract changes | Focused contract tests and the CI commands documented in [CONTRIBUTING.md](../CONTRIBUTING.md) |
 | Hardware compatibility and GPU Doctor | `patcher/` | GPU hardware diagnostics, precision routing, chunked SDPA, memory execution plans, or error recovery changes | `patcher/doctor.py`, `patcher/<model-name>/`; GPUInfo, ModelProfile |
 
@@ -234,12 +234,10 @@ This static audit does not replace supported-host inference tests. Preserve mode
 - Direct Input Pipeline: Reference images are ingested cleanly via `/api/v1/file-upload` or passed directly to model adapters (`backend/api/routers/mesh_generation.py`) without lossy intermediate preprocessing steps.
 - Parameter Passthrough: User-configured `native_target_polycount`, `texture_resolution`, and `seed` route directly to adapter execution without arbitrary gate rejections or heuristic score discards.
 
-### Self-Contained Specialist Mesh Tools & SSE Streaming
+### Canonical Mesh Processing Pipelines
 
-- `backend/api/routers/mesh_tools.py`: In-process specialist router providing real-time Server-Sent Events (SSE) streaming for on-demand 3D operations:
-  - Strict format validation (`.glb`, `.gltf`, `.obj`, `.ply`, `.stl`).
-  - Structured progress events (`init`, `processing`, `progress`, `completed`, `error`).
-  - Completely decoupled from legacy postprocessing pipelines and external 3DGenStudio dependencies.
+- The retired `/api/v1/mesh-tools/*` router is not part of the active API.
+- Supported processing routes are owned by their dedicated routers and flat pipelines (retopo, UV unwrap, segmentation, rigging, and motion), not the retired mesh-tools router.
 
 ### Hardware Compatibility & GPU Doctor Subsystem
 
@@ -987,8 +985,8 @@ In `app/api/v1/[...path]/route.ts`, long-running streaming and proxy routes are 
 - On client abort or UI cancellation (`cancelExecution`), an upstream `AbortController` triggers `controller.abort()`.
 - The `TransformStream` safely absorbs downstream pipe cancellations without unhandled Next.js stream errors while halting upstream backend execution immediately, freeing GPU/CPU resources instantly.
 
-### 4. Specialist Mesh Tools & 3D Viewport Presentation
-- Dedicated specialist routers (`backend/api/routers/mesh_tools.py`, `mesh_uv_unwrapping.py`, `mesh_retopology.py`, `mesh_segmentation.py`, `auto_rigging.py`, `motion_generation.py`) handle individual tool jobs on demand.
+### 4. 3D Viewport & Dedicated Processing Routers
+- Dedicated routers (`mesh_uv_unwrapping.py`, `mesh_retopology.py`, `mesh_segmentation.py`, `auto_rigging.py`, `motion_generation.py`) handle supported tool jobs on demand. The retired `mesh_tools.py` router is not mounted or used.
 - The 3D viewport mounts normalized model assets directly via `loadModelInViewer` and provides live interactive inspection across 7 shading modes.
 
 ## On-Demand Viewport Comparison
@@ -1042,7 +1040,7 @@ Backend `job_id` changed from UUID (`380fbba4-e122-4a78-818d-3418dbb0ee46`) to `
 ### Complete 59 State Machine Inventory (F1–F40, B1–B19)
 The application state architecture is cataloged in `Docs/TASKS.md` §2–§3:
 - **Frontend State Machines (F1–F40):** Encompassing workspace generation lifecycle, batch generation queues, 3D viewport model loading, file/mesh upload lifecycle, task polling and background management, SSE streaming, model comparison, panel/modal visibility, viewport display modes, dynamic floating settings, camera presets, rigging/animation studio lifecycles, and tiered GLB caching with in-flight deduplication.
-- **Backend State Machines (B1–B19):** Encompassing multiprocess scheduler worker lifecycle, dynamic model adapter instantiation, GPU resource memory gates with pre-Ampere isolation (`sm >= 80` native preservation), SSE mesh tools streaming, candidate selection lineage, log streaming cursors, and parameter tri-state resolution contracts.
+- **Backend State Machines (B1–B19):** Encompassing multiprocess scheduler worker lifecycle, dynamic model adapter instantiation, GPU resource memory gates with pre-Ampere isolation (`sm >= 80` native preservation), mesh-processing operation streaming, candidate selection lineage, log streaming cursors, and parameter tri-state resolution contracts.
 
 ### Direct Generation Controls & Flyout Restructuring (`GeneratePanel.tsx`)
 - **Main Panel Direct Controls:** Primary generation targets (`target_polycount` / `native_target_polycount` slider up to 600K faces, and model-aware texture generation with 2K/4K resolution pills) are located directly within the main generate panel for immediate accessibility.

@@ -1,5 +1,11 @@
 # ForMash3D Changelog
 
+## 2026-11-18 — Legacy mesh-tools documentation cleanup
+- Reconciled the task checklist and architecture documentation with the retired `/api/v1/mesh-tools/*` router.
+- Confirmed canonical retopo, UV unwrap, and segmentation pipeline routes remain in place and are not part of this retirement.
+- Removed stale references that described the retired router as active.
+
+
 ## 2026-11-18 — Mesh download, thumbnail, and TRELLIS texture fixes
 - **Download 404 fix**: `download_job_result` now falls back to `<workspace_id>/mesh/mesh.glb` when the job result lacks `asset_root`/`output_mesh_path`, resolving 404s when clicking assets or after mesh generation.
 - **Workspace active asset**: `upload_image` now sets `active_mesh_asset_id=asset_id` in workspace creation, so download can resolve via `source_asset_id` fallback when `active_mesh_asset_id` is None.

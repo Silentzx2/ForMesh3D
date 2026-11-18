@@ -466,7 +466,7 @@ docker compose -f docker-compose.yml up --build -d
 
 ## 11. REST & Streaming API Reference
 
-The FastAPI backend exposes a consolidated workspace API for generation, texture painting, specialist mesh tools, rigging, motion, system telemetry, and durable job management:
+The FastAPI backend exposes a consolidated workspace API for generation, texture painting, canonical mesh processing (retopo, UV unwrap, segmentation), rigging, motion, system telemetry, and durable job management:
 
 | Endpoint | Method | Description |
 |---|:---:|---|

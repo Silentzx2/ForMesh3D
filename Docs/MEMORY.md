@@ -9,13 +9,13 @@
 - **Database Authority:** Authoritative SQLite database at `backend/storage/job_queue.db`, WAL journal mode, synchronous NORMAL, `busy_timeout=30000`. Dual state machines: `ExecutionStatus` (`queued` -> `processing` -> `completed` | `failed` | `interrupted` | `cancelled`) and `PersistenceStatus` (`not_saved` -> `saving` -> `saved` | `save_failed` | `discarded` | `cleanup_pending` | `preview_expired`).
 - **Queue & Worker Model:** Durable SQLite FIFO queue with background worker process, queue capacity cap of 10, atomic worker claiming with process locks, deduplication fingerprints.
 
-### 2. Script Engine for Mesh Tools (Retopo, Smart UV, Segment)
+### 2. Canonical Script Processing Pipelines (Retopo, Smart UV, Segment)
 - **Flat Pipelines (`backend/pipelines/`)**:
   - `retopo.py`: Headless Blender QuadriFlow for quad topology and Trimesh quadric decimation for fast isotropic remeshing.
   - `smart_uv.py`: Blender Smart Project and XAtlas / Trimesh for non-overlapping UV chart packing.
   - `segment.py`: Connected-component decomposition and spatial PCA clustering with vivid viewport colorization (pure numpy, zero scipy dependency).
   - `mesh_utils.py`: Safe format conversion, Truthful geometric stats, and bounded subprocess execution with density safety capping via `mesh_guard.py`.
-- **FastAPI Endpoints**: Removed `/api/v1/mesh-tools/auto-retopo`, `/auto-uv`, and `/segment` SSE endpoints; pending replacement pipeline.
+- **API Surface**: The legacy `/api/v1/mesh-tools/*` router is retired. Canonical processing endpoints remain separately mounted (retopo, unwrap, segment); these are not legacy mesh-tools aliases.
 - **Workspace Preview & Action Bar Lifecycle**:
   - Unsaved preview meshes stage in `storage/temp/<operation_id>/` and stream via `/api/v1/workspace/operations/{operation_id}/preview`.
   - Keep commits the preview into an immutable workspace asset; Discard cleans the temporary directory and restores viewer baseline.
