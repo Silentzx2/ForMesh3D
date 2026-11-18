@@ -55,7 +55,6 @@ router = APIRouter(prefix="/file-upload", tags=["file_upload"])
 
 # Configuration: store uploaded files under canonical backend/storage/uploads
 UPLOAD_BASE_DIR = get_storage_base_dir() / "uploads"
-UPLOAD_BASE_DIR.mkdir(parents=True, exist_ok=True)
 MAX_IMAGE_UPLOAD_SIZE_MB = 50
 MAX_MESH_UPLOAD_SIZE_MB = 200
 MESH_VALIDATION_CONCURRENCY = 2
@@ -674,7 +673,6 @@ def _resolve_job_artifact(job_id: str, file_path: Path, artifact_format: str) ->
 # ============================================================================
 
 _THUMBNAIL_DIR = UPLOAD_BASE_DIR / "thumbnails"
-_THUMBNAIL_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _generate_thumbnail_for_mesh(file_path: str, file_id: str) -> Optional[str]:
@@ -902,7 +900,15 @@ async def upload_image(
         file_size_mb = total_bytes / (1024 * 1024)
         sha256 = digest.hexdigest()
 
-        # Database records — workspace dir created on mesh gen, not on upload
+        # Create workspace tree and stage image into <workspace_id>/input/
+        ws_dir = ws_manager.create_workspace_tree(workspace_id)
+        input_dir = ws_dir / "input"
+        final_image_path = input_dir / f"source_image{file_ext}"
+        shutil.copy2(target_path, final_image_path)
+        # Temp staging no longer needed; image lives in workspace input dir
+        shutil.rmtree(temp_upload_dir, ignore_errors=True)
+
+        # Database records — image stored in workspace input dir
         db = DatabaseManager()
         db.create_workspace(
             workspace_id=workspace_id,
@@ -913,7 +919,7 @@ async def upload_image(
             asset_id=asset_id,
             workspace_id=workspace_id,
             file_type="image",
-            relative_path=f"temp/upload_{asset_id}/source_image{file_ext}",
+            relative_path=f"input/source_image{file_ext}",
             original_filename=file.filename,
             byte_size=total_bytes,
             sha256=sha256,
@@ -924,7 +930,7 @@ async def upload_image(
 
         # Register in file_store and manifest for backward compatibility
         file_info = {
-            "file_path": str(target_path),
+            "file_path": str(final_image_path),
             "original_filename": file.filename,
             "saved_filename": f"source_image{file_ext}",
             "file_size_mb": file_size_mb,

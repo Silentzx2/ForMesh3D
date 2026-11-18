@@ -2306,6 +2306,11 @@ class MultiprocessModelScheduler:
                 # The adapter output has now been copied to durable storage.
                 # Remove its private temp directory before persisting the job result.
                 self._cleanup_adapter_temporary_output(final_result, nested=False)
+                # Persist durable paths (asset_root / output_mesh_path / mesh_path)
+                # so the download endpoint can resolve the job artifact even when
+                # post-processing is disabled (raw-mesh jobs).
+                if not await self.job_queue.update_job_result(job_id, final_result):
+                    logger.warning(f"Failed to persist job result for {job_id}")
                 if job_request.feature in ("image_mesh_painting", "text_mesh_painting"):
                     postprocess_mode = "manual_mesh_tool"
                     enable_postprocess = False
