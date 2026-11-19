@@ -407,72 +407,14 @@ class RedisJobQueue:
         # queue; a terminal job simply leaves it.
         await self.redis.srem(self.processing_set_key, job_id)
 
+        # Terminal FAILED: No automatic retry loops; failed jobs immediately terminate cleanly
         job_request = await self._load_job_request_for_persistence(job_id)
-        if job_request is not None and job_request.retry_count < job_request.max_retries:
-            # Permanent failures (import errors, missing modules, input not found,
-            # model load failures) should NOT be retried — they will never succeed
-            # on retry.
-            message = (error or "").lower()
-            permanent_indicators = [
-                'modulenotfounderror',
-                'importerror',
-                'no module named',
-                'cannot import name',
-                'uv_unwrapper not found',
-                'gpytoolbox',
-                'input_not_found',
-                'failed to load',
-                'stable fast 3d dependencies',
-                'dependencies not available',
-                'timed out loading model',
-            ]
-            is_permanent = any(p in message for p in permanent_indicators)
-            if not is_permanent:
-                # Auto-retry: back into the pending queue, bounded by max_retries,
-                # instead of going terminal on the first failure.
-                job_request.retry_count += 1
-                job_request.last_retry_at = datetime.utcnow()
-                job_request.retry_reason = error
-                job_request.status = JobStatus.QUEUED
-                job_request.metadata.update(
-                    {
-                        "stage": "retrying",
-                        "message": (
-                            f"Retry {job_request.retry_count}/{job_request.max_retries} "
-                            f"after failure: {error}"
-                        ),
-                    }
-                )
-                if not await asyncio.to_thread(self.db_manager.save_job, job_request):
-                    logger.error(f"Failed to persist retry for job {job_id}")
-                    return
-                job_data_str = await self.redis.hget(self.jobs_hash_key, job_id)
-                priority = 0
-                if job_data_str:
-                    job_data = json.loads(job_data_str)
-                    priority = int(job_data.get("priority", 0) or 0)
-                    job_data["status"] = _status_to_str(JobStatus.QUEUED)
-                    job_data["retry_count"] = job_request.retry_count
-                    job_data["started_at"] = ""
-                    job_data["progress"] = 0.0
-                    job_data["stage"] = "retrying"
-                    job_data["message"] = job_request.metadata["message"]
-                    job_data["error"] = error
-                    job_data["error_code"] = classify_job_error(error)
-                    job_data.pop("failed_at", None)
-                    await self.redis.hset(self.jobs_hash_key, job_id, json.dumps(job_data))
-                    await self.redis.hset(self.progress_hash_key, job_id, "0.0")
-                    await self.redis.hset(self.stage_hash_key, job_id, "retrying")
-                    await self.redis.hset(
-                        self.message_hash_key, job_id, job_data["message"]
-                    )
-                score = _priority_score(priority, datetime.utcnow())
-                await self.redis.zadd(self.pending_queue_key, {job_id: score})
-                logger.info(
-                    f"Job {job_id} failed ({error}); requeued for retry "
-                    f"{job_request.retry_count}/{job_request.max_retries}"
-                )
-                return
+        if job_request is not None:
+            job_request.status = JobStatus.FAILED
+            job_request.completed_at = datetime.utcnow()
+            job_request.metadata["stage"] = "failed"
+            job_request.metadata["error"] = error
+            await asyncio.to_thread(self.db_manager.save_job, job_request)
 
         # Terminal FAILED
         failed_at = datetime.utcnow()

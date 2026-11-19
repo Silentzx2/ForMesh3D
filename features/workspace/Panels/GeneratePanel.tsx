@@ -271,6 +271,15 @@ export const GeneratePanel: React.FC = () => {
   } = useWorkspace();
 
   const [isGeneralSettingsOpen, setIsGeneralSettingsOpen] = useState(false);
+  const [hasFailedAttempt, setHasFailedAttempt] = useState(false);
+
+  useEffect(() => {
+    if (executionStatus === 'failed' || executionStatus === 'interrupted') {
+      setHasFailedAttempt(true);
+    } else if (executionStatus === 'completed' || executionStatus === 'running' || executionStatus === 'queued') {
+      setHasFailedAttempt(false);
+    }
+  }, [executionStatus]);
 
   // ===== Dynamic model list from backend (weights-aware) =====
   const { modelDetails, weightsStatus, getModelsForFeature, loading: modelsLoading } = useFeatureAvailability();
@@ -481,6 +490,7 @@ export const GeneratePanel: React.FC = () => {
   };
 
   const processImageFile = async (file: File) => {
+    setHasFailedAttempt(false);
     dragCounterRef.current = 0;
     setIsDragOver(false);
     if (file.size > 20 * 1024 * 1024) {
@@ -612,6 +622,7 @@ export const GeneratePanel: React.FC = () => {
 
   const handleRemoveImage = (e?: React.MouseEvent) => {
     e?.stopPropagation();
+    setHasFailedAttempt(false);
     setImagePreview(null);
     setGenerationSettings((prev) => ({ ...prev, image: null, imageName: undefined }));
     if (fileInputRef.current) {
@@ -620,6 +631,7 @@ export const GeneratePanel: React.FC = () => {
   };
 
   const handleModelSelect = (modelId: string) => {
+    setHasFailedAttempt(false);
     setSelectedModel(modelId);
     setGenerationSettings((prev) => ({ ...prev, aiModel: modelId }));
     setIsModelDropdownOpen(false);
@@ -1219,11 +1231,24 @@ export const GeneratePanel: React.FC = () => {
             type="button"
             disabled={!generationSettings.image && !imagePreview}
             onClick={handleGenerate}
-            title="Generate 3D model from the uploaded image"
-            className="w-full h-10 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer bg-[#F9CF00] hover:bg-[#F9CF00]/90 text-black shadow-lg shadow-[#F9CF00]/25 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+            title={hasFailedAttempt ? 'Retry generation with current settings' : 'Generate 3D model from the uploaded image'}
+            className={`w-full h-10 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              hasFailedAttempt
+                ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-500/25 active:scale-[0.98]'
+                : 'bg-[#F9CF00] hover:bg-[#F9CF00]/90 text-black shadow-lg shadow-[#F9CF00]/25 active:scale-[0.98]'
+            } disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none`}
           >
-            <Sparkles className="w-4 h-4 fill-current text-black" />
-            <span>Generate 3D Model</span>
+            {hasFailedAttempt ? (
+              <>
+                <RotateCw className="w-4 h-4 text-black" />
+                <span>Retry Generation</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4 fill-current text-black" />
+                <span>Generate 3D Model</span>
+              </>
+            )}
           </button>
         )}
       </div>

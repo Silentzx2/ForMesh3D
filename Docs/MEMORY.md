@@ -36,8 +36,14 @@
 - **Pre-Ampere (`sm < 80`)**: Mitigations strictly isolated behind `_is_pre_ampere` checks.
 - **Model Patcher Isolation**: Patchers reside strictly in `patcher/<model-name>/` with zero global monkeypatches.
 
-### 5. Verification Status
+### 5. Scheduler & Model Stability Policies
+- **Terminal Failure & Retry Control**: Job auto-retry loops disabled (`max_retries = 0`) across `job_queue.py` and `redis_job_queue.py`. Failures terminate immediately; frontend exposes manual "Retry Generation" CTA that resets on model/image change.
+- **Tool Operation Isolation**: `multiprocess_scheduler.py` only routes explicitly registered tool operations to `tool/`; mesh generation strictly saves to `storage/<workspace_id>/mesh/mesh.glb`.
+- **TRELLIS Postprocessing Compatibility**: `trellis_adapter.py` shims `utils3d.torch.perspective_from_fov_xy` to `perspective_from_fov` for `utils3d >= 0.3.0`.
+
+### 6. Verification Status
 - **Verification (`2026-11-19`)**: Full validation passes cleanly:
   - `python3 -m compileall backend/ patcher/`: Exited `0` (zero syntax/import errors).
   - `bun tsc`: Exited `0` (zero TypeScript errors).
-  - Git branch `dev` pushed to `origin/dev`.
+  - Submodules synced with remote.
+  - Git branch `dev` ready for push.

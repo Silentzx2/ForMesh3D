@@ -1,5 +1,11 @@
 # ForMesh3D Changelog
 
+## 2026-11-19 — Auto-Retry Elimination, Canonical Mesh Routing, Trellis utils3d Shim, & UI Retry Switch
+- **Backend Auto-Retry Elimination**: Removed automatic job requeue loop in `job_queue.py`, `redis_job_queue.py`, and `database_models.py` (`max_retries = 0`). Jobs now immediately terminate cleanly in `FAILED` state on error instead of resetting to 0% and looping.
+- **Canonical Mesh Routing & Tool Dir Removal**: Fixed `multiprocess_scheduler.py` where `bool(_op_id)` was misclassifying generation jobs as tools and writing to `storage/<workspace_id>/tool/`. Restored direct canonical output to `storage/<workspace_id>/mesh/mesh.glb` and eliminated invalid `operation_type` argument in `DatabaseManager.add_asset()`.
+- **TRELLIS utils3d Compatibility Shim**: Added compatibility shim in `trellis_adapter.py` mapping `utils3d.torch.perspective_from_fov_xy` to `perspective_from_fov` (`utils3d >= 0.3.0`), resolving paint pipeline failure during hole filling.
+- **UI Generate/Retry Button Toggle**: Updated `GeneratePanel.tsx` to display "Retry Generation" upon execution failure and reset cleanly back to "Generate 3D Model" when the user changes or uploads an image or switches AI models.
+
 ## 2026-11-19 — Direct-Save Workspace Architecture, Temp Removal, & SkinTokens/PartUV Integration
 - **Direct Workspace Persistence**: Eliminated temporary staging (`storage/temp/`) and blocking Keep/Discard Action Bar. All operations (Script & AI) write directly to `storage/<workspace_id>/<tool_type>/` using monotonic versioning (`<ws_id>_<tool>_v00X.glb`).
 - **Complete Section C Removal**: Cleanly removed `/workspace/operations/{op_id}/keep`, `/discard`, `/preview` endpoints, and deleted `OperationActionBar.tsx`.
@@ -14,9 +20,3 @@
 - Routed Script requests directly to the existing Trimesh / Blender pipelines without acquiring the AI scheduler.
 - Registered Script executions in SQLite with durable operation status tracking and progress reporting.
 - Replaced retired multipart/SSE bridge transport with canonical JSON requests and durable operation references.
-
-## 2026-11-18 — Legacy Mesh-Tools Cleanup & Download Fixes
-- Reconciled task checklist and architecture documentation with the retired `/api/v1/mesh-tools/*` router.
-- `download_job_result` falls back to `<workspace_id>/mesh/mesh.glb` when the job result lacks `asset_root`/`output_mesh_path`, resolving 404s when clicking assets or after mesh generation.
-- Workspace creation sets `active_mesh_asset_id=asset_id` so download resolves via `source_asset_id` fallback when `active_mesh_asset_id` is None.
-- Removed `models/`, `images/`, `thumbnails/` directory creation at `backend/storage/` root; SQLite `assets` table is the single source of truth for file metadata.

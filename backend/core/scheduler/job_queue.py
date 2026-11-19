@@ -122,9 +122,9 @@ class JobRequest:
         self.progress: float = 0.0
         self.assigned_model: Optional[str] = None
 
-        # Retry tracking
+        # Retry tracking (0 = fail immediately without auto-retry loops)
         self.retry_count: int = 0
-        self.max_retries: int = 4  # Default max retries
+        self.max_retries: int = 0  # 0: no automatic retry loop; user decides when to retry
         self.last_retry_at: Optional[datetime] = None
         self.retry_reason: Optional[str] = None
 
@@ -724,39 +724,6 @@ class JobQueue:
 
             job.mark_failed(error)
             job.metadata["error_code"] = classify_job_error(error)
-
-            # Auto-retry: re-queue while retries remain so a transient failure
-            # gets another worker attempt instead of going terminal immediately.
-            # Bounded by max_retries; terminal FAILED after the last attempt.
-            if job.retry_count < job.max_retries:
-                job.retry_count += 1
-                job.last_retry_at = datetime.utcnow()
-                job.retry_reason = error
-                job.status = JobStatus.QUEUED
-                job.started_at = None
-                job.completed_at = None
-                job.assigned_model = None
-                job.progress = 0.0
-                job.metadata["stage"] = "retrying"
-                job.metadata["message"] = (
-                    f"Retry {job.retry_count}/{job.max_retries} after failure: {error}"
-                )
-                job._append_log("retrying", job.metadata["message"])
-                if not await asyncio.to_thread(self.db_manager.save_job, job):
-                    logger.error(f"Failed to persist retry for job {job_id}")
-                    return
-                if queue_index is not None:
-                    # Already resident in the queue cache; the status flip above
-                    # is all that is needed.
-                    pass
-                else:
-                    self._processing_cache.pop(job_id, None)
-                    self._queue_cache.append(job)
-                logger.info(
-                    f"Job {job_id} failed ({error}); requeued for retry "
-                    f"{job.retry_count}/{job.max_retries}"
-                )
-                return
 
             # Persist once with complete state before moving containers so a
             # failed save leaves every container unchanged (no drift).

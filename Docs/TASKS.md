@@ -109,3 +109,4 @@
 - **Milestone 3**: Canonical endpoints updated with `settings_snapshot` persistence and active asset promotion.
 - **Milestone 4**: Frontend state simplification (`WorkspaceContext`, `UVPanel`, `RiggingPanel`, `SegmentationPanel`).
 - **Milestone 5**: Full validation via `compileall` and `tsc --noEmit` before git push.
+- **Milestone 6**: Auto-retry loop elimination, canonical mesh output routing, TRELLIS utils3d shim, and UI retry toggle.

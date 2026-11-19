@@ -2297,7 +2297,7 @@ class MultiprocessModelScheduler:
                             "mesh_segmentation": "segmentation",
                             "auto_rig": "rigging",
                         }
-                        is_tool_operation = _feature in tool_op_map or bool(_op_id)
+                        is_tool_operation = _feature in tool_op_map
 
                         if is_tool_operation:
                             from core.utils.file_utils import get_workspace_storage_manager
@@ -2336,7 +2336,6 @@ class MultiprocessModelScheduler:
                                 byte_size=_dst.stat().st_size,
                                 sha256=_digest.hexdigest(),
                                 operation_id=_op_id,
-                                operation_type=_op_type,
                                 is_retained=1,
                             )
                             _db.update_workspace_active_mesh(_ws_id, _mesh_asset.asset_id)
@@ -2383,6 +2382,7 @@ class MultiprocessModelScheduler:
                                 with _dst.open("rb") as _mesh_handle:
                                     for _chunk in iter(lambda: _mesh_handle.read(1024 * 1024), b""):
                                         _digest.update(_chunk)
+                                _gen_op_id = job_request.metadata.get("operation_id") or job_request.inputs.get("operation_id")
                                 _mesh_asset = _db.add_asset(
                                     asset_id=_asset_id,
                                     workspace_id=_workspace_id,
@@ -2391,9 +2391,23 @@ class MultiprocessModelScheduler:
                                     original_filename="mesh.glb",
                                     byte_size=_dst.stat().st_size,
                                     sha256=_digest.hexdigest(),
-                                    operation_id=job_request.metadata.get("operation_id"),
+                                    operation_id=_gen_op_id,
                                 )
                                 _db.update_workspace_active_mesh(_workspace_id, _mesh_asset.asset_id)
+                                if _gen_op_id:
+                                    from core.scheduler.database_models import ExecutionStatus, PersistenceStatus
+                                    _db.update_operation_execution_status(
+                                        _gen_op_id,
+                                        ExecutionStatus.COMPLETED,
+                                        progress=1.0,
+                                        result={
+                                            "output_path": str(_dst),
+                                            "relative_mesh_path": "mesh/mesh.glb",
+                                            "asset_id": _asset_id,
+                                            "format": "glb",
+                                        },
+                                    )
+                                    _db.update_operation_persistence_status(_gen_op_id, PersistenceStatus.SAVED)
                             except Exception as _db_error:
                                 logger.warning(f"Failed to sync generated mesh asset to workspace DB: {_db_error}")
                 # The adapter output has now been copied to durable storage.

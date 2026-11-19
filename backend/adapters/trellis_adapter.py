@@ -268,6 +268,20 @@ class _TrellisBaseAdapter(BaseModel):
                 try:
                     import utils3d
                     import utils3d.torch
+                    # Compatibility shim: utils3d >= 0.3.0 replaced perspective_from_fov_xy with perspective_from_fov
+                    if not hasattr(utils3d.torch, "perspective_from_fov_xy"):
+                        if hasattr(utils3d.torch, "perspective_from_fov"):
+                            utils3d.torch.perspective_from_fov_xy = (
+                                lambda fov_x, fov_y, near, far: utils3d.torch.perspective_from_fov(
+                                    fov_x=fov_x, fov_y=fov_y, near=near, far=far
+                                )
+                            )
+                        elif hasattr(utils3d, "perspective_from_fov"):
+                            utils3d.torch.perspective_from_fov_xy = (
+                                lambda fov_x, fov_y, near, far: utils3d.perspective_from_fov(
+                                    fov_x=fov_x, fov_y=fov_y, near=near, far=far
+                                )
+                            )
                 except Exception:
                     # utils3d not installed — texture generation unavailable;
                     # fall back to raw mesh instead of crashing.

@@ -140,9 +140,9 @@ class JobModel(Base):
     result = Column(JSONType, nullable=True)
     error = Column(Text, nullable=True)
 
-    # Retry tracking
+    # Retry tracking (0 = fail immediately without automatic retry loops)
     retry_count = Column(Integer, nullable=False, default=0)
-    max_retries = Column(Integer, nullable=False, default=4)
+    max_retries = Column(Integer, nullable=False, default=0)
     last_retry_at = Column(DateTime, nullable=True)
     retry_reason = Column(String(500), nullable=True)
 
