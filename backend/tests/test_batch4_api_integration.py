@@ -810,13 +810,17 @@ def test_script_engine_specialist_routes_use_sqlite_preview_lifecycle(batch4_app
         )
         assert response.status_code == 200, response.text
         data = response.json()
-        assert data["status"] == "completed"
+        assert data["status"] == "queued"
         assert data["workspace_id"] == workspace_id
         assert data["operation_id"].startswith("op_")
         assert data["preview_url"].endswith(f"/{data['operation_id']}/preview")
         operation = db.get_operation(data["operation_id"])
         assert operation is not None
         assert operation.execution_status == ExecutionStatus.COMPLETED
+        status_response = client.get(f"/api/v1/system/workspace/operations/{data['operation_id']}")
+        assert status_response.status_code == 200
+        assert status_response.json()["execution_status"] == "completed"
+        assert status_response.json()["result"]["stats"]["face_count"] == 12
         preview = client.get(data["preview_url"])
         assert preview.status_code == 200
         assert preview.content == b"glTF-test-preview"

@@ -11,7 +11,7 @@ from pathlib import Path
 import tempfile
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -93,6 +93,7 @@ class MeshSegmentationRequest(BaseModel):
     parent_operation_id: Optional[str] = Field(None, description="Parent operation for retry/regeneration")
     method: str = Field("geometric", description="Script segmentation method")
     hierarchical: bool = False
+    min_face_island_threshold: int = Field(50, ge=0, le=5000)
     colorize_preview: bool = True
     save_individual_parts: bool = False
 
@@ -140,6 +141,7 @@ class MeshSegmentationResponse(BaseModel):
 async def segment_mesh(
     request: MeshSegmentationRequest,
     http_request: Request,
+    background_tasks: BackgroundTasks,
     file_store: Optional[FileStore] = Depends(get_file_store),
 ):
     """
@@ -277,21 +279,25 @@ async def segment_mesh(
             )
 
         if request.engine == "script":
+            if request.method not in {"geometric", "connected_components"}:
+                raise HTTPException(status_code=422, detail="Script segmentation supports geometric or connected_components methods; semantic segmentation requires AI mode")
             from pipelines.segment import execute_segment
             result = await execute_script_operation(
-                db=db, storage=ws_storage, workspace_id=target_ws_id,
+                db=db, storage=ws_storage, background_tasks=background_tasks, workspace_id=target_ws_id,
                 input_asset_id=input_asset.asset_id if input_asset else None,
                 operation_type="segmentation", input_path=mesh_file_path,
                 settings={
                     "num_parts": request.num_parts, "method": request.method,
-                    "hierarchical": request.hierarchical, "colorize_preview": request.colorize_preview,
+                    "hierarchical": request.hierarchical, "min_face_island_threshold": request.min_face_island_threshold,
+                    "colorize_preview": request.colorize_preview,
                     "save_individual_parts": request.save_individual_parts,
                     "output_format": request.output_format,
                 },
                 pipeline=execute_segment,
                 options={
                     "num_parts": request.num_parts, "method": request.method,
-                    "hierarchical": request.hierarchical, "colorize_preview": request.colorize_preview,
+                    "hierarchical": request.hierarchical, "min_face_island_threshold": request.min_face_island_threshold,
+                    "colorize_preview": request.colorize_preview,
                     "save_individual_parts": request.save_individual_parts,
                     "output_format": request.output_format,
                 },
@@ -334,7 +340,6 @@ async def segment_mesh(
             model_preference=request.model_preference,
             priority=1,
             metadata={
-                "postprocess_mode": "manual_mesh_tool",
                 "feature_type": "mesh_segmentation",
                 "workspace_id": target_ws_id,
                 "operation_id": operation_id,

@@ -98,18 +98,20 @@ def export_mesh_safe(
 
 
 def find_blender_binary() -> Optional[str]:
-    """Find installed Blender executable if available."""
-    blender_path = shutil.which("blender")
-    if blender_path and os.access(blender_path, os.X_OK):
-        return blender_path
-    common_paths = [
+    """Find Blender, preferring the explicit deployment override."""
+    configured = os.environ.get("BLENDER_EXECUTABLE")
+    candidates = [
+        configured,
+        shutil.which("blender"),
         "/usr/bin/blender",
         "/usr/local/bin/blender",
         "/snap/bin/blender",
     ]
-    for p in common_paths:
-        if os.path.isfile(p) and os.access(p, os.X_OK):
-            return p
+    for candidate in candidates:
+        if candidate:
+            resolved = shutil.which(candidate) if not Path(candidate).is_absolute() else candidate
+            if resolved and os.path.isfile(resolved) and os.access(resolved, os.X_OK):
+                return str(Path(resolved).resolve())
     return None
 
 

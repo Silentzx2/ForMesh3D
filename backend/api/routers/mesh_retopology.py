@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from api.dependencies import get_file_store, get_scheduler, sanitize_error_message
@@ -147,6 +147,7 @@ class MeshRetopologyResponse(BaseModel):
 async def retopologize_mesh(
     request: MeshRetopologyRequest,
     http_request: Request,
+    background_tasks: BackgroundTasks,
     file_store: Optional[FileStore] = Depends(get_file_store),
 ):
     """
@@ -238,7 +239,7 @@ async def retopologize_mesh(
         if request.engine == "script":
             from pipelines.retopo import execute_retopo
             result = await execute_script_operation(
-                db=db, storage=ws_storage, workspace_id=target_ws_id,
+                db=db, storage=ws_storage, background_tasks=background_tasks, workspace_id=target_ws_id,
                 input_asset_id=input_asset.asset_id if input_asset else None,
                 operation_type="retopology", input_path=mesh_file_path,
                 settings={
@@ -303,7 +304,6 @@ async def retopologize_mesh(
             model_preference=request.model_preference,
             priority=1,
             metadata={
-                "postprocess_mode": "manual_mesh_tool",
                 "feature_type": "mesh_retopology",
                 "workspace_id": target_ws_id,
                 "operation_id": operation_id,

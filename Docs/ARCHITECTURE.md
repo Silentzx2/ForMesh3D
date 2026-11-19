@@ -31,7 +31,7 @@ Use this map to find the owner of a behavior before editing it.
 | HTTP validation and job construction | `backend/api/routers/mesh_generation.py` | Request shape, model validation, file intake, or job metadata changes | Pydantic request model, `backend/config/models.yaml` |
 | Model choice and worker lifecycle | `backend/core/scheduler/` | Explicit model selection, resource feasibility, model loading, or queue behavior changes | `backend/config/models.yaml`, GPU resource planner |
 | Model inference contract | `backend/adapters/` and adapter-owned model schemas | A model's native call, supported runtime input, or fixed inference profile changes | Adapter profile and model facts in `backend/config/models.yaml`; GPU behavior still requires runtime validation |
-| Asset production and derivatives | `backend/core/utils/artifact_utils.py` | Direct model-native master storage, workspace management, and custom post-processing scripts | `backend/config/models.yaml` |
+| Asset production and derivatives | `backend/core/utils/artifact_utils.py` | Direct model-native master storage, workspace management, and workspace processing tools | `backend/config/models.yaml` |
 | Mesh processing pipelines | `backend/pipelines/` and canonical processing routers | Retopo, UV unwrap, segmentation, or related processing behavior changes | Pipeline-specific contracts and focused tests |
 | Cross-cutting contracts and verification | `backend/tests/`, frontend `*.test.mjs`, `.github/workflows/` | A request, artifact, route, or runtime contract changes | Focused contract tests and the CI commands documented in [CONTRIBUTING.md](../CONTRIBUTING.md) |
 | Hardware compatibility and GPU Doctor | `patcher/` | GPU hardware diagnostics, precision routing, chunked SDPA, memory execution plans, or error recovery changes | `patcher/doctor.py`, `patcher/<model-name>/`; GPUInfo, ModelProfile |
@@ -96,11 +96,11 @@ Intent presets live in `backend/config/smart_presets.yaml` (version 1) and defin
 | `3d_print` | 0 (native passthrough) | 0 (none) | off | off | off | on | on |
 | `native` | -1 (backend-only sentinel) | 0 | off | off | off | off | off |
 
-- `native` is a backend sentinel (`backend/core/smart_presets.py`), not a YAML preset entry. The workspace's Native card reaches the same Native/Raw outcome by setting `enable_postprocess=false`.
+- `native` is a backend sentinel (`backend/core/smart_presets.py`), not a YAML preset entry. The workspace Native card requests direct model-native extraction.
 - Production-option precedence is explicit request value > intent preset > backend default (`_resolve_preset_option`).
 - `texture_resolution`, `enable_printability_check`, `enable_auto_repair`, `enable_auto_rig`, `physics_enabled`, `generate_lod`, `lod_preset` and `lod_count` are tri-state request fields: omitting them lets the intent preset supply the value.
-- `target_polycount` follows its own rule: an explicit value > 0 or the `-1` native sentinel wins, `0` means "no explicit budget" and falls back to the intent preset. Native/Raw output is requested with `intent=native` or `enable_postprocess=false`.
-- **`native_target_polycount`**: When `enable_postprocess` is `false`, the user-requested polycount is carried as `native_target_polycount` (frontend `buildGenerationParameters.ts`) and passed through to the model adapter via job inputs (`backend/api/routers/mesh_generation.py`). It reaches the adapter's native extraction path directly instead of being zeroed out. TripoSG maps it to its upstream `faces` parameter; other adapters log it and preserve native output without decimation. Clamped to 500–600,000. When `enable_postprocess` is `true`, `target_polycount` is used instead.
+- `target_polycount` follows its own rule: an explicit value > 0 or the `-1` native sentinel wins, `0` means "no explicit budget" and falls back to the intent preset. Native/Raw output is requested with `intent=native`.
+- **`native_target_polycount`**: `native_target_polycount` is informational for native generation; it does not trigger a downstream decimation or remeshing stage.
 - The request builder sends only `seed` inside `model_parameters`; legacy `generateLOD` / `lodPreset` / `lodCount` keys are ignored and never reach job inputs.
 
 ### End-to-End Pipeline Contract & Responsibility Boundaries
@@ -122,7 +122,7 @@ flowchart TD
 | **1. UI** | `GeneratePanel.tsx`<br>`GenerationPresetDrawer.tsx` | Clean generation studio. Image intake, model selector with live hardware readiness, single Target Polycount / intent-preset card (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`, `native`), and an uncluttered Advanced drawer with real production controls (candidates 1–4, quad/tri, normal baking, LOD levels, repair, physics colliders). Presets configure parameters non-destructively; clicking a preset **never** auto-submits. | Emits user settings state. Exposes no fake inference sliders (steps, guidance, octree resolution, sampler overrides). |
 | **2. Request Builder** | `buildGenerationParameters.ts` | Pure client serialization function. Maps intent presets and explicit polycount budgets into clean API payloads for `POST /api/v1/generate`. Isolates target budgets and flags; `model_parameters` carries only `seed`. | Emits `endpoint`, `body`, `modelParameters`. Does not construct or duplicate adapter-owned numeric inference schedules. |
 | **3. API Gateway** | `mesh_generation.py`<br>`smart_generation.py` | Pydantic request validation and job queuing. Accepts production settings and routes to deterministic planner when active. | Enqueues job with request inputs. Legacy inference-style fields (`requested_quality`, `mesh_style`, `object_type`, `symmetry`) are accepted for planner routing only and never reach adapter inference; legacy `model_parameters` keys (`generateLOD`, `lodPreset`, `lodCount`) are popped and ignored. |
-| **4. Queue & Scheduler** | `job_queue.py`<br>`multiprocess_scheduler.py` | Durable SQLite FIFO queue with capacity cap of 10 operations (`QUEUE_FULL`), atomic single-worker claiming with process locks, immutable input snapshots, and request deduplication fingerprints. VRAM allocation, GPU dispatch locks, Best-of-N multi-seed scheduling (`candidate_count` 1..4), and composite quality scoring (`_score_and_select`). | Strips all post-process only fields (`_POSTPROCESS_ONLY_INPUTS`) and adapter-owned inference keys (`_ADAPTER_OWNED_INFERENCE_INPUTS`). |
+| **4. Queue & Scheduler** | `job_queue.py`<br>`multiprocess_scheduler.py` | Durable SQLite FIFO queue with capacity cap of 10 operations (`QUEUE_FULL`), atomic single-worker claiming with process locks, immutable input snapshots, and request deduplication fingerprints. VRAM allocation, GPU dispatch locks, Best-of-N multi-seed scheduling (`candidate_count` 1..4), and composite quality scoring (`_score_and_select`). | Strips retired production-processing fields and adapter-owned inference keys (`_ADAPTER_OWNED_INFERENCE_INPUTS`). |
 | **5. Model Adapter** | `adapters/*_adapter.py` | Model execution in dedicated worker processes. Owns locked native inference profile (`_LOCKED_INFERENCE_PROFILE`). Produces high-fidelity raw extraction without decimation or quality reduction. Direct model-native mesh delivery is the standard default workflow. | Overwrites request-side inference parameters with locked schedule. Output is staged to `storage/temp/<operation_id>/` in preview mode. |
 | **6. Workspace Lifecycle** | `database_manager.py`<br>`file_utils.py` | Dual state machines: executionState (`queued` -> `processing` -> `completed` \| `failed` \| `interrupted` \| `cancelled`) and persistenceState (`not_saved` -> `saving` -> `saved` \| `save_failed` \| `discarded`). Keep in Workspace commits to tool folder and active mesh; Discard purges temp directory without altering saved assets. | Manages atomic versioning and metadata.json projections. Expired unretained previews purged after 24h TTL. |
 
@@ -286,24 +286,6 @@ flowchart TB
         RETARGET["Motion Retargeting<br/>Joint mapping · rotation and root-motion playback"]:::purple
     end
 
-    subgraph POST["⚙️ Production Post-Processing Core"]
-        direction TB
-        SRC_CHECK["mesh/mesh.glb<br/>Immutable Master Checkpoint"]:::green
-        GATE["Topology Gate (Task 2A)<br/>14 Metric Audit & Repair Routing"]:::green
-        HOLE_REP["Targeted Hole Repair (Task 1C)<br/>Directed Boundary Loop Fans"]:::green
-        MEM_DEC["Memory-Safe Decimation (Task 2B)<br/>Staged QEM & Crease Guard"]:::green
-        UV_RES["UV Backend Resolver (Task 2D)<br/>GPU PartUV / CPU xatlas Driver"]:::green
-        PBR_VAL["PBR Validation & Bake (Task 2C)<br/>OpenGL Y+ Normal & Packed RMA"]:::green
-        FINISH["LOD0-LOD3 Cascades<br/>CoACD Physics & QA 0-100"]:::green
-
-        SRC_CHECK --> GATE
-        GATE --> HOLE_REP
-        HOLE_REP --> MEM_DEC
-        MEM_DEC --> UV_RES
-        UV_RES --> PBR_VAL
-        PBR_VAL --> FINISH
-    end
-
     subgraph DATA["📦 Canonical Storage Layer"]
         direction TB
         LOCAL["Asset Workspace<br/>backend/storage/<workspace_id>/"]:::slate
@@ -316,9 +298,7 @@ flowchart TB
     SCHEDULER --> CORE
     STRUCT --> RETARGET
     RETARGET --> VPORT
-    CORE -->|"Raw Model Output"| SRC_CHECK
-    SRC_CHECK --> POST
-    POST --> LOCAL
+    CORE -->|"Raw Model Output"| LOCAL
     LOCAL --> ZIP
     LOCAL -->|"Authorized artifacts"| STATIC
     STATIC -->|"View / Download"| VPORT
@@ -371,7 +351,7 @@ The Admin Logs tab treats `logs/master.log` as the canonical source and starts a
 | **Job Queue** | `backend/core/scheduler/job_queue.py` | Job request models and types |
 | **Redis Job Queue** | `backend/core/scheduler/redis_job_queue.py` | Redis-backed distributed job queue with dual Redis/SQLite atomic deletion synchronization |
 - **Model Adapters** | `backend/adapters/` | 14 adapter modules and registry entries cover TRELLIS, TRELLIS.2, Hunyuan3D, TripoSG, Unique3D, Pixal3D, TaoFlowForge, PartUV, SkinTokens, FastMesh, ARDY. This is a registration inventory, not a validated list of working pipelines. Static audit findings and unverified integrations are listed in the Current Model-Native Source Fidelity Contract above and `Docs/MEMORY.md`. |
-| **Raw Geometry Fidelity Contracts** | `backend/adapters/*_adapter.py` | Model-native inference profiles (steps, guidance, octree/depth resolution, chunks, samplers) are adapter-owned and locked inside each adapter implementation. The scheduler strips request-side inference overrides (`_ADAPTER_OWNED_INFERENCE_INPUTS`) and production-only controls (`_POSTPROCESS_ONLY_INPUTS`) before invoking adapters; seed and image identity remain caller-controlled. |
+| **Raw Geometry Fidelity Contracts** | `backend/adapters/*_adapter.py` | Model-native inference profiles (steps, guidance, octree/depth resolution, chunks, samplers) are adapter-owned and locked inside each adapter implementation. The scheduler strips adapter-owned inference overrides before invoking adapters; seed and image identity remain caller-controlled. |
 - **Texture Synthesis Pipeline** | `backend/adapters/hunyuan3d_adapter_v21.py` | Hunyuan3D-Paint v2.1 texture generation runs inside the adapter's `_process_request` after raw mesh inference, using already-loaded weights (no second weights load); RealESRGAN x4+ super-resolution and DifferentiableRenderer for PBR validation.
 
 ### TRELLIS.2 Raw Mesh Integrity Contract — 2026-11-03
@@ -382,7 +362,7 @@ The TRELLIS.2 source path and its ForMesh3D adapter now fail closed instead of c
 - xFormers attention preserves BF16 on compute capability 8.0+ when the installed operator supports the actual tensor/mask shape. BF16 inputs on pre-Ampere CUDA GPUs use FP32; modern GPUs retry FP32 only when xFormers reports that no BF16 operator is available. No unconditional BF16-to-FP16 cast remains. If no compatible FP32 operator exists, inference fails with an actionable error instead of producing suspect geometry.
 - The inference FlexiDualGrid decoder checks its raw geometry features before position/intersection channels are decoded. CuMesh cleanup failures emit warnings and preserve the last valid geometry (the existing tensor fallback remains for face removal).
 - The raw adapter validates vertex/face array shape, finiteness, face-index bounds, non-zero spatial extent, and degenerate triangles before and after mesh processing. It reloads and validates the exported GLB before returning success. No minimum triangle count is imposed.
-- The adapter continues to use the native raw mesh and does not call the full textured `o_voxel.postprocess.to_glb()` pipeline or apply an unverified coordinate transform. The viewer is unchanged because its source-side issue is not established.
+- The adapter continues to use the native raw mesh and does not invoke the optional textured-export conversion path or apply an unverified coordinate transform. The viewer is unchanged because its source-side issue is not established.
 
 The current adapter uses `pipeline_type="1024_cascade"` and `max_num_tokens=49152`. That token cap is a cascade budget, not a triangle-count target or minimum. Source/CPU checks do not prove T4, Ampere, or newer-GPU runtime compatibility; the GPU matrix remains **NOT RUN** until the actual checkpoint and installed CUDA/xFormers wheels are exercised.
 
@@ -583,7 +563,7 @@ The only retained project runtime log is the repository-root `logs/master.log`. 
 
 ### File Upload & Storage
 - `POST /api/v1/file-upload/image`: Upload reference image.
-- `POST /api/v1/file-upload/mesh`: Upload base mesh for post-processing.
+- `POST /api/v1/file-upload/mesh`: Upload base mesh for workspace processing.
 - `GET /api/v1/file-upload/download/{file_id}`: Stream stored file.
 
 ### Canonical Workspace Endpoints
@@ -630,7 +610,7 @@ Raw generation is model-specific. ForMesh3D does not apply one global inference-
 ```
 model-specific inference settings
         ↓
-scheduler removes post-process-only controls
+scheduler removes retired generation-only controls
         ↓
 adapter preprocessing
         ↓
@@ -780,14 +760,14 @@ ForMesh3D operates on a direct, model-native mesh delivery pipeline. Successful 
 Pipeline: MODEL INFERENCE -> canonical `mesh/mesh.glb` (SHA-256 pre-verification via `artifact_utils.py`) -> manifest projection (`manifest.json`) -> preview staging (`storage/temp/<operation_id>/`) -> user commit / discard lifecycle.
 
 - **Direct Extraction**: Generative models (Hunyuan3D-2.1, TRELLIS.2, Stable Fast 3D, TripoSG) export high-detail native geometry without lossy postprocessing.
-- **On-Demand Specialist Tools**: Retopo, UV unwrap, and segmentation remain supported through canonical routes and flat deterministic pipelines; they are separate from automatic generation post-processing.
+- **On-Demand Specialist Tools**: Retopo, UV unwrap, and segmentation remain supported through canonical routes and flat deterministic pipelines; they are separate from model-native generation.
 - **Dynamic Canonical Storage Resolution**: `canonical_asset_workspace()` dynamically resolves storage roots relative to project root or `backend/storage`, preventing directory nesting bugs across artifact delivery and storage mounts.
 - **Master Immutability Enforcement**: The SHA-256 hash of `mesh/mesh.glb` is recorded at generation time and guaranteed immutable; all derived tool executions write versioned child previews without mutating the base mesh.
 
 The main runtime remains Python 3.10 + PyTorch 2.6.0 + CUDA 12.4.
 
 ## Physics layer
-Physics is an opt-in layer after the existing generation and production post-processing pipeline. The immutable master remains unchanged. When requested, the scheduler passes a provider-neutral physics intent into post-processing; the existing collision service produces the collision representation and `metadata/physics.json` records the rigid-body configuration, material response, collision statistics, provenance, and capabilities. The browser viewer uses the canonical collision artifact with pinned Rapier 0.19.3 while remaining on the existing direct Three.js renderer. Physics preparation runs against derived geometry in the production pipeline; the optional centralized texture stage does not create a second physics job or replace the immutable raw master. The physics runtime is not an inference model and does not consume generation-model VRAM.
+Physics is an opt-in workspace operation after mesh generation. The immutable master remains unchanged. When requested, the collision service produces the collision representation and `metadata/physics.json` records the rigid-body configuration, material response, collision statistics, provenance, and capabilities. The browser viewer uses the canonical collision artifact with pinned Rapier 0.19.3 while remaining on the existing direct Three.js renderer. Physics preparation runs against derived geometry in the production pipeline; the optional centralized texture stage does not create a second physics job or replace the immutable raw master. The physics runtime is not an inference model and does not consume generation-model VRAM.
 
 ### Execution telemetry, queue reordering and cancellation
 The workspace treats `/api/v1/system/jobs/{job_id}` as the source of truth for live job state. The frontend uses adaptive, visibility-aware polling because the current backend exposes the system job status contract as REST; it does not claim a per-job SSE stream that is not implemented. Queue cancellation uses `POST /api/v1/generate/cancel/{job_id}` or `POST /api/v1/system/jobs/{job_id}/cancel` and preserves the job history record. Manual reordering for pending queued jobs is powered by `POST /api/v1/system/jobs/queue/reorder` and `job_queue.reorder_queued_jobs`, re-indexing queue priorities without disturbing active running tasks or single-GPU lock state.
@@ -827,7 +807,7 @@ Hi3DGen normal bridging remains evaluation-gated because the repository currentl
 
 The shared image-to-3D contract distinguishes the adapter's raw output from production derivatives:
 
-- An explicit positive top-level target-polycount (or the `-1` native sentinel) wins over nested model parameters and presets; `0` means "no explicit budget" and falls back to the intent preset. Native/Raw is requested with `intent=native` or `enable_postprocess=false`.
+- An explicit positive top-level target-polycount (or the `-1` native sentinel) wins over nested model parameters and presets; `0` means "no explicit budget" and falls back to the intent preset. Native/Raw is requested with `intent=native`.
 - Native/Raw cannot auto-optimize or invoke adaptive shell remesh. Production budget optimization/remesh requires a positive target, and the workspace default does not create LODs from a raw request unless explicitly enabled.
 - `mesh/mesh.glb` remains the canonical immutable model-native artifact. Quality metadata records the adapter output SHA-256 and master SHA-256, marks whether they match, and fails the pipeline if the canonical master changes during downstream processing.
 - Schema-v2 `raw_geometry_telemetry` persists source/reference-image identity and dimensions, adapter/checkpoint, effective inference parameters, inference wall time, CUDA per-device peak allocation/reservation when available, extraction-resolution status and downgrade warnings, native geometry counts, and recorded mesh operations. Requested settings are never relabeled as achieved resolution.
@@ -1026,7 +1006,7 @@ The application state architecture is cataloged in `Docs/TASKS.md` §2–§3:
 ### Direct Generation Controls & Flyout Restructuring (`GeneratePanel.tsx`)
 - **Main Panel Direct Controls:** Primary generation targets (`target_polycount` / `native_target_polycount` slider up to 600K faces, and model-aware texture generation with 2K/4K resolution pills) are located directly within the main generate panel for immediate accessibility.
 - **Dynamic Floating Geometry & Texture Settings:** Secondary refinement toggles (delighting/remove lighting, PBR map baking, quad/triangle topology) are rendered via React portal into `#geometry-texture-flyout`, isolating advanced parameters without cluttering primary workflows.
-- **Post-Processing UI Removal:** In alignment with the default native mesh extraction model (`postprocessing.enabled: false`), the post-processing master toggle is completely removed from the UI, ensuring direct model-native fidelity without unnecessary intermediate state.
+- **Generation UI:** Model-native extraction is the default; Retopo, UV, and Segmentation are explicit workspace operations.
 
 ## 2026-11-14 — Workspace Preview Persistence Safety
 

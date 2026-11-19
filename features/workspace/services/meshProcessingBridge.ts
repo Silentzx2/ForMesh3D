@@ -200,7 +200,7 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
       } else if (tool === 'uv') {
         scriptOptions = {
           ...scriptOptions,
-          atlas_resolution: Number(params.atlasResolution || params.resolution || 2048),
+          atlas_resolution: typeof params.atlasResolution === 'string' && params.atlasResolution.toUpperCase().endsWith('K') ? Number(params.atlasResolution.slice(0, -1)) * 1024 : Number(params.atlasResolution || params.resolution || 2048),
           island_margin: Number(params.islandMargin ?? params.padding_texels ?? 4),
           pack_method: params.packMethod === 'blender' || scriptId === 'blender_smart_uv'
             ? 'blender'
@@ -216,6 +216,7 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
           num_parts: Number(params.numParts ?? params.num_parts ?? 8),
           method: params.method || 'geometric',
           hierarchical: Boolean(params.hierarchical),
+          min_face_island_threshold: Number(params.minFaceIslandThreshold ?? 0),
           colorize_preview: params.colorizePreview !== false,
           save_individual_parts: Boolean(params.saveIndividualParts),
           output_format: params.outputFormat || 'glb',

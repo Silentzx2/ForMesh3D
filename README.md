@@ -40,7 +40,7 @@
 - [5. Supported AI Model Catalog](#5-supported-ai-model-catalog)
 - [6. GPU Doctor & Hardware Execution Planner](#6-gpu-doctor--hardware-execution-planner)
 - [7. Studio Workspace & Interactive 3D Viewport](#7-studio-workspace--interactive-3d-viewport)
-- [8. Direct Model-Native Delivery & Post-Processing Status](#8-direct-model-native-delivery--post-processing-status)
+- [8. Direct Model-Native Delivery & Script Tools](#8-direct-model-native-delivery--script-tools)
 - [9. Technology Stack](#9-technology-stack)
 - [10. Installation & Quick Start](#10-installation--quick-start)
 - [11. REST & Streaming API Reference](#11-rest--streaming-api-reference)
@@ -55,7 +55,7 @@
 ## 1. Overview & Core Mission
 
 > [!NOTE]
-> **Phase: BETA** — ForMesh3D core studio, API gateway, and post-processing pipeline are active and stabilizing. Breaking changes may land before 1.0.
+> **Phase: BETA** — ForMesh3D core studio and API gateway are active and stabilizing. Breaking changes may land before 1.0.
 
 **ForMesh3D** is an open-source, self-hosted generative 3D asset creation platform. It bridges modern open research neural models into a single, cohesive studio running entirely on your local workstation or private GPU cluster.
 
@@ -63,7 +63,7 @@ ForMesh3D delivers **direct high-fidelity model-native generation**, preserving 
 
 - **100% Private & Self-Hosted**: Run neural inference locally on NVIDIA GPUs without cloud subscriptions, usage queues, or uploading proprietary concept art to external services.
 - **Immutable Source Preservation**: Raw model-native generation is snapshotted at `mesh/mesh.glb` with SHA-256 validation.
-- **Direct Model-Native Output**: Upstream neural models (Hunyuan3D-2.1, TRELLIS.2, TaoFlowForge, TripoSG) output native, detailed geometry directly. The post-processing pipeline is permanently disabled by default (`postprocessing.enabled: false`) to ensure zero loss of fine surface features.
+- **Direct Model-Native Output**: Upstream neural models (Hunyuan3D-2.1, TRELLIS.2, TaoFlowForge, TripoSG) output native, detailed geometry directly. Generation stores native model output directly; deterministic mesh tools are explicit workspace operations.
 - **Hardware-Adaptive GPU Doctor**: Standalone hardware compatibility and memory execution planner ([`patcher/doctor.py`](patcher/doctor.py)), guaranteeing 100% native BFloat16 FlashAttention on modern GPUs (`sm >= 80`) and mathematically exact query-chunked SDPA on pre-Ampere GPUs (`sm < 80`).
 
 ### Choose Your Contributor Path
@@ -79,7 +79,7 @@ ForMesh3D delivers **direct high-fidelity model-native generation**, preserving 
 > ### ⚖️ Licensing, Commercial & SaaS Advisory (Important)
 >
 > 1. **Core Repository License**: ForMesh3D's original code (orchestrator, API gateway, scheduler, and Next.js studio UI) is open-source under the **[Apache License 2.0](LICENSE)**.
-> 2. **Direct Upstream Model Architecture**: Upstream neural models (Hunyuan3D-2.1, TRELLIS.2, Stable Fast 3D, TripoSG) output native, detailed geometry directly without destructive legacy post-processing.
+> 2. **Direct Upstream Model Architecture**: Upstream neural models (Hunyuan3D-2.1, TRELLIS.2, Stable Fast 3D, TripoSG) output native, detailed geometry directly without a downstream generation post-processing stage.
 > 3. **Use of Generated Outputs**: Rights to generated outputs depend on upstream model/checkpoint terms and applicable law. The Apache license on this repository does not grant unrestricted rights to every third-party model output; check the exact model and checkpoint terms before commercial use.
 > 4. **Notice for Commercial & SaaS Implementors**:
 >    - The Apache 2.0 license applies **strictly to ForMesh3D's original code**. We do **not** own or re-license underlying third-party models, research weights, or ported submodules.
@@ -107,7 +107,7 @@ ForMesh3D delivers **direct high-fidelity model-native generation**, preserving 
 
 ## 3. End-to-End Asset Generation Pipeline
 
-ForMesh3D enforces an **immutable mesh preservation architecture**. The raw neural model output is directly generated and snapshotted at `mesh/mesh.glb` with SHA-256 validation. Post-processing (decimation, hole repair, automated LODs) is permanently disabled by default (`postprocessing.enabled: false`) to deliver the highest native surface fidelity:
+ForMesh3D enforces an **immutable mesh preservation architecture**. The raw neural model output is directly generated and snapshotted at `mesh/mesh.glb` with SHA-256 validation. No generation post-processing stage is run; mesh editing tools are invoked explicitly from the workspace:
 
 ```mermaid
 flowchart LR
@@ -131,7 +131,7 @@ flowchart LR
 
 ## 4. System Architecture
 
-The following diagram illustrates the multi-tier system architecture connecting the Next.js studio frontend, FastAPI control plane, VRAM scheduler, neural adapters, and post-processing pipeline:
+The following diagram illustrates the Next.js studio frontend, FastAPI control plane, VRAM scheduler, neural adapters, and workspace asset storage:
 
 ```mermaid
 flowchart TD
@@ -294,7 +294,7 @@ flowchart TD
 </div>
 
 <p align="center">
-  <sub><b>Figure 1:</b> ForMesh3D unified Studio Workspace — live interactive Three.js viewport, Generate Model panel with image/mesh upload, geometry & texture settings, AI model selector, and production post-processing toggles. Captured from <code>http://localhost:3000/workspace</code>.</sub>
+  <sub><b>Figure 1:</b> ForMesh3D unified Studio Workspace — live interactive Three.js viewport, Generate Model panel with image/mesh upload, geometry & texture settings, AI model selector, and workspace tool controls. Captured from <code>http://localhost:3000/workspace</code>.</sub>
 </p>
 
 The ForMesh3D Studio UI integrates neural generation and mesh finishing into a cohesive desktop-grade web application:
@@ -305,7 +305,7 @@ The ForMesh3D Studio UI integrates neural generation and mesh finishing into a c
 - **Snapshot Capture**: Two separate capture buttons — Header Snapshot captures the entire workspace as-is (`<name>_<hash>-workspace.png`) at 1920×1080 PNG; Tool Rail Camera captures mesh only (grid/axes hidden) (`<name>_<hash>-mesh.png`) at 1080p 100% quality. Both save to current route identity.
 - **Real-Time Geometry Telemetry HUD**: Direct in-viewport telemetry tracking triangle count, vertex count, watertight manifold status, physical bounding box dimensions (W x H x D), and quality score — replaces the collapsible Mesh Details panel formerly in `ViewportToolOverlay`.
 - **Hardware-Aware Model Selector**: Real-time VRAM estimator comparing model memory reservations with live GPU telemetry (`torch.cuda.mem_get_info`) to prevent out-of-memory crashes before jobs are queued.
-- **Production Post-Processing Controls**: Toggle automated quad retopology, hole repair, conformal UV unwrapping, normal baking, and collision hull generation without mutating the immutable `mesh/mesh.glb`.
+- **Workspace Mesh Tools**: Run Retopo, UV Unwrap, and Segmentation as explicit operations without mutating the source mesh.
 
 ### 🧰 Creative Workspace Modules:
 - **Generate Studio (`/workspace`)**: Image-to-3D generation with reference image intake, model selector, unified Target Polycount, and Output Presets (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`, `native`).
@@ -331,52 +331,17 @@ Retopo, UV Unwrapping, and Segmentation share their canonical JSON API routes. R
 
 ---
 
-## 8. Direct Model-Native Delivery & Post-Processing Status
+## 8. Direct Model-Native Delivery & Script Tools
 
-ForMesh3D prioritizes **direct, uncompromised model-native mesh output**. The automated generation post-processing pipeline is permanently disabled by default via `postprocessing.enabled: false` in `backend/config/system.yaml`.
+Image-to-3D generation stores the model adapter's native mesh directly. The removed generation post-processing subsystem is not part of the runtime.
 
-> [!IMPORTANT]
-> ### 🛡️ Post-Processing Core Component Preservation Notice
-> While automated post-processing is disabled by default during initial generation to preserve 100% of the raw neural surface fidelity without unwanted polygon collapse or smoothing, **all files, services, and modules in `backend/postprocess/` are CORE foundational components of ForMesh3D and MUST NEVER BE REMOVED OR DELETED**.
-> They power all on-demand interactive studio tools—including Conformal UV Unwrapping (`autouv`), FastMesh Quad Retopology (`autoretopo`), Normal Map Raycast Baking (`bake.py`), CoACD Convex Collision Hull Generation (`collision.py`), and Objective QA Metrics & Watertight Repair (`repair.py`). They remain fully available for discrete manual tool workflows and explicit opt-in execution.
+Retopo, UV Unwrap, and Segmentation are separate, explicit workspace operations:
+- Retopo Script quad mode uses Blender's bundled `bpy.ops.object.quadriflow_remesh`; triangle mode uses Trimesh decimation. Quad mode fails clearly if Blender or QuadriFlow is unavailable; it never silently returns triangles.
+- UV Script mode uses Blender Smart UV Project or the `xatlas` Python package for chart generation and packing.
+- Segmentation Script mode uses deterministic Trimesh / NumPy geometry partitioning.
+- Script operations are recorded in SQLite, expose operation status and preview endpoints, and use Keep / Discard for persistence.
 
-When post-processing is disabled:
-- The scheduler forces `postprocess_mode = "none"` and `enable_postprocess = False`, returning the high-fidelity neural mesh extracted by the model adapter directly.
-- No decimation, aggressive smoothing, or destructive polygon collapse is applied.
-- The raw neural asset is delivered as the canonical deliverable directly to the workspace and export archives.
-
-```text
-backend/storage/<workspace_id>/
-├── mesh/
-│   └── mesh.glb              # High-fidelity model-native mesh (SHA-256 verified)
-├── texture/
-│   ├── textured.glb           # PBR textured derived asset
-│   ├── base_color.png
-│   ├── normal.png
-│   ├── ao.png
-│   ├── roughness.png
-│   ├── metallic.png
-│   └── orm.png
-├── rigging/
-│   ├── rigged.glb            # Armatures and skinned assets
-│   └── <part_output>.glb
-├── retopo/
-│   └── retopo.glb            # Clean quad-topology derived asset
-├── smart_uv/
-│   └── uv.glb                # Conformal UV-unwrapped asset
-├── segment/
-│   ├── segment.glb           # Segmented parts & labeled masks
-│   └── <segment_part>.glb
-├── previews/
-│   └── thumbnail.png
-├── metadata/
-│   ├── job.json
-│   ├── asset.json
-│   ├── quality_report.json
-│   └── physics.json
-└── temp/
-    └── <operation_id>/
-```
+The workspace storage layout and execution/persistence state machines are documented in [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md).
 
 ### Operation Lifecycle & Dual State Machines (Milestone 3)
 
@@ -485,7 +450,6 @@ The FastAPI backend exposes a consolidated workspace API for generation, texture
 | `/api/v1/rig` | `POST` | Generate bipedal skeleton armature |
 | `/api/v1/motion` | `POST` | Synthesize motion sequence into playable JSON |
 | `/api/v1/system/jobs/{job_id}` | `GET` | Durable job status and production progress polling |
-| `/api/v1/system/jobs/{job_id}/postprocess/retry` | `POST` | Retry production processing from immutable master |
 
 ---
 ## 12. Verification & Test Suite
@@ -567,9 +531,6 @@ ForMesh3D exports standard **GLB / glTF 2.0**, **OBJ**, **STL**, and **FBX** (vi
 
 ForMesh3D's studio and scheduler are driven by dozens of scattered booleans, enums, and flags that act as **implicit state machines** — none centralized in a state-chart library. The full inventory, with verified file paths and line numbers, lives in **[Docs/TASKS.md](Docs/TASKS.md)** §2–§3 and its per-machine verification status sections, a read-only multi-agent audit.
 
-### Post-processing default state machine
-Post-processing is **disabled by default** through `postprocessing.enabled: false` in `backend/config/system.yaml`. When disabled, the scheduler forces `postprocess_mode = "none"` and `enable_postprocess = False` at `backend/core/scheduler/multiprocess_scheduler.py:2386-2388`, bypassing `run_postprocess_job` entirely. The raw model-extracted mesh is returned directly. Setting `postprocessing.enabled: true` restores the existing post-processing path.
-
 ### Frontend machines (F1–F40)
 Generation/execution FSM, batch queue, viewport model load, image/mesh upload, task polling, SSE connection, feature availability, comparison, panel open/close, viewport shading/display, texture settings.
 
@@ -577,7 +538,7 @@ Generation/execution FSM, batch queue, viewport model load, image/mesh upload, t
 Job lifecycle and queue residency, worker lifecycle and busy bookkeeping, model load states, texture pipeline state.
 
 ### Generation UI Restructuring
-In `GeneratePanel.tsx`, target polycount (500–600K slider passing `native_target_polycount` to adapters) and model-aware texture generation (2K/4K) are placed directly in the main panel. Secondary controls (Remove Lighting, PBR maps, Quad/Triangle topology) reside inside the dynamic portal flyout (`#geometry-texture-flyout`). The post-processing master toggle is completely removed from the UI.
+In `GeneratePanel.tsx`, target polycount (500–600K slider passing `native_target_polycount` to adapters) and model-aware texture generation (2K/4K) are placed directly in the main panel. Secondary controls (Remove Lighting, PBR maps, Quad/Triangle topology) reside inside the dynamic portal flyout (`#geometry-texture-flyout`). The generation UI exposes only active model-native generation controls.
 
 ### Audit methodology
 On every task, scan the codebase for scattered booleans/flags acting as implicit state machines — UI toggles, loading/idle/error flows, compare modes, shading modes, presets, turntable, wireframe, snapshot, settings popover, mesh upload lifecycle, job status transitions, texture pipeline states, abort/controller flows, panel open/close, camera presets, lighting tone, exposure slider, model loader states, scheduler/worker states, job queue states, adapter registry states. For each machine report: name, states, transitions, triggers, file + line, and explicit vs implicit. Resolve overlaps, delete dead machines with zero callers, and fix shared transition logic once rather than per caller.
@@ -608,6 +569,5 @@ Docs/TASKS.md is the source of truth for the inventory; update it when machines 
 ## 16. License & Legal Attribution
 
 - **ForMesh3D Core**: Licensed under the **[Apache License 2.0](LICENSE)**.
-- **Post-Processing Pipeline**: Ported and adapted from **[visualbruno/3DGenStudio](https://github.com/visualbruno/3DGenStudio)** under the **3D Gen Studio Community License**. See **[backend/postprocess/THIRD_PARTY_LICENSE.md](backend/postprocess/THIRD_PARTY_LICENSE.md)**.
 - **Backend API Gateway Base**: Forked and modernized from **[FishWoWater/3DAIGC-API](https://github.com/FishWoWater/3DAIGC-API)**.
 - **Neural Model Checkpoints**: Source and checkpoint terms are controlled by their respective upstream authors. See the [ThirdParty licensing directory](backend/thirdparty/LICENSE).

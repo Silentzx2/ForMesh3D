@@ -1579,6 +1579,70 @@ async def discard_workspace_operation(operation_id: str):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.get("/workspace/operations/{operation_id}", summary="Get SQLite-backed workspace operation status")
+async def get_workspace_operation_status(operation_id: str):
+    """Read Script operation progress directly from SQLite without acquiring the AI scheduler."""
+    from core.scheduler.database_manager import DatabaseManager
+    from core.scheduler.database_models import ExecutionStatus
+
+    operation = DatabaseManager().get_operation(operation_id)
+    if not operation:
+        raise HTTPException(status_code=404, detail=f"Operation {operation_id} not found")
+
+    result = json.loads(operation.result_json) if operation.result_json else {}
+    error = json.loads(operation.error_json) if operation.error_json else None
+    return {
+        "operation_id": operation.operation_id,
+        "workspace_id": operation.workspace_id,
+        "operation_type": operation.operation_type,
+        "status": operation.execution_status,
+        "execution_status": operation.execution_status,
+        "persistence_status": operation.persistence_status,
+        "progress": float(operation.progress or 0.0),
+        "result": {
+            "format": result.get("format"),
+            "stats": result.get("stats") or {},
+            "algorithm": result.get("algorithm"),
+        },
+        "error": error,
+        "preview_url": f"/api/v1/system/workspace/operations/{operation_id}/preview"
+            if operation.execution_status == ExecutionStatus.COMPLETED
+            else None,
+        "created_at": operation.created_at.isoformat() if operation.created_at else None,
+        "completed_at": operation.completed_at.isoformat() if operation.completed_at else None,
+    }
+
+
+@router.post("/workspace/operations/{operation_id}/cancel", summary="Cancel a Script workspace operation")
+async def cancel_workspace_operation(operation_id: str):
+    """Cancel a queued or processing Script operation in the authoritative SQLite state machine."""
+    from core.scheduler.database_manager import DatabaseManager
+    from core.scheduler.database_models import ExecutionStatus
+
+    db = DatabaseManager()
+    operation = db.get_operation(operation_id)
+    if not operation:
+        raise HTTPException(status_code=404, detail=f"Operation {operation_id} not found")
+    if operation.execution_status == ExecutionStatus.CANCELLED:
+        return {"success": True, "operation_id": operation_id, "status": ExecutionStatus.CANCELLED}
+    if operation.execution_status not in {ExecutionStatus.QUEUED, ExecutionStatus.PROCESSING}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot cancel operation in state '{operation.execution_status}'",
+        )
+
+    try:
+        db.update_operation_execution_status(
+            operation_id,
+            ExecutionStatus.CANCELLED,
+            error="Cancelled by user",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return {"success": True, "operation_id": operation_id, "status": ExecutionStatus.CANCELLED}
+
+
 @router.get("/workspace/operations/{operation_id}/preview", summary="Download operation preview mesh")
 @router.get("/operations/{operation_id}/preview", summary="Download operation preview mesh (alias)")
 async def get_workspace_operation_preview(operation_id: str):

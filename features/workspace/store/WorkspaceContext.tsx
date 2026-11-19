@@ -189,6 +189,9 @@ interface WorkspaceContextType {
     numParts?: number;
     method?: string;
     hierarchical?: boolean;
+    minFaceIslandThreshold?: number;
+    colorizePreview?: boolean;
+    saveIndividualParts?: boolean;
     outputFormat?: string;
     modelParameters?: Record<string, any>;
     modelPreference?: string;
@@ -2775,6 +2778,11 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
           params: {
             numParts,
             method: settingsObj.method || 'geometric',
+            hierarchical: Boolean(settingsObj.hierarchical),
+            minFaceIslandThreshold: Number(settingsObj.minFaceIslandThreshold ?? settingsObj.modelParameters?.min_face_island_threshold ?? 0),
+            colorizePreview: settingsObj.colorizePreview ?? settingsObj.modelParameters?.colorize_preview ?? true,
+            saveIndividualParts: settingsObj.saveIndividualParts ?? settingsObj.modelParameters?.save_individual_parts ?? false,
+            outputFormat,
           },
           onProgress: (step, pct, stage) => {
             setExecutionStep(step);

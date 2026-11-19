@@ -216,26 +216,31 @@ except Exception as e:
 
 # Ensure Blender executable is available
 ensure_blender() {
-    if command -v blender >/dev/null 2>&1; then
-        echo "[INFO] Blender already available: $(command -v blender)"
-        return 0
-    fi
-    if [[ "${BLENDER_ENABLED:-true}" != "true" ]]; then
-        echo "[WARN] Blender disabled by BLENDER_ENABLED=false; skipping."
-        return 0
-    fi
-    if command -v apt-get >/dev/null 2>&1; then
+    local blender_bin=""
+    if [[ -n "${BLENDER_EXECUTABLE:-}" && -x "${BLENDER_EXECUTABLE}" ]]; then
+        blender_bin="${BLENDER_EXECUTABLE}"
+    elif command -v blender >/dev/null 2>&1; then
+        blender_bin="$(command -v blender)"
+    elif [[ "${BLENDER_ENABLED:-true}" == "true" ]] && command -v apt-get >/dev/null 2>&1; then
         local sudo_cmd=""
         command -v sudo >/dev/null 2>&1 && sudo_cmd="sudo"
         echo "[INFO] Installing Blender via apt..."
         $sudo_cmd apt-get update -qq 2>/dev/null || true
         $sudo_cmd apt-get install -y --no-install-recommends blender 2>/dev/null || true
+        blender_bin="$(command -v blender || true)"
     fi
-    if ! command -v blender >/dev/null 2>&1; then
-        echo "[WARN] Blender not available on PATH. Set BLENDER_EXECUTABLE=/path/to/blender."
+
+    if [[ -z "$blender_bin" ]]; then
+        echo "[WARN] Blender not available. Set BLENDER_EXECUTABLE=/path/to/blender."
+        return 0
+    fi
+
+    if "$blender_bin" -b --python-expr "import bpy; assert hasattr(bpy.ops.object, 'quadriflow_remesh')" >/dev/null 2>&1; then
+        echo "[SUCCESS] Blender QuadriFlow operator is available: $blender_bin"
+    else
+        echo "[WARN] Blender is installed but QuadriFlow is unavailable. Script quad retopology will report a dependency error; triangle retopology remains available."
     fi
 }
-
 # Persist the selected manager and exact environment so runtime startup
 # never guesses between a Conda base, another env, or a default venv path.
 persist_env_config() {

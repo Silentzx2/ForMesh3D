@@ -239,22 +239,9 @@ The Generate studio interface is organized into a clean beginner-friendly flow a
 #### 1. Primary Flow (Beginner-Friendly Main Panel)
 - **Reference Image Intake**: Single drag-and-drop zone, file upload, or bridge pre-load from Board (`useAppStore.pendingBoardImage`).
 - **AI 3D Engine Selector**: Dropdown over the discovered model registry. Every row shows the model label, its VRAM requirement (`NGB VRAM`, or `Standard` when the model declares none) and a capability badge (`PBR Texture` or `Raw Mesh`). Models that are not ready carry an extra `GPU Req` (CUDA unavailable) or `Weights Missing` flag.
-- **Single Post-Processing Master Switch**: Exactly one master toggle. When active, enables full production finishing. When toggled OFF, fast mode bypasses downstream finishing and returns raw geometry immediately.
-- **Textured Generation Toggle**: Switches the optional texture stage on/off and shows the current atlas size. It is blocked (labelled `BLOCKED`) while post-processing is OFF, because texture baking and UV unwrapping are post-processing stages.
-- **Single Target Polycount & Output Preset Card**:
-  - Six production output recipes, defined by `backend/config/smart_presets.yaml`:
-    - `mobile`: 20K triangles, 1K atlas, mobile LOD ratios.
-    - `game_ready`: 50K triangles, 1K atlas, LOD chain, collision hull.
-    - `cinematic`: 200K triangles, 2K atlas, LOD chain.
-    - `animation`: 30K triangles, 1K atlas, LOD chain, auto-rig.
-    - `3d_print`: raw mesh (no decimation), printability check, auto-repair.
-    - `native`: raw generative mesh with post-processing bypassed.
-  - Each chip's summary line is derived from the backend preset data (for example `50K · 1K PBR · LOD · Col`), not hardcoded in the UI.
-  - Smooth polycount slider (5K–200K tris) for fine-tuning the budget; moving the slider clears the active preset. Chips other than `Native` are blocked while post-processing is OFF.
-  - Preset clicks fill recommended defaults non-destructively and **never** trigger automatic generation submission.
-- **Generate Button**: Fixed-position button that toggles state inline — yellow "Generate Model" when idle (disabled without an image), red "Cancel Generation" while executing with an inline progress bar above it (gray track, white fill growing with progress, percentage count below). Returns to "Generate Model" on completion or cancel.
+- Generation UI has no post-processing master switch. Model-native generation controls stay in GeneratePanel; Retopo, UV, and Segmentation settings are exposed only in their dedicated workspace panels.
 
-#### 2. Advanced Production Drawer (Genuine Production Controls Only)
+### 2. Advanced Production Drawer (Genuine Production Controls Only)
 - **Candidate Variations (Pick-Best-of-N)**: Multi-variation selector (1 to 4 seeds) with deterministic stepping (`base_seed + i × seed_step`) and composite quality scoring (`_score_and_select`) promoting the highest-scoring candidate to `mesh/mesh.glb`; the completed-asset card also allows manual promotion of any variation.
 - **Topology Target**: Triangle decimation vs. quad-dominant retopology (AutoRetopo quad conversion).
 - **Automatic UV Unwrapping**: Conformal seam placement and atlas chart packing (xatlas / PartUV) run inside the production pipeline. There is no user-facing UV-unwrapping toggle.
@@ -266,7 +253,7 @@ The Generate studio interface is organized into a clean beginner-friendly flow a
 #### 3. Banned & Removed Controls
 - No inference step sliders, guidance scale inputs, sampler overrides, or octree resolution pickers (locked inside adapter code).
 - No fake Fast/Balanced/High inference quality selector.
-- No duplicate Target Polycount cards or duplicate post-process master switches.
+- No duplicate Target Polycount cards or retired generation switches.
 - No separate UV-unwrapping toggle — unwrapping is automatic and gated by the production pipeline.
 - No separate "Topology Gate" toggle — the gate always runs and the `Auto-Repair` toggle only controls whether repair may mutate the mesh.
 - No Low VRAM toggles in the generation flow — adapter-owned profiles own the inference schedule.
@@ -274,7 +261,7 @@ The Generate studio interface is organized into a clean beginner-friendly flow a
 
 #### 4. Request Contract (`features/workspace/utils/buildGenerationParameters.ts`)
 
-The panel builds the body for `POST /api/v1/generate` from: `image_file_id` | `image_base64`, `candidate_count`, `asset_name`, `image_name`, `output_format`, `model_preference`, `intent`, `preprocessing_artifact_id`, `preprocessing_review_override`, `enhancement_enabled`, `enable_printability_check`, `enable_auto_repair`, `enable_auto_rig`, `auto_rig_mode`, `enable_postprocess`, `target_polycount`, `generate_lod`, `lod_preset`, `lod_count`, `model_parameters` (seed only), `physics_enabled`, `physics_config`, `topology_mode`, `quad_topology`, `bake_normal_maps`, `texture_enabled`, `generate_texture`, `texture_resolution`, `texture_resolution_preset`.
+The panel builds the body for `POST /api/v1/generate` from: `image_file_id` | `image_base64`, `candidate_count`, `asset_name`, `image_name`, `output_format`, `model_preference`, `intent`, `preprocessing_artifact_id`, `preprocessing_review_override`, `enhancement_enabled`, `enable_printability_check`, `enable_auto_repair`, `enable_auto_rig`, `auto_rig_mode`, `target_polycount`, `generate_lod`, `lod_preset`, `lod_count`, `model_parameters` (seed only), `physics_enabled`, `physics_config`, `topology_mode`, `quad_topology`, `bake_normal_maps`, `texture_enabled`, `generate_texture`, `texture_resolution`, `texture_resolution_preset`.
 
 There is no `output_preset` body field and no `auto_optimize` field. The output preset reaches the backend through `intent`, and the preset-derived budgets are expanded into the explicit fields above. The minimal offline fallback table in `constants/smartPresetFallback.json` is guarded by `backend/tests/test_smart_preset_parity.py`, so the panel and `backend/config/smart_presets.yaml` cannot drift apart silently.
 
@@ -533,14 +520,14 @@ Workspace export actions treat game_ready/ as the default user-facing artifact. 
 
 The ZIP option snapshots the complete canonical workspace; it is not a selective package builder.
 
-Post-processing stage and progress reuse the existing job status model rather than introducing a second progress subsystem.
+Generation progress follows the existing job status model. Script workspace tools use SQLite operation progress and their dedicated operation status endpoint.
 
 Export Quick-Profiles (`ExportModal.tsx`) enable 1-click loading and custom creation of format/LOD/collision combinations (e.g. "GLB Game-Ready", "Unity Mobile", "Unreal High-Poly", "Blender Raw") persisted in `services/settingsPersistence.ts`. Profiles only pre-fill validated toggles and reuse the single canonical export execution pipeline.
 
 Storage Breakdown & Safe Cleanup (`OutputsPage.tsx`, `/api/v1/system/storage-breakdown`, `/api/v1/system/storage-cleanup`) provides an authentic byte-level overview across `master/`, `game_ready/`, `textures/`, `lods/`, `rigging/`, and `temp/` using canonical server filesystem sizes. The safe cleanup action removes obsolete intermediate processing artifacts older than a user-specified day threshold while strictly preserving `mesh/mesh.glb` lineage and primary game-ready files.
 
 ## Physics UX
-The Generate panel keeps Physics Preparation behind a compact Advanced Generation drawer so the primary workflow stays short and scroll-light. The viewer exposes a top-level Test Physics action. On Physics Ready assets it uses the canonical collision runtime; on ordinary loaded meshes it falls back to a lightweight bounds-based rigid-body smoke test without mutating the asset or running post-processing. The viewer still provides Play, Pause, Step, Reset, collider debug, Drop, Bounce, Slide, and Spin controls. Deformable/jiggle simulation remains capability-gated and is not faked.
+The Generate panel keeps Physics Preparation behind a compact Advanced Generation drawer so the primary workflow stays short and scroll-light. The viewer exposes a top-level Test Physics action. On Physics Ready assets it uses the canonical collision runtime; on ordinary loaded meshes it falls back to a lightweight bounds-based rigid-body smoke test without mutating the asset. The viewer still provides Play, Pause, Step, Reset, collider debug, Drop, Bounce, Slide, and Spin controls. Deformable/jiggle simulation remains capability-gated and is not faked.
 
 ## Viewport Inspect UX
 The viewport keeps frequent actions in the center-view rail: camera, shading, wireframe, turntable, Test Physics, and Mirror/Reflection Peek. Reflection Peek is an event-driven viewport snapshot that provides a real-time thumbnail preview of the mesh and lighting. Rather than running an unthrottled timer loop, snapshot capture executes once on initial mesh load and then listens to OrbitControls `'end'` events debounced at 250ms. Previous object URLs are revoked upon each capture to prevent memory bloat, and the capture loop is completely halted when the scene is static or unmounted.
@@ -631,11 +618,11 @@ Current adapter-owned inference profiles:
 - TaoFlowForge: `fill_holes` enabled, offload `auto`
 - Unique3D: `input_processing` and `do_refine` enabled, expansion weight 0.1
 
-The visible output preset chips (`Mobile / Game Ready / Cinematic / Animation / 3D Print / Native`) map to production post-processing budgets, not inference schedules. `Native` preserves the model-native source density and skips downstream polycount reduction.
+The visible output preset chips (`Mobile / Game Ready / Cinematic / Animation / 3D Print / Native`) are generation intents, not downstream mesh-processing controls. `Native` preserves the model-native source density and skips downstream polycount reduction.
 
 ## Resource-Aware Generation UX — 2026-10-08
 
-The workspace receives the normalized runtime capability contract. Model-specific controls are shown only when supported; quality/polycount choices are routed through the scheduler and production post-process rather than silently changing model-native source density. High-fidelity source and game-ready derivatives remain separately inspectable.
+The workspace receives the normalized runtime capability contract. Model-specific controls are shown only when supported; quality/polycount choices are routed through the generation request contract without silently changing model-native source density. High-fidelity source and game-ready derivatives remain separately inspectable.
 
 ## Phase 1 Generation UX Contract
 
@@ -643,10 +630,10 @@ The workspace receives the normalized runtime capability contract. Model-specifi
 The Generate panel exposes Original versus Generation Preview, approval/reuse, regeneration, manual editor navigation, and a disable path. Changing the source invalidates the previous preprocessing artifact.
 
 ### Smart Intent
-Compact controls expose Game Ready, Cinematic, Animation, 3D Print, and Mobile, plus a `Native` chip that bypasses post-processing and returns the raw generative mesh. Selecting an intent fills the panel's settings from the backend preset catalogue without submitting a job; at submission time the backend resolves the actual chosen model for that intent and the normal generation lifecycle runs. The UI does not reimplement resource admission.
+Compact controls expose Game Ready, Cinematic, Animation, 3D Print, and Mobile, plus a `Native` chip that requests direct model-native extraction. Selecting an intent fills the panel's settings from the backend preset catalogue without submitting a job; at submission time the backend resolves the actual chosen model for that intent and the normal generation lifecycle runs. The UI does not reimplement resource admission.
 
 ### Production QA
-Printability, Auto-Repair, and Auto-Rig are explicit controls. All execute through the existing scheduler/post-process lifecycle and expose degraded failure state rather than false success.
+Printability, Auto-Repair, and Auto-Rig are explicit controls. These execute through their dedicated operation lifecycle and expose degraded failure state rather than false success.
 
 ## High-Fidelity Generation UX Contract — 2026-10-08
 
@@ -774,11 +761,11 @@ Workspace Settings → AI Inference → Generation Output Recipes is a native di
 ## Dynamic Flyout & Main Generate Panel Layout Architecture — 2026-11-13
 
 - **Main Panel Direct Controls:** Generation-critical settings reside directly in `GeneratePanel.tsx`:
-  - **Polycount Target Slider:** Range 500 to 600,000 faces, controlling native extraction resolution (`native_target_polycount`) even when post-processing is disabled.
+  - **Polycount Target Slider:** Range 500 to 600,000 faces, recording the requested native geometry budget (`native_target_polycount`).
   - **Model-Aware Texture Settings:** Integrated switch for texture generation and atlas resolution pills (2K / 4K) conditionally rendered based on the selected model's pipeline capability (`none`, `2k`, `4k`).
 - **Dynamic Floating Geometry & Texture Settings:** Secondary refinement controls are ported to `#geometry-texture-flyout` via `createPortal`:
   - **Remove Lighting Switch:** De-lights albedo textures to extract true material colors.
   - **PBR Maps Switch:** Enables physically-based roughness, metallic, and normal map generation.
   - **Topology Mode Pills:** Quad vs Triangle topology selection.
-- **Post-Processing Master Toggle Elimination:** Removed entirely from both main panel and dynamic flyout, preserving direct raw-mesh extraction as the sole default user mental model.
+- **Generation Controls:** Generation delivers model-native geometry; mesh tools run explicitly from their workspace panels.
 

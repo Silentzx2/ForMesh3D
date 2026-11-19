@@ -33,5 +33,5 @@
 
 ### 5. Verification Status
 - **Historical baseline (2026-11-16)**: Pipeline unit tests were recorded as 4/4 and frontend tests as 55/55 across 8 suites.
-- **Script route integration (2026-11-19)**: Focused route, scheduler-isolation, preview, Keep, and Discard tests have been added; current GitHub Actions results must be checked before marking them verified.
+- **Script route integration (2026-11-19)**: Canonical Script routes now return queued operation IDs immediately; FastAPI background execution records SQLite progress and exposes status/cancel endpoints. Retopo quad mode requires Blender QuadriFlow; UV XAtlas uses the declared `xatlas` dependency. Focused tests cover route lifecycle, QuadriFlow dependency errors, segmentation part count, hierarchy, and face coverage. GitHub Actions must be checked before marking CI verified.
 - **Documentation**: CHANGELOG (last 3), DECISIONS (last 3), TASKS (active), MEMORY (< 100 lines).

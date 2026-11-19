@@ -52,6 +52,8 @@ def execute_smart_uv(
     resolution = int(opts.get("resolution") or opts.get("atlasResolution") or opts.get("atlas_resolution") or 2048)
     padding = int(opts.get("padding_texels") or opts.get("islandMargin") or opts.get("island_margin") or 4)
     method = str(opts.get("method") or opts.get("packMethod") or "auto").lower()
+    if method == "python":
+        method = "xatlas"
     angle_limit_deg = float(opts.get("max_cone_deg") or 66.0)
     output_format = str(opts.get("output_format") or "glb").lower().lstrip(".")
 
@@ -64,6 +66,11 @@ def execute_smart_uv(
 
     has_blender = bool(find_blender_binary())
     blender_used = False
+
+    if method == "blender" and not has_blender:
+        raise RuntimeError("Blender Smart UV was selected but Blender is not available; set BLENDER_EXECUTABLE.")
+    if method not in {"auto", "blender", "xatlas"}:
+        raise ValueError("UV Script method must be auto, blender, or xatlas")
 
     # Calculate island margin in 0.0 - 1.0 UV space
     margin_uv = max(0.001, min(0.1, float(padding) / float(max(256, resolution))))
@@ -84,16 +91,30 @@ out_path = r"{out_file}"
 angle_rad = math.radians({angle_limit_deg})
 island_margin = {margin_uv}
 
-ext = in_path.lower().split('.')[-1]
-if ext in ['glb', 'gltf']:
+ext = in_path.lower().rsplit('.', 1)[-1]
+if ext in ('glb', 'gltf'):
     bpy.ops.import_scene.gltf(filepath=in_path)
 elif ext == 'obj':
     try:
         bpy.ops.wm.obj_import(filepath=in_path)
     except AttributeError:
         bpy.ops.import_scene.obj(filepath=in_path)
+elif ext == 'ply':
+    if hasattr(bpy.ops.wm, 'ply_import'):
+        bpy.ops.wm.ply_import(filepath=in_path)
+    elif hasattr(bpy.ops.import_mesh, 'ply'):
+        bpy.ops.import_mesh.ply(filepath=in_path)
+    else:
+        raise RuntimeError('This Blender build has no PLY importer')
+elif ext == 'stl':
+    if hasattr(bpy.ops.wm, 'stl_import'):
+        bpy.ops.wm.stl_import(filepath=in_path)
+    elif hasattr(bpy.ops.import_mesh, 'stl'):
+        bpy.ops.import_mesh.stl(filepath=in_path)
+    else:
+        raise RuntimeError('This Blender build has no STL importer')
 else:
-    bpy.ops.import_scene.gltf(filepath=in_path)
+    raise RuntimeError('Unsupported input mesh format: ' + ext)
 
 mesh_objs = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
 if not mesh_objs:
@@ -123,40 +144,51 @@ except Exception as e:
     print(f"Smart UV project error: {{e}}", file=sys.stderr)
 
 bpy.ops.object.mode_set(mode='OBJECT')
-bpy.ops.export_scene.gltf(filepath=out_path, export_format='GLB')
+if "{output_format}" == 'glb':
+    bpy.ops.export_scene.gltf(filepath=out_path, export_format='GLB')
+elif "{output_format}" == 'obj':
+    if hasattr(bpy.ops.wm, 'obj_export'):
+        bpy.ops.wm.obj_export(filepath=out_path)
+    elif hasattr(bpy.ops.export_scene, 'obj'):
+        bpy.ops.export_scene.obj(filepath=out_path)
+    else:
+        raise RuntimeError('This Blender build has no OBJ exporter')
 """
         success, log = run_blender_script(blender_script, timeout_sec=180)
         if success and out_file.is_file() and out_file.stat().st_size > 0:
             blender_used = True
 
-    # 2. XAtlas or Trimesh Fallback
+    # 2. XAtlas chart generation and packing
     if not blender_used:
+        if method == "blender":
+            raise RuntimeError("Blender Smart UV Project failed; refusing to substitute a different UV algorithm.")
         if progress_callback:
-            progress_callback("Packing UV coordinates via Python...", 0.5)
+            progress_callback("Generating and packing XAtlas UV charts...", 0.5)
 
-        loaded = load_mesh_safe(in_file)
-        mesh = to_single_trimesh(loaded)
-
+        mesh = to_single_trimesh(load_mesh_safe(in_file))
         try:
             import xatlas
-            vmapping, indices, uvs = xatlas.parametrize(mesh.vertices, mesh.faces)
-            new_mesh = trimesh.Trimesh(
-                vertices=mesh.vertices[vmapping],
-                faces=indices,
-                visual=trimesh.visual.TextureVisuals(uv=uvs),
-                process=False,
-            )
-            export_mesh_safe(new_mesh, out_file, file_type=output_format)
-        except (ImportError, Exception) as exc:
-            logger.info("xatlas unavailable (%s); using Trimesh texture visual fallback", exc)
-            # If mesh already has UVs or visual, preserve; otherwise apply planar projection
-            if not hasattr(mesh.visual, "uv") or mesh.visual.uv is None:
-                # Simple bounding box planar projection
-                bounds = mesh.bounds
-                span = np.maximum(bounds[1] - bounds[0], 1e-6)
-                uv = (mesh.vertices[:, :2] - bounds[0][:2]) / span[:2]
-                mesh.visual = trimesh.visual.TextureVisuals(uv=uv)
-            export_mesh_safe(mesh, out_file, file_type=output_format)
+        except ImportError as exc:
+            raise RuntimeError("XAtlas Script mode requires the 'xatlas' Python package. Reinstall backend/requirements.txt.") from exc
+
+        try:
+            atlas = xatlas.Atlas()
+            atlas.add_mesh(mesh.vertices, mesh.faces)
+            pack_options = xatlas.PackOptions()
+            pack_options.resolution = resolution
+            pack_options.padding = padding
+            atlas.generate(pack_options=pack_options)
+            vmapping, indices, uvs = atlas[0]
+        except Exception as exc:
+            raise RuntimeError(f"XAtlas UV chart generation failed: {exc}") from exc
+
+        new_mesh = trimesh.Trimesh(
+            vertices=mesh.vertices[vmapping],
+            faces=indices,
+            visual=trimesh.visual.TextureVisuals(uv=uvs),
+            process=False,
+        )
+        export_mesh_safe(new_mesh, out_file, file_type=output_format)
 
     if progress_callback:
         progress_callback("Verifying UV atlas completeness...", 0.9)
@@ -165,7 +197,8 @@ bpy.ops.export_scene.gltf(filepath=out_path, export_format='GLB')
     stats = compute_mesh_stats(final_mesh)
     stats["atlas_resolution"] = resolution
     stats["padding_texels"] = padding
-    stats["algorithm"] = "blender_smart_project" if blender_used else "python_uv_pack"
+    stats["algorithm"] = "blender_smart_project" if blender_used else "xatlas_chart_pack"
+    stats["chart_count"] = int(getattr(atlas, "chart_count", 0)) if not blender_used else None
 
     return {
         "success": True,

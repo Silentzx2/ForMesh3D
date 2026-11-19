@@ -1,9 +1,8 @@
 """Retopology execution pipeline.
 
-Supports:
-- Quad remeshing via QuadriFlow in headless Blender when available
-- Isotropic triangle remeshing & quadratic decimation via Trimesh
-- Watertight healing, normal correction, and density safety capping
+Quad output is produced only by Blender's bundled QuadriFlow operator. Triangle
+output uses Trimesh decimation. Explicit quad requests never silently degrade
+to triangles.
 """
 from __future__ import annotations
 
@@ -31,31 +30,16 @@ def execute_retopo(
     options: Optional[Dict[str, Any]] = None,
     progress_callback: Optional[Callable[[str, float], None]] = None,
 ) -> Dict[str, Any]:
-    """Execute retopology on a mesh file.
-
-    Args:
-        input_path: Path to input mesh (GLB/OBJ/PLY/STL).
-        output_path: Destination path for retopo output.
-        options: Dictionary of retopo settings:
-            - target_faces: Target polygon count (default 50,000)
-            - quads: True for quad topology, False for triangles (default True)
-            - watertight: Fill holes and fix normals (default False)
-            - adaptive: Curvature-adaptive smoothing / decimation (default True)
-            - preserve_features: Keep sharp feature edges (default True)
-            - feature_angle: Angle threshold for sharp edges (default 45.0)
-            - output_format: Output file extension (default 'glb')
-        progress_callback: Optional callback for streaming progress updates.
-
-    Returns:
-        Dictionary containing execution summary and truthful geometric stats.
-    """
     opts = options or {}
     target_faces = int(opts.get("target_faces") or opts.get("target_polycount") or 50000)
     quads = bool(opts.get("quads", True))
     watertight = bool(opts.get("watertight") or opts.get("watertightHealing", False))
     adaptive = bool(opts.get("adaptive") if "adaptive" in opts else opts.get("adaptiveDensity", True))
     preserve_features = bool(opts.get("preserve_features") if "preserve_features" in opts else opts.get("preserveEdges", True))
+    feature_angle = max(0.0, min(180.0, float(opts.get("feature_angle", 45.0))))
     output_format = str(opts.get("output_format") or "glb").lower().lstrip(".")
+    if output_format not in {"glb", "obj"}:
+        raise ValueError("Retopology Script output format must be GLB or OBJ")
 
     in_file = Path(input_path).resolve()
     out_file = Path(output_path).resolve()
@@ -64,16 +48,20 @@ def execute_retopo(
     if progress_callback:
         progress_callback("Analyzing mesh geometry...", 0.2)
 
-    has_blender = bool(find_blender_binary())
-    blender_used = False
-
-    # 1. Quad topology path via headless Blender QuadriFlow
-    if quads and has_blender:
+    blender_bin = find_blender_binary()
+    if quads:
+        if not blender_bin:
+            raise RuntimeError(
+                "QuadriFlow requires Blender with bpy.ops.object.quadriflow_remesh. "
+                "Install Blender or set BLENDER_EXECUTABLE, or choose Triangle topology."
+            )
         if progress_callback:
-            progress_callback(f"Running QuadriFlow quad remesh ({target_faces:,} target faces)...", 0.4)
+            progress_callback(f"Running Blender QuadriFlow ({target_faces:,} target quads)...", 0.4)
 
         blender_script = f"""
 import bpy
+import bmesh
+import math
 import sys
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -81,82 +69,138 @@ in_path = r"{in_file}"
 out_path = r"{out_file}"
 target_faces = {target_faces}
 preserve_sharp = {preserve_features}
+feature_angle = math.radians({feature_angle})
+heal_mesh = {watertight}
+smooth_normals = {adaptive}
+output_format = "{output_format}"
 
-ext = in_path.lower().split('.')[-1]
-if ext in ['glb', 'gltf']:
+ext = in_path.lower().rsplit('.', 1)[-1]
+if ext in ('glb', 'gltf'):
     bpy.ops.import_scene.gltf(filepath=in_path)
 elif ext == 'obj':
     try:
         bpy.ops.wm.obj_import(filepath=in_path)
     except AttributeError:
         bpy.ops.import_scene.obj(filepath=in_path)
+elif ext == 'ply':
+    if hasattr(bpy.ops.wm, 'ply_import'):
+        bpy.ops.wm.ply_import(filepath=in_path)
+    elif hasattr(bpy.ops.import_mesh, 'ply'):
+        bpy.ops.import_mesh.ply(filepath=in_path)
+    else:
+        raise RuntimeError('This Blender build has no PLY importer')
+elif ext == 'stl':
+    if hasattr(bpy.ops.wm, 'stl_import'):
+        bpy.ops.wm.stl_import(filepath=in_path)
+    elif hasattr(bpy.ops.import_mesh, 'stl'):
+        bpy.ops.import_mesh.stl(filepath=in_path)
+    else:
+        raise RuntimeError('This Blender build has no STL importer')
 else:
-    bpy.ops.import_scene.gltf(filepath=in_path)
+    raise RuntimeError('Unsupported QuadriFlow input format: ' + ext)
 
 mesh_objs = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
 if not mesh_objs:
-    sys.exit(1)
+    raise RuntimeError('Input file did not contain a mesh')
 
-bpy.context.view_layer.objects.active = mesh_objs[0]
+bpy.ops.object.select_all(action='DESELECT')
 for obj in mesh_objs:
     obj.select_set(True)
+bpy.context.view_layer.objects.active = mesh_objs[0]
 if len(mesh_objs) > 1:
     bpy.ops.object.join()
-
 active_obj = bpy.context.view_layer.objects.active
 
-try:
-    bpy.ops.object.quadriflow_remesh(
-        use_mesh_symmetry=False,
-        use_preserve_sharp=preserve_sharp,
-        use_preserve_boundary=True,
-        preserve_paint_mask=False,
-        smooth_normals=False,
-        mode='FACES',
-        target_faces=target_faces,
-    )
-except Exception as e:
-    print(f"Quadriflow error: {{e}}", file=sys.stderr)
-    mod = active_obj.modifiers.new(name="Decimate", type='DECIMATE')
-    mod.decimate_type = 'COLLAPSE'
-    current_faces = len(active_obj.data.polygons)
-    if current_faces > target_faces:
-        mod.ratio = float(target_faces) / float(current_faces)
-        bpy.ops.object.modifier_apply(modifier="Decimate")
+if heal_mesh:
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.fill_holes(sides=0)
+    bpy.ops.mesh.normals_make_consistent(inside=False)
+    bpy.ops.object.mode_set(mode='OBJECT')
 
-bpy.ops.export_scene.gltf(filepath=out_path, export_format='GLB')
+if preserve_sharp:
+    bm = bmesh.new()
+    bm.from_mesh(active_obj.data)
+    for edge in bm.edges:
+        if len(edge.link_faces) == 2:
+            try:
+                if edge.calc_face_angle(0.0) >= feature_angle:
+                    edge.smooth = False
+            except ValueError:
+                pass
+    bm.to_mesh(active_obj.data)
+    bm.free()
+    active_obj.data.update()
+
+quadflow = getattr(bpy.ops.object, 'quadriflow_remesh', None)
+if quadflow is None:
+    raise RuntimeError('Blender was found but bpy.ops.object.quadriflow_remesh is unavailable')
+quad_properties = quadflow.get_rna_type().properties.keys()
+quad_kwargs = dict(
+    use_mesh_symmetry=False,
+    use_preserve_sharp=preserve_sharp,
+    use_preserve_boundary=True,
+    smooth_normals=smooth_normals,
+    mode='FACES',
+    target_faces=target_faces,
+)
+if 'preserve_attributes' in quad_properties:
+    quad_kwargs['preserve_attributes'] = True
+result = quadflow(**quad_kwargs)
+if 'CANCELLED' in result or not active_obj.data.polygons:
+    raise RuntimeError('QuadriFlow cancelled or produced an empty mesh')
+
+if output_format == 'glb':
+    bpy.ops.export_scene.gltf(filepath=out_path, export_format='GLB')
+elif output_format == 'obj':
+    if hasattr(bpy.ops.wm, 'obj_export'):
+        bpy.ops.wm.obj_export(filepath=out_path)
+    elif hasattr(bpy.ops.export_scene, 'obj'):
+        bpy.ops.export_scene.obj(filepath=out_path)
+    else:
+        raise RuntimeError('This Blender build has no OBJ exporter')
 """
-        success, log = run_blender_script(blender_script, timeout_sec=180)
-        if success and out_file.is_file() and out_file.stat().st_size > 0:
-            blender_used = True
-
-    # 2. Trimesh isotropic decimation & healing (fallback or explicit triangle mode)
-    if not blender_used:
+        success, log = run_blender_script(blender_script, timeout_sec=240)
+        if not success or not out_file.is_file() or out_file.stat().st_size <= 0:
+            raise RuntimeError(
+                "QuadriFlow failed; no triangle fallback was produced. "
+                + (log[-1800:] if log else "Check the Blender executable and QuadriFlow support.")
+            )
+        blender_used = True
+    else:
         if progress_callback:
-            progress_callback("Executing Trimesh isotropic remesher and simplification...", 0.4)
-
-        loaded = load_mesh_safe(in_file)
-        mesh = to_single_trimesh(loaded)
+            progress_callback("Executing Trimesh triangle decimation...", 0.4)
+        mesh = to_single_trimesh(load_mesh_safe(in_file))
 
         if watertight and hasattr(trimesh, "repair"):
             trimesh.repair.fill_holes(mesh)
             trimesh.repair.fix_normals(mesh)
 
-        current_faces = len(mesh.faces)
-        if current_faces > target_faces:
+        original_faces = len(mesh.faces)
+        if original_faces > target_faces:
             if progress_callback:
-                progress_callback(f"Simplifying mesh from {current_faces:,} to {target_faces:,} faces...", 0.6)
+                progress_callback(
+                    f"Reducing triangle count from {original_faces:,} to {target_faces:,}...",
+                    0.6,
+                )
             try:
-                # Quadric decimation
+                mesh = mesh.simplify_quadric_decimation(face_count=target_faces)
+            except TypeError:
                 mesh = mesh.simplify_quadric_decimation(target_faces)
-            except Exception as dec_err:
-                logger.warning("simplify_quadric_decimation failed: %s; falling back", dec_err)
+            except Exception as decimation_error:
+                raise RuntimeError(
+                    f"Could not meet target face budget ({target_faces:,}): {decimation_error}"
+                ) from decimation_error
+            if len(mesh.faces) > target_faces:
+                raise RuntimeError(
+                    f"Decimator returned {len(mesh.faces):,} faces, above the requested budget of {target_faces:,}"
+                )
 
         if adaptive and hasattr(trimesh, "smoothing"):
             try:
                 trimesh.smoothing.filter_taubin(mesh, iterations=10)
-            except Exception:
-                pass
+            except Exception as smoothing_error:
+                logger.warning("Optional Taubin smoothing was skipped: %s", smoothing_error)
 
         export_mesh_safe(mesh, out_file, file_type=output_format)
 
@@ -165,9 +209,13 @@ bpy.ops.export_scene.gltf(filepath=out_path, export_format='GLB')
 
     final_mesh = to_single_trimesh(load_mesh_safe(out_file))
     stats = compute_mesh_stats(final_mesh)
-    stats["topology"] = "quad" if (quads and blender_used) else "triangle"
-    stats["algorithm"] = "blender_quadriflow" if blender_used else "trimesh_decimate"
+    stats["topology"] = "quad" if blender_used else "triangle"
+    stats["algorithm"] = "blender_quadriflow" if blender_used else "trimesh_quadric_decimation"
     stats["target_faces"] = target_faces
+    stats["feature_angle"] = feature_angle if preserve_features else None
+    stats["preserve_features"] = preserve_features
+    stats["watertight_repair_requested"] = watertight
+    stats["adaptive_smoothing"] = adaptive
 
     return {
         "success": True,

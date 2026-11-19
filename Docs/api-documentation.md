@@ -443,8 +443,6 @@ Content-Type: application/json
 }
 ```
 
-> **Post-Processing Retention Clarification**: Automated post-processing during generation is disabled by default (`postprocessing.enabled: false`) in favor of direct model-native neural output. However, all modules in `backend/postprocess/` remain permanent core foundations powering discrete, on-demand specialist tools (such as PartUV, AutoRetopo, Baking, Collision, and QA inspection).
-
 ### Deep-Link Route & Workspace State Lookup
 
 Query the authoritative SQLite database state for a workspace without re-running any inference or jobs:
@@ -527,7 +525,6 @@ Content-Type: application/json
   "model_preference": "hunyuan3d_shape_v21_image_to_raw_mesh",
   "candidate_count": 1,
   "intent": "game_ready",
-  "enable_postprocess": true,
   "target_polycount": 35000,
   "topology_mode": "triangle",
   "quad_topology": false,
@@ -560,9 +557,8 @@ Content-Type: application/json
 | `candidate_count` | integer | `1` | Candidate variations to generate (1 to 4). Seeds step deterministically |
 | `model_parameters` | object | `null` | Model-specific parameters. Only `seed` is forwarded to the adapter |
 | `target_polycount` | integer | `null` | Target triangle budget. See the precedence rules below for `> 0`, `0` and `-1` |
-| `enable_postprocess` | boolean | `false` | Run the production post-processing pipeline. `false` bypasses it and yields the raw/native output. Controlled by `postprocessing.enabled` in `backend/config/system.yaml` (defaults to `false`) — when `false`, post-processing is always bypassed regardless of request flags. |
-| `native_target_polycount` | integer | `null` | Native extraction polycount target. When `enable_postprocess` is `false`, this value is carried as `native_target_polycount` and reaches the model adapter's native extraction path directly (bypassing downstream decimation). Clamped to 500–600,000. When `enable_postprocess` is `true`, use `target_polycount` instead. |
-| `texture_enabled` / `generate_texture` | boolean | `null` | Run the post-processing texture stage on the generated master |
+| `native_target_polycount` | integer | `null` | Requested native geometry budget metadata; it does not trigger downstream decimation. Actual output counts are measured from the saved mesh. |
+| `texture_enabled` / `generate_texture` | boolean | `null` | Request model-native texture generation where supported |
 | `texture_resolution` | integer | `null` | Texture atlas size (1024/2048/4096/8192). The named presets `1K`/`2K`/`4K`/`8K` are normalized to those sizes |
 | `bake_normal_maps` | boolean | `true` | Bake high-frequency detail normal maps from the master source |
 | `topology_mode` | string | `"triangle"` | `triangle` or `quad` |
@@ -570,7 +566,7 @@ Content-Type: application/json
 | `generate_lod` | boolean | `null` | Build the multi-resolution chain (LOD0 through LOD3) |
 | `lod_preset` | string | `null` | LOD ratio preset: `mobile`, `low`, `medium`, `high` or `cinematic` |
 | `lod_count` | integer | `null` | Number of LOD levels to build (0 to 4); `0` disables the LOD chain |
-| `physics_enabled` | boolean | `null` | Request physics-ready post-processing (watertight CoACD convex hull collision mesh) |
+| `physics_enabled` | boolean | `null` | Request physics-ready collision preparation (watertight CoACD convex hull collision mesh) |
 | `physics_config` | object | `null` | Provider-neutral physics controller values |
 | `enable_printability_check` | boolean | `null` | Run the final printability QA |
 | `enable_auto_repair` | boolean | `null` | Allow the shared repair stage to mutate the mesh for printability |
@@ -592,7 +588,7 @@ Per production option the resolution order is: **explicit request value > intent
 2. **Intent preset fills omitted fields**: Unspecified fields take their default from the matching intent preset in `backend/config/smart_presets.yaml`.
 3. **Backend default is the last fallback**: When neither the request nor the intent preset supplies a value, the backend default applies.
 4. **Tri-state (optional) fields**: `texture_resolution`, `enable_printability_check`, `enable_auto_repair`, `enable_auto_rig`, `physics_enabled`, `generate_lod`, `lod_preset` and `lod_count` default to "not supplied". Omitting them lets the intent preset provide the default; supplying an explicit value (including `false` or `0`) always wins.
-5. **`target_polycount`**: an explicit value greater than `0` wins, and the `-1` native sentinel also wins. `0` means "no explicit budget" and falls back to the intent preset. The Native/Raw output is expressed with `intent: native` or `enable_postprocess: false`.
+5. **`target_polycount`**: an explicit value greater than `0` wins, and the `-1` native sentinel also wins. `0` means "no explicit budget" and falls back to the intent preset. The Native/Raw output is expressed with `intent: native`.
 6. **Legacy `model_parameters` keys are ignored**: `generateLOD`, `lodPreset` and `lodCount` are popped from `model_parameters` and never reach job inputs.
 7. **Deprecated routing fields**: `requested_quality`, `mesh_style`, `object_type` and `symmetry` are still accepted, but they are used only for planner routing and never for inference. The scheduler strips them from adapter inputs.
 8. **Adapter inference profiles are immutable**: Frontend or request-side inference keys (`num_inference_steps`, `guidance_scale`, `octree_resolution`, `sampler_overrides`, `requested_quality`, `meshQuality`) are stripped by the scheduler before invoking the model adapter. Adapters execute their locked native inference schedule (`_LOCKED_INFERENCE_PROFILE`).
@@ -827,7 +823,7 @@ Returns durable job history (SQLite page, falling back to the Redis job listing 
 - `GET /api/v1/system/jobs/{job_id}/download?artifact_format=fbx` — native FBX from a completed rigging job or an already-baked game-ready FBX. Generic on-demand `trimesh` FBX conversion is unsupported and returns HTTP 422 when no actual FBX is available.
 - `thumbnail_url` — `/api/v1/system/jobs/{job_id}/thumbnail` (rendered preview, input-image, or placeholder fallback)
 
-Values populated by production post-processing are never overwritten; only missing URLs are backfilled.
+Existing artifact URLs are never overwritten; only missing URLs are backfilled.
 
 ### Multi-view APIs (Removed 2026-10-11)
 
@@ -887,7 +883,6 @@ Content-Type: application/json
   "duration": 4.0,
   "seed": 42,
   "checkpoint": "ARDY-Core-RP-20FPS-Horizon40",
-  "post_process": true,
   "target_skeleton": "core",
   "model_preference": "ardy_motion_generation"
 }
@@ -938,9 +933,16 @@ GET /api/v1/motion/checkpoints
 ---
 
 
-### Production post-process retry
+### Script operation status and cancellation
 
-`POST /api/v1/system/jobs/{job_id}/postprocess/retry` rebuilds derived artifacts from immutable `mesh/mesh.glb` without re-running model inference.
+Script Retopo, UV, and Segmentation return an operation ID immediately with `status: "queued"`. Poll the SQLite-backed operation record and cancel it with:
+
+```http
+GET /api/v1/system/workspace/operations/{operation_id}
+POST /api/v1/system/workspace/operations/{operation_id}/cancel
+```
+
+The status response includes `execution_status`, `persistence_status`, `progress`, terminal `result.stats`, and a preview URL after completion. Keep and Discard continue to use the workspace operation persistence routes.
 
 ### Canonical artifact manifest
 
@@ -966,9 +968,9 @@ Content-Type: application/json
 }
 ```
 
-FastMesh V1K is a checkpoint-fixed model that produces approximately 1K vertices; it does not accept an arbitrary vertex target. target_vertex_count remains accepted only as a deprecated compatibility field and is ignored. target_polycount is a final production triangle budget applied by the canonical post-processing stage after FastMesh; it does not change FastMesh inference and accepts 5,000–200,000 triangles. FastMesh emits its checkpoint-native topology; poly_type does not change the model output. The default `engine` is `ai`. For deterministic processing, send `engine: "script"` with an existing `workspace_id`; Script mode accepts `poly_type`, `preserve_features`, `feature_angle`, `adaptive`, `watertight`, and `output_format` (`glb` or `obj`). The response includes `operation_id`, `preview_url`, `format`, and measured `stats`.
+FastMesh V1K is a checkpoint-fixed model that produces approximately 1K vertices; it does not accept an arbitrary vertex target. target_vertex_count remains accepted only as a deprecated compatibility field and is ignored. target_polycount is a Script-mode triangle budget for deterministic retopology; in AI mode FastMesh keeps its checkpoint-native output and the requested value does not change inference; it does not change FastMesh inference and accepts 5,000–200,000 triangles. FastMesh emits its checkpoint-native topology; poly_type does not change the model output. The default `engine` is `ai`. For deterministic processing, send `engine: "script"` with an existing `workspace_id`; Script mode accepts `poly_type`, `preserve_features`, `feature_angle`, `adaptive`, `watertight`, and `output_format` (`glb` or `obj`). The response includes `operation_id`, `preview_url`, and `format`. Poll `GET /api/v1/system/workspace/operations/{operation_id}` for SQLite-backed progress and measured `stats`; cancel with `POST /api/v1/system/workspace/operations/{operation_id}/cancel`.
 
-For generation jobs, `target_polycount` is **never an inference-quality control**. The scheduler removes this production-only field (along with `auto_optimize` and LOD/physics controls) before neural model adapters run. The raw model output is requested at the registered model's maximum supported geometry fidelity, persisted unchanged as `mesh/mesh.glb`, and only then reduced to the requested production budget.
+For generation jobs, `target_polycount` is **never an inference-quality control**. The scheduler removes this production-only field (along with `auto_optimize` and LOD/physics controls) before neural model adapters run. The raw model output is requested at the registered model's supported geometry fidelity and persisted unchanged as the workspace source mesh.
 
 ---
 
@@ -990,7 +992,7 @@ Content-Type: application/json
 }
 ```
 
-AI mode retains `pack_method: "blender"` and `distortion_threshold: 1.25` by default. Script mode accepts `pack_method: "blender" | "xatlas" | "auto"`, `atlas_resolution`, `island_margin`, and `max_cone_deg`.
+AI mode retains `pack_method: "blender"` and `distortion_threshold: 1.25` by default. Script mode accepts `pack_method: "blender" | "xatlas" | "auto"`, `atlas_resolution`, `island_margin`, and `max_cone_deg`. Blender mode requires Blender; XAtlas mode requires the `xatlas` package.
 
 ---
 
