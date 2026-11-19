@@ -59,7 +59,7 @@ igraph                      # [TRELLIS] install.sh line 480
 easydict==1.13              # [PIXAL3D]
 zstandard==0.25.0           # [PIXAL3D]
 plyfile==1.1.3              # [PIXAL3D] [PARTUV] unpinned
-utils3d                     # [PIXAL3D] install.sh line 826
+# utils3d installed from Git source in install.sh (https://github.com/EasternJournalist/utils3d.git)
 # natten removed: source build fails (curand_kernel.h missing during CUDA
 # compile) and no prebuilt natten wheel exists in the wheel house. Add it back
 # with a verified cp310+cu124 wheel if Pixal3D requires it.

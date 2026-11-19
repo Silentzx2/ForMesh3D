@@ -637,6 +637,13 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
         $UV_PIP install "https://github.com/LDYang694/Storages/releases/download/20260430/natten-0.21.0+torch2.6cu124-cp310-cp310-linux_x86_64.whl" || echo "[WARN] natten direct URL install failed — Pixal3D NAF cascade may fail if used."
     fi
 
+    # utils3d — pure-Python 3D vision/graphics library from Git source (TRELLIS texture / Pixal3D)
+    echo "[INFO] Installing utils3d..."
+    if ! install_local_wheel "utils3d-*.whl" "utils3d"; then
+        echo "[INFO] Installing utils3d from Git source..."
+        $UV_PIP install "git+https://github.com/EasternJournalist/utils3d.git" || { echo "[ERROR] utils3d install failed"; exit 1; }
+    fi
+
     echo "[SUCCESS] Model dependencies installed."
 else
     echo "[INFO] Skipping model dependencies (no GPU detected)."
