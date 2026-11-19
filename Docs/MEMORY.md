@@ -15,7 +15,7 @@
   - `smart_uv.py`: Blender Smart Project and XAtlas / Trimesh for non-overlapping UV chart packing.
   - `segment.py`: Connected-component decomposition and spatial PCA clustering with vivid viewport colorization (pure numpy, zero scipy dependency).
   - `mesh_utils.py`: Safe format conversion, Truthful geometric stats, and bounded subprocess execution with density safety capping via `mesh_guard.py`.
-- **API Surface**: The legacy `/api/v1/mesh-tools/*` router is retired. Canonical processing endpoints remain separately mounted (retopo, unwrap, segment); these are not legacy mesh-tools aliases.
+- **API Surface**: The legacy `/api/v1/mesh-tools/*` router is retired. Canonical JSON routes (`/api/v1/retopo`, `/api/v1/unwrap`, `/api/v1/segment`) accept `engine: ai|script`; AI remains the default and Script bypasses the AI scheduler.
 - **Workspace Preview & Action Bar Lifecycle**:
   - Unsaved preview meshes stage in `storage/temp/<operation_id>/` and stream via `/api/v1/workspace/operations/{operation_id}/preview`.
   - Keep commits the preview into an immutable workspace asset; Discard cleans the temporary directory and restores viewer baseline.
@@ -32,6 +32,6 @@
 - **Model Patcher Isolation**: Patchers reside strictly in `patcher/<model-name>/` with zero global monkeypatches.
 
 ### 5. Verification Status
-- **Python Tests**: Pipeline unit tests passing (4/4 in 2.39s).
-- **Frontend Tests**: 55/55 Bun tests passing across 8 test suites.
+- **Historical baseline (2026-11-16)**: Pipeline unit tests were recorded as 4/4 and frontend tests as 55/55 across 8 suites.
+- **Script route integration (2026-11-19)**: Focused route, scheduler-isolation, preview, Keep, and Discard tests have been added; current GitHub Actions results must be checked before marking them verified.
 - **Documentation**: CHANGELOG (last 3), DECISIONS (last 3), TASKS (active), MEMORY (< 100 lines).

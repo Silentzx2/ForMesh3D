@@ -780,7 +780,7 @@ ForMesh3D operates on a direct, model-native mesh delivery pipeline. Successful 
 Pipeline: MODEL INFERENCE -> canonical `mesh/mesh.glb` (SHA-256 pre-verification via `artifact_utils.py`) -> manifest projection (`manifest.json`) -> preview staging (`storage/temp/<operation_id>/`) -> user commit / discard lifecycle.
 
 - **Direct Extraction**: Generative models (Hunyuan3D-2.1, TRELLIS.2, Stable Fast 3D, TripoSG) export high-detail native geometry without lossy postprocessing.
-- **On-Demand Specialist Tools**: Advanced mesh processing retired pending new pipeline implementation.
+- **On-Demand Specialist Tools**: Retopo, UV unwrap, and segmentation remain supported through canonical routes and flat deterministic pipelines; they are separate from automatic generation post-processing.
 - **Dynamic Canonical Storage Resolution**: `canonical_asset_workspace()` dynamically resolves storage roots relative to project root or `backend/storage`, preventing directory nesting bugs across artifact delivery and storage mounts.
 - **Master Immutability Enforcement**: The SHA-256 hash of `mesh/mesh.glb` is recorded at generation time and guaranteed immutable; all derived tool executions write versioned child previews without mutating the base mesh.
 
@@ -932,53 +932,34 @@ To run contemporary 2025/2026 cascaded flow models on pre-Ampere hardware withou
   - In `trellis2_image_to_3d.py:sample_sparse_structure()`, when 12-step Euler flow matching produces logits below zero (e.g. peak foreground at -74.8), the pipeline falls back to top-1% percentile voxels (`coords = torch.argwhere(pooled >= threshold)`), allowing downstream SLat cascade sampling to proceed with valid foreground coordinates instead of hard-crashing.
   - In `preprocess_image`, if background removal detects no foreground alpha (`bbox_coords.shape[0] == 0`), the pipeline safely uses `input.convert('RGB')` instead of multiplying by zero alpha and passing a pitch-black image to the conditioning network.
 
-## Dual-Engine Mesh Processing Bridge & Upstream Task Abort Architecture (2026-11-09)
+## Canonical Dual-Engine Mesh Processing (2026-11-19)
 
-### 1. Single Bridge Architecture (`meshProcessingBridge.ts`)
-To unify mesh post-processing and editing across generative Studio panels (`RemeshPanel`, `UVPanel`, `SegmentationPanel`), the frontend routes all execution through a single unified bridge: `features/workspace/services/meshProcessingBridge.ts`.
+### 1. Shared UI and canonical API surface
+The Retopo, UV, and Segmentation panels use the existing `meshProcessingBridge.ts` and the existing canonical JSON endpoints:
+- `POST /api/v1/retopo`
+- `POST /api/v1/unwrap`
+- `POST /api/v1/segment`
 
-The bridge encapsulates an extensible Script Registry (`SCRIPT_REGISTRY`, `registerCustomScript`, `DEFAULT_SCRIPTS`). Adding a new Python algorithmic pipeline or headless Blender script requires zero modifications to studio UI components — registering a new `ScriptDefinition` makes it immediately discoverable and executable across studio panels.
+The request discriminator is `engine: "ai" | "script"`. Omitting it preserves the existing AI default. No `/api/v1/script/*` routes or multipart/SSE transport are used.
 
-```mermaid
-flowchart TD
-    Panel["Studio Panels<br/>(RemeshPanel, UVPanel, SegmentationPanel)"] --> EngineSel["EngineModeSelector<br/>('ai' vs 'script')"]
-    EngineSel --> Bridge["Mesh Processing Bridge<br/>(meshProcessingBridge.ts)"]
+### 2. AI engine
+- Acquires the existing scheduler only for AI requests.
+- Keeps model-preference validation, `JobRequest` construction, GPU scheduling, and the existing job polling flow.
+- Does not silently fall back to Script mode when an AI request fails.
 
-    subgraph AI Path ["Path A: Neural AI Mode (GPU Scheduler)"]
-        Bridge -->|JSON Job Request| FastAPIAI["FastAPI AI Routers<br/>(/api/v1/retopo/*)<br/>(/api/v1/unwrap/*)<br/>(/api/v1/segment/*)"]
-        FastAPIAI --> Scheduler["Multiprocess Scheduler<br/>(GPU Worker Lock & VRAM Plan)"]
-        Scheduler --> AIModels["Deep Learning Inference<br/>(FastMesh V1K, PartUV, Semantic Seg)"]
-        AIModels --> Poll["WorkspaceContext Job Poller"]
-    end
+### 3. Script engine
+- Uses the same canonical JSON route with `engine: "script"`; it does not acquire or initialize the AI scheduler.
+- Calls the existing Python pipeline directly in FastAPI's threadpool:
+  - Retopo: `backend/pipelines/retopo.py::execute_retopo`
+  - UV: `backend/pipelines/smart_uv.py::execute_smart_uv`
+  - Segmentation: `backend/pipelines/segment.py::execute_segment`
+- Registers an `op_<12hex>` operation in authoritative SQLite, records the settings snapshot and input asset, and stages the output under `storage/temp/<operation_id>/preview.<format>`.
+- Transitions the operation through `queued -> processing -> completed` (or `failed` on execution error). The existing preview endpoint serves the staged mesh.
+- The existing Operation Action Bar performs Keep through the canonical workspace persistence endpoint or Discard through the operation discard endpoint. Keep publishes an immutable workspace asset version; Discard removes only that operation's temporary preview.
+- Script preview output is GLB or OBJ. Retopo and UV may use headless Blender when available; their existing Python fallbacks remain in the pipeline modules. Segmentation uses the existing Trimesh implementation.
 
-    subgraph Script Path ["Path B: Fast Algorithmic Script Mode (CPU / SSE)"]
-        Bridge -->|FormData + Options JSON| FastAPIScript["FastAPI Script Mode<br/>(/api/v1/script/auto-retopo)<br/>(/api/v1/script/auto-uv)<br/>(/api/v1/script/segment)"]
-        FastAPIScript --> Algorithmic["Zero-GPU Algorithms<br/>(Trimesh Taubin, XAtlas, Blender Smart UV)"]
-        Algorithmic --> SSEStream["Direct SSE Progress Stream<br/>(Real-time chunks & Base64 GLB)"]
-    end
-
-    Poll --> Viewport["3D Viewport<br/>(loadModelInViewer & auto-recenter)"]
-    SSEStream --> Viewport
-
-    subgraph Abort System ["Upstream Cancellation Circuit"]
-        ClientCancel["User Cancel / Disconnect"] --> AbortSig["request.signal Abort"]
-        AbortSig --> ProxyAbort["Proxy AbortController<br/>(app/api/v1/[...path]/route.ts)"]
-        ProxyAbort --> Halt["Immediate Backend Process Termination"]
-    end
-```
-
-### 2. Dual AI / Script Execution Contracts
-1. **Neural AI Mode (`engine: 'ai'`)**:
-   - Dispatches requests to backend neural inference routers (`/api/v1/retopo`, `/api/v1/unwrap`, `/api/v1/segment`).
-   - Managed by the multiprocess scheduler with GPU memory reservation, model warm-up locks, and queued background tracking.
-   - Result is durable, tracked in SQLite/Redis, and polled by `WorkspaceContext`.
-2. **Fast Algorithmic Script Mode (`engine: 'script'`)**:
-   - Executes direct CPU / algorithmic operations with zero GPU dependencies (`/api/v1/script/auto-retopo`, `/api/v1/script/auto-uv`, `/api/v1/script/segment`).
-   - Streams live progress chunks via Server-Sent Events (SSE) (`data: {"type": "progress", "frac": 0.45}`).
-   - Returns base64-encoded GLB geometry directly in terminal `done` event chunk, reconstructing local blobs instantly without file server polling delays.
-   - Dynamic parameter passthrough: Target polycount budget, Quad vs Triangle topology, feature angles, adaptive density, target parts count (2–32), UV atlas resolution (1K/2K/4K), and island margin texels (2–16px).
-   - Dynamic Model Selector visibility: In `RemeshPanel`, the Retopo Engine dropdown is visible in `AI Model` mode, and seamlessly hidden in `Fast Script` mode to preserve a compact, zero-scroll panel height without vertical scrollbars across small screens.
-
+### 4. Durable operation identity and viewer
+The bridge returns the backend operation ID and preview URL. The frontend preview card uses a temporary `preview_<operation_id>` UI identity; it is not a persisted asset ID. Keep replaces it with the real `ast_<12hex>` asset ID returned by SQLite-backed persistence. Workspace route identity remains unchanged.
 ### 3. Upstream Task Cancellation Circuit (`AbortController`)
 In `app/api/v1/[...path]/route.ts`, long-running streaming and proxy routes are bound to client disconnect signals:
 - Incoming client `request.signal` is monitored via an event listener (`request.signal.addEventListener('abort', onDisconnect)`).

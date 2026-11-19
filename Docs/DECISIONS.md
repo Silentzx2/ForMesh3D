@@ -25,6 +25,8 @@
 
 **Superseding clarification (2026-11-18):** The legacy `backend/api/routers/mesh_tools.py` router and its `/api/v1/mesh-tools/*` endpoint surface are retired. The flat pipelines and their dedicated canonical routes remain active; the old router description in ADR-104/105-era history is not current implementation guidance.
 
+**Implementation status correction (2026-11-19):** The end-to-end behavior described above was a target decision, not the verified state of the live branch at the start of this implementation. The canonical routes now carry the `engine` discriminator; Script requests call the flat pipelines directly, register SQLite operation state, and expose the existing preview / Keep / Discard lifecycle. AI remains the default and retains scheduler execution. GitHub Actions results are the verification source for this change.
+
 ---
 
 ## ADR-104: Native Target Triangles — Post-Process Count Forcing Removed (2026-11-15)

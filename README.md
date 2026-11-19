@@ -310,14 +310,17 @@ The ForMesh3D Studio UI integrates neural generation and mesh finishing into a c
 ### 🧰 Creative Workspace Modules:
 - **Generate Studio (`/workspace`)**: Image-to-3D generation with reference image intake, model selector, unified Target Polycount, and Output Presets (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`, `native`).
 - **Texture Studio (`/workspace/texture`)**: Multi-view PBR texture painting and PBR map inspection/export (Albedo, Normal, Roughness, Metallic, AO), with explicit Hunyuan3D-Paint v2.0/v2.1 model selection. Hunyuan3D-Paint v2.1 runs internal RealESRGAN enhancement for 4K/8K atlas targets.
-- **Retopology & Remesh (`/workspace/remesh`)**: FastMesh quad-dominant retopology with V1K and V4K target presets.
-- **UV Unwrapping (`/workspace/uv`)**: Automated conformal seam placement and atlas chart packing.
-- **Mesh Segmentation (`/workspace/segment`)**: Semantic part decomposition interface.
+- **Retopology & Remesh (`/workspace/remesh`)**: FastMesh AI mode plus deterministic Trimesh / headless Blender Script mode, both using the canonical `/api/v1/retopo` route.
+- **UV Unwrapping (`/workspace/uv`)**: PartUV AI mode plus direct Blender Smart UV / XAtlas Script mode through `/api/v1/unwrap`.
+- **Mesh Segmentation (`/workspace/segment`)**: AI semantic segmentation plus deterministic Trimesh geometric decomposition through `/api/v1/segment`.
 - **Animation & Motion (`/animation`)**: SkinTokens autoregressive armature generation and ARDY motion synthesis.
 - **Jobs & Run Inspector (`/workspace/jobs`)**: Real-time progress tracking, step telemetry, and VRAM monitoring.
 - **Admin & Model Registry (`/admin?tab=models`)**: Live GPU health, temperature, and adapter configuration.
 - **Database Administration (`/admin?tab=database`)**: Store telemetry (authoritative SQLite job queue / file metadata / disk storage) and paginated jobs table with per-row cancel/delete.
 
+### Script / AI Processing Modes
+
+Retopo, UV Unwrapping, and Segmentation share their canonical JSON API routes. Requests default to `engine: "ai"`; selecting Script mode sends `engine: "script"` and invokes the existing CPU / Blender pipeline directly without acquiring the AI scheduler. Script outputs are registered as SQLite operations, previewed from `storage/temp/<operation_id>/`, and committed or discarded through the workspace Operation Action Bar.
 ### 🔗 Workspace Identity & Route Contract
 - **Route format:** `/workspace/<tool>/<workspace_id>` — e.g. `/workspace/generate/rabbit_a8f32c`. Directly addresses the authoritative backend `workspace_id`.
 - **Active Asset Selection:** Selecting an asset or version in the Assets panel updates only `active_mesh_asset_id` on the workspace state without mutating or replacing the URL route.

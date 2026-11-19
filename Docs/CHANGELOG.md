@@ -1,5 +1,13 @@
 # ForMash3D Changelog
 
+## 2026-11-19 — Script-first canonical workspace processing
+- Added the `engine: "ai" | "script"` discriminator to canonical Retopo, UV, and Segmentation requests; AI remains the default.
+- Routed Script requests directly to the existing Trimesh / Blender pipelines without acquiring the AI scheduler.
+- Registered Script executions in SQLite and staged preview outputs under `storage/temp/<operation_id>/`, reusing the existing preview, Keep, and Discard APIs.
+- Replaced the retired multipart/SSE bridge transport with canonical JSON requests and durable operation/preview references.
+- Added API integration coverage for scheduler isolation and the Script preview persistence lifecycle.
+
+
 ## 2026-11-18 — Legacy mesh-tools documentation cleanup
 - Reconciled the task checklist and architecture documentation with the retired `/api/v1/mesh-tools/*` router.
 - Confirmed canonical retopo, UV unwrap, and segmentation pipeline routes remain in place and are not part of this retirement.

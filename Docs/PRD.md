@@ -35,16 +35,16 @@ Creating production 3D assets typically demands expensive commercial suites, man
 - **Independent Texture Resolution**: Dynamic UI controls matching adapter capabilities (512, 1K, 2K, 4K).
 
 ### 3. Studio 3D Tool Suite
-- **Remeshing & Retopology**: Quad-dominant retopology powered by FastMesh (V1K contract) with target polygon budgets.
-- **Smart UV Unwrapping**: Automated UV island generation and packing via PartUV and xatlas.
+- **Remeshing & Retopology**: FastMesh AI mode plus deterministic Trimesh / headless Blender Script mode for direct CPU retopology.
+- **Smart UV Unwrapping**: PartUV AI mode plus direct Blender Smart UV / XAtlas Script mode.
 - **Auto-Rigging**: Armature generation powered by SkinTokens.
 - **Motion Generation**: Text-to-motion generation via ARDY, outputting playable Three.js JSON animations.
-- **Specialist Tools API**: Removed `/api/v1/mesh-tools` standalone SSE streaming router for format validation and real-time event streaming. Specialist tools retired pending new pipeline implementation.
+- **Specialist Tools API**: The retired `/api/v1/mesh-tools` SSE router is not used. Retopo, UV, and segmentation use canonical JSON routes with `engine: "ai" | "script"`; AI remains the default, while Script mode directly invokes the existing Python pipelines without scheduler access.
 
 ### 4. Interactive 3D Viewport & Workspace
 - **Viewport Engine**: Three.js WebGL viewport with 7 shading modes (`textured`, `solid`, `clay`, `matcap-gold`, `matcap-chrome`, `uv-checker`, `wireframe`).
 - **Workspace Identity**: Persistent `/workspace/generate/<workspace_id>` deep linking with immutable parent-child versioning.
-- **Preview & Operation Action Bar**: Non-destructive preview staging with explicit Keep (commit) and Discard (restore base) lifecycle.
+- **Preview & Operation Action Bar**: Script outputs are staged under `storage/temp/<operation_id>/` and registered in SQLite; Keep commits an immutable workspace asset and Discard removes the preview.
 
 ---
 

@@ -2444,7 +2444,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
         if (result.success && result.modelUrl) {
           const targetWsId = result.workspaceId || currentAsset?.workspace_id || workspaceIdRef.current || undefined;
-          const newAssetId = `retopo-${Date.now()}`;
+          if (!result.operationId) throw new Error("Script retopology did not return an operation ID.");
+          const newAssetId = `preview_${result.operationId}`;
           const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
           const newAsset = normalizeModelAsset({
             id: newAssetId,
@@ -2647,7 +2648,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
         if (result.success && result.modelUrl) {
           const targetWsId = result.workspaceId || currentAsset?.workspace_id || workspaceIdRef.current || undefined;
-          const newAssetId = `uv-${Date.now()}`;
+          if (!result.operationId) throw new Error("Script UV unwrap did not return an operation ID.");
+          const newAssetId = `preview_${result.operationId}`;
           const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
           const newAsset = normalizeModelAsset({
             id: newAssetId,
@@ -2802,7 +2804,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
         if (result.success && result.modelUrl) {
           const targetWsId = result.workspaceId || currentAsset?.workspace_id || workspaceIdRef.current || undefined;
-          const newAssetId = `segment-${Date.now()}`;
+          if (!result.operationId) throw new Error("Script segmentation did not return an operation ID.");
+          const newAssetId = `preview_${result.operationId}`;
           const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
           const newAsset = normalizeModelAsset({
             id: newAssetId,

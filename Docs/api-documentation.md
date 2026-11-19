@@ -951,7 +951,7 @@ Mesh-producing terminal results include `result.artifacts`. Each artifact declar
 
 ### Retopologize Mesh
 
-Retopologize a mesh using the fixed FastMesh V1K checkpoint.
+Retopologize a mesh using the selected engine. Requests default to AI / FastMesh; Script mode directly invokes the existing Trimesh / Blender pipeline without model-scheduler access.
 
 ```http
 POST /api/v1/retopo
@@ -959,13 +959,14 @@ Content-Type: application/json
 
 {
   "mesh_file_id": "mesh_abc123",
+  "engine": "ai",
   "model_preference": "fastmesh_v1k_retopology",
   "target_polycount": 35000,
   "output_format": "glb"
 }
 ```
 
-FastMesh V1K is a checkpoint-fixed model that produces approximately 1K vertices; it does not accept an arbitrary vertex target. target_vertex_count remains accepted only as a deprecated compatibility field and is ignored. target_polycount is a final production triangle budget applied by the canonical post-processing stage after FastMesh; it does not change FastMesh inference and accepts 5,000–200,000 triangles. FastMesh emits its checkpoint-native topology; poly_type does not change the model output.
+FastMesh V1K is a checkpoint-fixed model that produces approximately 1K vertices; it does not accept an arbitrary vertex target. target_vertex_count remains accepted only as a deprecated compatibility field and is ignored. target_polycount is a final production triangle budget applied by the canonical post-processing stage after FastMesh; it does not change FastMesh inference and accepts 5,000–200,000 triangles. FastMesh emits its checkpoint-native topology; poly_type does not change the model output. The default `engine` is `ai`. For deterministic processing, send `engine: "script"` with an existing `workspace_id`; Script mode accepts `poly_type`, `preserve_features`, `feature_angle`, `adaptive`, `watertight`, and `output_format` (`glb` or `obj`). The response includes `operation_id`, `preview_url`, `format`, and measured `stats`.
 
 For generation jobs, `target_polycount` is **never an inference-quality control**. The scheduler removes this production-only field (along with `auto_optimize` and LOD/physics controls) before neural model adapters run. The raw model output is requested at the registered model's maximum supported geometry fidelity, persisted unchanged as `mesh/mesh.glb`, and only then reduced to the requested production budget.
 
@@ -975,7 +976,7 @@ For generation jobs, `target_polycount` is **never an inference-quality control*
 
 ### Unwrap Mesh UVs
 
-Unwrap a mesh's UV coordinates.
+Unwrap a mesh's UV coordinates. Requests default to AI / PartUV; Script mode invokes the existing Blender Smart UV or XAtlas pipeline directly.
 
 ```http
 POST /api/v1/unwrap
@@ -983,12 +984,13 @@ Content-Type: application/json
 
 {
   "mesh_file_id": "mesh_abc123",
+  "engine": "ai",
   "model_preference": "partuv_uv_unwrapping",
   "pack_method": "blender"
 }
 ```
 
-`pack_method` accepts `blender`, `uvpackmaster` or `none` and defaults to `blender`; `distortion_threshold` defaults to `1.25`.
+AI mode retains `pack_method: "blender"` and `distortion_threshold: 1.25` by default. Script mode accepts `pack_method: "blender" | "xatlas" | "auto"`, `atlas_resolution`, `island_margin`, and `max_cone_deg`.
 
 ---
 
@@ -1138,3 +1140,14 @@ Command:
     python -m scripts.run_model_ab_benchmark --baseline-asset <baseline_asset_dir> --candidate-asset <candidate_asset_dir> --output <report.json>
 
 Add --reference <reference_mesh.glb> only when a real ground-truth mesh exists. Without a reference, generated-vs-generated geometry metrics are explicitly diagnostic rather than absolute quality measurements.
+
+
+## Mesh Segmentation API
+
+### Segment a Mesh
+
+`POST /api/v1/segment` defaults to the existing AI scheduler. To run the deterministic Trimesh pipeline, submit `engine: "script"` with a `workspace_id`, `mesh_file_id` (or `mesh_path`), `num_parts`, and `output_format: "glb"`. Optional Script settings include `method`, `hierarchical`, `colorize_preview`, and `save_individual_parts`. Script mode returns `operation_id`, `preview_url`, `format`, and measured `stats`.
+
+### Shared Script Preview Lifecycle
+
+The preview URL returned by all three Script routes is served by `GET /api/v1/system/operations/{operation_id}/preview`. Retain the result with `POST /api/v1/workspace/operations/{operation_id}/keep` or discard it with `POST /api/v1/workspace/operations/{operation_id}/discard`. Keep creates an immutable workspace asset version; Discard removes only the staged preview. Script requests require an existing workspace. The canonical AI routes remain scheduler-backed when `engine` is omitted or set to `ai`.

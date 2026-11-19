@@ -8,13 +8,15 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from api.dependencies import get_file_store, get_scheduler, sanitize_error_message
 from api.routers.file_upload import resolve_file_id_async, resolve_input_reference_async
 from core.file_store import FileStore
 from core.scheduler.database_manager import DatabaseManager
+from core.scheduler.database_models import generate_operation_id
+from api.routers.script_execution import execute_script_operation
 from core.scheduler.job_queue import JobRequest
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
 from core.utils.file_utils import get_storage_base_dir, get_workspace_storage_manager
@@ -100,6 +102,12 @@ class MeshRetopologyRequest(BaseModel):
         return v
 
     workspace_id: Optional[str] = Field(None, description="Target workspace ID")
+    engine: str = Field("ai", description="Execution engine: ai or script")
+    parent_operation_id: Optional[str] = Field(None, description="Parent operation for retry/regeneration")
+    preserve_features: bool = True
+    feature_angle: float = Field(45.0, ge=0.0, le=180.0)
+    adaptive: bool = True
+    watertight: bool = False
 
     @model_validator(mode="after")
     def validate_inputs(self):
@@ -110,6 +118,13 @@ class MeshRetopologyRequest(BaseModel):
         if inputs_provided > 1:
             raise ValueError("Only one of mesh_path or mesh_file_id should be provided")
         return self
+
+    @field_validator("engine")
+    @classmethod
+    def validate_engine(cls, value):
+        if value not in {"ai", "script"}:
+            raise ValueError("engine must be ai or script")
+        return value
 
     model_config = ConfigDict(protected_namespaces=("settings_",))
 
@@ -123,12 +138,15 @@ class MeshRetopologyResponse(BaseModel):
     message: str = Field(..., description="Status message")
     workspace_id: Optional[str] = Field(None, description="Workspace ID")
     operation_id: Optional[str] = Field(None, description="Operation ID")
+    preview_url: Optional[str] = None
+    format: Optional[str] = None
+    stats: Optional[dict] = None
 
 
 @router.post("", response_model=MeshRetopologyResponse)
 async def retopologize_mesh(
     request: MeshRetopologyRequest,
-    scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
+    http_request: Request,
     file_store: Optional[FileStore] = Depends(get_file_store),
 ):
     """
@@ -145,11 +163,6 @@ async def retopologize_mesh(
         Job information for the retopology task
     """
     try:
-        # Validate model preference
-        validate_model_preference(
-            request.model_preference, "mesh_retopology", scheduler
-        )
-
         db = DatabaseManager()
         ws_storage = get_workspace_storage_manager()
 
@@ -222,12 +235,46 @@ async def retopologize_mesh(
                 status_code=400, detail=f"Prerequisite failed: Unsupported mesh format {ext}"
             )
 
+        if request.engine == "script":
+            from pipelines.retopo import execute_retopo
+            result = await execute_script_operation(
+                db=db, storage=ws_storage, workspace_id=target_ws_id,
+                input_asset_id=input_asset.asset_id if input_asset else None,
+                operation_type="retopology", input_path=mesh_file_path,
+                settings={
+                    "target_polycount": request.target_polycount, "poly_type": request.poly_type,
+                    "preserve_features": request.preserve_features, "feature_angle": request.feature_angle,
+                    "adaptive": request.adaptive, "watertight": request.watertight,
+                    "output_format": request.output_format,
+                },
+                pipeline=execute_retopo,
+                options={
+                    "target_faces": request.target_polycount or 50000,
+                    "quads": request.poly_type == "quad",
+                    "preserve_features": request.preserve_features,
+                    "feature_angle": request.feature_angle,
+                    "adaptive": request.adaptive,
+                    "watertight": request.watertight,
+                    "output_format": request.output_format,
+                },
+                output_format=request.output_format,
+                parent_operation_id=request.parent_operation_id,
+            )
+            return MeshRetopologyResponse(**result)
+
+        scheduler = await get_scheduler(http_request)
+        validate_model_preference(request.model_preference, "mesh_retopology", scheduler)
+
         operation_id = None
         if target_ws_id:
-            op_row = db.enqueue_operation(
+            operation_id = generate_operation_id()
+            op_row, is_new = db.enqueue_operation(
+                operation_id=operation_id,
                 workspace_id=target_ws_id,
                 operation_type="retopology",
                 input_asset_id=input_asset.asset_id if input_asset else None,
+                parent_operation_id=request.parent_operation_id,
+                temp_dir=str(ws_storage.temp_root / operation_id),
                 settings={
                     "target_polycount": request.target_polycount,
                     "poly_type": request.poly_type,
@@ -235,7 +282,8 @@ async def retopologize_mesh(
                 },
             )
             operation_id = op_row.operation_id
-            ws_storage.create_operation_temp(operation_id)
+            if is_new:
+                ws_storage.create_operation_temp(operation_id)
 
         # Create job request
         user_id = None
@@ -249,6 +297,7 @@ async def retopologize_mesh(
                 "seed": request.seed,
                 "workspace_id": target_ws_id,
                 "operation_id": operation_id,
+                "parent_operation_id": request.parent_operation_id,
                 **(request.model_parameters or {}),
             },
             model_preference=request.model_preference,

@@ -8,13 +8,15 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from api.dependencies import get_file_store, get_scheduler, sanitize_error_message
 from api.routers.file_upload import resolve_file_id_async, resolve_input_reference_async
 from core.file_store import FileStore
 from core.scheduler.database_manager import DatabaseManager
+from core.scheduler.database_models import generate_operation_id
+from api.routers.script_execution import execute_script_operation
 from core.scheduler.job_queue import JobRequest
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
 from core.utils.file_utils import get_storage_base_dir, get_workspace_storage_manager
@@ -96,12 +98,18 @@ class MeshUVUnwrappingRequest(BaseModel):
     @classmethod
     def validate_pack_method(cls, v):
         # currently uvpackmaster is not installed, if needed, install it according to the official website 
-        allowed_methods = ["blender"]
+        allowed_methods = ["blender", "xatlas", "auto"]
         if v not in allowed_methods:
             raise ValueError(f"Pack method must be one of: {allowed_methods}")
         return v
 
     workspace_id: Optional[str] = Field(None, description="Target workspace ID")
+    engine: str = Field("ai", description="Execution engine: ai or script")
+    parent_operation_id: Optional[str] = Field(None, description="Parent operation for retry/regeneration")
+    atlas_resolution: int = Field(2048, ge=256, le=8192)
+    island_margin: int = Field(4, ge=0, le=64)
+    unwrap_strategy: str = "hybrid"
+    max_cone_deg: float = Field(66.0, ge=1.0, le=180.0)
 
     @model_validator(mode="after")
     def validate_inputs(self):
@@ -111,7 +119,16 @@ class MeshUVUnwrappingRequest(BaseModel):
             raise ValueError("One of mesh_path, mesh_file_id, or workspace_id must be provided")
         if inputs_provided > 1:
             raise ValueError("Only one of mesh_path or mesh_file_id should be provided")
+        if self.engine == "ai" and self.pack_method != "blender":
+            raise ValueError("AI UV unwrapping supports the blender pack_method only")
         return self
+
+    @field_validator("engine")
+    @classmethod
+    def validate_engine(cls, value):
+        if value not in {"ai", "script"}:
+            raise ValueError("engine must be ai or script")
+        return value
 
     model_config = ConfigDict(protected_namespaces=("settings_",))
 
@@ -125,12 +142,15 @@ class MeshUVUnwrappingResponse(BaseModel):
     message: str = Field(..., description="Status message")
     workspace_id: Optional[str] = Field(None, description="Workspace ID")
     operation_id: Optional[str] = Field(None, description="Operation ID")
+    preview_url: Optional[str] = None
+    format: Optional[str] = None
+    stats: Optional[dict] = None
 
 
 @router.post("", response_model=MeshUVUnwrappingResponse)
 async def unwrap_mesh(
     request: MeshUVUnwrappingRequest,
-    scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
+    http_request: Request,
     file_store: Optional[FileStore] = Depends(get_file_store),
 ):
     """
@@ -147,11 +167,6 @@ async def unwrap_mesh(
         Job information for the UV unwrapping task
     """
     try:
-        # Validate model preference
-        validate_model_preference(
-            request.model_preference, "uv_unwrapping", scheduler
-        )
-
         db = DatabaseManager()
         ws_storage = get_workspace_storage_manager()
 
@@ -224,12 +239,41 @@ async def unwrap_mesh(
                 status_code=400, detail=f"Prerequisite failed: Unsupported mesh format {ext}"
             )
 
+        if request.engine == "script":
+            from pipelines.smart_uv import execute_smart_uv
+            result = await execute_script_operation(
+                db=db, storage=ws_storage, workspace_id=target_ws_id,
+                input_asset_id=input_asset.asset_id if input_asset else None,
+                operation_type="uv", input_path=mesh_file_path,
+                settings={
+                    "atlas_resolution": request.atlas_resolution, "island_margin": request.island_margin,
+                    "pack_method": request.pack_method, "unwrap_strategy": request.unwrap_strategy,
+                    "output_format": request.output_format,
+                },
+                pipeline=execute_smart_uv,
+                options={
+                    "resolution": request.atlas_resolution, "padding_texels": request.island_margin,
+                    "method": request.pack_method, "max_cone_deg": request.max_cone_deg,
+                    "output_format": request.output_format,
+                },
+                output_format=request.output_format,
+                parent_operation_id=request.parent_operation_id,
+            )
+            return MeshUVUnwrappingResponse(**result)
+
+        scheduler = await get_scheduler(http_request)
+        validate_model_preference(request.model_preference, "uv_unwrapping", scheduler)
+
         operation_id = None
         if target_ws_id:
-            op_row = db.enqueue_operation(
+            operation_id = generate_operation_id()
+            op_row, is_new = db.enqueue_operation(
+                operation_id=operation_id,
                 workspace_id=target_ws_id,
                 operation_type="uv",
                 input_asset_id=input_asset.asset_id if input_asset else None,
+                parent_operation_id=request.parent_operation_id,
+                temp_dir=str(ws_storage.temp_root / operation_id),
                 settings={
                     "distortion_threshold": request.distortion_threshold,
                     "pack_method": request.pack_method,
@@ -237,7 +281,8 @@ async def unwrap_mesh(
                 },
             )
             operation_id = op_row.operation_id
-            ws_storage.create_operation_temp(operation_id)
+            if is_new:
+                ws_storage.create_operation_temp(operation_id)
 
         # Create job request
         user_id = None
@@ -252,6 +297,7 @@ async def unwrap_mesh(
                 "output_format": request.output_format,
                 "workspace_id": target_ws_id,
                 "operation_id": operation_id,
+                "parent_operation_id": request.parent_operation_id,
                 **(request.model_parameters or {}),
             },
             model_preference=request.model_preference,
