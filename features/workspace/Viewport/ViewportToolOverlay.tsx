@@ -19,7 +19,6 @@ import {
 import type { LightTone } from './MeshViewer';
 import type { ShadingMode } from '../types';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
-import { OperationActionBar } from './OperationActionBar';
 
 interface ViewportToolOverlayProps {
   isRightPanelOpen?: boolean;
@@ -627,9 +626,6 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
           </button>
         </SimpleTooltip>
       </div>
-
-      {/* Operation Action Bar: Keep in Workspace, Regenerate, Discard Preview */}
-      <OperationActionBar />
     </div>
   );
 };

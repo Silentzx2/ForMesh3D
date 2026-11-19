@@ -2287,45 +2287,115 @@ class MultiprocessModelScheduler:
                         from core.utils.artifact_utils import canonical_asset_workspace
                         canonical_root = canonical_asset_workspace(job_id, final_result, job_request.inputs)
                         canonical_root.mkdir(parents=True, exist_ok=True)
-                        # Copy to canonical workspace: {workspace_id}/mesh/mesh.glb
-                        # One directory per job, named by workspace ID. Mesh subdirectory holds the mesh.
-                        mesh_dir = canonical_root / "mesh"
-                        mesh_dir.mkdir(parents=True, exist_ok=True)
-                        _dst = mesh_dir / "mesh.glb"
-                        if not _dst.exists():
-                            try:
-                                from pipelines.mesh_guard import guard_mesh_density
-                                pipe_res = guard_mesh_density(str(_src), str(_dst), max_faces=2_000_000)
-                                if not pipe_res.get("success"):
-                                    shutil.copy2(str(_src), str(_dst))
-                            except Exception:
-                                shutil.copy2(str(_src), str(_dst))
-                        final_result["output_mesh_path"] = str(_dst)
-                        final_result["mesh_path"] = str(_dst)
-                        final_result["asset_root"] = str(canonical_root)
-                        # Register the durable generated mesh and make it the workspace active mesh.
-                        try:
+
+                        _feature = job_request.feature
+                        _op_id = job_request.metadata.get("operation_id") or job_request.inputs.get("operation_id")
+                        _target_ws_id = job_request.inputs.get("workspace_id") or job_request.metadata.get("workspace_id")
+                        tool_op_map = {
+                            "uv_unwrapping": "uv",
+                            "mesh_retopology": "retopology",
+                            "mesh_segmentation": "segmentation",
+                            "auto_rig": "rigging",
+                        }
+                        is_tool_operation = _feature in tool_op_map or bool(_op_id)
+
+                        if is_tool_operation:
+                            from core.utils.file_utils import get_workspace_storage_manager
                             from core.scheduler.database_manager import DatabaseManager
+                            from core.scheduler.database_models import ExecutionStatus, PersistenceStatus
+
+                            _ws_mgr = get_workspace_storage_manager()
                             _db = DatabaseManager()
-                            _workspace_id = canonical_root.name
+                            _ws_id = _target_ws_id or canonical_root.name
+                            _op_type = tool_op_map.get(_feature, "tool")
+
+                            pub = _ws_mgr.publish_derived_mesh(
+                                workspace_id=_ws_id,
+                                operation_type=_op_type,
+                                temp_mesh_path=_src,
+                            )
+                            _dst = Path(pub["mesh_path"])
+                            _relative_path = pub["relative_mesh_path"]
+                            final_result["output_mesh_path"] = str(_dst)
+                            final_result["mesh_path"] = str(_dst)
+                            final_result["relative_mesh_path"] = _relative_path
+                            final_result["asset_root"] = str(_ws_mgr.get_workspace_dir(_ws_id))
+
                             _asset_id = f"ast_{uuid.uuid4().hex[:12]}"
                             _digest = hashlib.sha256()
                             with _dst.open("rb") as _mesh_handle:
                                 for _chunk in iter(lambda: _mesh_handle.read(1024 * 1024), b""):
                                     _digest.update(_chunk)
+
                             _mesh_asset = _db.add_asset(
                                 asset_id=_asset_id,
-                                workspace_id=_workspace_id,
+                                workspace_id=_ws_id,
                                 file_type="mesh",
-                                relative_path="mesh/mesh.glb",
-                                original_filename="mesh.glb",
+                                relative_path=_relative_path,
+                                original_filename=_dst.name,
                                 byte_size=_dst.stat().st_size,
                                 sha256=_digest.hexdigest(),
-                                operation_id=job_request.metadata.get("operation_id"),
+                                operation_id=_op_id,
+                                operation_type=_op_type,
+                                is_retained=1,
                             )
-                            _db.update_workspace_active_mesh(_workspace_id, _mesh_asset.asset_id)
-                        except Exception as _db_error:
-                            logger.warning(f"Failed to sync generated mesh asset to workspace DB: {_db_error}")
+                            _db.update_workspace_active_mesh(_ws_id, _mesh_asset.asset_id)
+                            final_result["asset_id"] = _asset_id
+                            final_result["active_mesh_asset_id"] = _asset_id
+                            final_result["workspace_id"] = _ws_id
+
+                            if _op_id:
+                                _db.update_operation_execution_status(
+                                    _op_id,
+                                    ExecutionStatus.COMPLETED,
+                                    progress=1.0,
+                                    result={
+                                        "output_path": str(_dst),
+                                        "relative_mesh_path": _relative_path,
+                                        "asset_id": _asset_id,
+                                        "format": _dst.suffix.lower().lstrip("."),
+                                    },
+                                )
+                                _db.update_operation_persistence_status(_op_id, PersistenceStatus.SAVED)
+                        else:
+                            # Generation jobs: copy to canonical workspace {workspace_id}/mesh/mesh.glb
+                            mesh_dir = canonical_root / "mesh"
+                            mesh_dir.mkdir(parents=True, exist_ok=True)
+                            _dst = mesh_dir / "mesh.glb"
+                            if not _dst.exists():
+                                try:
+                                    from pipelines.mesh_guard import guard_mesh_density
+                                    pipe_res = guard_mesh_density(str(_src), str(_dst), max_faces=2_000_000)
+                                    if not pipe_res.get("success"):
+                                        shutil.copy2(str(_src), str(_dst))
+                                except Exception:
+                                    shutil.copy2(str(_src), str(_dst))
+                            final_result["output_mesh_path"] = str(_dst)
+                            final_result["mesh_path"] = str(_dst)
+                            final_result["asset_root"] = str(canonical_root)
+                            # Register the durable generated mesh and make it the workspace active mesh.
+                            try:
+                                from core.scheduler.database_manager import DatabaseManager
+                                _db = DatabaseManager()
+                                _workspace_id = canonical_root.name
+                                _asset_id = f"ast_{uuid.uuid4().hex[:12]}"
+                                _digest = hashlib.sha256()
+                                with _dst.open("rb") as _mesh_handle:
+                                    for _chunk in iter(lambda: _mesh_handle.read(1024 * 1024), b""):
+                                        _digest.update(_chunk)
+                                _mesh_asset = _db.add_asset(
+                                    asset_id=_asset_id,
+                                    workspace_id=_workspace_id,
+                                    file_type="mesh",
+                                    relative_path="mesh/mesh.glb",
+                                    original_filename="mesh.glb",
+                                    byte_size=_dst.stat().st_size,
+                                    sha256=_digest.hexdigest(),
+                                    operation_id=job_request.metadata.get("operation_id"),
+                                )
+                                _db.update_workspace_active_mesh(_workspace_id, _mesh_asset.asset_id)
+                            except Exception as _db_error:
+                                logger.warning(f"Failed to sync generated mesh asset to workspace DB: {_db_error}")
                 # The adapter output has now been copied to durable storage.
                 # Remove its private temp directory before persisting the job result.
                 self._cleanup_adapter_temporary_output(final_result, nested=False)
@@ -2645,6 +2715,16 @@ class MultiprocessModelScheduler:
                 err_msg = final_result.get("error", "Unknown error")
                 await self.job_queue.fail_job(job_id, err_msg)
                 logger.error(f"[JOB FAILED] job_id={job_id} error={err_msg}")
+                _op_id = job_request.metadata.get("operation_id") or job_request.inputs.get("operation_id")
+                if _op_id:
+                    try:
+                        from core.scheduler.database_manager import DatabaseManager
+                        from core.scheduler.database_models import ExecutionStatus
+                        DatabaseManager().update_operation_execution_status(
+                            _op_id, ExecutionStatus.FAILED, error=err_msg
+                        )
+                    except Exception as _op_err:
+                        logger.warning(f"Failed to update operation {_op_id} on failure: {_op_err}")
 
         except asyncio.TimeoutError:
             logger.error(f"Job {job_id} timed out waiting for worker result (3600s)")

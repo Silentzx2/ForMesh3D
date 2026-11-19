@@ -230,7 +230,6 @@ async def generate_rig(
             )
             op_row = op_res[0] if isinstance(op_res, tuple) else op_res
             operation_id = op_row.operation_id
-            ws_storage.create_operation_temp(operation_id)
 
         # Validate rig type
         job_request = JobRequest(

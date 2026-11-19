@@ -1526,59 +1526,6 @@ async def get_job_status(job_id: str, request: Request):
         )
 
 
-@router.post("/workspace/operations/{operation_id}/keep", summary="Keep operation output in workspace")
-@router.post("/operations/{operation_id}/keep", summary="Keep operation output in workspace (alias)")
-async def keep_workspace_operation(operation_id: str):
-    """Persist a completed operation preview and select its retained asset."""
-    from core.scheduler.database_manager import DatabaseManager, get_workspace_storage_manager
-
-    db = DatabaseManager()
-    op = db.get_operation(operation_id)
-    if not op:
-        raise HTTPException(status_code=404, detail=f"Operation {operation_id} not found")
-
-    try:
-        result = db.keep_operation_in_workspace(
-            operation_id,
-            storage_manager=get_workspace_storage_manager(),
-        )
-        return {"success": True, **result}
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        logger.error("Failed to keep operation %s in workspace: %s", operation_id, exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.post("/workspace/operations/{operation_id}/discard", summary="Discard operation preview")
-@router.post("/operations/{operation_id}/discard", summary="Discard operation preview (alias)")
-async def discard_workspace_operation(operation_id: str):
-    """Discard an operation preview without deleting its operation or workspace history."""
-    from core.scheduler.database_manager import DatabaseManager, get_workspace_storage_manager
-
-    db = DatabaseManager()
-    if not db.get_operation(operation_id):
-        raise HTTPException(status_code=404, detail=f"Operation {operation_id} not found")
-
-    try:
-        discarded = db.discard_operation_preview(
-            operation_id,
-            storage_manager=get_workspace_storage_manager(),
-        )
-        if not discarded:
-            raise HTTPException(status_code=404, detail=f"Operation {operation_id} not found")
-        return {"success": True, "operation_id": operation_id, "status": "discarded"}
-    except HTTPException:
-        raise
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        logger.error("Failed to discard operation %s: %s", operation_id, exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
 @router.get("/workspace/operations/{operation_id}", summary="Get SQLite-backed workspace operation status")
 async def get_workspace_operation_status(operation_id: str):
     """Read Script operation progress directly from SQLite without acquiring the AI scheduler."""
@@ -1591,6 +1538,10 @@ async def get_workspace_operation_status(operation_id: str):
 
     result = json.loads(operation.result_json) if operation.result_json else {}
     error = json.loads(operation.error_json) if operation.error_json else None
+    asset_id = result.get("asset_id")
+    format_ext = result.get("format", "glb")
+    model_url = f"/api/v1/system/jobs/{asset_id or operation_id}/download?artifact_format={format_ext}" if operation.execution_status == ExecutionStatus.COMPLETED else None
+
     return {
         "operation_id": operation.operation_id,
         "workspace_id": operation.workspace_id,
@@ -1600,14 +1551,15 @@ async def get_workspace_operation_status(operation_id: str):
         "persistence_status": operation.persistence_status,
         "progress": float(operation.progress or 0.0),
         "result": {
-            "format": result.get("format"),
+            "format": format_ext,
             "stats": result.get("stats") or {},
             "algorithm": result.get("algorithm"),
+            "asset_id": asset_id,
+            "relative_mesh_path": result.get("relative_mesh_path"),
+            "model_url": model_url,
         },
         "error": error,
-        "preview_url": f"/api/v1/system/workspace/operations/{operation_id}/preview"
-            if operation.execution_status == ExecutionStatus.COMPLETED
-            else None,
+        "model_url": model_url,
         "created_at": operation.created_at.isoformat() if operation.created_at else None,
         "completed_at": operation.completed_at.isoformat() if operation.completed_at else None,
     }
@@ -1641,50 +1593,6 @@ async def cancel_workspace_operation(operation_id: str):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return {"success": True, "operation_id": operation_id, "status": ExecutionStatus.CANCELLED}
-
-
-@router.get("/workspace/operations/{operation_id}/preview", summary="Download operation preview mesh")
-@router.get("/operations/{operation_id}/preview", summary="Download operation preview mesh (alias)")
-async def get_workspace_operation_preview(operation_id: str):
-    """Download preview mesh for an in-flight or un-retained workspace operation."""
-    from core.scheduler.database_manager import DatabaseManager, get_workspace_storage_manager
-    from core.scheduler.database_models import AssetModel
-    from core.utils.file_utils import get_storage_base_dir
-
-    db = DatabaseManager()
-    op = db.get_operation(operation_id)
-    if not op:
-        raise HTTPException(status_code=404, detail=f"Operation {operation_id} not found")
-
-    mgr = get_workspace_storage_manager()
-    temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / operation_id)
-    temp_dir = temp_dir.resolve()
-    if temp_dir.is_dir():
-        candidates = sorted([*temp_dir.glob("*.glb"), *temp_dir.glob("*.obj")], key=lambda p: p.name)
-        for cand in candidates:
-            if cand.is_file() and not cand.is_symlink():
-                return FileResponse(
-                    path=str(cand),
-                    filename=cand.name,
-                    media_type=get_content_type_for_file(str(cand)),
-                )
-
-    # If already retained as an asset in the workspace
-    asset = db.get_asset(operation_id)
-    if not asset:
-        with db.get_session() as session:
-            asset = session.query(AssetModel).filter_by(operation_id=operation_id, is_retained=1).first()
-    if asset:
-        storage_base = get_storage_base_dir().resolve()
-        file_path = (storage_base / asset.workspace_id / asset.relative_path).resolve()
-        if file_path.is_file() and file_path.is_relative_to(storage_base):
-            return FileResponse(
-                path=str(file_path),
-                filename=asset.original_filename,
-                media_type=get_content_type_for_file(str(file_path)),
-            )
-
-    raise HTTPException(status_code=404, detail="Preview mesh not found for operation")
 
 
 @router.get("/workspace/generate/{workspace_id}", summary="Get workspace state for deep link")
@@ -2052,13 +1960,15 @@ async def download_job_result(
             output_path = resolved_derived
 
         elif asset_root_path:
-            is_auto_rig_job = (
-                job_status.get("feature") == "auto_rig"
-                or (isinstance(result.get("artifacts"), dict) and "rigged" in result["artifacts"] and str(result.get("output_mesh_path", "")).endswith("rigged.glb"))
+            feature_name = job_status.get("feature")
+            is_tool_job = (
+                feature_name in {"auto_rig", "uv_unwrapping", "mesh_retopology", "mesh_segmentation"}
+                or bool(result.get("operation_id"))
+                or (isinstance(result.get("artifacts"), dict) and "rigged" in result["artifacts"])
             )
-            if not is_auto_rig_job and canonical_format in {"glb", "gltf", "obj", "stl", "ply", "quad_obj"}:
+            if not is_tool_job and canonical_format in {"glb", "gltf", "obj", "stl", "ply", "quad_obj"}:
                 target_ext = "obj" if canonical_format == "quad_obj" else canonical_format
-                # First preference: {workspace_id}/mesh/mesh.glb
+                # First preference for generation jobs: {workspace_id}/mesh/mesh.glb
                 candidate = asset_root_path / "mesh" / f"mesh.{target_ext}"
                 if candidate.is_file():
                     output_path = candidate
@@ -2067,9 +1977,10 @@ async def download_job_result(
             elif canonical_format in {"glb", "gltf", "obj", "stl", "ply", "quad_obj"}:
                 target_ext = "obj" if canonical_format == "quad_obj" else canonical_format
                 candidates = [
+                    result.get("output_mesh_path"),
+                    result.get("mesh_path"),
                     (result.get("artifacts", {}).get("rigged", {}).get("path") if isinstance(result.get("artifacts"), dict) else None),
                     (result.get("artifacts", {}).get("derived", {}).get("path") if isinstance(result.get("artifacts"), dict) else None),
-                    result.get("output_mesh_path"),
                     first_result_path(result),
                 ]
                 for cand in candidates:

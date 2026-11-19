@@ -1071,9 +1071,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setSelectedAssetId(finalAssetId);
         setActiveMeshAssetId(finalAssetId);
         setExecutionState('completed');
-        // Newly generated meshes automatically belong to their freshly minted workspace.
-        const isMeshGen = matchingTask?.type === 'image-to-3d' || outputAsset.category === 'generation';
-        setPersistenceState(isMeshGen || isRetainedResult ? 'saved' : 'not_saved');
+        // All operations directly persist into workspace storage
+        setPersistenceState('saved');
         setViewportResetTrigger(prev => prev + 1);
         loadModelInViewer(modelUrl, cleanName, outputAsset as any);
       }
@@ -2477,7 +2476,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
           setExecutionProgress(100);
           setExecutionStep('Retopology completed successfully');
           setExecutionState('completed');
-          setPersistenceState('not_saved');
+          setPersistenceState('saved');
+          void refreshAssets();
           setActiveTask((prev) => (prev ? {
             ...prev,
             status: 'completed',
@@ -2677,7 +2677,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
           setExecutionProgress(100);
           setExecutionStep('UV unwrapping completed');
           setExecutionState('completed');
-          setPersistenceState('not_saved');
+          setPersistenceState('saved');
+          void refreshAssets();
           setActiveTask((prev) => (prev ? {
             ...prev,
             status: 'completed',
@@ -2693,6 +2694,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
       // AI Mode Execution
       const body: Record<string, unknown> = {
+        engine: 'ai',
         workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
         distortion_threshold: customSettings?.distortionThreshold ?? 1.25,
         pack_method: customSettings?.packMethod || 'blender',
@@ -2844,7 +2846,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
           setExecutionProgress(100);
           setExecutionStep('Segmentation complete');
           setExecutionState('completed');
-          setPersistenceState('not_saved');
+          setPersistenceState('saved');
+          void refreshAssets();
           setActiveTask((prev) => (prev ? {
             ...prev,
             status: 'completed',
@@ -2957,6 +2960,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     try {
       const meshRef = await resolveMeshReference(currentAsset, signal);
       const body: Record<string, unknown> = {
+        workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
         rig_mode: options?.skeletonTemplate || 'humanoid',
         output_format: (options?.exportFormat || 'glb').toLowerCase(),
         model_preference: 'skintokens_auto_rigging',

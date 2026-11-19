@@ -149,6 +149,7 @@ export interface ExecutionResult {
   jobId?: string;
   workspaceId?: string;
   operationId?: string;
+  assetId?: string;
 }
 
 /**
@@ -239,20 +240,22 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
       if (!response.ok) {
         throw new Error(data?.detail || data?.message || `Script processing failed with HTTP ${response.status}`);
       }
-      if (!data.operation_id || !data.preview_url) {
-        throw new Error('Script API did not return a durable operation ID and preview URL.');
+      if (!data.operation_id) {
+        throw new Error('Script API did not return a valid operation ID.');
       }
 
-      onProgress?.('Loading staged workspace preview...', 90);
+      const modelUrl = data.model_url || data.preview_url || `/api/v1/system/jobs/${data.asset_id || data.operation_id}/download?artifact_format=${data.format || 'glb'}`;
+      onProgress?.('Processing complete, loading model...', 90);
       return {
         success: true,
-        modelUrl: data.preview_url,
-        previewUrl: data.preview_url,
+        modelUrl,
+        previewUrl: modelUrl,
         format: data.format || 'glb',
         stats: data.stats,
         workspaceId: data.workspace_id || workspaceId,
         operationId: data.operation_id,
         jobId: data.job_id || data.operation_id,
+        assetId: data.asset_id,
       };
     }
 

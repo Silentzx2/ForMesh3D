@@ -659,9 +659,8 @@ def test_b4_t3_auto_rigging_operation_and_prerequisites(batch4_app_client):
     assert op.workspace_id == ws_id
 
 
-def test_b4_t3_keep_and_discard_api_endpoints(batch4_app_client):
-    """Verify the actual frontend-facing Keep/Discard routes preserve operation history."""
-    client = batch4_app_client["client"]
+def test_b4_t3_direct_save_workspace_persistence(batch4_app_client):
+    """Verify operations persist directly to workspace storage without temporary preview gating."""
     db = batch4_app_client["db"]
     ws_manager = batch4_app_client["ws_manager"]
 
@@ -682,9 +681,7 @@ def test_b4_t3_keep_and_discard_api_endpoints(batch4_app_client):
     db.update_operation_execution_status(keep_id, ExecutionStatus.PROCESSING)
     db.update_operation_execution_status(keep_id, ExecutionStatus.COMPLETED)
 
-    keep_response = client.post(f"/api/v1/workspace/operations/{keep_id}/keep")
-    assert keep_response.status_code == 200, keep_response.text
-    kept = keep_response.json()
+    kept = db.keep_operation_in_workspace(keep_id, storage_manager=ws_manager)
     assert kept["asset_id"].startswith("ast_")
     assert Path(kept["mesh_path"]).is_file()
     assert db.get_operation(keep_id).persistence_status == PersistenceStatus.SAVED
@@ -701,9 +698,8 @@ def test_b4_t3_keep_and_discard_api_endpoints(batch4_app_client):
     db.update_operation_execution_status(discard_id, ExecutionStatus.PROCESSING)
     db.update_operation_execution_status(discard_id, ExecutionStatus.COMPLETED)
 
-    discard_response = client.post(f"/api/v1/workspace/operations/{discard_id}/discard")
-    assert discard_response.status_code == 200, discard_response.text
-    assert not discard_temp.exists()
+    assert db.discard_operation_preview(discard_id, storage_manager=ws_manager) is True
+    assert not (discard_temp / "preview.glb").exists()
     assert db.get_operation(discard_id).persistence_status == PersistenceStatus.DISCARDED
     assert Path(kept["mesh_path"]).is_file(), "Discard must not remove a retained asset"
 
@@ -813,25 +809,15 @@ def test_script_engine_specialist_routes_use_sqlite_preview_lifecycle(batch4_app
         assert data["status"] == "queued"
         assert data["workspace_id"] == workspace_id
         assert data["operation_id"].startswith("op_")
-        assert data["preview_url"].endswith(f"/{data['operation_id']}/preview")
         operation = db.get_operation(data["operation_id"])
         assert operation is not None
         assert operation.execution_status == ExecutionStatus.COMPLETED
+        assert operation.persistence_status == PersistenceStatus.SAVED
         status_response = client.get(f"/api/v1/system/workspace/operations/{data['operation_id']}")
         assert status_response.status_code == 200
         assert status_response.json()["execution_status"] == "completed"
         assert status_response.json()["result"]["stats"]["face_count"] == 12
-        preview = client.get(data["preview_url"])
-        assert preview.status_code == 200
-        assert preview.content == b"glTF-test-preview"
+        assert status_response.json()["result"]["asset_id"].startswith("ast_")
         operation_ids.append(data["operation_id"])
 
-    kept = client.post(f"/api/v1/workspace/operations/{operation_ids[0]}/keep")
-    assert kept.status_code == 200, kept.text
-    assert kept.json()["asset_id"].startswith("ast_")
-    assert db.get_operation(operation_ids[0]).persistence_status == PersistenceStatus.SAVED
-
-    discarded = client.post(f"/api/v1/workspace/operations/{operation_ids[1]}/discard")
-    assert discarded.status_code == 200, discarded.text
-    assert db.get_operation(operation_ids[1]).persistence_status == PersistenceStatus.DISCARDED
-    assert not (ws_manager.temp_root / operation_ids[1]).exists()
+    assert len(operation_ids) == 3

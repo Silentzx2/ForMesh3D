@@ -514,7 +514,7 @@ export const UVPanel: React.FC = () => {
           engineMode,
           scriptId: activeScriptId,
           distortionThreshold,
-          packMethod: activeScriptId === 'blender_smart_uv' ? 'blender' : 'xatlas',
+          packMethod: engineMode === 'ai' ? 'blender' : (activeScriptId === 'blender_smart_uv' ? 'blender' : 'xatlas'),
           outputFormat,
           saveIndividualParts,
           unwrapStrategy,

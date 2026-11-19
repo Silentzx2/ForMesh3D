@@ -139,6 +139,8 @@ class MeshRetopologyResponse(BaseModel):
     workspace_id: Optional[str] = Field(None, description="Workspace ID")
     operation_id: Optional[str] = Field(None, description="Operation ID")
     preview_url: Optional[str] = None
+    model_url: Optional[str] = None
+    asset_id: Optional[str] = None
     format: Optional[str] = None
     stats: Optional[dict] = None
 
@@ -275,7 +277,6 @@ async def retopologize_mesh(
                 operation_type="retopology",
                 input_asset_id=input_asset.asset_id if input_asset else None,
                 parent_operation_id=request.parent_operation_id,
-                temp_dir=str(ws_storage.temp_root / operation_id),
                 settings={
                     "target_polycount": request.target_polycount,
                     "poly_type": request.poly_type,
@@ -283,8 +284,6 @@ async def retopologize_mesh(
                 },
             )
             operation_id = op_row.operation_id
-            if is_new:
-                ws_storage.create_operation_temp(operation_id)
 
         # Create job request
         user_id = None
