@@ -70,6 +70,7 @@ class AutoRigRequest(BaseModel):
     model_preference: str = Field(
         "skintokens_auto_rigging", description="Name of the auto-rigging model to use"
     )
+    engine: str = Field("ai", description="Rigging execution engine: ai or script")
     model_parameters: Optional[dict] = Field(
         None, 
         description="Model-specific parameters (query /system/models/{model_id}/parameters for schema)"

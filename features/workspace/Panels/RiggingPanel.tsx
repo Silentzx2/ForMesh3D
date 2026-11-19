@@ -24,6 +24,8 @@ import {
 import { toast } from 'sonner';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
 import { MeshUploadStatus } from './MeshUploadStatus';
+import { EngineMode } from '../services/meshProcessingBridge';
+import { EngineModeSelector } from './EngineModeSelector';
 
 // ==========================================
 // 1. Quality Metrics & QualityBadge Export
@@ -247,6 +249,19 @@ export const RiggingPanel: React.FC = () => {
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
 
+  // Engine Mode: Neural AI (SkinTokens) vs Fast Script
+  const [engineMode, setEngineMode] = useState<EngineMode>('ai');
+
+  // SkinTokens Neural Rigging Parameter State
+  const [topK, setTopK] = useState<number>(5);
+  const [topP, setTopP] = useState<number>(0.95);
+  const [temperature, setTemperature] = useState<number>(1.0);
+  const [repetitionPenalty, setRepetitionPenalty] = useState<number>(2.0);
+  const [numBeams, setNumBeams] = useState<number>(10);
+  const [useSkeleton, setUseSkeleton] = useState<boolean>(false);
+  const [useTransfer, setUseTransfer] = useState<boolean>(true);
+  const [usePostprocess, setUsePostprocess] = useState<boolean>(false);
+
   // Core Rigging Parameter State
   const [skeletonTemplate, setSkeletonTemplate] = useState<'humanoid' | 'quadruped' | 'generic'>('humanoid');
   const [bindPose, setBindPose] = useState<'t_pose' | 'a_pose'>('t_pose');
@@ -445,6 +460,8 @@ export const RiggingPanel: React.FC = () => {
         skeletonTemplate,
         bindPose,
         exportFormat,
+        modelPreference: 'skintokens_auto_rigging',
+        engineMode,
         modelParameters: {
           skeleton_template: skeletonTemplate,
           bind_pose: bindPose,
@@ -452,6 +469,14 @@ export const RiggingPanel: React.FC = () => {
           skinning_algorithm: skinningAlgorithm,
           max_influences_per_vertex: maxInfluences,
           symmetry_snapping: symmetrySnapping,
+          top_k: topK,
+          top_p: topP,
+          temperature,
+          repetition_penalty: repetitionPenalty,
+          num_beams: numBeams,
+          use_skeleton: useSkeleton,
+          use_transfer: useTransfer,
+          use_postprocess: usePostprocess,
         },
       });
 
@@ -611,6 +636,31 @@ export const RiggingPanel: React.FC = () => {
                   : 'Transferring...'}
               </span>
             </div>
+          </div>
+        )}
+
+        {/* Dual-Engine Mode Switcher: AI Model vs Fast Script */}
+        <EngineModeSelector
+          mode={engineMode}
+          onChange={setEngineMode}
+          tool="rig"
+        />
+
+        {/* Neural AI Model Card (SkinTokens) when in AI Mode */}
+        {engineMode === 'ai' && (
+          <div className="space-y-1.5 p-3 rounded-2xl bg-[#12131d] border border-white/[0.08]">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-[#F9CF00]" />
+                <span className="text-xs font-bold text-white">SkinTokens Auto-Rig</span>
+              </div>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#F9CF00]/15 text-[#F9CF00] font-mono font-bold border border-[#F9CF00]/30">
+                14GB VRAM
+              </span>
+            </div>
+            <p className="text-[10px] text-zinc-400 leading-relaxed">
+              Discrete Skin Tokens &amp; Unified Autoregressive Joint / Deformation Prediction.
+            </p>
           </div>
         )}
 
@@ -866,12 +916,127 @@ export const RiggingPanel: React.FC = () => {
                 />
               </button>
             </div>
+
+            {/* Parameter 5: SkinTokens Neural Options (Active in AI Mode) */}
+            {engineMode === 'ai' && (
+              <div className="space-y-2 border-t border-white/[0.06] pt-2">
+                <span className="text-[10px] font-semibold text-[#F9CF00] uppercase tracking-wider block">
+                  SkinTokens Neural Settings
+                </span>
+
+                {/* Sampling Temperature */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-zinc-300">Sampling Temperature</span>
+                    <span className="font-mono text-[#F9CF00] font-bold">{temperature.toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.1}
+                    max={2.0}
+                    step={0.05}
+                    value={temperature}
+                    onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                    className="w-full h-1.5 rounded-full appearance-none bg-white/10 cursor-pointer accent-[#F9CF00]"
+                  />
+                  <div className="flex justify-between text-[8.5px] font-mono text-zinc-500">
+                    <span>0.1 (Precise)</span>
+                    <span>1.0 (Default)</span>
+                    <span>2.0 (Creative)</span>
+                  </div>
+                </div>
+
+                {/* Top-K Sampling & Num Beams */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-0.5">
+                    <span className="text-[9.5px] text-zinc-400">Top-K ({topK})</span>
+                    <div className="grid grid-cols-3 gap-0.5">
+                      {[3, 5, 10].map((k) => (
+                        <button
+                          key={k}
+                          type="button"
+                          onClick={() => setTopK(k)}
+                          className={`h-6 rounded text-[9.5px] font-bold font-mono transition-all ${
+                            topK === k ? 'bg-[#F9CF00] text-black font-extrabold' : 'bg-black/30 text-zinc-400 hover:text-white'
+                          }`}
+                        >
+                          {k}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-0.5">
+                    <span className="text-[9.5px] text-zinc-400">Beams ({numBeams})</span>
+                    <div className="grid grid-cols-3 gap-0.5">
+                      {[5, 10, 15].map((b) => (
+                        <button
+                          key={b}
+                          type="button"
+                          onClick={() => setNumBeams(b)}
+                          className={`h-6 rounded text-[9.5px] font-bold font-mono transition-all ${
+                            numBeams === b ? 'bg-[#F9CF00] text-black font-extrabold' : 'bg-black/30 text-zinc-400 hover:text-white'
+                          }`}
+                        >
+                          {b}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Transfer Textures & Scale */}
+                <div className="flex items-center justify-between py-1 border-t border-white/[0.04] pt-1.5">
+                  <div className="space-y-0.5 pr-2">
+                    <span className="text-[10px] text-zinc-200 font-medium">Texture &amp; Scale Transfer</span>
+                    <p className="text-[8.5px] text-zinc-400">Preserve source texture maps and model scale</p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={useTransfer}
+                    onClick={() => setUseTransfer(!useTransfer)}
+                    className={`w-7.5 h-4 rounded-full p-0.5 transition-colors cursor-pointer flex-shrink-0 ${
+                      useTransfer ? 'bg-[#F9CF00]' : 'bg-white/15'
+                    }`}
+                  >
+                    <div
+                      className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${
+                        useTransfer ? 'translate-x-3.5 bg-black' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Voxel Skin Postprocess */}
+                <div className="flex items-center justify-between py-1">
+                  <div className="space-y-0.5 pr-2">
+                    <span className="text-[10px] text-zinc-200 font-medium">Voxel Skin Postprocess</span>
+                    <p className="text-[8.5px] text-zinc-400">Fine-tune volumetric binding on mesh boundary</p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={usePostprocess}
+                    onClick={() => setUsePostprocess(!usePostprocess)}
+                    className={`w-7.5 h-4 rounded-full p-0.5 transition-colors cursor-pointer flex-shrink-0 ${
+                      usePostprocess ? 'bg-[#F9CF00]' : 'bg-white/15'
+                    }`}
+                  >
+                    <div
+                      className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${
+                        usePostprocess ? 'translate-x-3.5 bg-black' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>,
           document.body
         )}
       </div>
 
-      {/* 7. Sticky Bottom Action CTA Button (ZERO model name in button or subtitle as required) */}
+      {/* 7. Sticky Bottom Action CTA Button */}
       <div className="p-3 pt-2 pb-3 border-t border-white/[0.08] bg-[hsl(var(--surface-1))] flex-shrink-0 space-y-1.5">
         {isBusy ? (
           <div className="p-3 rounded-2xl bg-[#141524] border border-[#F9CF00]/30 shadow-xl space-y-2 animate-in fade-in">
@@ -912,10 +1077,10 @@ export const RiggingPanel: React.FC = () => {
               className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Bone className="w-3.5 h-3.5 text-black" />
-              <span>Auto-Rig Character</span>
+              <span>{engineMode === 'ai' ? 'Auto-Rig Character (SkinTokens)' : 'Auto-Rig Character'}</span>
             </button>
             <div className="flex items-center justify-between text-[9.5px] text-zinc-400 px-1 font-mono">
-              <span>Skeleton: {templateLabel} · Bones: {estimatedBoneCount}</span>
+              <span>{engineMode === 'ai' ? 'Model: SkinTokens' : `Skeleton: ${templateLabel}`} · Bones: {estimatedBoneCount}</span>
               <span>Format: {formatLabel}</span>
             </div>
           </div>

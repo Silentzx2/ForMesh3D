@@ -10,7 +10,7 @@ import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 interface EngineModeSelectorProps {
   mode: EngineMode;
   onChange: (mode: EngineMode) => void;
-  tool: 'remesh' | 'uv' | 'segment';
+  tool: 'remesh' | 'uv' | 'segment' | 'rig';
   activeScriptId?: string;
   onScriptChange?: (scriptId: string) => void;
   className?: string;
@@ -34,15 +34,39 @@ export const EngineModeSelector: React.FC<EngineModeSelectorProps> = ({
     (systemStats?.gpu && systemStats.gpu !== 'None' && systemStats.gpu !== 'CPU' && systemStats.gpu !== '')
   );
 
-  const isAiDisabled = aiDisabled || tool === 'segment' || !hasGpu;
-  const disabledReason = aiDisabledReason || (tool === 'segment' ? 'No AI model registered on server' : !hasGpu ? 'No GPU available' : 'AI mode unavailable');
+  const isAiDisabled =
+    aiDisabled !== undefined
+      ? aiDisabled
+      : tool === 'segment'
+      ? true
+      : !hasGpu;
+
+  const disabledReason =
+    aiDisabledReason ||
+    (tool === 'segment'
+      ? 'No AI model registered on server'
+      : !hasGpu
+      ? 'No GPU available'
+      : 'AI mode unavailable');
+
+  const engineSubtitle = isAiDisabled
+    ? 'Script Only'
+    : mode === 'ai'
+    ? (tool === 'rig'
+        ? (hasGpu ? 'GPU (SkinTokens)' : 'GPU Offline')
+        : tool === 'uv'
+        ? (hasGpu ? 'GPU (PartUV)' : 'GPU Offline')
+        : tool === 'remesh'
+        ? (hasGpu ? 'GPU (FastMesh)' : 'GPU Offline')
+        : (hasGpu ? 'GPU Neural' : 'GPU Offline'))
+    : 'CPU Script';
 
   return (
     <div className={`space-y-1 ${className}`}>
       <div className="flex items-center justify-between text-[9.5px] text-zinc-400 px-0.5">
         <span className="font-semibold uppercase tracking-wider">Engine</span>
         <span className="font-mono text-[9px] text-zinc-500">
-          {isAiDisabled ? 'Script Only' : mode === 'ai' ? (hasGpu ? 'GPU Neural' : 'GPU Offline') : 'CPU Script'}
+          {engineSubtitle}
         </span>
       </div>
 

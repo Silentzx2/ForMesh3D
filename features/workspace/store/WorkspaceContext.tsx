@@ -200,6 +200,8 @@ interface WorkspaceContextType {
     skeletonTemplate?: string;
     bindPose?: string;
     exportFormat?: string;
+    modelPreference?: string;
+    engineMode?: EngineMode;
     modelParameters?: Record<string, any>;
     customSettings?: Record<string, any>;
   }) => Promise<void>;
@@ -2952,10 +2954,13 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     skeletonTemplate?: string;
     bindPose?: string;
     exportFormat?: string;
+    modelPreference?: string;
+    engineMode?: EngineMode;
     modelParameters?: Record<string, any>;
     customSettings?: Record<string, any>;
   }) => {
-    const localTaskId = startTask('rigging', 'Auto-Rig Character', undefined, 'skintokens_auto_rigging', undefined, undefined, comparisonGroupId ?? undefined, comparisonSourceUrl(currentAsset));
+    const modelPref = options?.modelPreference || 'skintokens_auto_rigging';
+    const localTaskId = startTask('rigging', 'Auto-Rig Character', undefined, modelPref, undefined, undefined, comparisonGroupId ?? undefined, comparisonSourceUrl(currentAsset));
     const signal = activeAbortControllerRef.current?.signal;
     try {
       const meshRef = await resolveMeshReference(currentAsset, signal);
@@ -2963,7 +2968,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
         rig_mode: options?.skeletonTemplate || 'humanoid',
         output_format: (options?.exportFormat || 'glb').toLowerCase(),
-        model_preference: 'skintokens_auto_rigging',
+        model_preference: modelPref,
+        engine: options?.engineMode || 'ai',
         model_parameters: {
           ...(options?.modelParameters || {}),
           bind_pose: options?.bindPose || 't_pose',

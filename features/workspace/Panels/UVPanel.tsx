@@ -807,6 +807,24 @@ export const UVPanel: React.FC = () => {
           onScriptChange={setActiveScriptId}
         />
 
+        {/* Neural AI Model Card (PartUV) when in AI Mode */}
+        {engineMode === 'ai' && (
+          <div className="space-y-1.5 p-3 rounded-2xl bg-[#12131d] border border-white/[0.08]">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-[#F9CF00]" />
+                <span className="text-xs font-bold text-white">PartUV — Neural UV Unwrapping</span>
+              </div>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#F9CF00]/15 text-[#F9CF00] font-mono font-bold border border-[#F9CF00]/30">
+                8GB VRAM
+              </span>
+            </div>
+            <p className="text-[10px] text-zinc-400 leading-relaxed">
+              Part-based neural boundary seam prediction &amp; low-distortion parameterization.
+            </p>
+          </div>
+        )}
+
         {/* 3. Unwrap Strategy: Organic vs Hard-Surface */}
         <div className="space-y-1">
           <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider block">

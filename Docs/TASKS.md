@@ -73,9 +73,9 @@
   - Workspace displays chronological version list (`workspaceVersions`) with tool badges and parameter summaries.
   - Clicking any prior version immediately updates `activeMeshAssetId` and switches the viewer mesh with zero recomputation.
 - [x] **Tool Panel Fixes**:
-  - `UVPanel.tsx`: Force `pack_method: "blender"` when `engine === "ai"` for PartUV to satisfy backend schema.
-  - `RiggingPanel.tsx`: Bind SkinTokens model execution directly to active workspace without creating detached jobs.
-  - `SegmentationPanel.tsx`: Ensure semantic part count and hierarchical settings cleanly route to direct-save pipeline.
+  - `UVPanel.tsx`: Force `pack_method: "blender"` when `engine === "ai"` for PartUV to satisfy backend schema. Add PartUV neural model badge and parameter binding.
+  - `RiggingPanel.tsx`: Full SkinTokens neural model integration with EngineModeSelector (`tool="rig"`), SkinTokens model card (14GB VRAM), inference parameters (`top_k`, `top_p`, `temperature`, `num_beams`, `use_transfer`, `use_postprocess`), and direct workspace persistence.
+  - `SegmentationPanel.tsx`: Ensure semantic part count and hierarchical settings cleanly route to direct-save pipeline with AI readiness state.
 
 ## 7. Phase 5: Model Adapter Specifications (PartUV & SkinTokens)
 - **PartUV Adapter (`partuv_adapter.py`)**:
