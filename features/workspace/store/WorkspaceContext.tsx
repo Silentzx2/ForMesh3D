@@ -2741,6 +2741,9 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     numParts?: number;
     method?: string;
     hierarchical?: boolean;
+    minFaceIslandThreshold?: number;
+    colorizePreview?: boolean;
+    saveIndividualParts?: boolean;
     outputFormat?: string;
     modelParameters?: Record<string, any>;
     modelPreference?: string;
