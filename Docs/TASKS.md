@@ -76,6 +76,10 @@
   - `UVPanel.tsx`: Force `pack_method: "blender"` when `engine === "ai"` for PartUV to satisfy backend schema. Add PartUV neural model badge and parameter binding.
   - `RiggingPanel.tsx`: Full SkinTokens neural model integration with EngineModeSelector (`tool="rig"`), SkinTokens model card (14GB VRAM), inference parameters (`top_k`, `top_p`, `temperature`, `num_beams`, `use_transfer`, `use_postprocess`), and direct workspace persistence.
   - `SegmentationPanel.tsx`: Ensure semantic part count and hierarchical settings cleanly route to direct-save pipeline with AI readiness state.
+- [x] **Frontend Performance & Telemetry Optimization**:
+  - Dynamically import secondary tool panels (`TexturePanel`, `UVPanel`, `RemeshPanel`, `RiggingPanel`, `SegmentationPanel`, `AnimationPanel`) using Next.js `dynamic()` with fallback skeletons to eliminate ~258 KiB unused initial script evaluation.
+  - Flatten root redirects directly to `/workspace/generate` to eliminate 660ms double-hop redirect latency.
+  - Align Resource Monitor button `aria-label` with visible text metrics for WCAG 2.5.3 compliance.
 
 ## 7. Phase 5: Model Adapter Specifications (PartUV & SkinTokens)
 - **PartUV Adapter (`partuv_adapter.py`)**:

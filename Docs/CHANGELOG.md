@@ -6,6 +6,7 @@
 - **SkinTokens Auto-Rigging Integration**: Connected `RiggingPanel.tsx` and `EngineModeSelector.tsx` to the `skintokens_auto_rigging` AI model (14GB VRAM). Exposed neural parameters (`temperature`, `top_k`, `num_beams`, `use_transfer`, `use_postprocess`) and mapped them cleanly to `JobRequest` and backend adapter.
 - **PartUV Smart UV Wiring**: Wired PartUV neural model badge and Blender pack method in `UVPanel.tsx`, with safe runtime shims for C++ `_core.so` and `partuv.preprocess_utils`.
 - **TripoSG Storage Normalization**: Eliminated rogue `triposg_output` directory creation in `triposg_adapter.py` and `patcher/triposg/output_to_storage.py`. TripoSG exports to managed temporary paths that the multiprocess scheduler persists directly into canonical workspace storage (`storage/<workspace_id>/mesh/mesh.glb`) with density validation and asset registration.
+- **Frontend Performance & Bundle Optimization**: Converted secondary workspace tool panels (`TexturePanel`, `UVPanel`, `RemeshPanel`, `RiggingPanel`, `SegmentationPanel`, `AnimationPanel`) to Next.js `dynamic()` lazy loading with fallback skeletons. Optimized root navigation directly to `/workspace/generate` eliminating redirect chains, and aligned Resource Monitor button aria-label with visible telemetry for WCAG 2.5.3 compliance.
 - **Parameter Snapshot Tracking**: Preserved full parameter snapshots in `AssetModel.settings_snapshot` and updated `active_mesh_asset_id` in SQLite upon run completion.
 
 ## 2026-11-19 — Script-First Canonical Workspace Processing

@@ -22,6 +22,7 @@
   - `smart_uv.py`: Blender Smart Project and XAtlas / Trimesh for non-overlapping UV chart packing.
   - `segment.py`: Connected-component decomposition and spatial PCA clustering with vivid viewport colorization (pure numpy, zero scipy dependency).
   - `mesh_utils.py`: Safe format conversion, Truthful geometric stats, and bounded subprocess execution with density safety capping via `mesh_guard.py`.
+- **Frontend Bundle Optimization**: Lazy code-splitting for secondary workspace panels via Next.js `dynamic()`, direct root routing to `/workspace/generate`, and WCAG 2.5.3 accessible label alignment on Resource Monitor.
 
 ### 3. Native High-Res Generation & Mesh Density Governance
 - **Mesh Guard Pipeline (`backend/pipelines/mesh_guard.py`)**:

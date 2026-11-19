@@ -37,12 +37,39 @@ const MeshViewer = dynamic(() => import('./Viewport/MeshViewer').then(mod => mod
 import { MOTION_FAST, MOTION_SPRING } from '@/lib/motion';
 
 import { GeneratePanel } from './Panels/GeneratePanel';
-import { TexturePanel } from './Panels/TexturePanel';
-import { SegmentationPanel } from './Panels/SegmentationPanel';
-import { RemeshPanel } from './Panels/RemeshPanel';
-import { UVPanel } from './Panels/UVPanel';
-import { RiggingPanel } from './Panels/RiggingPanel';
-import { AnimationPanel } from './Panels/AnimationPanel';
+
+const PanelLoadingFallback = () => (
+  <div className="w-full h-full p-4 space-y-4 animate-pulse bg-[hsl(var(--surface-0))]">
+    <div className="h-7 bg-white/5 rounded-lg w-1/2" />
+    <div className="h-20 bg-white/5 rounded-lg w-full" />
+    <div className="h-36 bg-white/5 rounded-lg w-full" />
+  </div>
+);
+
+const TexturePanel = dynamic(() => import('./Panels/TexturePanel').then(mod => mod.TexturePanel), {
+  ssr: false,
+  loading: () => <PanelLoadingFallback />,
+});
+const SegmentationPanel = dynamic(() => import('./Panels/SegmentationPanel').then(mod => mod.SegmentationPanel), {
+  ssr: false,
+  loading: () => <PanelLoadingFallback />,
+});
+const RemeshPanel = dynamic(() => import('./Panels/RemeshPanel').then(mod => mod.RemeshPanel), {
+  ssr: false,
+  loading: () => <PanelLoadingFallback />,
+});
+const UVPanel = dynamic(() => import('./Panels/UVPanel').then(mod => mod.UVPanel), {
+  ssr: false,
+  loading: () => <PanelLoadingFallback />,
+});
+const RiggingPanel = dynamic(() => import('./Panels/RiggingPanel').then(mod => mod.RiggingPanel), {
+  ssr: false,
+  loading: () => <PanelLoadingFallback />,
+});
+const AnimationPanel = dynamic(() => import('./Panels/AnimationPanel').then(mod => mod.AnimationPanel), {
+  ssr: false,
+  loading: () => <PanelLoadingFallback />,
+});
 const JobDetailView = dynamic(() => import('./Jobs/JobDetailView').then(mod => mod.JobDetailView), {
   ssr: false,
   loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
