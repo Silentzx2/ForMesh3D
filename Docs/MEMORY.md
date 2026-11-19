@@ -28,6 +28,7 @@
   - `guard_mesh_density`: Enforces 1,000k (1M faces) safety cap on AI generation outputs. Below 1M faces, raw mesh is preserved 100% untouched.
   - Mesh Upload Limit: 2,000k (2M faces) hard ceiling in `backend/core/utils/file_utils.py` and `file_upload.py`. Uploads exceeding 2M faces are rejected with an explicit HTTP 400 error.
   - All adapters run in pure native mode with zero internal artificial decimation/subdivision.
+  - TripoSG routes directly via canonical workspace storage (`storage/<workspace_id>/mesh/mesh.glb`); rogue `triposg_output` directory eliminated.
 
 ### 4. Hardware Isolation & Priority Rules
 - **Modern GPUs (`sm >= 80`)**: 100% native upstream execution preserved. No `_is_pre_ampere` / FlashAttention / BF16 modifications.

@@ -85,6 +85,9 @@
 - **SkinTokens Adapter (`skintokens_adapter.py`)**:
   - Ensure thin adapter routes outputs directly to workspace target folder without intermediate temp copying.
   - Preserve locked inference profile: TokenRig architecture, BF16 native on `sm >= 80`, FP16 on `sm < 80`.
+- **TripoSG Adapter & Patcher (`triposg_adapter.py`, `patcher/triposg/`)**:
+  - Route raw mesh exports to managed temporary paths promoted by the multiprocess scheduler to `storage/<workspace_id>/mesh/mesh.glb`.
+  - Completely eliminate diverging `triposg_output` directory creation and monkeypatching.
 
 ## 8. Phase 6: Error Handling & Failure Recovery Matrix
 - **Validation Failure (HTTP 400)**: Invalid mesh format or parameter bounds; no files written; viewer retains active mesh; instant warning toast.
