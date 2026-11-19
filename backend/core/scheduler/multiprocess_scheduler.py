@@ -2344,6 +2344,11 @@ class MultiprocessModelScheduler:
                             final_result["workspace_id"] = _ws_id
 
                             if _op_id:
+                                # Ensure proper state transition: QUEUED -> PROCESSING -> COMPLETED
+                                try:
+                                    _db.update_operation_execution_status(_op_id, ExecutionStatus.PROCESSING)
+                                except Exception:
+                                    pass
                                 _db.update_operation_execution_status(
                                     _op_id,
                                     ExecutionStatus.COMPLETED,
