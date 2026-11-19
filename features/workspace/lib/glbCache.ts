@@ -80,7 +80,8 @@ const progressListeners = new Map<string, Set<StreamProgressCallback>>();
  */
 export async function loadGLBWithProgress(
   url: string,
-  onProgress?: StreamProgressCallback
+  onProgress?: StreamProgressCallback,
+  signal?: AbortSignal
 ): Promise<ArrayBuffer> {
   if (!url) throw new Error('Model URL is required');
 
@@ -146,13 +147,17 @@ export async function loadGLBWithProgress(
   };
 
   const fetchWithRetry = async (attempt = 1, maxAttempts = 3): Promise<ArrayBuffer> => {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const controller = new AbortController();
+    const abortHandler = () => controller.abort();
+    signal?.addEventListener('abort', abortHandler);
     try {
-      const controller = new AbortController();
       // Generous 120s timeout per attempt for large 3D models with 2K/4K textures
       const timeoutId = setTimeout(() => controller.abort(), 120000);
 
       const response = await fetch(url, { signal: controller.signal });
       clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', abortHandler);
 
       if (!response.ok) {
         if (attempt < maxAttempts && (response.status === 502 || response.status === 503 || response.status === 504)) {
@@ -212,7 +217,7 @@ export async function loadGLBWithProgress(
       setCachedGLB(url, arrayBuffer);
       return arrayBuffer;
     } catch (err: any) {
-      if (attempt < maxAttempts && (err?.name === 'AbortError' || err?.message?.includes('network') || err?.message?.includes('fetch'))) {
+      if (!signal?.aborted && attempt < maxAttempts && (err?.message?.includes('network') || err?.message?.includes('fetch'))) {
         console.warn(`[glbCache] Fetch attempt ${attempt} failed for ${url} (${err?.message}); retrying...`);
         await new Promise((r) => setTimeout(r, 800 * attempt));
         return fetchWithRetry(attempt + 1, maxAttempts);

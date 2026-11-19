@@ -14,16 +14,14 @@
 3. [System APIs](#system-apis)
 4. [File Upload APIs](#file-upload-apis)
 5. [Mesh Generation APIs](#mesh-generation-apis)
-6. [Mesh Editing APIs](#mesh-editing-apis)
-7. [Auto Rigging APIs](#auto-rigging-apis)
-8. [Motion Generation APIs](#motion-generation-apis)
-9. [Mesh Tools APIs](#mesh-tools-apis)
-10. [Mesh Segmentation APIs](#mesh-segmentation-apis)
-11. [Mesh Retopology APIs](#mesh-retopology-apis)
-12. [Mesh UV Unwrapping APIs](#mesh-uv-unwrapping-apis)
-13. [Users APIs](#users-apis)
-14. [Error Handling](#error-handling)
-15. [Deployment Modes](#deployment-modes)
+6. [Auto Rigging APIs](#auto-rigging-apis)
+7. [Motion Generation APIs](#motion-generation-apis)
+8. [Mesh Segmentation APIs](#mesh-segmentation-apis)
+9. [Mesh Retopology APIs](#mesh-retopology-apis)
+10. [Mesh UV Unwrapping APIs](#mesh-uv-unwrapping-apis)
+12. [Users APIs](#users-apis)
+13. [Error Handling](#error-handling)
+14. [Deployment Modes](#deployment-modes)
 
 ---
 
@@ -74,7 +72,7 @@ This shape is returned by the custom exception handlers (`BaseAPIException`, `Va
 
 ## Authentication
 
-Authentication has been removed entirely from backend and frontend (personal/self-hosted use, no paid SaaS). All endpoints are unauthenticated by default. The API-level request-rate limit is disabled by default in personal deployment (`rate_limit_enabled: false`, `rate_limit_per_minute: 0`) so local frontend polling is never blocked.
+Authentication is present but disabled by default (personal/self-hosted use, no paid SaaS). All endpoints are unauthenticated unless API-key authentication is enabled. The API-level request-rate limit is disabled by default in personal deployment (`rate_limit_enabled: false`, `rate_limit_per_minute: 0`) so local frontend polling is never blocked.
 
 Optional rate limiting remains available via `security.rate_limit_enabled` and `security.rate_limit_per_minute` in `backend/config/system.yaml` for remote deployments behind a perimeter proxy.
 
@@ -176,7 +174,7 @@ GET /api/v1/system/auth-status
 
 Mounted at `/api/v1/system/database` and backing the admin Database tab (`/admin?tab=database`). Every endpoint requires the API key (`verify_api_key`); when a user is authenticated, the **admin** role is required (`403` otherwise).
 
-**Safety model**: every destructive endpoint requires an explicit typed confirmation token in the JSON body. A job's canonical asset workspace under `backend/storage/models/meshes/<asset>_<job_id>/` is removed **only after** the durable dual-store deletion (Redis hot keys + SQLite row, ADR-062) succeeds, and every path is validated against the storage root before removal. The job-key sweep never touches user/token auth keys.
+**Safety model**: every destructive endpoint requires an explicit typed confirmation token in the JSON body. A job's canonical asset workspace under `backend/storage/<workspace_id>/` is removed **only after** the durable dual-store deletion (Redis hot keys + SQLite row, ADR-062) succeeds, and every path is validated against the storage root before removal. The job-key sweep never touches user/token auth keys.
 
 #### Database Statistics
 
@@ -337,17 +335,20 @@ Content-Type: multipart/form-data
 **Response (200):**
 ```json
 {
-  "file_id": "mesh_abc123",
+  "file_id": "550e8400-e29b-41d4-a716-446655440000",
   "filename": "model.obj",
   "file_type": "mesh",
   "file_size_mb": 15.3,
   "upload_time": "2026-09-21T00:00:00Z",
   "expires_at": null,
-  "url": "/api/v1/file-upload/download/mesh_abc123"
+  "url": "/api/v1/file-upload/download/550e8400-e29b-41d4-a716-446655440000",
+  "thumbnail_url": "/api/v1/file-upload/thumbnail/550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
 Textual `.gltf` uploads must be self-contained single files: buffers use embedded data URIs, and images use embedded data URIs or valid buffer views. Relative/remote dependencies and missing sidecars are rejected; upload a self-contained GLB or embed the resources before uploading.
+
+Mesh upload returns `400` for an unsupported extension, invalid mesh, or size limit; `503` if metadata registration fails; and `500` for an unexpected storage failure. A failed upload is cleaned up rather than left as an unregistered mesh.
 
 ### Download File
 
@@ -355,7 +356,9 @@ Textual `.gltf` uploads must be self-contained single files: buffers use embedde
 GET /api/v1/file-upload/download/{file_id}
 ```
 
-**Response (200):** Direct binary stream of the uploaded file or registered output mesh asset.
+**Response (200):** Direct binary stream of an uploaded file or a registered output mesh (`file_id` in the `job-<job_id>` form) when its canonical job workspace manifest matches. This route serves the registered source file; select baked or other canonical job artifacts with `GET /api/v1/system/jobs/{job_id}/download?artifact_format=...`.
+
+**Response (404):** The ID is unknown, the file is unavailable, or the path is not a valid uploaded or registered job mesh inside backend storage.
 
 ### Get Thumbnail
 
@@ -363,7 +366,7 @@ GET /api/v1/file-upload/download/{file_id}
 GET /api/v1/file-upload/thumbnail/{file_id}
 ```
 
-**Response (200):** Direct binary stream of the persistent 256x256 thumbnail preview for the uploaded image or asset. If a dedicated thumbnail does not yet exist, generates or falls back to the original source image stream.
+**Response (200):** Direct binary stream of the persistent 256x256 thumbnail preview for the uploaded image or mesh asset. For images, the original uploaded image stream is returned when no generated thumbnail exists. For meshes, generates or falls back to a mesh thumbnail on-demand.
 
 ### List Uploaded Files
 
@@ -413,17 +416,10 @@ DELETE /api/v1/file-upload/{file_id}
 
 ---
 
-## Smart Generation APIs
-
-### Smart Generation
-`POST /api/v1/smart-generation/generation` accepts an image input, one of the six canonical intent IDs (`mobile`, `game_ready`, `cinematic`, `animation`, `3d_print`, `native`), an optional explicit model override, preprocessing/auto-rig/printability controls, and safe preset overrides. It resolves a ready image-capable model deterministically, submits through the existing image raw/textured generation scheduler path, and returns `job_id`, selected model, applied preset, candidate order, and effective configuration.
-
-`GET /api/v1/smart-generation/presets` returns the versioned YAML preset definitions. `POST /api/v1/smart-generation/resolve` returns the deterministic model-selection decision without submitting a job. It answers `400` with an actionable `detail` when the intent is unknown, when an explicit model is not registered or is incompatible with the intent, when that model's weights are missing, or when it does not fit the currently free VRAM. The endpoint is a report, not a gate: a client may submit generation without it, because the generation endpoints re-resolve the intent and the scheduler owns model readiness and resource admission (ADR-094).
-
 ## Mesh Generation APIs
 
 ```http
-POST /api/v1/mesh-generation/image-to-raw-mesh
+POST /api/v1/generate
 Content-Type: application/json
 
 {
@@ -434,13 +430,84 @@ Content-Type: application/json
 }
 ```
 
-**Response (202):**
+**Response (200):**
 ```json
 {
   "api_version": "1",
-  "job_id": "gen_abc123",
+  "job_id": "my_model_abc123",
   "status": "queued",
-  "message": "Generation job queued"
+  "message": "Image-to-mesh generation job queued successfully",
+  "workspace_id": "my_model_abc123",
+  "operation_id": "op_9f8e7d6c5b4a",
+  "route_path": "/workspace/generate/my_model_abc123"
+}
+```
+
+### Deep-Link Route & Workspace State Lookup
+
+Query the authoritative SQLite database state for a workspace without re-running any inference or jobs:
+
+```http
+GET /api/v1/system/workspace/generate/{workspace_id}
+```
+
+**Response (200):**
+```json
+{
+  "workspace_id": "my_model_abc123",
+  "name": "My Model",
+  "status": "active",
+  "active_mesh_asset_id": "ast_mesh_123456",
+  "active_mesh": {
+    "asset_id": "ast_mesh_123456",
+    "file_type": "mesh",
+    "relative_path": "mesh/source_mesh.glb",
+    "byte_size": 154200
+  },
+  "mesh_url": "http://localhost:7842/api/v1/system/jobs/my_model_abc123/download?artifact_format=glb",
+  "route_path": "/workspace/generate/my_model_abc123",
+  "created_at": "2026-11-14T03:00:00Z",
+  "updated_at": "2026-11-14T03:05:00Z",
+  "settings": {},
+  "assets": [...],
+  "operations": [...]
+}
+```
+
+### Workspace Operation Persistence
+
+Completed operation previews are persisted through the authoritative SQLite operation and asset records. Both routes retain their short aliases:
+
+```http
+POST /api/v1/system/workspace/operations/{operation_id}/keep
+POST /api/v1/system/workspace/operations/{operation_id}/discard
+```
+
+- **Keep** accepts only an existing completed operation. It publishes the operation's GLB/OBJ output under its workspace, registers one retained asset, updates `active_mesh_asset_id`, and marks persistence as `saved`. Repeating Keep returns the same asset; it does not create another version.
+- **Discard** removes only `storage/temp/{operation_id}/` and marks the preview `discarded`. The operation row, workspace, and retained assets remain intact. If cleanup fails, the operation remains `cleanup_pending` so the cleanup can be retried.
+- Both actions validate that the recorded temp directory resolves to that operation's own directory under the storage temp root. Paths outside that directory are rejected.
+- A missing operation returns `404`; an invalid lifecycle transition or unsafe path returns `409`; unexpected persistence or filesystem errors return `500`.
+- Mesh versions receive their own thumbnail filename so saving a later version does not overwrite an earlier asset's thumbnail.
+
+Keep response (200):
+```json
+{
+  "success": true,
+  "operation_id": "op_123456789abc",
+  "asset_id": "ast_123456789abc",
+  "relative_mesh_path": "retopology/model_retopology.glb",
+  "relative_thumbnail_path": "retopology/model_retopology_thumbnail.png",
+  "mesh_path": "/storage/model_abc123/retopology/model_retopology.glb",
+  "manifest_updated": true
+}
+```
+
+Discard response (200):
+```json
+{
+  "success": true,
+  "operation_id": "op_123456789abc",
+  "status": "discarded"
 }
 ```
 
@@ -449,7 +516,7 @@ Content-Type: application/json
 Generate a 3D mesh from an uploaded image.
 
 ```http
-POST /api/v1/mesh-generation/image-to-raw-mesh
+POST /api/v1/generate
 Content-Type: application/json
 
 {
@@ -458,7 +525,6 @@ Content-Type: application/json
   "model_preference": "hunyuan3d_shape_v21_image_to_raw_mesh",
   "candidate_count": 1,
   "intent": "game_ready",
-  "enable_postprocess": true,
   "target_polycount": 35000,
   "topology_mode": "triangle",
   "quad_topology": false,
@@ -491,8 +557,8 @@ Content-Type: application/json
 | `candidate_count` | integer | `1` | Candidate variations to generate (1 to 4). Seeds step deterministically |
 | `model_parameters` | object | `null` | Model-specific parameters. Only `seed` is forwarded to the adapter |
 | `target_polycount` | integer | `null` | Target triangle budget. See the precedence rules below for `> 0`, `0` and `-1` |
-| `enable_postprocess` | boolean | `true` | Run the production post-processing pipeline. `false` bypasses it and yields the raw/native output |
-| `texture_enabled` / `generate_texture` | boolean | `null` | Run the post-processing texture stage on the generated master |
+| `native_target_polycount` | integer | `null` | Requested native geometry budget metadata; it does not trigger downstream decimation. Actual output counts are measured from the saved mesh. |
+| `texture_enabled` / `generate_texture` | boolean | `null` | Request model-native texture generation where supported |
 | `texture_resolution` | integer | `null` | Texture atlas size (1024/2048/4096/8192). The named presets `1K`/`2K`/`4K`/`8K` are normalized to those sizes |
 | `bake_normal_maps` | boolean | `true` | Bake high-frequency detail normal maps from the master source |
 | `topology_mode` | string | `"triangle"` | `triangle` or `quad` |
@@ -500,7 +566,7 @@ Content-Type: application/json
 | `generate_lod` | boolean | `null` | Build the multi-resolution chain (LOD0 through LOD3) |
 | `lod_preset` | string | `null` | LOD ratio preset: `mobile`, `low`, `medium`, `high` or `cinematic` |
 | `lod_count` | integer | `null` | Number of LOD levels to build (0 to 4); `0` disables the LOD chain |
-| `physics_enabled` | boolean | `null` | Request physics-ready post-processing (watertight CoACD convex hull collision mesh) |
+| `physics_enabled` | boolean | `null` | Request physics-ready collision preparation (watertight CoACD convex hull collision mesh) |
 | `physics_config` | object | `null` | Provider-neutral physics controller values |
 | `enable_printability_check` | boolean | `null` | Run the final printability QA |
 | `enable_auto_repair` | boolean | `null` | Allow the shared repair stage to mutate the mesh for printability |
@@ -522,7 +588,7 @@ Per production option the resolution order is: **explicit request value > intent
 2. **Intent preset fills omitted fields**: Unspecified fields take their default from the matching intent preset in `backend/config/smart_presets.yaml`.
 3. **Backend default is the last fallback**: When neither the request nor the intent preset supplies a value, the backend default applies.
 4. **Tri-state (optional) fields**: `texture_resolution`, `enable_printability_check`, `enable_auto_repair`, `enable_auto_rig`, `physics_enabled`, `generate_lod`, `lod_preset` and `lod_count` default to "not supplied". Omitting them lets the intent preset provide the default; supplying an explicit value (including `false` or `0`) always wins.
-5. **`target_polycount`**: an explicit value greater than `0` wins, and the `-1` native sentinel also wins. `0` means "no explicit budget" and falls back to the intent preset. The Native/Raw output is expressed with `intent: native` or `enable_postprocess: false`.
+5. **`target_polycount`**: an explicit value greater than `0` wins, and the `-1` native sentinel also wins. `0` means "no explicit budget" and falls back to the intent preset. The Native/Raw output is expressed with `intent: native`.
 6. **Legacy `model_parameters` keys are ignored**: `generateLOD`, `lodPreset` and `lodCount` are popped from `model_parameters` and never reach job inputs.
 7. **Deprecated routing fields**: `requested_quality`, `mesh_style`, `object_type` and `symmetry` are still accepted, but they are used only for planner routing and never for inference. The scheduler strips them from adapter inputs.
 8. **Adapter inference profiles are immutable**: Frontend or request-side inference keys (`num_inference_steps`, `guidance_scale`, `octree_resolution`, `sampler_overrides`, `requested_quality`, `meshQuality`) are stripped by the scheduler before invoking the model adapter. Adapters execute their locked native inference schedule (`_LOCKED_INFERENCE_PROFILE`).
@@ -543,19 +609,17 @@ The pipeline builds at most 4 levels (LOD0-LOD3) and clamps `lod_count` to 1-4. 
 
 #### Output Semantics & Artifact Tree
 The API returns HTTP 202 with `{"api_version": "1", "job_id": "...", "status": "queued"}`. When execution completes:
-- `master/source.glb`: Immutable raw mesh with SHA-256 hash in metadata.
-- `game_ready/<name>.glb`: Production engine-ready model satisfying the target budget.
-- `lods/lod[0-3].glb`: Multi-resolution chain (when `generate_lod` is enabled).
-- `collision/collision.glb`: Watertight CoACD collision geometry (when `physics_enabled` is enabled).
+- `mesh/mesh.glb`: Immutable raw mesh with SHA-256 hash in metadata.
+- `texture/textured.glb`: Production engine-ready model satisfying the target budget.
 - `metadata/asset.json`: Canonical manifest with stage trace and QA scores.
 
 
-### Image-to-Textured Mesh
+### Textured-only Model Generation
 
-Generate a textured 3D mesh from an uploaded image.
+Textured-only geometry models (for example Stable Fast 3D) use the same `/api/v1/generate` endpoint. The selected model's registered feature determines dispatch; the endpoint does not change when the texture toggle is disabled.
 
 ```http
-POST /api/v1/mesh-generation/image-to-textured-mesh
+POST /api/v1/generate
 Content-Type: application/json
 
 {
@@ -566,12 +630,51 @@ Content-Type: application/json
 }
 ```
 
-### Text Mesh Painting
+### Stable Fast 3D — Single Image → Textured Mesh
 
-Paint textures onto an existing mesh using text prompts.
+Generate a UV-unwrapped textured mesh (PBR albedo + normal maps) from a single reference image in one forward pass using Stability AI's Stable Fast 3D (SF3D). SF3D is a complete image→textured-mesh pipeline — mesh and texture are produced together, with no separate texture stage. The model is gated on Hugging Face (`stabilityai/stable-fast-3d`) and requires `HF_TOKEN` with an accepted license before weights can be downloaded.
 
 ```http
-POST /api/v1/mesh-generation/text-mesh-painting
+POST /api/v1/generate
+Content-Type: application/json
+
+{
+  "image_file_id": "img_abc123",
+  "output_format": "glb",
+  "model_preference": "stable_fast_3d_image_to_textured_mesh",
+  "model_parameters": { "seed": 42891, "texture_resolution": 1024 }
+}
+```
+
+**Request fields (SF3D-specific, forwarded via `model_parameters`):**
+
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `seed` | integer | `42891` | Random seed for reproducibility |
+| `texture_resolution` | integer | `1024` | Output texture atlas resolution (512, 1024, or 2048) |
+| `remesh_option` | string | `"none"` | Remeshing operation: `none`, `triangle`, or `quad` |
+| `target_vertex_count` | integer | `-1` | Target vertex count for decimation (`-1` = no reduction) |
+
+**Response (202):** Same queued response shape as other generation endpoints. On completion, the job exposes a single textured GLB artifact — SF3D does not produce a separate raw-only master.
+
+**Textured artifact URL:** Completed SF3D jobs expose the textured mesh through the standard download endpoint:
+
+```
+GET /api/v1/system/jobs/{job_id}/download?artifact_format=glb
+```
+
+This returns the textured GLB with embedded albedo and normal maps. The immutable raw master (`mesh/mesh.glb`) is not produced by SF3D — use `hunyuan3d_shape_v21_image_to_raw_mesh` for raw-only generation.
+
+**VRAM:** ~6 GB for single-image input; fits T4 and 16 GB consumer cards. Inference runs in ~0.5 seconds on a GPU with 7 GB+ VRAM.
+
+**License:** Stability AI Community License (non-MIT, gated weights). Review before commercial use.
+
+### Text Mesh Painting
+
+Paint textures onto an existing mesh using text prompts. This is the prompt-only form of the unified `/api/v1/texture` request.
+
+```http
+POST /api/v1/texture
 Content-Type: application/json
 
 {
@@ -583,10 +686,10 @@ Content-Type: application/json
 
 ### Image Mesh Painting
 
-Paint textures onto an existing mesh using an image reference. The model's internal per-view settings (512/768) are independent from the requested final atlas dimension (1K/2K/4K/8K). RealESRGAN is enabled internally for Hunyuan Paint; there is no separate user-facing toggle.
+Paint textures onto an existing mesh using an image reference. This is the image-guided form of the unified `/api/v1/texture` request. The model's internal per-view settings (512/768) are independent from the requested final atlas dimension (1K/2K/4K/8K). RealESRGAN is enabled internally for Hunyuan Paint; there is no separate user-facing toggle.
 
 ```http
-POST /api/v1/mesh-generation/image-mesh-painting
+POST /api/v1/texture
 Content-Type: application/json
 
 {
@@ -598,11 +701,11 @@ Content-Type: application/json
 }
 ```
 
-`texture_resolution` selects the final atlas size (1024/2048/4096/8192); 1K/2K routes to Paint3D and 4K/8K to Hunyuan3D-Paint v2.1. Adapter-owned inference keys such as `resolution` or `max_num_view` are stripped by the scheduler before the adapter runs.
+`model_preference` selects the paint adapter. Both `hunyuan3d_v20_paint_image_mesh_painting` and `hunyuan3d_paint_v21_image_mesh_painting` are supported; the legacy generic `trellis_image_mesh_painting` default resolves to v2.0. The Studio sends its selected model ID unchanged. `texture_resolution` is the requested atlas size (1024/2048/4096/8192); the selected adapter controls how that request is applied, and adapter-owned inference keys such as `resolution` or `max_num_view` are not forwarded as user inference overrides.
 
 ### Textured Generation Flow
 
-Normal image-to-3D generation always submits the selected geometry model to `image-to-raw-mesh`. When Textured Generation is enabled, centralized post-processing receives the raw mesh, original reference-image file reference, and requested atlas preset: 1K/2K uses Paint3D; 4K/8K uses Hunyuan3D-Paint v2.1 with its internal RealESRGAN path enabled. The API accepts named presets (`"1K"`, `"2K"`, `"4K"`, `"8K"`) or numeric dimensions (1024/2048/4096/8192). The stage inspects the embedded base-colour texture in the exported GLB and reports success only when its observed square dimensions match the requested target. If texturing fails or the atlas cannot be verified, the immutable raw master is preserved and the texture-stage result reports failure. The legacy `image-to-textured-mesh` path remains for API compatibility; legacy geometry IDs resolve to raw-only aliases rather than re-enabling model-native texture generation.
+Normal image-to-3D generation always submits the selected geometry model to `image-to-raw-mesh`. When Textured Generation is enabled, the selected model's own texture pipeline runs immediately after raw mesh generation in the same scheduler dispatch (no second weights load for models that share the texture-capable adapter). The scheduler routes to the model's texture adapter using the requested texture settings. The stage inspects the embedded base-colour texture in the exported GLB and reports success only when its observed square dimensions match the requested target. If texturing fails or the atlas cannot be verified, the immutable raw master is preserved and the texture-stage result reports failure. Both raw-capable and textured-only geometry models use `/api/v1/generate`. The backend selects the registered feature for the selected model; no second generation route or legacy alias is mounted.
 
 ### Get Job Status
 
@@ -619,14 +722,19 @@ GET /api/v1/system/jobs/{job_id}
   "stage": "inference",
   "progress": 0.45,
   "output_path": null,
-  "error": null
+  "error": null,
+  "requested_triangles": 200000,
+  "actual_triangles": 184320
 }
 ```
+
+- `requested_triangles`: the user's requested triangle budget (independent of measured actual). `null` when no explicit target was set.
+- `actual_triangles`: measured triangle count from the generated GLB on disk (independent of the requested value). `null` until output exists or if the mesh could not be measured.
 
 ### Cancel Job
 
 ```http
-POST /api/v1/mesh-generation/cancel/{job_id}
+POST /api/v1/generate/cancel/{job_id}
 ```
 
 `POST /api/v1/system/jobs/{job_id}/cancel` is the equivalent system-scoped route.
@@ -655,12 +763,12 @@ GET /api/v1/system/models
       "trellis2_image_to_3d",
       "trellis2_image_to_raw_mesh"
     ],
-    "image_to_textured_mesh": ["trellis_image_to_textured_mesh", "trellis2_image_to_textured_mesh"],
+    "image_to_textured_mesh": ["trellis_image_to_textured_mesh", "trellis2_image_to_textured_mesh", "stable_fast_3d_image_to_textured_mesh"],
     "image_mesh_painting": [
       "trellis_image_mesh_painting",
       "trellis2_image_mesh_painting",
-      "hunyuan3d_paint_v21_image_mesh_painting",
-      "paint3d"
+      "hunyuan3d_v20_paint_image_mesh_painting",
+      "hunyuan3d_paint_v21_image_mesh_painting"
     ],
     "mesh_segmentation": [],
     "auto_rig": ["skintokens_auto_rigging"],
@@ -711,32 +819,20 @@ GET /api/v1/system/jobs/history?limit=100&offset=0&status=completed&feature=imag
 Returns durable job history (SQLite page, falling back to the Redis job listing when the SQLite page is empty). Every completed job carries canonical production artifact URLs regardless of what was persisted, so the workspace can resolve models and thumbnails from the backend after a page refresh or backend restart:
 
 - `model_url`, `game_ready_url`, `download_url` — `/api/v1/system/jobs/{job_id}/download?artifact_format=glb` (game-ready GLB; the default viewer artifact)
-- `source_model_url`, `high_fidelity_url` — `/api/v1/system/jobs/{job_id}/download?artifact_format=master` (immutable `master/source.glb`)
+- `source_model_url`, `high_fidelity_url` — `/api/v1/system/jobs/{job_id}/download?artifact_format=master` (immutable `mesh/mesh.glb`)
 - `GET /api/v1/system/jobs/{job_id}/download?artifact_format=fbx` — native FBX from a completed rigging job or an already-baked game-ready FBX. Generic on-demand `trimesh` FBX conversion is unsupported and returns HTTP 422 when no actual FBX is available.
 - `thumbnail_url` — `/api/v1/system/jobs/{job_id}/thumbnail` (rendered preview, input-image, or placeholder fallback)
 
-Values populated by production post-processing are never overwritten; only missing URLs are backfilled.
+Existing artifact URLs are never overwritten; only missing URLs are backfilled.
 
 ### Multi-view APIs (Removed 2026-10-11)
 
-The dedicated Zero123++ generation and multi-view reconstruction endpoints have been removed from the active API. Use the single-image `/api/v1/mesh-generation/image-to-raw-mesh` route for current image-to-3D requests.
+The dedicated Zero123++ generation and multi-view reconstruction endpoints have been removed from the active API. Use the single-image `/api/v1/generate` route for current image-to-3D requests.
 
 ### Model Parameters Schema
 
 ```http
 GET /api/v1/system/models/{model_id}/parameters
-```
-
----
-
-## Mesh Editing APIs
-
-### Text Edit
-
-Edit an existing mesh using a text prompt.
-
-```http
-POST /api/v1/mesh-editing/text-mesh-editing
 ```
 
 ---
@@ -748,7 +844,7 @@ POST /api/v1/mesh-editing/text-mesh-editing
 Generate a bipedal armature for a mesh.
 
 ```http
-POST /api/v1/auto-rigging/generate-rig
+POST /api/v1/rig
 Content-Type: application/json
 
 {
@@ -779,7 +875,7 @@ Content-Type: application/json
 Synthesize kinematically valid 3D human motion from a natural language text prompt using ARDY. Produces browser-playable `motion.json` format for Three.js. ForMesh3D runs ARDY and its local LLM2Vec text encoder in CPU-only mode; no GPU VRAM is reserved, and inference is slower and bounded by host CPU/RAM.
 
 ```http
-POST /api/v1/motion-generation/generate-motion
+POST /api/v1/motion
 Content-Type: application/json
 
 {
@@ -787,7 +883,6 @@ Content-Type: application/json
   "duration": 4.0,
   "seed": 42,
   "checkpoint": "ARDY-Core-RP-20FPS-Horizon40",
-  "post_process": true,
   "target_skeleton": "core",
   "model_preference": "ardy_motion_generation"
 }
@@ -807,7 +902,7 @@ Content-Type: application/json
 Query installed and supported ARDY motion checkpoints.
 
 ```http
-GET /api/v1/motion-generation/checkpoints
+GET /api/v1/motion/checkpoints
 ```
 
 **Response:**
@@ -837,27 +932,17 @@ GET /api/v1/motion-generation/checkpoints
 
 ---
 
-## Mesh Tools APIs
 
-The migrated mesh-processing tools are exposed by the main FastAPI process. Browser requests use the same-origin `/api/v1` proxy; there is no direct port 8200 dependency.
+### Script operation status and cancellation
 
-| Endpoint | Method | Contract |
-|---|---|---|
-| `/api/v1/mesh-tools/inspect` | POST | JSON game-ready inspection |
-| `/api/v1/mesh-tools/auto-uv` | POST | SSE mesh result |
-| `/api/v1/mesh-tools/auto-retopo` | POST | SSE mesh result |
-| `/api/v1/mesh-tools/repair` | POST | SSE mesh result |
-| `/api/v1/mesh-tools/optimize` | POST | JSON optimized mesh |
-| `/api/v1/mesh-tools/lods` | POST | JSON LOD set |
-| `/api/v1/mesh-tools/collision` | POST | SSE collision scene |
-| `/api/v1/mesh-tools/bake` | POST | SSE texture maps |
-| `/api/v1/mesh-tools/flatten` | POST | SSE texture map |
-| `/api/v1/mesh-tools/convert` | POST | SSE FBX result |
-| `/api/v1/mesh-tools/segment` | POST | SSE segmentation hierarchy |
+Script Retopo, UV, and Segmentation return an operation ID immediately with `status: "queued"`. Poll the SQLite-backed operation record and cancel it with:
 
-### Production post-process retry
+```http
+GET /api/v1/system/workspace/operations/{operation_id}
+POST /api/v1/system/workspace/operations/{operation_id}/cancel
+```
 
-`POST /api/v1/system/jobs/{job_id}/postprocess/retry` rebuilds derived artifacts from immutable `master/source.glb` without re-running model inference.
+The status response includes `execution_status`, `persistence_status`, `progress`, terminal `result.stats`, and a preview URL after completion. Keep and Discard continue to use the workspace operation persistence routes.
 
 ### Canonical artifact manifest
 
@@ -868,23 +953,24 @@ Mesh-producing terminal results include `result.artifacts`. Each artifact declar
 
 ### Retopologize Mesh
 
-Retopologize a mesh using the fixed FastMesh V1K checkpoint.
+Retopologize a mesh using the selected engine. Requests default to AI / FastMesh; Script mode directly invokes the existing Trimesh / Blender pipeline without model-scheduler access.
 
 ```http
-POST /api/v1/mesh-retopology/retopologize-mesh
+POST /api/v1/retopo
 Content-Type: application/json
 
 {
   "mesh_file_id": "mesh_abc123",
+  "engine": "ai",
   "model_preference": "fastmesh_v1k_retopology",
   "target_polycount": 35000,
   "output_format": "glb"
 }
 ```
 
-FastMesh V1K is a checkpoint-fixed model that produces approximately 1K vertices; it does not accept an arbitrary vertex target. target_vertex_count remains accepted only as a deprecated compatibility field and is ignored. target_polycount is a final production triangle budget applied by the canonical post-processing stage after FastMesh; it does not change FastMesh inference and accepts 5,000–200,000 triangles. FastMesh emits its checkpoint-native topology; poly_type does not change the model output.
+FastMesh V1K is a checkpoint-fixed model that produces approximately 1K vertices; it does not accept an arbitrary vertex target. target_vertex_count remains accepted only as a deprecated compatibility field and is ignored. target_polycount is a Script-mode triangle budget for deterministic retopology; in AI mode FastMesh keeps its checkpoint-native output and the requested value does not change inference; it does not change FastMesh inference and accepts 5,000–200,000 triangles. FastMesh emits its checkpoint-native topology; poly_type does not change the model output. The default `engine` is `ai`. For deterministic processing, send `engine: "script"` with an existing `workspace_id`; Script mode accepts `poly_type`, `preserve_features`, `feature_angle`, `adaptive`, `watertight`, and `output_format` (`glb` or `obj`). The response includes `operation_id`, `preview_url`, and `format`. Poll `GET /api/v1/system/workspace/operations/{operation_id}` for SQLite-backed progress and measured `stats`; cancel with `POST /api/v1/system/workspace/operations/{operation_id}/cancel`.
 
-For generation jobs, `target_polycount` is **never an inference-quality control**. The scheduler removes this production-only field (along with `auto_optimize` and LOD/physics controls) before neural model adapters run. The raw model output is requested at the registered model's maximum supported geometry fidelity, persisted unchanged as `master/source.glb`, and only then reduced to the requested production budget.
+For generation jobs, `target_polycount` is **never an inference-quality control**. The scheduler removes this production-only field (along with `auto_optimize` and LOD/physics controls) before neural model adapters run. The raw model output is requested at the registered model's supported geometry fidelity and persisted unchanged as the workspace source mesh.
 
 ---
 
@@ -892,20 +978,21 @@ For generation jobs, `target_polycount` is **never an inference-quality control*
 
 ### Unwrap Mesh UVs
 
-Unwrap a mesh's UV coordinates.
+Unwrap a mesh's UV coordinates. Requests default to AI / PartUV; Script mode invokes the existing Blender Smart UV or XAtlas pipeline directly.
 
 ```http
-POST /api/v1/mesh-uv-unwrapping/unwrap-mesh
+POST /api/v1/unwrap
 Content-Type: application/json
 
 {
   "mesh_file_id": "mesh_abc123",
+  "engine": "ai",
   "model_preference": "partuv_uv_unwrapping",
   "pack_method": "blender"
 }
 ```
 
-`pack_method` accepts `blender`, `uvpackmaster` or `none` and defaults to `blender`; `distortion_threshold` defaults to `1.25`.
+AI mode retains `pack_method: "blender"` and `distortion_threshold: 1.25` by default. Script mode accepts `pack_method: "blender" | "xatlas" | "auto"`, `atlas_resolution`, `island_margin`, and `max_cone_deg`. Blender mode requires Blender; XAtlas mode requires the `xatlas` package.
 
 ---
 
@@ -1026,9 +1113,6 @@ Event types:
 
 - POST /api/v1/image-enhancement/preview creates a deterministic Generation Preview and returns `approval_status`, foreground-validation metrics, provenance, and a preview URL. An approved URL is returned only for validated foregrounds.
 - GET /api/v1/image-enhancement/artifacts/{artifact_id}?variant=preview|approved serves the preview; requesting an unapproved artifact returns HTTP 409.
-- GET /api/v1/smart-generation/presets returns the versioned intent definitions.
-- POST /api/v1/smart-generation/resolve resolves an intent to a ready, compatible Image → 3D model and applied preset; an explicit model is validated as an override.
-- Image→raw and image→textured requests accept intent, preprocessing_artifact_id, enhancement_enabled, preprocessing_review_override, enable_printability_check, enable_auto_repair, enable_auto_rig, and auto_rig_mode. A review override is required only for `needs_review`; `failed` artifacts cannot enter inference.
 - Completed auto-rig workflows expose a GLB `rigged_model_url` for viewport display and retain the original native FBX separately for download. The `artifact_format=fbx` download option serves a real pre-exported FBX only; assets without one receive HTTP 422 rather than an unsupported generic `trimesh` conversion.
 
 ## High-Fidelity Result and Resource Metadata — 2026-10-08
@@ -1058,3 +1142,14 @@ Command:
     python -m scripts.run_model_ab_benchmark --baseline-asset <baseline_asset_dir> --candidate-asset <candidate_asset_dir> --output <report.json>
 
 Add --reference <reference_mesh.glb> only when a real ground-truth mesh exists. Without a reference, generated-vs-generated geometry metrics are explicitly diagnostic rather than absolute quality measurements.
+
+
+## Mesh Segmentation API
+
+### Segment a Mesh
+
+`POST /api/v1/segment` defaults to the existing AI scheduler. To run the deterministic Trimesh pipeline, submit `engine: "script"` with a `workspace_id`, `mesh_file_id` (or `mesh_path`), `num_parts`, and `output_format: "glb"`. Optional Script settings include `method`, `hierarchical`, `colorize_preview`, and `save_individual_parts`. Script mode returns `operation_id`, `preview_url`, `format`, and measured `stats`.
+
+### Shared Script Preview Lifecycle
+
+The preview URL returned by all three Script routes is served by `GET /api/v1/system/operations/{operation_id}/preview`. Retain the result with `POST /api/v1/workspace/operations/{operation_id}/keep` or discard it with `POST /api/v1/workspace/operations/{operation_id}/discard`. Keep creates an immutable workspace asset version; Discard removes only the staged preview. Script requests require an existing workspace. The canonical AI routes remain scheduler-backed when `engine` is omitted or set to `ai`.

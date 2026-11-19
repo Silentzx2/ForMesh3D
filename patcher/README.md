@@ -45,7 +45,7 @@ flowchart TD
         end
 
         THIRD_PARTY["Upstream ThirdParty Pipeline<br/>(backend/thirdparty/<Model>/)"]:::worker
-        OUTPUT["Immutable Raw Mesh Checkpoint<br/>master/source.glb (SHA-256 Verified)"]:::modern
+        OUTPUT["Immutable Raw Mesh Checkpoint<br/>mesh/mesh.glb (SHA-256 Verified)"]:::modern
     end
 
     ADAPTER --> INSPECT
@@ -114,8 +114,8 @@ Built-in profiles are registered for:
 - **Fix applied**: Routes pre-Ampere attention requests through memory-efficient xFormers or query-chunked SDPA (`chunk_size=1024`), computing attention in slices with mathematical exactness (`diff = 0.0`). Modern GPUs (`sm >= 80`) continue running official native FlashAttention with zero overhead.
 
 ### `patcher/triposg/`
-- **Problem addressed**: Multi-process worker isolation requires the generated mesh to be delivered deterministically to the canonical job workspace directory without colliding with other worker processes.
-- **Fix applied**: Wraps request processing to ensure output artifacts are mirrored to the designated job storage path upon successful generation.
+- **Problem addressed**: Generated mesh artifacts must integrate directly with ForMesh3D's canonical workspace storage (`storage/<workspace_id>/mesh/mesh.glb`) without creating diverging output folders like `triposg_output`.
+- **Fix applied**: Routes TripoSG adapter output through the multiprocess scheduler's canonical workspace pipeline with density guards and database asset registration.
 
 ### `patcher/trellis2/`
 - **Problem addressed**: `sparse_structure_decoder` checkpoint in `pipeline.json` references `microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16` (original TRELLIS repo), not compatible with TRELLIS.2's flow model. Produces all-negative logits (~ -75) → zero occupied voxels → hollow box output instead of input object.

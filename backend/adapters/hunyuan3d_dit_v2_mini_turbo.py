@@ -129,6 +129,14 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
 
+        # Native polycount target: passed through from the generation request.
+        native_target_polycount = int(
+            inputs.get("native_target_polycount")
+            or inputs.get("target_polycount")
+            or 0
+        )
+        remesh_option = str(inputs.get("remesh_option", "none") or "none").strip().lower()
+
         import gc
         import os
         import trimesh
@@ -174,12 +182,16 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
             "success": True,
             "output_mesh_path": str(out),
             "mesh_path": str(out),
+            "actual_face_count": len(mesh.faces),
+            "actual_vertex_count": len(mesh.vertices),
             "generation_info": {
                 "seed": seed,
                 "num_inference_steps": 20,
                 "guidance_scale": 5.0,
                 "octree_resolution": 380,
                 "num_chunks": 20000,
+                "native_target_polycount": native_target_polycount or None,
+                "remesh_option": remesh_option,
             },
         }
 

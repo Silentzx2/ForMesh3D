@@ -10,7 +10,7 @@ import { getJobPresentation } from '../lib/jobPresentation';
 
 
 import { HugeiconsIcon } from '@hugeicons/react';
-import { ActivityIcon, AlertCircle, Box, CheckIcon, CheckmarkCircle02Icon, Copy, DownloadIcon, LayersIcon, RefreshCw, SearchIcon, SparklesIcon, StopCircleIcon, Trash2 } from '@hugeicons/core-free-icons';
+import { ActivityIcon, AlertCircle, Box, CameraIcon, CheckIcon, CheckmarkCircle02Icon, Copy, DownloadIcon, LayersIcon, RefreshCw, SparklesIcon, StopCircleIcon, Trash2 } from '@hugeicons/core-free-icons';
 const MeshViewer = dynamic(() => import('../Viewport/MeshViewer').then(mod => mod.MeshViewer), {
   ssr: false,
   loading: () => <div className="w-full h-full bg-[hsl(var(--surface-0))] animate-pulse flex items-center justify-center text-xs text-zinc-500">Loading 3D Output...</div>
@@ -57,7 +57,6 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
   const [selectedJob, setSelectedJob] = useState<RealJobItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [listFilter, setListFilter] = useState<'all' | 'running' | 'completed' | 'failed'>('all');
-  const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState(false);
   const [isRawJsonOpen, setIsRawJsonOpen] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -138,20 +137,27 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
     }
   }, []);
 
-  const selectedJobIsRunning = selectedJob?.status === 'processing' || selectedJob?.status === 'running' || selectedJob?.status === 'queued';
+  const resolvedProductionStatus: string | undefined = selectedJob?.productionStatus;
+  const jobStatus: 'idle' | 'running' | 'completed' | 'failed' = selectedJob?.status === 'failed' || (resolvedProductionStatus === 'failed')
+    ? 'failed'
+    : selectedJob?.status === 'processing' || selectedJob?.status === 'running' || selectedJob?.status === 'queued' || resolvedProductionStatus === 'processing' || resolvedProductionStatus === 'running'
+      ? 'running'
+      : selectedJob?.status === 'completed' || resolvedProductionStatus === 'completed'
+        ? 'completed'
+        : 'idle';
   useEffect(() => {
     if (!selectedJobId) return;
     const refresh = () => {
       if (document.visibilityState === 'visible') void fetchSelectedJobDetails(selectedJobId);
     };
     void fetchSelectedJobDetails(selectedJobId);
-    const interval = setInterval(refresh, selectedJobIsRunning ? 1200 : 30000);
+    const interval = setInterval(refresh, jobStatus === 'running' ? 1200 : 30000);
     document.addEventListener('visibilitychange', refresh);
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', refresh);
     };
-  }, [selectedJobId, selectedJobIsRunning, fetchSelectedJobDetails]);
+  }, [selectedJobId, jobStatus, fetchSelectedJobDetails]);
 
   const handleCopyId = () => {
     if (!selectedJobId) return;
@@ -165,7 +171,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
   const handleCancelOrDeleteJob = async () => {
     if (!selectedJobId) return;
     try {
-      if (selectedJobIsRunning) {
+      if (jobStatus === 'running') {
         const res = await getApiClient().cancelGenerationJob(selectedJobId);
         if (res.cancelled) {
           toast.success('Generation cancelled');
@@ -179,7 +185,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
         await fetchJobs();
       }
     } catch (e: any) {
-      toast.error(selectedJobIsRunning ? 'Failed to cancel job' : 'Failed to delete job', { description: e?.message });
+      toast.error(jobStatus === 'running' ? 'Failed to cancel job' : 'Failed to delete job', { description: e?.message });
     }
   };
 
@@ -283,17 +289,9 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
         : listFilter === 'running'
         ? j.status === 'processing' || j.status === 'running' || j.status === 'queued'
         : j.status === listFilter;
-    const matchesSearch =
-      !searchQuery.trim() ||
-      j.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (j.feature || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (j.model_preference || '').toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesFilter && matchesSearch;
+    return matchesFilter;
   });
 
-  const isCompleted = selectedJob?.status === 'completed';
-  const isFailed = selectedJob?.status === 'failed';
-  const isRunning = selectedJob?.status === 'processing' || selectedJob?.status === 'running' || selectedJob?.status === 'queued';
   const jobPresentation = selectedJob ? getJobPresentation(selectedJob) : null;
 
   return (
@@ -338,17 +336,6 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
         {/* Left Jobs List Sidebar */}
         <div className="w-80 border-r border-white/[0.08] bg-[hsl(var(--surface-1))]/50 flex flex-col flex-shrink-0">
           <div className="p-3 border-b border-white/[0.06] space-y-2">
-            <div className="relative">
-              <HugeiconsIcon icon={SearchIcon} size={16} className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search job ID or model..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-[hsl(var(--surface-0))] border border-white/[0.08] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-primary"
-              />
-            </div>
-
             {/* Filter pills */}
             <div className="flex items-center gap-1">
               {(['all', 'running', 'completed', 'failed'] as const).map((f) => (
@@ -447,15 +434,23 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold font-mono text-white">Job ID: {selectedJob.id}</span>
-                      <button
-                        type="button"
-                        onClick={handleCopyId}
-                        aria-label="Copy job ID to clipboard"
-                        className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/[0.06] cursor-pointer"
-                    >
-                      {copiedId ? <HugeiconsIcon icon={CheckIcon} size={16} className="w-3.5 h-3.5 text-emerald-400" /> : <HugeiconsIcon icon={Copy} size={16} className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
+                        <button
+                          type="button"
+                          onClick={handleCopyId}
+                          aria-label="Copy job ID to clipboard"
+                          className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/[0.06] cursor-pointer"
+                        >
+                          {copiedId ? <HugeiconsIcon icon={CheckIcon} size={16} className="w-3.5 h-3.5 text-emerald-400" /> : <HugeiconsIcon icon={Copy} size={16} className="w-3.5 h-3.5" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => window.dispatchEvent(new CustomEvent('takeViewportSnapshot'))}
+                          aria-label="Take viewport snapshot of job"
+                          className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/[0.06] cursor-pointer"
+                        >
+                          <HugeiconsIcon icon={CameraIcon} size={16} className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                   <div className="text-xs text-zinc-400">
                     Operation: <span className="text-white font-medium">{selectedJob.feature || '3D Mesh Synthesis'}</span> • Engine: <span className="text-primary font-medium">{selectedJob.model_preference || 'Auto'}</span>
                   </div>
@@ -464,14 +459,14 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
                 <div className="flex items-center gap-2">
                   <span
                     className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
-                      isCompleted
+                      jobStatus === 'completed'
                         ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                        : isRunning
+                        : jobStatus === 'running'
                         ? 'bg-primary/20 text-primary border border-primary/30 animate-pulse'
                         : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                     }`}
                   >
-                    <span className={`w-2 h-2 rounded-full ${isCompleted ? 'bg-emerald-400' : isRunning ? 'bg-primary' : 'bg-rose-400'}`} />
+                    <span className={`w-2 h-2 rounded-full ${jobStatus === 'completed' ? 'bg-emerald-400' : jobStatus === 'running' ? 'bg-primary' : 'bg-rose-400'}`} />
                     {selectedJob.status}
                   </span>
                   {selectedJob.productionStatus && selectedJob.productionStatus !== 'processing' && (
@@ -509,16 +504,16 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
                   <button
                     type="button"
                     onClick={handleCancelOrDeleteJob}
-                    aria-label={selectedJobIsRunning ? 'Cancel Job' : 'Delete Job'}
+                    aria-label={jobStatus === 'running' ? 'Cancel Job' : 'Delete Job'}
                     className="p-1.5 rounded-lg bg-[hsl(var(--surface-0))] hover:bg-rose-500/20 text-zinc-400 hover:text-rose-300 border border-white/[0.06] transition-colors cursor-pointer"
                   >
-                    {selectedJobIsRunning ? <HugeiconsIcon icon={StopCircleIcon} size={16} className="w-4 h-4" /> : <HugeiconsIcon icon={Trash2} size={16} className="w-4 h-4" />}
+                    {jobStatus === 'running' ? <HugeiconsIcon icon={StopCircleIcon} size={16} className="w-4 h-4" /> : <HugeiconsIcon icon={Trash2} size={16} className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
 
               {/* Progress & Error Diagnostics */}
-              {isRunning && (
+              {jobStatus === 'running' && (
                 <div className="rounded-xl bg-[hsl(var(--surface-1))] border border-white/[0.08] p-4 space-y-3">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-zinc-300 font-medium flex items-center gap-1.5">
@@ -536,7 +531,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
                 </div>
               )}
 
-              {isFailed && selectedJob.productionStatus !== 'failed' && (
+              {jobStatus === 'failed' && selectedJob.productionStatus !== 'failed' && (
                 <div className="rounded-xl bg-rose-500/10 border border-rose-500/30 p-4 space-y-2">
                   <div className="flex items-center gap-2 text-rose-300 font-bold text-xs">
                     <HugeiconsIcon icon={AlertCircle} size={16} className="w-4 h-4" />
@@ -549,7 +544,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
               )}
 
               {/* Output Actions & Details Card */}
-              {isCompleted && jobPresentation && (
+              {jobStatus === 'completed' && jobPresentation && (
                 <div className={`rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 ${
                   jobPresentation.productionStatus === 'ready' && jobPresentation.outputKind === 'game-ready'
                     ? 'bg-emerald-500/10 border border-emerald-500/30'

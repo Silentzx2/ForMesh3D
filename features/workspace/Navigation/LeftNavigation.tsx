@@ -13,11 +13,12 @@ import {
   Bone,
   Film,
   Settings2,
-} from 'lucide-react';
+} from '@/components/icons/hugeicons-components';
 
 interface LeftNavigationProps {
   isMobileDrawer?: boolean;
   onToolSelect?: () => void;
+  firstToolButtonRef?: React.Ref<HTMLButtonElement>;
 }
 
 interface ToolConfig {
@@ -32,6 +33,7 @@ interface ToolConfig {
 export const LeftNavigation: React.FC<LeftNavigationProps> = ({
   isMobileDrawer = false,
   onToolSelect,
+  firstToolButtonRef,
 }) => {
   const { activeTool, mainNav, navigateToTool, isExecuting, setIsSettingsOpen, setIsLeftPanelOpen } = useWorkspace();
 
@@ -112,6 +114,7 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
           return (
             <SimpleTooltip key={`${t.label}-${idx}`} label={t.tooltip} side="right">
               <button
+                ref={idx === 0 ? firstToolButtonRef : undefined}
                 type="button"
                 onClick={() => handleSelect(t.id)}
                 aria-current={active ? 'page' : undefined}
@@ -130,8 +133,10 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
                 <div className="relative mb-0.5">
                   <IconComp
                     strokeWidth={active ? 2.5 : 2}
-                    className={`w-4 h-4 transition-transform duration-200 group-hover:scale-110 ${
-                      active ? 'text-[#F9CF00]' : 'text-zinc-200 group-hover:text-white'
+                    className={`w-4 h-4 transition-transform duration-200 group-hover:scale-110 transition-colors duration-300 ${
+                      active
+                        ? 'text-[#F9CF00] drop-shadow-[0_0_10px_rgba(249,207,0,0.6)]'
+                        : 'text-[#A1A1AA] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.4)]'
                     }`}
                   />
                   {executing && (

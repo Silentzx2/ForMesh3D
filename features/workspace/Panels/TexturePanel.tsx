@@ -4,11 +4,12 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useWorkspace } from '../store/WorkspaceContext';
 import type { ModelAsset } from '../types';
+import { useFeatureAvailability } from '@/hooks/useFeatureAvailability';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import {
   Sparkles,
   Palette,
-  Image as ImageIcon,
+  ImageIcon,
   Box,
   RotateCw,
   Lightbulb,
@@ -20,7 +21,7 @@ import {
   Cpu,
   Layers,
   Sun,
-} from 'lucide-react';
+} from '@/components/icons/hugeicons-components';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   CheckIcon,
@@ -269,7 +270,60 @@ export const TexturePanel: React.FC = () => {
   } = useWorkspace();
 
   // Model & Core State
-  const [selectedModel, setSelectedModel] = useState('hunyuan3d_paint_v21_image_mesh_painting');
+  // ===== Dynamic model list from backend (weights-aware) =====
+  const { modelDetails, weightsStatus, loading: modelsLoading } = useFeatureAvailability();
+
+  const textureModels = useMemo(() => {
+    const registeredIds = Object.keys(modelDetails);
+    const candidatePool = registeredIds.filter((mid) => {
+      const detail = modelDetails[mid];
+      if (!detail || detail.enabled === false) return false;
+      const type = detail.model_type || '';
+      const feat = detail.feature || '';
+      return (
+        type === 'texture' ||
+        feat === 'image_mesh_painting' ||
+        feat === 'image-mesh-painting' ||
+        feat === 'mesh_painting'
+      );
+    });
+    const fallbackIds = [
+      'hunyuan3d_paint_v21_image_mesh_painting',
+      'trellis_image_mesh_painting',
+      'hunyuan3d_v20_paint_image_mesh_painting',
+    ];
+    const pool = candidatePool.length > 0 ? candidatePool : fallbackIds;
+    const uniqueCandidates = Array.from(new Set(pool));
+
+    return uniqueCandidates
+      .filter((mid) => {
+        // Strict weight check: only display models whose weights are verified available
+        return weightsStatus[mid] === true || modelDetails[mid]?.weights_available === true;
+      })
+      .map((mid) => {
+        const detail = modelDetails[mid];
+        return {
+          id: mid,
+          label: detail?.ui_label || detail?.model_name || mid,
+          tag: detail?.ui_tag || 'Ready',
+          note: detail?.ui_note || '',
+          badge: detail?.ui_badge || '',
+        };
+      });
+  }, [modelDetails, weightsStatus]);
+
+  const defaultTextureModel = useMemo(() => {
+    return textureModels[0]?.id || 'hunyuan3d_paint_v21_image_mesh_painting';
+  }, [textureModels]);
+
+  const [selectedModel, setSelectedModel] = useState(defaultTextureModel);
+
+  // Keep selectedModel synced with whatever model actually has downloaded weights
+  useEffect(() => {
+    if (textureModels.length > 0 && !textureModels.some((m) => m.id === selectedModel)) {
+      setSelectedModel(textureModels[0].id);
+    }
+  }, [textureModels, selectedModel]);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const { state: meshUploadState, upload: uploadMesh } = useMeshAssetUpload();
   const isMeshUploading = meshUploadState.status === 'uploading' || meshUploadState.status === 'verifying';
@@ -286,8 +340,21 @@ export const TexturePanel: React.FC = () => {
   const dragCounterRef = useRef(0);
 
   // In-Panel Core Parameters (Resolution + Material Style)
-  const [textureQuality, setTextureQuality] = useState<'1K' | '2K' | '4K'>('2K');
+  const [textureQuality, setTextureQuality] = useState<'512' | '1K' | '2K' | '4K'>('2K');
   const [materialStyle, setMaterialStyle] = useState<'realistic' | 'game' | 'stylized' | 'anime'>('realistic');
+
+  // Dynamic Model Capability Mapping for TexturePanel (from models.yaml API metadata)
+  const selectedModelDetail = modelDetails[selectedModel];
+  const modelCapabilities = selectedModelDetail?.capabilities || {};
+  const supportedResolutions: ('512' | '1K' | '2K' | '4K')[] =
+    (modelCapabilities.supported_texture_resolutions as any) || ['1K', '2K'];
+
+  // Clamp resolution when switching texture models
+  useEffect(() => {
+    if (supportedResolutions.length > 0 && !supportedResolutions.includes(textureQuality)) {
+      setTextureQuality(supportedResolutions[supportedResolutions.length - 1]);
+    }
+  }, [selectedModel, supportedResolutions, textureQuality]);
 
   // Dynamic Floating Advanced Parameters
   const [isTextureSettingsOpen, setIsTextureSettingsOpen] = useState(false);
@@ -426,30 +493,7 @@ export const TexturePanel: React.FC = () => {
     };
   }, []);
 
-  // Models supported by backend for texture generation & image mesh painting
-  const availableModels = [
-    {
-      id: 'hunyuan3d_paint_v21_image_mesh_painting',
-      label: 'Hunyuan3D-Paint v2.1',
-      tag: 'PBR Multi-view',
-      note: 'Multi-view projection & full PBR maps',
-      badge: '12GB VRAM',
-    },
-    {
-      id: 'paint3d',
-      label: 'Paint3D Multi-Stage',
-      tag: 'Fast UV Inpaint',
-      note: 'Coarse texture & depth-guided UV inpainting',
-      badge: '12GB VRAM',
-    },
-    {
-      id: 'trellis2_image_mesh_painting',
-      label: 'TRELLIS.2 Paint',
-      tag: 'Ultra Sharp',
-      note: 'Sharp structured image-to-mesh texturing',
-      badge: '14GB VRAM',
-    },
-  ];
+
 
   const isMeshFile = (file: File) => {
     const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
@@ -907,18 +951,20 @@ export const TexturePanel: React.FC = () => {
           </div>
         )}
 
-          {/* 3. In-Panel Parameter: Atlas Resolution (1K / 2K / 4K) */}
+          {/* 3. In-Panel Parameter: Atlas Resolution (Dynamic pills) */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
                 Resolution
               </span>
               <span className="text-[11px] font-mono text-zinc-400">
-                {textureQuality === '1K' ? '1024' : textureQuality === '2K' ? '2048' : '4096'}
+                {textureQuality === '512' ? '512' : textureQuality === '1K' ? '1024' : textureQuality === '2K' ? '2048' : '4096'}
               </span>
             </div>
-            <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
-              {(['1K', '2K', '4K'] as const).map((res) => {
+            <div className={`grid gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06] ${
+              supportedResolutions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
+            }`}>
+              {supportedResolutions.map((res) => {
                 const isSelected = textureQuality === res;
                 return (
                   <button
@@ -1015,11 +1061,15 @@ export const TexturePanel: React.FC = () => {
                   </div>
                   <div className="min-w-0 flex items-baseline gap-1">
                     <p className="text-[10.5px] font-bold text-[hsl(var(--foreground))] truncate">
-                      {availableModels.find((m) => m.id === selectedModel)?.label || 'Select Model'}
+                      {textureModels.length === 0
+                        ? (modelsLoading ? 'Checking weights...' : 'No weights installed')
+                        : (textureModels.find((m) => m.id === selectedModel)?.label || textureModels[0]?.label || 'Select Model')}
                     </p>
-                    <span className="text-[8.5px] text-[hsl(var(--muted-foreground))] truncate opacity-75">
-                      {availableModels.find((m) => m.id === selectedModel)?.tag}
-                    </span>
+                    {textureModels.length > 0 && (
+                      <span className="text-[8.5px] text-[hsl(var(--muted-foreground))] truncate opacity-75">
+                        {textureModels.find((m) => m.id === selectedModel)?.tag}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <ChevronDown
@@ -1036,26 +1086,32 @@ export const TexturePanel: React.FC = () => {
                   aria-label="Available AI models"
                   className="absolute top-full mt-1 left-0 right-0 rounded-xl bg-[#1a1b26] border border-white/10 shadow-2xl p-1 z-40 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
                 >
-                  {availableModels.map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      role="option"
-                      aria-selected={selectedModel === m.id}
-                      onClick={() => handleModelSelect(m.id)}
-                      className={`w-full text-left px-2 py-1.5 rounded-lg text-[10.5px] transition-all cursor-pointer flex items-center justify-between ${
-                        selectedModel === m.id
-                          ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
-                          : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
-                      }`}
-                    >
-                      <div className="min-w-0 pr-1">
-                        <span className="block font-semibold truncate leading-tight">{m.label}</span>
-                        <span className="text-[8.5px] opacity-70 block truncate leading-tight">{m.note}</span>
-                      </div>
-                      <span className="text-[8.5px] font-mono opacity-75 flex-shrink-0">{m.badge}</span>
-                    </button>
-                  ))}
+                  {textureModels.length === 0 ? (
+                    <div className="px-3 py-2 text-center text-zinc-400 text-[10.5px]">
+                      {modelsLoading ? 'Checking model weights...' : 'No models with downloaded weights found. Use Manager to download weights.'}
+                    </div>
+                  ) : (
+                    textureModels.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        role="option"
+                        aria-selected={selectedModel === m.id}
+                        onClick={() => handleModelSelect(m.id)}
+                        className={`w-full text-left px-2 py-1.5 rounded-lg text-[10.5px] transition-all cursor-pointer flex items-center justify-between ${
+                          selectedModel === m.id
+                            ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
+                            : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        <div className="min-w-0 pr-1">
+                          <span className="block font-semibold truncate leading-tight">{m.label}</span>
+                          <span className="text-[8.5px] opacity-70 block truncate leading-tight">{m.note}</span>
+                        </div>
+                        <span className="text-[8.5px] font-mono opacity-75 flex-shrink-0">{m.badge}</span>
+                      </button>
+                    ))
+                  )}
                 </div>
               )}
             </div>

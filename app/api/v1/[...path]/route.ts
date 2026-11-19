@@ -17,7 +17,9 @@ export const runtime = 'nodejs';
  * allowing proper Docker networking to work.
  * 
 * Endpoint patterns:
-   * - /api/v1/mesh-generation/image-to-raw-mesh -> backend:7842/api/v1/mesh-generation/image-to-raw-mesh
+   * - /api/v1/generate -> backend:7842/api/v1/generate
+   * - /api/v1/texture -> backend:7842/api/v1/texture
+   * - /api/v1/retopo, /api/v1/unwrap, /api/v1/rig, /api/v1/motion, /api/v1/segment -> canonical backend tool routes
    * - /api/v1/file-upload/image -> backend:7842/api/v1/file-upload/image
    * - /api/v1/system/jobs/{job_id} -> backend:7842/api/v1/system/jobs/{job_id}
    * - /api/v1/system/jobs/history -> backend:7842/api/v1/system/jobs/history

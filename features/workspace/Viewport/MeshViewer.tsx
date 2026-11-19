@@ -15,10 +15,13 @@ import { useWorkspace } from '../store/WorkspaceContext';
 import type { ShadingMode } from '../types';
 import { useViewerStore } from '@/stores/useViewerStore';
 import { useAnimationStore } from '@/stores/useAnimationStore';
+import { getApiClient } from '@/services/apiClient';
+import { collectMeshStats } from './meshStats';
+import { loadGLBWithProgress } from '../lib/glbCache';
 
 import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { SparklesIcon } from '@hugeicons/core-free-icons';
+import { RefreshCw, SparklesIcon, AlertCircle } from '@hugeicons/core-free-icons';
 
 // Setup shared loaders with Draco and Meshopt decompression
 const dracoLoader = new DRACOLoader();
@@ -54,10 +57,10 @@ export interface EnvironmentPreset {
 }
 
 export const LIGHT_TONES: Record<LightTone, { label: string; key: number; fill: number; rim: number }> = {
-  studio: { label: 'Studio', key: 0xffffff, fill: 0xedf2fa, rim: 0xfff1d4 },
+  studio: { label: 'Studio', key: 0xffffff, fill: 0xd4d4d4, rim: 0xfff1d4 },
   warm: { label: 'Warm Gold', key: 0xffe8cc, fill: 0xfff5ea, rim: 0xffcc00 },
   cool: { label: 'Cyber Cool', key: 0xffffff, fill: 0xd8e6ff, rim: 0xd0e0ff },
-  neutral: { label: 'Neutral', key: 0xffffff, fill: 0xffffff, rim: 0xffffff },
+  neutral: { label: 'Neutral', key: 0xffffff, fill: 0xe6e6e6, rim: 0xffffff },
 };
 
 export const BACKGROUND_OPTIONS = [
@@ -77,10 +80,10 @@ export const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
     id: 'studio',
     label: 'Studio Gold',
     settings: {
-      ambientIntensity: 0.75,
-      keyLightIntensity: 1.6,
-      fillLightIntensity: 0.9,
-      rimLightIntensity: 1.1,
+      ambientIntensity: 0.65,
+      keyLightIntensity: 1.5,
+      fillLightIntensity: 0.7,
+      rimLightIntensity: 1.2,
       exposure: 1.0,
       toneMapping: 'neutral',
       lightTone: 'studio',
@@ -137,14 +140,35 @@ function getUVCheckerTexture(): THREE.CanvasTexture {
   return sharedUVCheckerTexture!;
 }
 
+const disposeMaterialTextures = (m: any) => {
+  if (!m) return;
+  const textureKeys = [
+    'map', 'normalMap', 'roughnessMap', 'metalnessMap',
+    'aoMap', 'emissiveMap', 'lightMap', 'alphaMap',
+    'bumpMap', 'displacementMap'
+  ];
+  for (const k of textureKeys) {
+    if (m[k] && typeof m[k].dispose === 'function') {
+      m[k].dispose();
+    }
+  }
+};
+
 const disposeObject3D = (obj: THREE.Object3D) => {
   obj.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       child.geometry?.dispose();
       const orig = child.userData?.__originalMaterial;
       if (orig) {
-        if (Array.isArray(orig)) orig.forEach((m) => m?.dispose?.());
-        else orig?.dispose?.();
+        if (Array.isArray(orig)) {
+          orig.forEach((m) => {
+            disposeMaterialTextures(m);
+            m?.dispose?.();
+          });
+        } else {
+          disposeMaterialTextures(orig);
+          orig?.dispose?.();
+        }
       }
       const helperMats = [
         child.userData?.__clayMaterial,
@@ -154,11 +178,18 @@ const disposeObject3D = (obj: THREE.Object3D) => {
         child.userData?.__wireMaterial,
         child.userData?.__uvCheckerMaterial,
       ];
-      helperMats.forEach((m) => m?.dispose?.());
+      helperMats.forEach((m) => {
+        disposeMaterialTextures(m);
+        m?.dispose?.();
+      });
       if (child.material && child.material !== orig && !helperMats.includes(child.material)) {
         if (Array.isArray(child.material)) {
-          child.material.forEach((m) => m?.dispose?.());
+          child.material.forEach((m) => {
+            disposeMaterialTextures(m);
+            m?.dispose?.();
+          });
         } else {
+          disposeMaterialTextures(child.material);
           child.material?.dispose?.();
         }
       }
@@ -183,6 +214,9 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     executionProgress,
     executionStep,
     environmentSettings,
+    hoveredPartId,
+    setHoveredPartId,
+    updateAssetProperties,
   } = useWorkspace();
 
   const emptyStateCopy = (() => {
@@ -207,9 +241,28 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
   const loadedModelUrl = useViewerStore((state) => state.loadedModelUrl);
 
+  const [modelLoadStatus, setModelLoadStatus] = useState<'empty' | 'loading' | 'loaded' | 'error'>('empty');
   const [hasModel, setHasModel] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
   const [isComparisonLoading, setIsComparisonLoading] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  const [webglError, setWebglError] = useState<string | null>(null);
+  const [webglInitKey, setWebglInitKey] = useState(0);
+
+  const handleRetryLoad = useCallback(() => {
+    setLoadError(null);
+    setRetryKey((prev) => prev + 1);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const handler = () => setReducedMotion(mq.matches);
+    handler();
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
   const comparisonOpenRef = useRef(false);
   const comparisonPositionRef = useRef(50);
   const comparisonBeforeGroupRef = useRef<THREE.Group | null>(null);
@@ -217,14 +270,17 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const comparisonHandleRef = useRef<HTMLDivElement | null>(null);
   const shadingModeRef = useRef(shadingMode);
   const showWireframeRef = useRef(showWireframe);
-  shadingModeRef.current = shadingMode;
-  showWireframeRef.current = showWireframe;
+  useEffect(() => {
+    shadingModeRef.current = shadingMode;
+    showWireframeRef.current = showWireframe;
+  }, [shadingMode, showWireframe]);
 
   // Three.js instances stored in refs to avoid React re-render overhead
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
+  const pendingViewportRestoreRef = useRef<{ cameraPosition: [number, number, number]; target: [number, number, number] } | null>(null);
   const modelGroupRef = useRef<THREE.Group | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
@@ -251,15 +307,40 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     camera.position.set(0, 1.2, 3.2);
     cameraRef.current = camera;
 
-    // Renderer with preserveDrawingBuffer enabled for high-res snapshot capture
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: true,
-      preserveDrawingBuffer: true,
-      powerPreference: 'high-performance',
-    });
+    // Renderer with preserveDrawingBuffer enabled for high-res snapshot capture.
+    // Pre-check WebGL availability with an offscreen canvas BEFORE constructing
+    // WebGLRenderer. getContext() returns null silently when WebGL is disabled,
+    // blacklisted, or sandboxed — no throw, no Three.js console spam. Only call
+    // the constructor when a context is actually available; keep try/catch as a
+    // safety net for any other constructor failure.
+    const webglProbe = document.createElement('canvas');
+    const webglContext =
+      webglProbe.getContext('webgl') || webglProbe.getContext('webgl2');
+    if (!webglContext) {
+      const msg = 'WebGL context is not available in this browser/environment.';
+      setWebglError(msg);
+      rendererRef.current = null;
+      console.warn('[MeshViewer] WebGL not available:', msg);
+      return;
+    }
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+        preserveDrawingBuffer: true,
+        failIfMajorPerformanceCaveat: false,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown WebGL error';
+      setWebglError(msg);
+      rendererRef.current = null;
+      console.error('[MeshViewer] WebGL context creation failed:', msg);
+      return;
+    }
+
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.0;
@@ -268,6 +349,17 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     rendererRef.current = renderer;
 
     container.appendChild(renderer.domElement);
+
+    // WebGL context loss / restore handling
+    const handleContextLost = (event: Event) => {
+      event.preventDefault();
+      setWebglError('WebGL context was lost');
+    };
+    const handleContextRestored = () => {
+      setWebglError(null);
+    };
+    renderer.domElement.addEventListener('webglcontextlost', handleContextLost);
+    renderer.domElement.addEventListener('webglcontextrestored', handleContextRestored);
 
     // OrbitControls
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -278,27 +370,30 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     controls.minDistance = 0.5;
     controlsRef.current = controls;
 
-    // Lights - Natural Studio Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
+    // Lights - Natural Studio Lighting (balanced old + new for crisp details, no dark left side)
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
     ambientLightRef.current = ambientLight;
     scene.add(ambientLight);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
     keyLight.position.set(3, 5, 4);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.width = 1024;
     keyLight.shadow.mapSize.height = 1024;
-    keyLight.shadow.bias = -0.0001;
+    keyLight.shadow.bias = -0.0005;
+    keyLight.shadow.normalBias = 0.02;
     keyLightRef.current = keyLight;
     scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0xedf2fa, 0.9);
+    const fillLight = new THREE.DirectionalLight(0xd4d4d4, 0.7);
     fillLight.position.set(-4, 2, -2);
+    fillLight.castShadow = false;
     fillLightRef.current = fillLight;
     scene.add(fillLight);
 
-    const rimLight = new THREE.DirectionalLight(0xfff1d4, 1.1);
+    const rimLight = new THREE.DirectionalLight(0xfff1d4, 1.2);
     rimLight.position.set(0, 4, -4);
+    rimLight.castShadow = false;
     rimLightRef.current = rimLight;
     scene.add(rimLight);
 
@@ -382,6 +477,8 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     return () => {
       cancelAnimationFrame(animId);
       resizeObserver.disconnect();
+      renderer.domElement.removeEventListener('webglcontextlost', handleContextLost);
+      renderer.domElement.removeEventListener('webglcontextrestored', handleContextRestored);
       if (renderer.domElement.parentElement) {
         renderer.domElement.parentElement.removeChild(renderer.domElement);
       }
@@ -394,7 +491,30 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       modelGroupRef.current = null;
       comparisonBeforeGroupRef.current = null;
     };
-  }, []);
+  }, [webglInitKey]);
+
+  useEffect(() => {
+    if (!currentAsset || currentAsset.category !== 'generation' || currentAsset.fileSize) return;
+
+    const jobId = currentAsset.id.startsWith('local_')
+      ? currentAsset.id.slice('local_'.length)
+      : currentAsset.id;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId)) return;
+
+    let cancelled = false;
+    void getApiClient().getJobResultInfo(jobId).then((result) => {
+      const fileSizeMb = Number(result.file_info?.file_size_mb);
+      if (!cancelled && Number.isFinite(fileSizeMb) && fileSizeMb > 0) {
+        updateAssetProperties(currentAsset.id, { fileSize: `${fileSizeMb.toFixed(1)} MB` });
+      }
+    }).catch((error) => {
+      if (!cancelled) console.warn('[MeshViewer] Could not read generated mesh file size:', error);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentAsset?.id, currentAsset?.category, currentAsset?.fileSize, updateAssetProperties]);
 
   // 2. Camera Preset Event Listener
   useEffect(() => {
@@ -410,9 +530,17 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           cam.up.set(0, 1, 0);
           cam.position.set(target.x, target.y, target.z + dist);
           break;
+        case 'back':
+          cam.up.set(0, 1, 0);
+          cam.position.set(target.x, target.y, target.z - dist);
+          break;
         case 'top':
           cam.up.set(0, 0, -1);
           cam.position.set(target.x, target.y + dist, target.z + 0.0001);
+          break;
+        case 'bottom':
+          cam.up.set(0, 0, 1);
+          cam.position.set(target.x, target.y - dist, target.z - 0.0001);
           break;
         case 'side':
         case 'left':
@@ -462,58 +590,200 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     };
   }, []);
 
-  // 4. Asynchronous Zero-Load High-Definition Snapshot Capture Listener
-  useEffect(() => {
-    const handleSnapshot = () => {
-      const renderer = rendererRef.current;
-      const scene = sceneRef.current;
-      const camera = cameraRef.current;
-      if (!renderer || !scene || !camera) {
-        toast.error('3D Viewport is not ready for snapshot');
-        return;
+  // 4a. Camera Button — capture mesh only (hides grid/axes helpers)
+  const captureSnapshot = useCallback(() => {
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    if (!renderer || !scene || !camera) {
+      toast.error('3D Viewport is not ready for snapshot');
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      try {
+        const currentRenderer = rendererRef.current;
+        const currentScene = sceneRef.current;
+        const currentCamera = cameraRef.current;
+        if (!currentRenderer || !currentScene || !currentCamera) return;
+
+        const dom = currentRenderer.domElement;
+        const origWidth = dom.width;
+        const origHeight = dom.height;
+        const origPixelRatio = currentRenderer.getPixelRatio();
+        currentRenderer.setSize(1920, 1080, false);
+        currentRenderer.setPixelRatio(1);
+
+        const helpersToHide: THREE.Object3D[] = [];
+        currentScene.traverse((child) => {
+          if (
+            (child as any).isGridHelper ||
+            (child as any).isAxesHelper ||
+            (child as any).isHelper
+          ) {
+            child.visible = false;
+            helpersToHide.push(child);
+          }
+        });
+
+        currentRenderer.render(currentScene, currentCamera);
+        helpersToHide.forEach((h) => (h.visible = true));
+
+        currentRenderer.domElement.toBlob(
+          (blob) => {
+            currentRenderer.setSize(origWidth, origHeight, false);
+            currentRenderer.setPixelRatio(origPixelRatio);
+
+            if (!blob) {
+              toast.error('Failed to create snapshot image');
+              return;
+            }
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+
+            const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+            const parts = pathname.replace('/workspace/', '').split('/');
+            const routeName = parts.length > 1 && parts[parts.length - 1]
+              ? parts[parts.length - 1]
+              : 'mesh';
+            a.download = `${routeName}-mesh.png`;
+
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+            toast.success(`Snapshot saved as ${routeName}-mesh.png`);
+          },
+          'image/png',
+          1.0
+        );
+      } catch (err: any) {
+        console.error('Failed to capture snapshot:', err);
+        toast.error('Failed to capture snapshot');
       }
+    });
+  }, [rendererRef, sceneRef, cameraRef, toast]);
 
-      // Schedule asynchronously via requestAnimationFrame to avoid blocking the main event loop
-      requestAnimationFrame(() => {
-        try {
-          const currentRenderer = rendererRef.current;
-          const currentScene = sceneRef.current;
-          const currentCamera = cameraRef.current;
-          if (!currentRenderer || !currentScene || !currentCamera) return;
-
-          // Render current high-quality frame aligned with RAF
-          currentRenderer.render(currentScene, currentCamera);
-
-          // Capture asynchronously via toBlob on browser background thread - ZERO main-thread freeze
-          currentRenderer.domElement.toBlob(
-            (blob) => {
-              if (!blob) {
-                toast.error('Failed to create snapshot image');
-                return;
-              }
-              const blobUrl = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = blobUrl;
-              a.download = `formesh3d-snapshot-${Date.now()}.png`;
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
-              toast.success('High-resolution snapshot saved to Downloads!');
-            },
-            'image/png',
-            1.0
-          );
-        } catch (err: any) {
-          console.error('Failed to capture snapshot:', err);
-          toast.error('Failed to capture snapshot');
-        }
-      });
+  // 4b. Listen for camera button click from tool rail — capture mesh only
+  useEffect(() => {
+    const handleSnapshotEvent = () => {
+      captureSnapshot();
     };
 
-    window.addEventListener('takeViewportSnapshot', handleSnapshot as EventListener);
-    return () => window.removeEventListener('takeViewportSnapshot', handleSnapshot as EventListener);
-  }, []);
+    window.addEventListener('takeViewportSnapshot', handleSnapshotEvent as EventListener);
+    return () => window.removeEventListener('takeViewportSnapshot', handleSnapshotEvent as EventListener);
+  }, [captureSnapshot]);
+
+  // 4c. Header Snapshot Button — capture entire workspace as-is (no hiding helpers)
+  const captureWorkspace = useCallback(() => {
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    if (!renderer || !scene || !camera) {
+      toast.error('3D Viewport is not ready for snapshot');
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      try {
+        const currentRenderer = rendererRef.current;
+        const currentScene = sceneRef.current;
+        const currentCamera = cameraRef.current;
+        if (!currentRenderer || !currentScene || !currentCamera) return;
+
+        const dom = currentRenderer.domElement;
+        const origWidth = dom.width;
+        const origHeight = dom.height;
+        const origPixelRatio = currentRenderer.getPixelRatio();
+        currentRenderer.setSize(1920, 1080, false);
+        currentRenderer.setPixelRatio(1);
+
+        currentRenderer.render(currentScene, currentCamera);
+
+        currentRenderer.domElement.toBlob(
+          (blob) => {
+            currentRenderer.setSize(origWidth, origHeight, false);
+            currentRenderer.setPixelRatio(origPixelRatio);
+
+            if (!blob) {
+              toast.error('Failed to create snapshot image');
+              return;
+            }
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+
+            const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+            const parts = pathname.replace('/workspace/', '').split('/');
+            const routeName = parts.length > 1 && parts[parts.length - 1]
+              ? parts[parts.length - 1]
+              : 'workspace';
+            a.download = `${routeName}-workspace.png`;
+
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+            toast.success(`Snapshot saved as ${routeName}-workspace.png`);
+          },
+          'image/png',
+          1.0
+        );
+      } catch (err: any) {
+        console.error('Failed to capture snapshot:', err);
+        toast.error('Failed to capture snapshot');
+      }
+    });
+  }, [rendererRef, sceneRef, cameraRef, toast]);
+
+  // 5. Preload all shading materials at model load time for butter-smooth switching
+  const preloadShadingMaterials = useCallback((meshes: THREE.Mesh[]) => {
+    meshes.forEach((mesh) => {
+      if (!mesh.userData.__originalMaterial && mesh.material) {
+        mesh.userData.__originalMaterial = mesh.material;
+      }
+      const orig = mesh.userData.__originalMaterial;
+      if (!orig) return;
+
+      // Pre-create ALL shading variants so switching is instant (no disappear/reappear)
+      mesh.userData.__normalMaterial = new THREE.MeshNormalMaterial({ wireframe: false });
+      mesh.userData.__clayMaterial = new THREE.MeshStandardMaterial({
+        color: 0xb0b3b8,
+        roughness: 0.85,
+        metalness: 0.05,
+      });
+      mesh.userData.__goldMaterial = new THREE.MeshStandardMaterial({
+        color: 0xffd700,
+        roughness: 0.25,
+        metalness: 0.85,
+      });
+      mesh.userData.__chromeMaterial = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.05,
+        metalness: 0.98,
+      });
+      mesh.userData.__uvCheckerMaterial = new THREE.MeshStandardMaterial({
+        map: getUVCheckerTexture(),
+        roughness: 0.4,
+        metalness: 0.05,
+      });
+      mesh.userData.__wireMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ffcc,
+        wireframe: true,
+      });
+    });
+  }, [getUVCheckerTexture]);
+
+  // Call preload right after model is loaded and added to group
+  useEffect(() => {
+    if (!modelGroupRef.current) return;
+    const meshes: THREE.Mesh[] = [];
+    modelGroupRef.current.traverse((child) => {
+      if (child instanceof THREE.Mesh) meshes.push(child);
+    });
+    if (meshes.length > 0) preloadShadingMaterials(meshes);
+  }, [modelGroupRef.current, preloadShadingMaterials]);
 
   // Sync environment settings with Three.js scene lights & exposure
   useEffect(() => {
@@ -550,59 +820,9 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     const orig = mesh.userData.__originalMaterial;
     if (!orig) return;
 
-    if (mode === 'normals' || mode === 'matcap-normal') {
-      if (!mesh.userData.__normalMaterial) {
-        mesh.userData.__normalMaterial = new THREE.MeshNormalMaterial({
-          wireframe: Boolean(wireframe),
-        });
-      }
-      mesh.userData.__normalMaterial.wireframe = Boolean(wireframe);
-      mesh.material = mesh.userData.__normalMaterial;
-    } else if (mode === 'clay') {
-      if (!mesh.userData.__clayMaterial) {
-        mesh.userData.__clayMaterial = new THREE.MeshStandardMaterial({
-          color: 0xb0b3b8,
-          roughness: 0.85,
-          metalness: 0.05,
-          wireframe: Boolean(wireframe),
-        });
-      }
-      mesh.userData.__clayMaterial.wireframe = Boolean(wireframe);
-      mesh.material = mesh.userData.__clayMaterial;
-    } else if (mode === 'matcap-gold') {
-      if (!mesh.userData.__goldMaterial) {
-        mesh.userData.__goldMaterial = new THREE.MeshStandardMaterial({
-          color: 0xffd700,
-          roughness: 0.25,
-          metalness: 0.85,
-          wireframe: Boolean(wireframe),
-        });
-      }
-      mesh.userData.__goldMaterial.wireframe = Boolean(wireframe);
-      mesh.material = mesh.userData.__goldMaterial;
-    } else if (mode === 'matcap-chrome') {
-      if (!mesh.userData.__chromeMaterial) {
-        mesh.userData.__chromeMaterial = new THREE.MeshStandardMaterial({
-          color: 0xffffff,
-          roughness: 0.05,
-          metalness: 0.98,
-          wireframe: Boolean(wireframe),
-        });
-      }
-      mesh.userData.__chromeMaterial.wireframe = Boolean(wireframe);
-      mesh.material = mesh.userData.__chromeMaterial;
-    } else if (mode === 'uv-checker') {
-      if (!mesh.userData.__uvCheckerMaterial) {
-        mesh.userData.__uvCheckerMaterial = new THREE.MeshStandardMaterial({
-          map: getUVCheckerTexture(),
-          roughness: 0.4,
-          metalness: 0.05,
-          wireframe: Boolean(wireframe),
-        });
-      }
-      mesh.userData.__uvCheckerMaterial.wireframe = Boolean(wireframe);
-      mesh.material = mesh.userData.__uvCheckerMaterial;
-    } else if (mode === 'wireframe') {
+    // Instant zero-lag wireframe: use pre-compiled unlit MeshBasicMaterial.
+    // Avoids re-compiling heavy PBR/Standard shaders at 1M faces (no main-thread freeze).
+    if (wireframe || mode === 'wireframe') {
       if (!mesh.userData.__wireMaterial) {
         mesh.userData.__wireMaterial = new THREE.MeshBasicMaterial({
           color: 0x00ffcc,
@@ -610,18 +830,55 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         });
       }
       mesh.material = mesh.userData.__wireMaterial;
+      return;
+    }
+
+    if (mode === 'normals' || mode === 'matcap-normal') {
+      if (!mesh.userData.__normalMaterial) {
+        mesh.userData.__normalMaterial = new THREE.MeshNormalMaterial({ wireframe: false });
+      }
+      mesh.material = mesh.userData.__normalMaterial;
+    } else if (mode === 'clay') {
+      if (!mesh.userData.__clayMaterial) {
+        mesh.userData.__clayMaterial = new THREE.MeshStandardMaterial({
+          color: 0xb0b3b8,
+          roughness: 0.85,
+          metalness: 0.05,
+        });
+      }
+      mesh.material = mesh.userData.__clayMaterial;
+    } else if (mode === 'matcap-gold') {
+      if (!mesh.userData.__goldMaterial) {
+        mesh.userData.__goldMaterial = new THREE.MeshStandardMaterial({
+          color: 0xffd700,
+          roughness: 0.25,
+          metalness: 0.85,
+        });
+      }
+      mesh.material = mesh.userData.__goldMaterial;
+    } else if (mode === 'matcap-chrome') {
+      if (!mesh.userData.__chromeMaterial) {
+        mesh.userData.__chromeMaterial = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.05,
+          metalness: 0.98,
+        });
+      }
+      mesh.material = mesh.userData.__chromeMaterial;
+    } else if (mode === 'uv-checker') {
+      if (!mesh.userData.__uvCheckerMaterial) {
+        mesh.userData.__uvCheckerMaterial = new THREE.MeshStandardMaterial({
+          map: getUVCheckerTexture(),
+          roughness: 0.4,
+          metalness: 0.05,
+        });
+      }
+      mesh.material = mesh.userData.__uvCheckerMaterial;
     } else {
       // 'textured' or default
       mesh.material = orig;
-      const mats = Array.isArray(orig) ? orig : [orig];
-      mats.forEach((m) => {
-        if ('wireframe' in m) {
-          m.wireframe = Boolean(wireframe);
-          m.needsUpdate = true;
-        }
-      });
     }
-  }, []);
+  }, [getUVCheckerTexture]);
 
   const effectiveShadingMode: ShadingMode =
     shadingMode === 'uv-checker' || (activeTool === 'uv' && (shadingMode === 'textured' || !shadingMode))
@@ -636,6 +893,9 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         }
       });
     });
+    if (keyLightRef.current) {
+      keyLightRef.current.castShadow = !showWireframe;
+    }
   }, [showWireframe, effectiveShadingMode, applyShadingToMesh]);
 
   // 3. Reset Camera / Fit to screen helper
@@ -656,6 +916,47 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     cameraRef.current.lookAt(center);
     controlsRef.current.target.copy(center);
     controlsRef.current.update();
+    const pendingViewport = pendingViewportRestoreRef.current;
+    if (pendingViewport) {
+      cameraRef.current.position.set(...pendingViewport.cameraPosition);
+      controlsRef.current.target.set(...pendingViewport.target);
+      cameraRef.current.lookAt(controlsRef.current.target);
+      controlsRef.current.update();
+      pendingViewportRestoreRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    const captureViewport = () => {
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      if (!camera || !controls) return;
+      useViewerStore.getState().setViewport({
+        cameraPosition: [camera.position.x, camera.position.y, camera.position.z],
+        target: [controls.target.x, controls.target.y, controls.target.z],
+      });
+    };
+    const restoreViewport = (event: Event) => {
+      const viewport = (event as CustomEvent<{
+        cameraPosition: [number, number, number];
+        target: [number, number, number];
+      }>).detail;
+      if (!viewport) return;
+      pendingViewportRestoreRef.current = viewport;
+      if (!modelGroupRef.current?.children.length && cameraRef.current && controlsRef.current) {
+        cameraRef.current.position.set(...viewport.cameraPosition);
+        controlsRef.current.target.set(...viewport.target);
+        cameraRef.current.lookAt(controlsRef.current.target);
+        controlsRef.current.update();
+        pendingViewportRestoreRef.current = null;
+      }
+    };
+    window.addEventListener('capture-viewer-viewport', captureViewport);
+    window.addEventListener('restore-viewer-viewport', restoreViewport);
+    return () => {
+      window.removeEventListener('capture-viewer-viewport', captureViewport);
+      window.removeEventListener('restore-viewer-viewport', restoreViewport);
+    };
   }, []);
 
   useEffect(() => {
@@ -665,10 +966,28 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   }, [viewportResetTrigger, fitCameraToModel]);
 
   // 4. Load 3D Model when URL changes
+  const assetFormat = currentAsset?.format?.toLowerCase();
+  const assetFileId = currentAsset?.source?.fileId || currentAsset?.fileId;
+  const assetFileUrl = assetFileId
+    ? assetFileId.startsWith('job-')
+      ? `/api/v1/system/jobs/${encodeURIComponent(assetFileId.slice(4))}/download?artifact_format=${assetFormat || 'glb'}`
+      : `/api/v1/file-upload/download/${encodeURIComponent(assetFileId)}`
+    : null;
+  const artifactUrl =
+    currentAsset?.artifacts?.gameReadyFormats?.[assetFormat || ''] ||
+    currentAsset?.artifacts?.gameReady ||
+    currentAsset?.artifacts?.source ||
+    currentAsset?.artifacts?.lods?.[0] ||
+    currentAsset?.artifacts?.rigged ||
+    (assetFormat === 'fbx' ? currentAsset?.artifacts?.riggedFbx : null) ||
+    currentAsset?.artifacts?.collision;
+  const isMeshAsset = currentAsset && currentAsset.category !== 'texture' &&
+    currentAsset.format !== 'IMAGE' && currentAsset.format !== 'FILE';
   const modelUrl =
     currentAsset?.source?.viewUrl ||
     currentAsset?.source?.localUrl ||
-    loadedModelUrl ||
+    (isMeshAsset ? artifactUrl || assetFileUrl : null) ||
+    (currentAsset ? null : loadedModelUrl) ||
     null;
   const comparisonBeforeUrl = currentAsset?.artifacts?.source || null;
   const comparisonAfterUrl = currentAsset?.source?.viewUrl || currentAsset?.source?.localUrl || currentAsset?.artifacts?.gameReady || null;
@@ -698,6 +1017,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       return;
     }
 
+    const abortController = new AbortController();
     let isCancelled = false;
     setIsComparisonLoading(true);
     beforeGroup.visible = false;
@@ -731,8 +1051,15 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         original.scale.setScalar(scale);
         original.traverse((child) => {
           if (child instanceof THREE.Mesh) {
-            child.castShadow = true;
+            const triCount = child.geometry?.index
+              ? child.geometry.index.count / 3
+              : (child.geometry?.attributes?.position?.count || 0) / 3;
+            // High-density meshes (>800k tris) bypass shadow-map rasterization to preserve 60 FPS
+            child.castShadow = triCount < 800_000;
             child.receiveShadow = true;
+            child.frustumCulled = true;
+            child.matrixAutoUpdate = false;
+            child.updateMatrix();
             applyShadingToMesh(child, shadingModeRef.current, Boolean(showWireframeRef.current));
           }
         });
@@ -758,11 +1085,29 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
   useEffect(() => {
     if (!modelUrl || !modelGroupRef.current) {
+      setModelLoadStatus('empty');
       setHasModel(false);
+      setLoadError(null);
+      const group = modelGroupRef.current;
+      if (group) {
+        while (group.children.length > 0) {
+          const child = group.children[0];
+          group.remove(child);
+          disposeObject3D(child);
+        }
+      }
+      useViewerStore.getState().setActiveModelObject(null);
+      useViewerStore.getState().setModelStats(null);
+      if (mixerRef.current) {
+        mixerRef.current.stopAllAction();
+        mixerRef.current = null;
+      }
       return;
     }
 
+    const abortController = new AbortController();
     let isCancelled = false;
+    setModelLoadStatus('loading');
     setLoadError(null);
 
     // Clear previous model from scene
@@ -773,25 +1118,27 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       disposeObject3D(child);
     }
     useViewerStore.getState().setActiveModelObject(null);
+    useViewerStore.getState().setModelStats(null);
     if (mixerRef.current) {
       mixerRef.current.stopAllAction();
       mixerRef.current = null;
     }
 
     const detectedExt = modelUrl.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase();
-    const assetFormat = currentAsset?.format?.toLowerCase();
     const knownFormats = ['glb', 'gltf', 'obj', 'fbx', 'stl', 'ply'];
     const format = (assetFormat && knownFormats.includes(assetFormat))
       ? assetFormat
       : (detectedExt && knownFormats.includes(detectedExt))
         ? detectedExt
         : 'glb';
-
     const handleObjectLoaded = (object: THREE.Object3D, animations?: THREE.AnimationClip[]) => {
       if (isCancelled || !modelGroupRef.current) {
         disposeObject3D(object);
         return;
       }
+
+      // Capture native geometry before viewport normalization changes its dimensions.
+      useViewerStore.getState().setModelStats(collectMeshStats(object));
 
       // Center and normalize model dimensions to fit comfortably inside unit space
       const box = new THREE.Box3().setFromObject(object);
@@ -805,12 +1152,21 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       object.position.y += (size.y * scale) / 2;
       object.scale.setScalar(scale);
 
-      // Enable shadows, cache original materials, and apply active shading mode cleanly
+      const hasAnimations = Boolean(animations && animations.length > 0);
       object.traverse((child) => {
         if (child instanceof THREE.Mesh) {
-          child.castShadow = true;
+          const triCount = child.geometry?.index
+            ? child.geometry.index.count / 3
+            : (child.geometry?.attributes?.position?.count || 0) / 3;
+          // Ultra-dense meshes (>800k tris) bypass shadow-map rasterization to preserve 60 FPS
+          child.castShadow = triCount < 800_000;
           child.receiveShadow = true;
-          applyShadingToMesh(child, shadingMode, Boolean(showWireframe));
+          child.frustumCulled = true;
+          if (!hasAnimations) {
+            child.matrixAutoUpdate = false;
+            child.updateMatrix();
+          }
+          applyShadingToMesh(child, shadingModeRef.current, Boolean(showWireframeRef.current));
         }
       });
 
@@ -830,41 +1186,72 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       group.add(object);
       useViewerStore.getState().setActiveModelObject(object);
       fitCameraToModel(object);
+      setModelLoadStatus('loaded');
       setHasModel(true);
+    };
+
+    const handleLoadFailure = (msg: string) => {
+      if (!isCancelled) {
+        setModelLoadStatus('error');
+        setHasModel(false);
+        setLoadError(msg);
+      }
     };
 
     // Load by format
     if (format === 'glb' || format === 'gltf') {
-      sharedGLTFLoader.load(
-        modelUrl,
-        (gltf) => handleObjectLoaded(gltf.scene, gltf.animations),
-        undefined,
-        (err: unknown) => {
-          if (!isCancelled) setLoadError(`Failed to load 3D model: ${(err as any)?.message || 'Network error'}`);
-        }
-      );
+      void loadGLBWithProgress(modelUrl, undefined, abortController.signal).then((buffer) => {
+        if (isCancelled || abortController.signal.aborted) return;
+        const basePath = modelUrl.startsWith('blob:') || modelUrl.startsWith('data:')
+          ? ''
+          : new URL('.', new URL(modelUrl, window.location.href)).href;
+        sharedGLTFLoader.parse(
+          buffer,
+          basePath,
+          (gltf) => {
+            if (isCancelled || abortController.signal.aborted) return;
+            handleObjectLoaded(gltf.scene, gltf.animations);
+          },
+          (err) => {
+            if (isCancelled || abortController.signal.aborted) return;
+            handleLoadFailure(`Failed to load 3D model: ${err instanceof Error ? err.message : 'Invalid model file'}`);
+          }
+        );
+      }).catch((err: unknown) => {
+        if (isCancelled || abortController.signal.aborted) return;
+        handleLoadFailure(`Failed to load 3D model: ${err instanceof Error ? err.message : 'Network error'}`);
+      });
     } else if (format === 'obj') {
       sharedOBJLoader.load(
         modelUrl,
-        (obj) => handleObjectLoaded(obj),
+        (obj) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          handleObjectLoaded(obj);
+        },
         undefined,
         (err: unknown) => {
-          if (!isCancelled) setLoadError(`Failed to load OBJ: ${(err as any)?.message || 'Error'}`);
+          if (isCancelled || abortController.signal.aborted) return;
+          handleLoadFailure(`Failed to load OBJ: ${(err as any)?.message || 'Error'}`);
         }
       );
     } else if (format === 'fbx') {
       sharedFBXLoader.load(
         modelUrl,
-        (fbx) => handleObjectLoaded(fbx, fbx.animations),
+        (fbx) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          handleObjectLoaded(fbx, fbx.animations);
+        },
         undefined,
         (err: unknown) => {
-          if (!isCancelled) setLoadError(`Failed to load FBX: ${(err as any)?.message || 'Error'}`);
+          if (isCancelled || abortController.signal.aborted) return;
+          handleLoadFailure(`Failed to load FBX: ${(err as any)?.message || 'Error'}`);
         }
       );
     } else if (format === 'stl') {
       sharedSTLLoader.load(
         modelUrl,
         (geom) => {
+          if (isCancelled || abortController.signal.aborted) return;
           geom.computeVertexNormals();
           const mat = new THREE.MeshStandardMaterial({ color: 0xc8cdd5, roughness: 0.6 });
           const mesh = new THREE.Mesh(geom, mat);
@@ -872,13 +1259,15 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         },
         undefined,
         (err: unknown) => {
-          if (!isCancelled) setLoadError(`Failed to load STL: ${(err as any)?.message || 'Error'}`);
+          if (isCancelled || abortController.signal.aborted) return;
+          handleLoadFailure(`Failed to load STL: ${(err as any)?.message || 'Error'}`);
         }
       );
     } else if (format === 'ply') {
       sharedPLYLoader.load(
         modelUrl,
         (geom) => {
+          if (isCancelled || abortController.signal.aborted) return;
           geom.computeVertexNormals();
           const mat = new THREE.MeshStandardMaterial({ color: 0xc8cdd5, roughness: 0.6 });
           const mesh = new THREE.Mesh(geom, mat);
@@ -886,15 +1275,104 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         },
         undefined,
         (err: unknown) => {
-          if (!isCancelled) setLoadError(`Failed to load PLY: ${(err as any)?.message || 'Error'}`);
+          if (isCancelled || abortController.signal.aborted) return;
+          handleLoadFailure(`Failed to load PLY: ${(err as any)?.message || 'Error'}`);
         }
       );
     }
 
     return () => {
       isCancelled = true;
+      abortController.abort();
     };
-  }, [modelUrl, fitCameraToModel, shadingMode, showWireframe, applyShadingToMesh]);
+  }, [modelUrl, assetFormat, fitCameraToModel, applyShadingToMesh, retryKey]);
+
+  // 6. Highlight hovered part in main viewer (top-level hook — never nested inside another hook)
+  useEffect(() => {
+    const group = modelGroupRef.current;
+    if (!group || !hoveredPartId) {
+      group?.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.userData.__hoverOriginalMaterial) {
+          child.material = child.userData.__hoverOriginalMaterial;
+          delete child.userData.__hoverOriginalMaterial;
+        }
+      });
+      return;
+    }
+
+    // Parse part index from id like "p1" -> 0, "p2" -> 1, etc.
+    const match = hoveredPartId.match(/^p(\d+)$/);
+    if (!match) return;
+    const meshIndex = parseInt(match[1], 1) - 1;
+
+    let meshCount = 0;
+    group.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        if (meshCount === meshIndex) {
+          if (!child.userData.__hoverOriginalMaterial) {
+            child.userData.__hoverOriginalMaterial = child.material;
+          }
+          child.material = new THREE.MeshStandardMaterial({
+            color: 0xf9cf00,
+            emissive: 0xf9cf00,
+            emissiveIntensity: 0.5,
+            roughness: 0.2,
+            metalness: 0.1,
+          });
+        }
+        meshCount++;
+      }
+    });
+
+    return () => {
+      group.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.userData.__hoverOriginalMaterial) {
+          child.material = child.userData.__hoverOriginalMaterial;
+          delete child.userData.__hoverOriginalMaterial;
+        }
+      });
+    };
+  }, [hoveredPartId]);
+
+  // 7. Broadcast live camera rotation so an external XYZ gizmo can reflect the active axis
+  useEffect(() => {
+    const controls = controlsRef.current;
+    const camera = cameraRef.current;
+    if (!controls || !camera) return;
+
+    const update = () => {
+      if (!camera || !controls) return;
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      // Find which cardinal axis the camera is most aligned with
+      const absX = Math.abs(dir.dot(new THREE.Vector3(1, 0, 0)));
+      const absY = Math.abs(dir.dot(new THREE.Vector3(0, 1, 0)));
+      const absZ = Math.abs(dir.dot(new THREE.Vector3(0, 0, 1)));
+      const axis =
+        absX >= absY && absX >= absZ
+          ? dir.x > 0
+            ? 'right'
+            : 'left'
+          : absY >= absX && absY >= absZ
+          ? dir.y > 0
+            ? 'top'
+            : 'bottom'
+          : dir.z > 0
+          ? 'front'
+          : 'back';
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('setCameraRotation', { detail: axis }));
+      }
+    };
+
+    // Initial broadcast so the gizmo reflects the starting view
+    update();
+    controls.addEventListener('change', update);
+
+    return () => {
+      controls.removeEventListener('change', update);
+    };
+  }, []);
 
   const updateComparisonPosition = (clientX: number) => {
     const rect = containerRef.current?.getBoundingClientRect();
@@ -913,6 +1391,22 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     updateComparisonPosition(rect.left + (rect.width * next) / 100);
   };
 
+  // Single source of truth for the viewport UI shell: one mutually exclusive
+  // status replaces the previously overlapping JSX conditions (empty, loading,
+  // executing, comparing, or error).
+  type ViewportUIStatus = 'idle' | 'empty' | 'loading' | 'executing' | 'comparing' | 'error';
+  const viewportStatus: ViewportUIStatus = loadError
+    ? 'error'
+    : isExecuting
+      ? 'executing'
+      : modelLoadStatus === 'loading'
+        ? 'loading'
+        : !hasModel
+          ? 'empty'
+          : isComparing && canCompareModels
+            ? 'comparing'
+            : 'idle';
+
   return (
     <div
       ref={containerRef}
@@ -923,8 +1417,29 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           : 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
       }}
     >
+      {/* WebGL unavailable fallback — shown when the renderer cannot create a context */}
+      {webglError && (
+        <div className="absolute top-0 left-0 right-0 z-50 flex flex-col items-center justify-center p-2 bg-black/90 text-white text-center border-b border-[#F9CF00]/40">
+          <HugeiconsIcon icon={AlertCircle} size={20} className="text-[#F9CF00] mr-2" />
+          <span className="text-xs text-zinc-200 font-medium">
+            WebGL not available — 3D viewport disabled. {webglError}
+          </span>
+        </div>
+      )}
+      {/* Snapshot Button — top-left of viewport */}
+      <div className="absolute top-3 left-3 z-50 flex gap-1 pointer-events-auto">
+        <button
+          onClick={() => {
+            captureWorkspace();
+          }}
+          className="px-3 py-1.5 rounded-lg bg-[#F9CF00] text-[#080808] font-bold shadow-[0_0_15px_rgba(249,207,0,0.4)] hover:scale-105 hover:bg-[#FFE04D] transition-all duration-200 cursor-pointer"
+          aria-label="Take snapshot"
+        >
+          📷 Snapshot
+        </button>
+      </div>
       {/* Sleek Empty State Watermark matching Reference */}
-      {!hasModel && !isExecuting && (
+      {viewportStatus === 'empty' && (
         <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center z-10">
           <div className="flex flex-col items-center text-center px-4 max-w-sm select-none">
             {/* ForMesh3D Electric Gold Brand Mark */}
@@ -942,24 +1457,40 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         </div>
       )}
 
-      {/* Execution Progress Overlay */}
-      {isExecuting && (
-        <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center z-20 bg-black/40 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-3 p-6 rounded-2xl bg-[#1A1A1E]/95 border border-white/[0.08] shadow-2xl">
-            <div className="w-8 h-8 rounded-full border-2 border-[#F9CF00] border-t-transparent animate-spin" />
-            <div className="text-center">
-              <p className="text-xs font-bold text-white uppercase tracking-wider">
-                {executionStep || 'Processing 3D Stage...'}
-              </p>
-              {typeof executionProgress === 'number' && (
-                <p className="text-[11px] text-[#F9CF00] font-mono mt-0.5">{Math.round(executionProgress)}%</p>
-              )}
+      {viewportStatus === 'loading' && (
+        <div role="status" aria-live="polite" className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
+          <div className="w-full max-w-xs mx-auto rounded-lg border border-white/10 bg-black/60 p-4 shadow-[0_0_24px_rgba(0,0,0,0.6)]">
+            <div className="flex flex-col items-center gap-4 mb-3">
+              <HugeiconsIcon icon={SparklesIcon} size={26} className="text-[#F9CF00] drop-shadow-[0_0_10px_rgba(249,207,0,0.5)]" />
+              <span className={`text-xs font-mono text-zinc-200 ${reducedMotion ? '' : 'animate-pulse'}`}>Loading 3D model…</span>
+            </div>
+            <div className="flex flex-col gap-2">
+              <div className={`h-2 w-2/3 rounded-full bg-white/10 ${reducedMotion ? '' : 'animate-pulse'}`} />
+              <div className={`h-1.5 w-1/2 rounded-full bg-white/10 ${reducedMotion ? '' : 'animate-pulse'}`} />
+              <div className={`h-2 w-3/4 rounded-full bg-white/10 ${reducedMotion ? '' : 'animate-pulse'}`} />
             </div>
           </div>
         </div>
       )}
 
-      {isComparing && canCompareModels && hasModel && (
+      {/* Execution Progress Bar — bottom center */}
+      {isExecuting && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <div className="w-64 h-1.5 rounded-full bg-white/10 border border-white/5">
+            <div
+              className="h-full rounded-full transition-all duration-300 bg-white"
+              style={{
+                width: `${Math.max(0, Math.min(100, Math.round(executionProgress)))}%`,
+              }}
+            />
+          </div>
+          <p className="text-[10px] text-white font-mono mt-1 text-center">
+            {Math.round(executionProgress)}%
+          </p>
+        </div>
+      )}
+
+      {viewportStatus === 'comparing' && (
         <div className="absolute inset-0 z-10 pointer-events-none">
           <div className="absolute top-3 left-3 px-2 py-1 rounded-md bg-black/65 border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white">
             Before
@@ -1020,10 +1551,21 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         </div>
       )}
 
-      {/* Error Toast */}
-      {loadError && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-xl bg-red-950/90 border border-red-500/30 text-red-200 text-xs shadow-xl backdrop-blur-md">
-          {loadError}
+      {/* Error Card — retry button */}
+      {viewportStatus === 'error' && (
+        <div role="alert" className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 px-4 py-3 rounded-xl bg-red-950/90 border border-red-500/30 text-red-200 shadow-xl backdrop-blur-md text-xs leading-relaxed">
+          <div className="flex items-start gap-2">
+            <span>{loadError ?? 'Failed to load 3D model'}</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleRetryLoad}
+            aria-label="Retry loading model"
+            className="mt-2.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F8FAFC] text-[#080808] text-[10px] font-semibold cursor-pointer transition-colors duration-200 hover:bg-[#F8FAFC]/90 focus-visible:ring-2 focus-visible:ring-[#000]"
+          >
+            <HugeiconsIcon icon={RefreshCw} size={14} className="text-[#080808]" />
+            <span>Retry</span>
+          </button>
         </div>
       )}
     </div>

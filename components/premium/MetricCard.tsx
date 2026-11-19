@@ -38,13 +38,13 @@ const ICON_COLORS: Record<MetricColor, { text: string; bg: string; glow: string;
     text: 'text-primary',
     bg: 'bg-primary/10',
     glow: '0 0 12px hsl(var(--primary)/0.2)',
-    accent: '#FFD866',
+    accent: 'hsl(var(--neon-cyan))',
   },
   green: {
     text: 'text-emerald-400',
     bg: 'bg-emerald-500/10',
     glow: '0 0 12px rgba(34, 197, 94, 0.2)',
-    accent: '#22C55E',
+    accent: 'hsl(var(--neon-green))',
   },
   pink: {
     text: 'text-primary',

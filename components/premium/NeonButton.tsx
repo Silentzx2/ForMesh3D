@@ -21,17 +21,17 @@ interface NeonButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElem
 
 const COLOR_MAP: Record<NeonColor, { from: string; to: string; glow: string; border: string; textClass: string; bgClass: string; solidTextClass: string }> = {
   purple: {
-    from: '#FFE066',
-    to: '#E09800',
-    glow: 'rgba(255, 204, 0, 0.45)',
+    from: 'hsl(var(--neon-cyan))',
+    to: 'hsl(var(--neon-orange))',
+    glow: 'hsl(var(--primary) / 0.45)',
     border: 'hsl(var(--primary)/0.5)',
     textClass: 'text-primary',
     bgClass: 'bg-primary/10',
-    solidTextClass: 'text-[#080808]',
+    solidTextClass: 'text-[hsl(var(--primary-foreground))]',
   },
   blue: {
-    from: '#2A2A2A',
-    to: '#1A1A1A',
+    from: 'hsl(var(--surface-3))',
+    to: 'hsl(var(--surface-2))',
     glow: 'hsl(var(--surface-4))',
     border: 'hsl(var(--border))',
     textClass: 'text-foreground',
@@ -39,40 +39,40 @@ const COLOR_MAP: Record<NeonColor, { from: string; to: string; glow: string; bor
     solidTextClass: 'text-foreground',
   },
   cyan: {
-    from: '#FFE066',
-    to: '#FFCC00',
-    glow: 'rgba(255, 204, 0, 0.45)',
+    from: 'hsl(var(--neon-cyan))',
+    to: 'hsl(var(--primary))',
+    glow: 'hsl(var(--primary) / 0.45)',
     border: 'hsl(var(--primary)/0.5)',
     textClass: 'text-primary',
     bgClass: 'bg-primary/10',
-    solidTextClass: 'text-[#080808]',
+    solidTextClass: 'text-[hsl(var(--primary-foreground))]',
   },
   pink: {
-    from: '#FFE066',
-    to: '#E09800',
-    glow: 'rgba(255, 204, 0, 0.45)',
+    from: 'hsl(var(--neon-cyan))',
+    to: 'hsl(var(--neon-orange))',
+    glow: 'hsl(var(--primary) / 0.45)',
     border: 'hsl(var(--primary)/0.5)',
     textClass: 'text-primary',
     bgClass: 'bg-primary/10',
-    solidTextClass: 'text-[#080808]',
+    solidTextClass: 'text-[hsl(var(--primary-foreground))]',
   },
   green: {
-    from: '#22C55E',
-    to: '#16A34A',
-    glow: '#22C55E',
+    from: 'hsl(var(--neon-green))',
+    to: 'hsl(var(--neon-green))',
+    glow: 'hsl(var(--neon-green) / 0.45)',
     border: 'rgba(34, 197, 94, 0.5)',
     textClass: 'text-emerald-400',
     bgClass: 'bg-emerald-500/10',
-    solidTextClass: 'text-[#080808]',
+    solidTextClass: 'text-[hsl(var(--primary-foreground))]',
   },
   amber: {
-    from: '#FFE066',
-    to: '#E09800',
-    glow: 'rgba(255, 204, 0, 0.45)',
+    from: 'hsl(var(--neon-cyan))',
+    to: 'hsl(var(--neon-orange))',
+    glow: 'hsl(var(--primary) / 0.45)',
     border: 'hsl(var(--primary)/0.5)',
     textClass: 'text-primary',
     bgClass: 'bg-primary/10',
-    solidTextClass: 'text-[#080808]',
+    solidTextClass: 'text-[hsl(var(--primary-foreground))]',
   },
 };
 
@@ -101,12 +101,12 @@ export function NeonButton({
     solid: cn(c.solidTextClass, 'font-bold border-t border-white/50 shadow-[0_4px_16px_rgba(255,204,0,0.38),inset_0_1px_0_rgba(255,255,255,0.6)]'),
     outline: cn('bg-transparent border', c.textClass),
     ghost: cn('bg-transparent border-transparent', c.textClass, 'hover:bg-[hsl(var(--surface-2))]'),
-    primary: 'text-[#080808] font-bold bg-gradient-to-r from-[#FFE066] via-[#FFCC00] to-[#E09800] hover:brightness-105 border-t border-white/50 shadow-[0_4px_16px_rgba(255,204,0,0.38),inset_0_1px_0_rgba(255,255,255,0.6)]',
+    primary: 'text-[hsl(var(--primary-foreground))] font-bold bg-gradient-to-r from-[hsl(var(--neon-cyan))] via-[hsl(var(--primary))] to-[hsl(var(--neon-orange))] hover:brightness-105 border-t border-white/50 shadow-[0_4px_16px_rgba(255,204,0,0.38),inset_0_1px_0_rgba(255,255,255,0.6)]',
     destructive: 'text-white border-transparent bg-destructive hover:bg-destructive/90 shadow-sm',
     secondary: 'bg-[hsl(var(--surface-2))] border border-white/[0.12] text-foreground hover:bg-[hsl(var(--surface-3))] shadow-sm',
   };
 
-  const glowShadow = `0 0 12px ${c.glow} / 0.25, 0 0 30px ${c.glow} / 0.1`;
+  const glowShadow = `0 0 12px ${c.glow}, 0 0 30px ${c.glow}`;
 
   return (
     <motion.button
@@ -156,7 +156,7 @@ export function NeonButton({
           style={{
             padding: '1px',
             background: `linear-gradient(135deg, ${c.from} / 0.8, ${c.to} / 0.4, ${c.from} / 0.6)`,
-            WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+            WebkitMask: 'linear-gradient(hsl(var(--foreground)) 0 0) content-box, linear-gradient(hsl(var(--foreground)) 0 0)',
             WebkitMaskComposite: 'xor',
             maskComposite: 'exclude',
           }}
@@ -170,7 +170,7 @@ export function NeonButton({
           style={{
             padding: '1px',
             background: `linear-gradient(135deg, ${c.border}, ${c.to} / 0.2, ${c.border})`,
-            WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+            WebkitMask: 'linear-gradient(hsl(var(--foreground)) 0 0) content-box, linear-gradient(hsl(var(--foreground)) 0 0)',
             WebkitMaskComposite: 'xor',
             maskComposite: 'exclude',
           }}

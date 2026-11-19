@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useWorkspace } from '../store/WorkspaceContext';
 import type { GenerationSettings } from '../types';
 import { parseModelParameterOverrides } from '../utils/buildGenerationParameters';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 
 const STORAGE_KEY = 'ai3d:generation:presets:v1';
 const EXPORT_FORMAT = 'formash3d-generation-presets';
@@ -98,6 +99,7 @@ export function GenerationPresetDrawer() {
   const [revision, setRevision] = useState('1');
   const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [queueing, setQueueing] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const importInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -159,10 +161,11 @@ export function GenerationPresetDrawer() {
   };
 
   const deleteSelected = () => {
-    if (!selected || !window.confirm('Delete preset "' + selected.name + '"?')) return;
+    if (!selected) return;
     setPresets(presets.filter(preset => preset.id !== selected.id));
     setSelectedId('');
     setStatus({ type: 'success', message: 'Deleted preset "' + selected.name + '".' });
+    setDeleteOpen(false);
   };
 
   const exportProfiles = (all: boolean) => {
@@ -261,7 +264,10 @@ export function GenerationPresetDrawer() {
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" disabled={!selected} onClick={loadSelected} className="rounded-lg border border-white/[0.12] px-3 py-2 text-xs font-semibold text-zinc-200 hover:bg-white/[0.05] disabled:opacity-40">Load selected</button>
             <button type="button" disabled={!generationSettings.aiModel || !name.trim()} onClick={savePreset} className="rounded-lg bg-primary px-3 py-2 text-xs font-bold text-[hsl(var(--primary-foreground))] disabled:opacity-40">{selected ? 'Update selected' : 'Save new preset'}</button>
-            <button type="button" disabled={!selected} onClick={deleteSelected} className="rounded-lg border border-rose-500/30 px-3 py-2 text-xs font-semibold text-rose-300 hover:bg-rose-500/10 disabled:opacity-40">Delete</button>
+            <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+              <AlertDialogTrigger asChild><button type="button" disabled={!selected} className="rounded-lg border border-rose-500/30 px-3 py-2 text-xs font-semibold text-rose-300 hover:bg-rose-500/10 disabled:opacity-40">Delete</button></AlertDialogTrigger>
+              <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete preset?</AlertDialogTitle><AlertDialogDescription>Delete “{selected?.name}” from this browser?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={deleteSelected}>Delete preset</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+            </AlertDialog>
             <button type="button" onClick={() => importInput.current?.click()} className="rounded-lg border border-white/[0.12] px-3 py-2 text-xs font-semibold text-zinc-200 hover:bg-white/[0.05]">Import JSON</button>
             <input ref={importInput} type="file" accept="application/json,.json" className="hidden" aria-label="Import generation preset JSON"
               onChange={async event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) await importFile(file); }} />

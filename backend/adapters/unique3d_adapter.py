@@ -175,6 +175,14 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
         output_dir = Path("/tmp/gradio")
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Native polycount target: passed through from the generation request.
+        # Unique3D does not expose a direct face-count parameter in its upstream
+        # pipeline, so the value is logged and preserved in generation_info
+        # without downstream decimation.
+        native_target_polycount = int(inputs.get("native_target_polycount", 0) or 0)
+        if native_target_polycount:
+            logger.info("Unique3D received native_target_polycount=%d (upstream pipeline has no direct face-count control; preserved native output)", native_target_polycount)
+
         os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         import gc
         gc.collect()
@@ -216,7 +224,7 @@ class Unique3DImageToRawMeshAdapter(BaseModel):
             "success": True,
             "output_mesh_path": str(output_path.resolve()),
             "mesh_path": str(output_path.resolve()),
-            "generation_info": {"seed": seed},
+            "generation_info": {"seed": seed, "native_target_polycount": native_target_polycount or None},
         }
 
     def get_supported_formats(self) -> Dict[str, list[str]]:

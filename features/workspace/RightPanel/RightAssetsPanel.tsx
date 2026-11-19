@@ -5,6 +5,8 @@ import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
 import { MeshUploadStatus } from '../Panels/MeshUploadStatus';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import { toast } from 'sonner';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
@@ -36,6 +38,7 @@ export const RightAssetsPanel: React.FC = () => {
     duplicateAsset,
     deleteAsset,
     updateAssetProperties,
+    workspaceId,
   } = useWorkspace();
 
   const { assetCollections, addAssetCollection } = useAppStore();
@@ -43,8 +46,12 @@ export const RightAssetsPanel: React.FC = () => {
   const [activePage, setActivePage] = useState(1);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
+  const [scopeToWorkspace, setScopeToWorkspace] = useState(true);
+  const [failedThumbnails, setFailedThumbnails] = useState<Set<string>>(() => new Set());
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [activeMenuAssetId, setActiveMenuAssetId] = useState<string | null>(null);
+  const [collectionName, setCollectionName] = useState('');
+  const [collectionAssetId, setCollectionAssetId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -112,7 +119,20 @@ export const RightAssetsPanel: React.FC = () => {
     if (file) processModelFile(file);
   };
 
-  const filteredAssets = assets.filter(a => {
+  const scopedBaseAssets = React.useMemo(() => {
+    if (!scopeToWorkspace || !workspaceId) return assets;
+    const scoped = assets.filter(
+      (a) =>
+        a.workspace_id === workspaceId ||
+        a.id === `local_${workspaceId}` ||
+        a.id === workspaceId ||
+        (a.source?.fileId && a.source.fileId.includes(workspaceId)) ||
+        (a.id === currentAsset?.id)
+    );
+    return scoped.length > 0 ? scoped : assets;
+  }, [assets, scopeToWorkspace, workspaceId, currentAsset]);
+
+  const filteredAssets = scopedBaseAssets.filter(a => {
     if (showFavoritesOnly && !a.isFavorite) return false;
     if (selectedCollection && a.collection !== selectedCollection && !a.tags?.includes(selectedCollection)) return false;
     if (assetFilter === 'all') return true;
@@ -126,6 +146,7 @@ export const RightAssetsPanel: React.FC = () => {
   const paginatedAssets = filteredAssets.slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE);
 
   return (
+    <>
     <div id="panel-assets-library" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none">
       {/* Hidden file input for uploading custom 3D files */}
       <input
@@ -219,6 +240,22 @@ export const RightAssetsPanel: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* Workspace Scope Toggle */}
+            {workspaceId && (
+              <button
+                type="button"
+                onClick={() => setScopeToWorkspace(!scopeToWorkspace)}
+                className={`px-2 py-0.5 rounded-md text-[10px] font-mono transition-colors border cursor-pointer ${
+                  scopeToWorkspace
+                    ? 'bg-primary/10 border-primary/30 text-primary font-bold'
+                    : 'bg-white/[0.04] border-white/[0.08] text-zinc-400 hover:text-white'
+                }`}
+                title={scopeToWorkspace ? 'Showing current workspace assets only. Click to show all.' : 'Showing all assets. Click to scope to this workspace.'}
+              >
+                {scopeToWorkspace ? 'Workspace' : 'All'}
+              </button>
+            )}
           </div>
 
           {/* Manage Pill Button matching Reference */}
@@ -313,12 +350,15 @@ export const RightAssetsPanel: React.FC = () => {
               >
                 {/* 3D Asset Thumbnail */}
                 <div className="relative w-full flex-1 bg-[#121316] overflow-hidden">
-                  {asset.thumbnail ? (
+                  {asset.thumbnail && !failedThumbnails.has(asset.id) ? (
                     <img
                       src={asset.thumbnail}
                       alt={asset.name}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       crossOrigin="anonymous"
+                      onError={() => {
+                        setFailedThumbnails((prev) => new Set(prev).add(asset.id));
+                      }}
                     />
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-[hsl(var(--surface-1))] gap-1 p-1">
@@ -365,7 +405,19 @@ export const RightAssetsPanel: React.FC = () => {
                   </div>
 
                   {/* 3-Dots Menu */}
-                  <div className="relative" data-asset-menu={asset.id}>
+                  <div className="relative flex items-center gap-0.5" data-asset-menu={asset.id}>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${asset.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteAsset(asset.id);
+                      }}
+                      className="p-1 rounded-md text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer opacity-0 group-hover:opacity-100"
+                      title="Delete asset"
+                    >
+                      <HugeiconsIcon icon={Trash2} size={15} className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       type="button"
                       aria-label={`Options for ${asset.name}`}
@@ -431,17 +483,8 @@ export const RightAssetsPanel: React.FC = () => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              const name = window.prompt('New collection name:');
-                              if (name && name.trim()) {
-                                const trimmed = name.trim();
-                                addAssetCollection(trimmed);
-                                updateAssetProperties(asset.id, {
-                                  collection: trimmed,
-                                  tags: Array.from(new Set([...(asset.tags || []), trimmed])),
-                                });
-                                toast.success(`Created "${trimmed}" and added asset`);
-                              }
-                              setActiveMenuAssetId(null);
+                              setCollectionAssetId(asset.id);
+                              setCollectionName('');
                             }}
                             className="w-full text-left px-2.5 py-1 text-[10px] text-primary hover:underline font-bold cursor-pointer"
                           >
@@ -523,5 +566,30 @@ export const RightAssetsPanel: React.FC = () => {
         </div>
       </div>
     </div>
+    <Dialog open={collectionAssetId !== null} onOpenChange={open => {
+      if (!open) {
+        setCollectionAssetId(null);
+        setActiveMenuAssetId(null);
+      }
+    }}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>New collection</DialogTitle></DialogHeader>
+        <form onSubmit={event => {
+          event.preventDefault();
+          const asset = assets.find(item => item.id === collectionAssetId);
+          const name = collectionName.trim();
+          if (!asset || !name) return;
+          addAssetCollection(name);
+          updateAssetProperties(asset.id, { collection: name, tags: Array.from(new Set([...(asset.tags || []), name])) });
+          toast.success(`Created "${name}" and added asset`);
+          setCollectionAssetId(null);
+          setActiveMenuAssetId(null);
+        }}>
+          <Input autoFocus aria-label="Collection name" value={collectionName} onChange={event => setCollectionName(event.target.value)} />
+          <DialogFooter><button type="submit" disabled={!collectionName.trim()} className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground">Create collection</button></DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 };

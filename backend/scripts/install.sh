@@ -138,6 +138,64 @@ install_local_wheel() {
     return 1
 }
 
+# Build SF3D's two native extensions against the exact PyTorch installed above.
+# The upstream requirements file is intentionally not installed wholesale:
+# it pins older transformers/huggingface-hub/numpy versions that conflict with
+# ForMesh3D's shared model environment.
+install_sf3d_native_extensions() {
+    local sf3d_root="$THIRDPARTY_DIR/StableFast3D"
+    local texture_baker_dir="$sf3d_root/texture_baker"
+    local uv_unwrapper_dir="$sf3d_root/uv_unwrapper"
+
+    if [[ ! -f "$texture_baker_dir/setup.py" || ! -f "$uv_unwrapper_dir/setup.py" ]]; then
+        if command -v git >/dev/null 2>&1 && git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            echo "[INFO] Initializing backend/thirdparty submodule..."
+            git -C "$PROJECT_ROOT" submodule update --init --recursive backend/thirdparty || return 1
+        fi
+    fi
+
+    if [[ ! -f "$texture_baker_dir/setup.py" || ! -f "$uv_unwrapper_dir/setup.py" ]]; then
+        echo "[ERROR] StableFast3D native sources are missing. Initialize backend/thirdparty before installing SF3D."
+        return 1
+    fi
+
+    if ! python -c 'from torch.utils.cpp_extension import CUDA_HOME; raise SystemExit(0 if CUDA_HOME else 1)'; then
+        echo "[ERROR] CUDA toolkit/nvcc was not found. SF3D texture_baker requires a CUDA extension for GPU inference."
+        echo "[ERROR] Install a CUDA toolkit matching the installed PyTorch CUDA build, then rerun this installer."
+        return 1
+    fi
+
+    echo "[INFO] Building SF3D texture_baker CUDA extension..."
+    USE_CUDA=1 $UV_PIP install --reinstall --no-build-isolation "$texture_baker_dir" || {
+        echo "[ERROR] SF3D texture_baker CUDA extension build failed."
+        return 1
+    }
+
+    echo "[INFO] Building SF3D uv_unwrapper native extension..."
+    $UV_PIP install --reinstall --no-build-isolation "$uv_unwrapper_dir" || {
+        echo "[ERROR] SF3D uv_unwrapper native extension build failed."
+        return 1
+    }
+
+    python - <<'PY'
+import torch
+import texture_baker
+import texture_baker._C
+import uv_unwrapper
+import uv_unwrapper._C
+
+if not callable(getattr(texture_baker, "TextureBaker", None)):
+    raise SystemExit("texture_baker.TextureBaker is not available")
+if not callable(getattr(uv_unwrapper, "Unwrapper", None)):
+    raise SystemExit("uv_unwrapper.Unwrapper is not available")
+for operation in ("rasterize", "interpolate"):
+    dispatch_name = f"texture_baker_cpp::{operation}"
+    if not torch._C._dispatch_has_kernel_for_dispatch_key(dispatch_name, "CUDA"):
+        raise SystemExit(f"{dispatch_name} has no CUDA kernel; rebuild texture_baker with CUDA enabled")
+print("SF3D native extensions verified: texture_baker CUDA kernels and uv_unwrapper")
+PY
+}
+
 # Ensure release wheels are available in WHEEL_DIR
 ensure_release_wheels() {
     mkdir -p "$WHEEL_DIR"
@@ -158,26 +216,31 @@ except Exception as e:
 
 # Ensure Blender executable is available
 ensure_blender() {
-    if command -v blender >/dev/null 2>&1; then
-        echo "[INFO] Blender already available: $(command -v blender)"
-        return 0
-    fi
-    if [[ "${BLENDER_ENABLED:-true}" != "true" ]]; then
-        echo "[WARN] Blender disabled by BLENDER_ENABLED=false; skipping."
-        return 0
-    fi
-    if command -v apt-get >/dev/null 2>&1; then
+    local blender_bin=""
+    if [[ -n "${BLENDER_EXECUTABLE:-}" && -x "${BLENDER_EXECUTABLE}" ]]; then
+        blender_bin="${BLENDER_EXECUTABLE}"
+    elif command -v blender >/dev/null 2>&1; then
+        blender_bin="$(command -v blender)"
+    elif [[ "${BLENDER_ENABLED:-true}" == "true" ]] && command -v apt-get >/dev/null 2>&1; then
         local sudo_cmd=""
         command -v sudo >/dev/null 2>&1 && sudo_cmd="sudo"
         echo "[INFO] Installing Blender via apt..."
         $sudo_cmd apt-get update -qq 2>/dev/null || true
         $sudo_cmd apt-get install -y --no-install-recommends blender 2>/dev/null || true
+        blender_bin="$(command -v blender || true)"
     fi
-    if ! command -v blender >/dev/null 2>&1; then
-        echo "[WARN] Blender not available on PATH. Set BLENDER_EXECUTABLE=/path/to/blender."
+
+    if [[ -z "$blender_bin" ]]; then
+        echo "[WARN] Blender not available. Set BLENDER_EXECUTABLE=/path/to/blender."
+        return 0
+    fi
+
+    if "$blender_bin" -b --python-expr "import bpy; assert hasattr(bpy.ops.object, 'quadriflow_remesh')" >/dev/null 2>&1; then
+        echo "[SUCCESS] Blender QuadriFlow operator is available: $blender_bin"
+    else
+        echo "[WARN] Blender is installed but QuadriFlow is unavailable. Script quad retopology will report a dependency error; triangle retopology remains available."
     fi
 }
-
 # Persist the selected manager and exact environment so runtime startup
 # never guesses between a Conda base, another env, or a default venv path.
 persist_env_config() {
@@ -503,6 +566,8 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
         echo "[SUCCESS] Model requirements installed."
     fi
 
+    install_sf3d_native_extensions || exit 1
+
     echo ""
     echo "========================================"
     echo "Installing Custom GitHub/Wheel Dependencies"
@@ -570,6 +635,13 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     if ! install_local_wheel "natten-*.whl" "natten"; then
         echo "[WARN] natten not in $WHEEL_DIR; installing from direct URL..."
         $UV_PIP install "https://github.com/LDYang694/Storages/releases/download/20260430/natten-0.21.0+torch2.6cu124-cp310-cp310-linux_x86_64.whl" || echo "[WARN] natten direct URL install failed — Pixal3D NAF cascade may fail if used."
+    fi
+
+    # utils3d — pure-Python 3D vision/graphics library from Git source (TRELLIS texture / Pixal3D)
+    echo "[INFO] Installing utils3d..."
+    if ! install_local_wheel "utils3d-*.whl" "utils3d"; then
+        echo "[INFO] Installing utils3d from Git source..."
+        $UV_PIP install "git+https://github.com/EasternJournalist/utils3d.git" || { echo "[ERROR] utils3d install failed"; exit 1; }
     fi
 
     echo "[SUCCESS] Model dependencies installed."

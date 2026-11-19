@@ -1,6 +1,8 @@
 import asyncio
 import copy
+import hashlib
 import logging
+import re
 import shutil
 import time
 import uuid
@@ -8,10 +10,15 @@ from collections import deque
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .database_manager import DatabaseManager
-from .database_models import JobModel
+from .database_models import (
+    JobModel,
+    OperationModel,
+    ExecutionStatus,
+    PersistenceStatus,
+)
 from core.utils.file_utils import get_storage_base_dir
 from .database_models import JobStatus as DBJobStatus
 
@@ -22,7 +29,7 @@ def cleanup_canonical_asset_workspace(result: Optional[Dict[str, Any]]) -> Optio
     asset_root = (result or {}).get("asset_root")
     if not asset_root:
         return None
-    models_root = (get_storage_base_dir() / "models").resolve()
+    models_root = get_storage_base_dir().resolve()
     candidate = Path(asset_root).resolve()
     if candidate == models_root or models_root not in candidate.parents:
         logger.warning("Skipping retention cleanup for invalid asset workspace: %s", candidate)
@@ -74,8 +81,29 @@ class JobRequest:
         timeout_seconds: int = 3600,
         metadata: Optional[Dict[str, Any]] = None,
         user_id: Optional[str] = None,
+        explicit_job_id: Optional[str] = None,
     ):
-        self.job_id = str(uuid.uuid4())
+        # Idempotent job id reuse: if an explicit id is supplied (retry of a
+        # failed generation for the same image+model) it is used as-is so the
+        # caller can resume the same job instead of spinning up a duplicate.
+        if explicit_job_id:
+            self.job_id = explicit_job_id
+        else:
+            # Build a human-readable job_id: <name>_<6-char-hash>
+            raw_name = (
+                inputs.get("asset_name")
+                or inputs.get("image_name")
+                or inputs.get("name")
+                or feature
+                or "job"
+            )
+            # Clean: strip extension, special chars, limit length
+            clean_name = str(raw_name).rsplit(".", 1)[0]
+            clean_name = re.sub(r"[^a-zA-Z0-9_-]", "_", clean_name).strip("_")[:40] or "job"
+            # Stable hash from name + timestamp + random for uniqueness
+            hash_input = f"{clean_name}:{time.time_ns()}:{uuid.uuid4().hex}"
+            short_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:6]
+            self.job_id = f"{clean_name}_{short_hash}"
         self.feature = feature
         self.inputs = inputs
         self.model_preference = model_preference
@@ -94,9 +122,9 @@ class JobRequest:
         self.progress: float = 0.0
         self.assigned_model: Optional[str] = None
 
-        # Retry tracking
+        # Retry tracking (0 = fail immediately without auto-retry loops)
         self.retry_count: int = 0
-        self.max_retries: int = 4  # Default max retries
+        self.max_retries: int = 0  # 0: no automatic retry loop; user decides when to retry
         self.last_retry_at: Optional[datetime] = None
         self.retry_reason: Optional[str] = None
 
@@ -272,7 +300,7 @@ class JobQueue:
 
     def __init__(
         self,
-        max_size: int = 1000,
+        max_size: int = 10,
         database_url: Optional[str] = None,
         max_completed_jobs: int = 1000,
         # Legacy parameters for backward compatibility
@@ -353,9 +381,14 @@ class JobQueue:
             self._cleanup_task = asyncio.create_task(self._periodic_cleanup())
             logger.info("Started database-backed job queue")
 
-    async def recover_processing_jobs(self) -> int:
-        """Recover processing jobs left behind by a backend restart."""
+    async def recover_processing_jobs(self, is_pid_alive_fn=None) -> int:
+        """Recover processing jobs and operations left behind by a backend restart."""
         recovered = 0
+        if hasattr(self.db_manager, "recover_orphaned_operations"):
+            recovered += await asyncio.to_thread(
+                self.db_manager.recover_orphaned_operations, is_pid_alive_fn
+            )
+
         async with self._cache_lock:
             for job_id, job in list(self._processing_cache.items()):
                 job.status = JobStatus.QUEUED
@@ -373,6 +406,12 @@ class JobQueue:
             if recovered:
                 self._sort_queue_cache()
         return recovered
+
+    async def cleanup_expired_previews(self, ttl_hours: int = 24) -> int:
+        """Purge temporary preview folders exceeding TTL for unretained operations."""
+        if hasattr(self.db_manager, "cleanup_expired_previews"):
+            return await asyncio.to_thread(self.db_manager.cleanup_expired_previews, ttl_hours)
+        return 0
 
     async def stop_persistence(self):
         """Stop background tasks"""
@@ -398,6 +437,9 @@ class JobQueue:
                     self.db_manager.cleanup_old_jobs,
                     self.max_completed_jobs,
                 )
+
+                # Purge expired unretained preview temps (24h TTL)
+                await self.cleanup_expired_previews(24)
 
                 # Sync completed cache with database if needed
                 async with self._cache_lock:
@@ -429,7 +471,7 @@ class JobQueue:
         """Add job to queue"""
         async with self._cache_lock:
             if len(self._queue_cache) >= self.max_size:
-                raise Exception("Job queue is full")
+                raise RuntimeError("QUEUE_FULL: Job queue is full")
 
             # Save to database first
             if not await asyncio.to_thread(self.db_manager.save_job, job):
@@ -446,7 +488,7 @@ class JobQueue:
         """Add job to front of queue (for jobs that couldn't be processed due to resources)"""
         async with self._cache_lock:
             if len(self._queue_cache) >= self.max_size:
-                raise Exception("Job queue is full")
+                raise RuntimeError("QUEUE_FULL: Job queue is full")
 
             # Save to database first
             if not await asyncio.to_thread(self.db_manager.save_job, job):
@@ -458,11 +500,102 @@ class JobQueue:
                 f"Re-enqueued job {job.job_id} to front of queue for feature {job.feature}"
             )
 
+    async def enqueue_operation(
+        self,
+        operation_id: str,
+        workspace_id: str,
+        operation_type: str,
+        input_asset_id: Optional[str] = None,
+        parent_operation_id: Optional[str] = None,
+        settings: Optional[Dict[str, Any]] = None,
+        temp_dir: Optional[str] = None,
+        regenerate: bool = False,
+    ) -> Tuple[OperationModel, bool]:
+        """Enqueue an operation record with queue cap (10), deduplication, and snapshot immutability."""
+        async with self._cache_lock:
+            return await asyncio.to_thread(
+                self.db_manager.enqueue_operation,
+                operation_id=operation_id,
+                workspace_id=workspace_id,
+                operation_type=operation_type,
+                input_asset_id=input_asset_id,
+                parent_operation_id=parent_operation_id,
+                settings=settings,
+                temp_dir=temp_dir,
+                queue_cap=self.max_size,
+                regenerate=regenerate,
+            )
+
+    async def dequeue_operation(self, worker_lease: str) -> Optional[OperationModel]:
+        """Atomically claim the next queued operation from SQLite."""
+        async with self._cache_lock:
+            return await asyncio.to_thread(
+                self.db_manager.claim_next_operation, worker_lease
+            )
+
+    async def existing_job_for_source(
+        self,
+        feature: str,
+        image_file_id: Optional[str],
+        model_preference: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Return an existing job id for idempotent reuse.
+
+        Reuses the most recent terminal failure/cancellation job for the
+        requested (feature, image_file_id, model_preference) so that a retry
+        after failure resumes the same job id instead of creating a duplicate.
+        QUEUED/PROCESSING jobs are not reused (an in-flight generation must not
+        be duplicated under the same id), and a previously completed generation
+        is not reused either — a fresh job is created instead. Returns None when
+        there is nothing to reuse.
+        """
+        if not image_file_id:
+            return None
+        async with self._cache_lock:
+            # Check in-memory caches first, most recent first.
+            candidates = [
+                *(reversed(list(self._queue_cache))),
+                *(reversed(list(self._processing_cache.values()))),
+                *(reversed(list(self._completed_cache.values()))),
+            ]
+            for job in candidates:
+                if job.feature != feature:
+                    continue
+                if job.inputs.get("image_file_id") != image_file_id:
+                    continue
+                if model_preference is not None and job.model_preference != model_preference:
+                    continue
+                # Only reuse terminal failure/cancellation states: retry-after-failure
+                # semantics. Never reuse QUEUED/PROCESSING (in-flight) or COMPLETED.
+                if job.status not in (JobStatus.FAILED, JobStatus.CANCELLED):
+                    continue
+                return job.job_id
+
+        # Fall back to the database for jobs not resident in memory.
+        if self.db_manager:
+            row = await asyncio.to_thread(
+                self.db_manager.find_job_by_source, feature, image_file_id, model_preference
+            )
+            if row:
+                return row.job_id
+        return None
+
     async def requeue_job(self, job_id: str, front: bool = True):
         """Move a job from processing back to the queue."""
         async with self._cache_lock:
             if job_id in self._processing_cache:
                 job = self._processing_cache[job_id]
+
+                # Snapshot pre-requeue state so a failed persist leaves the job
+                # untouched in the processing cache (status and residency stay
+                # consistent with the database).
+                previous = (
+                    job.status,
+                    job.started_at,
+                    job.assigned_model,
+                    job.progress,
+                )
 
                 # Reset job status
                 job.status = JobStatus.QUEUED
@@ -472,6 +605,8 @@ class JobQueue:
 
                 # Save updated job to database
                 if not await asyncio.to_thread(self.db_manager.save_job, job):
+                    # Roll back: nothing moved, so restore in-memory state too.
+                    job.status, job.started_at, job.assigned_model, job.progress = previous
                     logger.error(f"Failed to save requeued job {job_id} to database")
                     return False
 
@@ -520,6 +655,18 @@ class JobQueue:
 
             job = self._queue_cache.popleft()
 
+            # Transition status and container together: persist PROCESSING before
+            # exposing the job in the processing cache so status and residency
+            # can never drift (queued status while living in processing cache).
+            job.status = JobStatus.PROCESSING
+            if not await asyncio.to_thread(self.db_manager.save_job, job):
+                # Roll back the in-memory move if persistence failed
+                self._queue_cache.appendleft(job)
+                logger.error(
+                    "Failed to persist dequeued job %s to database", job.job_id
+                )
+                return None
+
             # Move to processing cache
             self._processing_cache[job.job_id] = job
 
@@ -547,9 +694,12 @@ class JobQueue:
                 job = self._processing_cache[job_id]
                 job.mark_completed(result)
 
-                # Save to database
+                # Persist before moving containers so a failed save leaves the
+                # job in the processing cache instead of drifting into the
+                # completed cache with no durable record.
                 if not await asyncio.to_thread(self.db_manager.save_job, job):
                     logger.error(f"Failed to save completed job {job_id} to database")
+                    return
 
                 # Move from processing to completed
                 del self._processing_cache[job_id]
@@ -558,28 +708,35 @@ class JobQueue:
                 logger.info(f"Completed job {job_id}")
 
     async def fail_job(self, job_id: str, error: str):
-        """Mark job as failed"""
+        """Mark job as failed, re-queueing while retries remain (retry_count < max_retries)."""
         async with self._cache_lock:
-            job = self._processing_cache.pop(job_id, None)
-            if not job:
+            job = self._processing_cache.get(job_id)
+            queue_index: Optional[int] = None
+            if job is None:
                 for i, q_job in enumerate(self._queue_cache):
                     if q_job.job_id == job_id:
                         job = q_job
-                        del self._queue_cache[i]
+                        queue_index = i
                         break
 
-            if job:
-                job.mark_failed(error)
+            if job is None:
+                return
 
-                # Save to database
-                if not await asyncio.to_thread(self.db_manager.save_job, job):
-                    logger.error(f"Failed to save failed job {job_id} to database")
+            job.mark_failed(error)
+            job.metadata["error_code"] = classify_job_error(error)
 
-                job.metadata["error_code"] = classify_job_error(error)
-                if not await asyncio.to_thread(self.db_manager.save_job, job):
-                    logger.error(f"Failed to persist failed-job error code for {job_id}")
-                self._completed_cache[job_id] = job
-                logger.error(f"Failed job {job_id}: {error}")
+            # Persist once with complete state before moving containers so a
+            # failed save leaves every container unchanged (no drift).
+            if not await asyncio.to_thread(self.db_manager.save_job, job):
+                logger.error(f"Failed to save failed job {job_id} to database")
+                return
+
+            if queue_index is not None:
+                del self._queue_cache[queue_index]
+            else:
+                self._processing_cache.pop(job_id, None)
+            self._completed_cache[job_id] = job
+            logger.error(f"Failed job {job_id}: {error}")
 
     async def cancel_job(self, job_id: str, force: bool = False) -> bool:
         """Cancel a queued job, or a force-stopped processing job."""
@@ -587,15 +744,22 @@ class JobQueue:
             # Check if job is in queue
             for i, job in enumerate(self._queue_cache):
                 if job.job_id == job_id:
-                    job.mark_cancelled()
+                    cancelled_job = copy.deepcopy(job)
+                    cancelled_job.mark_cancelled()
 
                     # Save to database
-                    if not await asyncio.to_thread(self.db_manager.save_job, job):
+                    if not await asyncio.to_thread(
+                        self.db_manager.save_job, cancelled_job
+                    ):
                         logger.error(
                             f"Failed to save cancelled job {job_id} to database"
                         )
+                        return False
 
                     # Move from queue to completed
+                    job.status = cancelled_job.status
+                    job.completed_at = cancelled_job.completed_at
+                    job.metadata = cancelled_job.metadata
                     del self._queue_cache[i]
                     self._completed_cache[job_id] = job
 
@@ -606,10 +770,20 @@ class JobQueue:
                 if not force:
                     logger.warning("Cannot cancel job %s: already processing", job_id)
                     return False
-                job = self._processing_cache.pop(job_id)
-                job.mark_cancelled()
-                if not await asyncio.to_thread(self.db_manager.save_job, job):
+                job = self._processing_cache[job_id]
+                cancelled_job = copy.deepcopy(job)
+                cancelled_job.mark_cancelled()
+                # Persist before moving containers so a failed save leaves the
+                # job in the processing cache rather than losing it.
+                if not await asyncio.to_thread(
+                    self.db_manager.save_job, cancelled_job
+                ):
                     logger.error("Failed to save cancelled job %s", job_id)
+                    return False
+                job.status = cancelled_job.status
+                job.completed_at = cancelled_job.completed_at
+                job.metadata = cancelled_job.metadata
+                del self._processing_cache[job_id]
                 self._completed_cache[job_id] = job
                 return True
 
@@ -730,6 +904,10 @@ class JobQueue:
                 job_model = await asyncio.to_thread(self.db_manager.get_job, job_id)
                 job = JobRequest.from_job_model(job_model) if job_model else None
             if job is None or not (job.result or {}).get("asset_root"):
+                return None
+            # Only terminal jobs may be retried: a QUEUED/PROCESSING job may
+            # have an active worker whose derived artifacts we would clobber.
+            if job.status not in (JobStatus.COMPLETED, JobStatus.FAILED):
                 return None
             job.status = JobStatus.PROCESSING
             job.progress = 0.0

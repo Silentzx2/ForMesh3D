@@ -146,14 +146,13 @@ export function GenerationSection({ onSaveRegister }: { onSaveRegister?: (save: 
        return;
      }
      
+     const newId = presetNameInput.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
      setPresets(prev => prev.map(p => 
        p.id === selectedPresetId 
-         ? {...p, name: presetNameInput.trim()} 
+         ? {...p, id: newId, name: presetNameInput.trim()} 
          : p
      ));
-     setSelectedPresetId(prev => prev === selectedPresetId ? 
-       presetNameInput.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') 
-       : prev);
+     setSelectedPresetId(newId);
      setPresetNameInput('');
      toast.success('Preset renamed successfully');
    };

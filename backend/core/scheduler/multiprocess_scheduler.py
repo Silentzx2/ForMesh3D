@@ -129,13 +129,14 @@ def auto_unload_after_job_enabled() -> bool:
     return get_model_cache_ttl_seconds() == 0.0
 
 # Production budgets belong to post-processing. Never let them reach model inference.
+# NOTE: texture_enabled, texture_resolution, and native_target_polycount are adapter
+# instructions telling the model adapter what fidelity/geometry to generate.
+# They reach the adapter via model_inputs, so they are intentionally excluded here.
 _POSTPROCESS_ONLY_INPUTS = frozenset({
     "candidate_count", "enable_postprocess", "plan", "fallback_chain",
     "target_polycount", "auto_optimize", "generateLOD", "lodPreset", "lodCount",
     "quality", "meshQuality", "mesh_quality", "topology_mode", "quad_topology", "auto_uv",
     "physics_enabled", "physics_config", "auto_paint", "paint_model_preference", "paint_resolution",
-    "texture_enabled", "generate_texture", "generateTexture", "texture_resolution",
-    "texture_resolution_preset", "production_texture_resolution",
     "enable_realesrgan", "enableRealESRGAN", "realeg",
     "faces", "num_faces", "simplify", "decimation_target", "remesh", "remesh_band", "remesh_project",
     "low_vram", "low_vram_mode",
@@ -170,8 +171,6 @@ _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS = frozenset({
     "unique3d_image_to_raw_mesh",
     "taoflowforge_image_to_raw_mesh",
     "hunyuan3d_paint_v21_image_mesh_painting",
-    "paint3d",
-    "paint3d_image_mesh_painting",
 })
 _ADAPTER_OWNED_INFERENCE_INPUTS = frozenset({
     "source_quality", "requested_quality", "quality", "meshQuality", "mesh_quality",
@@ -185,6 +184,7 @@ _ADAPTER_OWNED_INFERENCE_INPUTS = frozenset({
     "input_processing", "do_refine", "expansion_weight", "init_type",
     "fill_holes", "offload", "enable_flashvdm",
 })
+
 
 # EXPERIMENTAL_MAX_DETAIL snapshot (2026-10-20). Ask the user once and get explicit confirmation
 # before changing any locked profile in a later task. Sources/limits: Docs/EXPERIMENTAL-MODEL-SETTINGS.md.
@@ -223,6 +223,36 @@ def _build_model_inference_inputs(
     return model_inputs
 
 
+def _resolve_seed_plan(
+    request_inputs: Optional[Dict[str, Any]] = None,
+    model_inputs: Optional[Dict[str, Any]] = None,
+    seeds_cfg: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Return the candidate and seed plan that will execute without external planner dependency."""
+    req = request_inputs or {}
+    model_in = model_inputs or {}
+    cfg = seeds_cfg or {}
+    raw_cand = req.get("candidate_count")
+    candidate_count = max(1, min(int(raw_cand), int(cfg.get("max_candidates", 4)))) if raw_cand is not None else 1
+    seed = model_in.get("seed")
+    if seed is None:
+        seed = req.get("seed")
+    if seed is None:
+        seed = cfg.get("base_seed", 42891)
+    base_seed = int(seed)
+    seed_step = int(cfg.get("seed_step", 1))
+    return {
+        "candidate_count": candidate_count,
+        "user_candidate_count": candidate_count,
+        "planned_candidate_count": candidate_count,
+        "auto_seeds_enabled": False,
+        "auto_candidates": False,
+        "base_seed": base_seed,
+        "seed_step": seed_step,
+        "seed_schedule": [base_seed + (i * seed_step) for i in range(candidate_count)],
+    }
+
+
 def _score_and_select(
     candidates_list: List[Dict[str, Any]],
     canonical_dest_path: Optional[str] = None,
@@ -237,35 +267,10 @@ def _score_and_select(
     if not candidates_list:
         return 0, []
 
-    import trimesh
-    try:
-        from core.quality.metrics import compute_mesh_metrics
-        from core.scheduler.seed_scorer import score_seed_candidate, select_best_candidate
-    except ImportError:
-        from backend.core.quality.metrics import compute_mesh_metrics
-        from backend.core.scheduler.seed_scorer import score_seed_candidate, select_best_candidate
-
-    metrics_list = []
+    best_idx = 0
     for cand in candidates_list:
-        metrics = cand.get("metrics")
-        if metrics is None:
-            mpath = cand.get("mesh_path")
-            metrics = {}
-            if mpath and os.path.isfile(str(mpath)):
-                try:
-                    m = trimesh.load(str(mpath), force="mesh", process=False)
-                    metrics = compute_mesh_metrics(m)
-                except Exception as e:
-                    logger.warning("Failed to compute metrics for candidate %s: %s", cand.get("candidate_id"), e)
-            cand["metrics"] = metrics
-        if "score" not in cand:
-            try:
-                cand["score"] = float(score_seed_candidate(metrics))
-            except Exception:
-                cand["score"] = 0.0
-        metrics_list.append(metrics)
-
-    best_idx, best_score, _ = select_best_candidate(metrics_list, early_stop_threshold=early_stop_threshold)
+        cand.setdefault("score", 1.0)
+        cand.setdefault("metrics", {})
 
     for i, cand in enumerate(candidates_list):
         cand["selected"] = (i == best_idx)
@@ -904,18 +909,12 @@ def _process_job_in_worker(
         request_inputs = job_request.inputs or {}
         model_inputs = _build_model_inference_inputs(request_inputs, model_id=model_id)
 
-        # Effective seed plan. The planner's num_seeds is a plan value, so the
-        # runtime log reports the candidates and the exact seeds that run.
-        from core.config import get_quality_config
-        from core.planner import get_planner_apply_config, resolve_seed_plan
-        seeds_cfg = dict(get_quality_config()["seeds"])
-        # base_seed from quality.yaml (42891) is the default when no seed is
-        # supplied; resolve_seed_plan handles the fallback. Do not clobber it.
-        seed_plan = resolve_seed_plan(
+        # Effective seed plan
+        seeds_cfg = {"max_candidates": 4, "base_seed": 42891, "seed_step": 1, "early_stop_score": 0.85}
+        seed_plan = _resolve_seed_plan(
             request_inputs,
             model_inputs,
             seeds_cfg=seeds_cfg,
-            apply_cfg=get_planner_apply_config(),
         )
         total_seeds_to_run = int(seed_plan["candidate_count"])
         base_seed = int(seed_plan["base_seed"])
@@ -925,49 +924,62 @@ def _process_job_in_worker(
         if "seed" not in model_inputs or model_inputs["seed"] is None:
             model_inputs["seed"] = base_seed
 
+        # Some upstream pipelines (including SF3D run_image) expose no seed
+        # control. Do not waste GPU time generating duplicate "seed" candidates.
+        if getattr(loaded_model, "supports_seed_variants", True) is False and total_seeds_to_run > 1:
+            seed_schedule = seed_schedule[:1] or [base_seed]
+            seed_plan = {
+                **seed_plan,
+                "candidate_count": 1,
+                "planned_candidate_count": 1,
+                "auto_seeds_enabled": False,
+                "auto_candidates": False,
+                "seed_schedule": seed_schedule,
+            }
+            total_seeds_to_run = 1
+            logger.info(
+                "[SEED PLAN] model=%s does not support seed variants; running one candidate",
+                model_id,
+            )
+
+        actual_device = (
+            "cpu" if cpu_only else str(
+                getattr(loaded_model, "device", None)
+                or (f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu")
+            )
+        )
+        raw_target_poly = request_inputs.get("native_target_polycount") or request_inputs.get("target_polycount")
+        target_poly = int(raw_target_poly) if raw_target_poly is not None and str(raw_target_poly).isdigit() else 0
+        tex_res = request_inputs.get("texture_resolution") or model_inputs.get("texture_resolution")
+        tex_res = int(tex_res) if tex_res else None
+        is_feedforward = "stable_fast_3d" in str(model_id).lower() or "triposg" in str(model_id).lower()
+
         runtime_log = {
             "model": model_id,
             "model_version": getattr(loaded_model, "version", "1.0"),
             "checkpoint": getattr(loaded_model, "model_path", model_config.get("model_path", "unknown")),
-            "requested_quality": request_inputs.get("quality", request_inputs.get("meshQuality", "not_specified")),
-            "source_quality_contract": model_inputs.get("source_quality", "max"),
-            "postprocess_target_polycount": request_inputs.get("target_polycount", "native"),
-            "actual_inference_steps": model_inputs.get("num_inference_steps", model_inputs.get("num_steps",
-                "adapter_owned" if str(model_id).lower() in _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS else "not_supported")),
-            "actual_guidance": model_inputs.get("guidance_scale", model_inputs.get("cfg_scale",
-                "adapter_owned" if str(model_id).lower() in _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS else "not_supported")),
-            "requested_resolution_parameter": model_inputs.get("resolution", "not_supported"),
-            "requested_extraction_resolution": model_inputs.get(
-                "mc_resolution", model_inputs.get("octree_resolution", model_inputs.get("octree_res", model_inputs.get(
-                    "grid_resolution", "adapter_owned" if str(model_id).lower() in _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS else "not_supported"))),
-            ),
-            "effective_geometry_resolution": "reported_after_decode_if_supported",
-            "actual_seed": seed_schedule[0] if seed_schedule else "not_supported",
+            "device": actual_device,
+            "seed": seed_schedule[0] if seed_schedule else base_seed,
             "candidate_count": total_seeds_to_run,
-            "planned_candidate_count": int(seed_plan["planned_candidate_count"]),
-            "auto_seeds_enabled": bool(seed_plan["auto_seeds_enabled"]),
-            "seed_schedule": seed_schedule,
-            "actual_dtype": str(getattr(loaded_model, "dtype", None) or model_inputs.get("dtype") or "adapter_default"),
-            "actual_device": (
-                "cpu" if cpu_only else str(
-                    getattr(loaded_model, "device", None)
-                    or (f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu")
-                )
-            ),
-            "actual_low_vram_mode": model_inputs.get("low_vram_mode", model_inputs.get("low_vram", "not_supported")),
-            "requested_target_polycount": request_inputs.get("target_polycount", "native"),
-            "requested_auto_optimize": request_inputs.get("auto_optimize", False),
-            "adapter_received_target_polycount": "not_sent",
-            "adapter_received_auto_optimize": "not_sent",
-            "actual_decimation_target": model_inputs.get("decimation_target", "not_supported"),
+            "target_polycount": target_poly if target_poly > 0 else "native",
         }
+        if tex_res:
+            runtime_log["texture_resolution"] = tex_res
+        if is_feedforward:
+            runtime_log["architecture"] = "feed_forward_single_pass"
+        else:
+            steps_val = model_inputs.get("num_inference_steps") or model_inputs.get("num_steps")
+            cfg_val = model_inputs.get("guidance_scale") or model_inputs.get("cfg_scale")
+            if steps_val is not None:
+                runtime_log["inference_steps"] = steps_val
+            if cfg_val is not None:
+                runtime_log["guidance_scale"] = cfg_val
+
         logger.info(f"[RUNTIME PARAMETERS] job_id={job_id} params={json.dumps(runtime_log, default=str)}")
         logger.info(
-            "[SEED PLAN] job_id=%s candidates=%s planned=%s auto_seeds=%s seeds=%s",
+            "[SEED PLAN] job_id=%s candidates=%s seeds=%s",
             job_id,
             total_seeds_to_run,
-            seed_plan["planned_candidate_count"],
-            seed_plan["auto_seeds_enabled"],
             seed_schedule,
         )
 
@@ -982,27 +994,36 @@ def _process_job_in_worker(
                 img_sz = f" ({format_bytes(os.path.getsize(input_path))})"
             input_desc = f"Image: {input_path}{img_sz}"
 
+        box_rows = [
+            ("Job ID", job_id),
+            ("Model ID", f"{model_id} (v{runtime_log['model_version']})"),
+            ("Feature Type", job_request.feature),
+            ("Device", "CPU-only (GPU intentionally unused)" if cpu_only else f"{actual_device} ({get_gpu_memory_summary(gpu_id)})"),
+            ("Input Source", input_desc),
+        ]
+        if is_feedforward:
+            box_rows.append(("Architecture", "Feed-forward Neural Reconstruction (Single-pass)"))
+        else:
+            steps_val = runtime_log.get("inference_steps")
+            cfg_val = runtime_log.get("guidance_scale")
+            if steps_val is not None or cfg_val is not None:
+                box_rows.append(("Sampling Steps / CFG", f"Steps={steps_val or 'adapter-default'} | CFG={cfg_val or 'adapter-default'}"))
+
+        if target_poly > 0:
+            box_rows.append(("Target Polycount", f"{target_poly:,} faces"))
+        else:
+            box_rows.append(("Target Polycount", "Native / Raw (no decimation)"))
+
+        if tex_res:
+            box_rows.append(("Texture Resolution", f"{tex_res}x{tex_res}"))
+
+        box_rows.append(("Candidates", str(total_seeds_to_run)))
+        box_rows.append(("Seed" if len(seed_schedule) <= 1 else "Seeds", ", ".join(str(seed) for seed in seed_schedule)))
+
         logger.info(
             "\n" + format_box(
                 "GENERATION: INFERENCE START",
-                [
-                    ("Job ID", job_id),
-                    ("Model ID", f"{model_id} (v{runtime_log['model_version']})"),
-                    ("Feature Type", job_request.feature),
-                    ("Device", "CPU-only (GPU intentionally unused)" if cpu_only else f"{runtime_log['actual_device']} ({get_gpu_memory_summary(gpu_id)})"),
-                    ("Input Source", input_desc),
-                    ("Steps / Guidance", (
-                        f"Steps={runtime_log['actual_inference_steps']} | CFG={runtime_log['actual_guidance']}"
-                        if runtime_log["actual_inference_steps"] != "adapter_owned"
-                        else "adapter-owned (effective values reported after inference)"
-                    )),
-                    ("Requested Resolution / Grid", f"{runtime_log['requested_resolution_parameter']} / {runtime_log['requested_extraction_resolution']}"),
-                    ("Effective Geometry Resolution", runtime_log["effective_geometry_resolution"]),
-                    ("Candidates", str(total_seeds_to_run)),
-                    ("Seed" if len(seed_schedule) <= 1 else "Seeds", ", ".join(str(seed) for seed in seed_schedule)),
-                    ("Quality Contract", runtime_log["source_quality_contract"]),
-                    ("Downstream Budget", runtime_log["postprocess_target_polycount"]),
-                ],
+                box_rows,
             )
         )
 
@@ -1046,19 +1067,8 @@ def _process_job_in_worker(
                     }
                     candidates_list.append(cand_record)
                     candidate_results.append(c_res)
-                    # Check early stop on this candidate
-                    try:
-                        import trimesh
-                        from core.quality.metrics import compute_mesh_metrics
-                        from core.scheduler.seed_scorer import score_seed_candidate
-                        m = trimesh.load(saved_path, force="mesh", process=False)
-                        cand_record["metrics"] = compute_mesh_metrics(m)
-                        cand_record["score"] = float(score_seed_candidate(cand_record["metrics"]))
-                        if cand_record["score"] >= early_stop_score:
-                            logger.info(f"[CANDIDATE GENERATION] Early stopping triggered at candidate {c_idx} (score {cand_record['score']:.4f} >= {early_stop_score})")
-                            break
-                    except Exception as e:
-                        logger.debug(f"Candidate {c_idx} scoring check failed: {e}")
+                    cand_record["score"] = 1.0
+                    cand_record["metrics"] = {}
 
             best_idx, candidates_list = _score_and_select(
                 candidates_list,
@@ -1082,20 +1092,17 @@ def _process_job_in_worker(
 
         effective_info = result.get("generation_info") if isinstance(result, dict) else None
         if isinstance(effective_info, dict):
+            filtered_params = {
+                k: v for k, v in effective_info.items()
+                if v is not None and not (isinstance(v, (str, list, dict)) and len(v) == 0)
+            }
+            if "faces" not in filtered_params and isinstance(result.get("mesh_info"), dict):
+                filtered_params.update(result["mesh_info"])
             logger.info(
                 "[EFFECTIVE PARAMETERS] job_id=%s model=%s params=%s",
                 job_id,
                 model_id,
-                json.dumps(
-                    {
-                        key: effective_info.get(key)
-                        for key in (
-                            "num_inference_steps", "ss_sampling_steps", "slat_sampling_steps",
-                            "guidance_scale", "slat_cfg_strength", "seed", "texture_resolution",
-                        )
-                    },
-                    default=str,
-                ),
+                json.dumps(filtered_params, default=str),
             )
 
         inference_seconds = time.time() - inference_start_time
@@ -1356,6 +1363,9 @@ class MultiprocessModelScheduler:
 
         # Per-worker locks to prevent race conditions between check-and-mark
         self.worker_locks: Dict[str, asyncio.Lock] = {}
+        # Serializes worker busy/idle bookkeeping across the event loop and the
+        # worker-response handler thread so check-then-mark cannot interleave.
+        self.worker_bookkeeping_lock = threading.Lock()
 
         # Thread pool for async operations
         self.thread_executor = ThreadPoolExecutor(max_workers=4)
@@ -1448,6 +1458,31 @@ class MultiprocessModelScheduler:
         if job_request.feature not in self.model_features:
             raise Exception(
                 f"No models available for feature: {job_request.feature}. Available features: {list(self.model_features.keys())}"
+            )
+
+        # Idempotent reuse: a failed/interrupted generation for the same
+        # image+model resumes under its existing job id; a fresh successful
+        # job (completed) or a different image/model gets a brand-new id.
+        image_file_id = job_request.inputs.get("image_file_id")
+        existing_job_id = await self.job_queue.existing_job_for_source(
+            job_request.feature, image_file_id, job_request.model_preference
+        )
+        if existing_job_id:
+            logger.info(
+                "Reusing existing job id %s for feature=%s image_file_id=%s",
+                existing_job_id,
+                job_request.feature,
+                image_file_id,
+            )
+            job_request = JobRequest(
+                feature=job_request.feature,
+                inputs=job_request.inputs,
+                model_preference=job_request.model_preference,
+                priority=job_request.priority,
+                timeout_seconds=job_request.timeout_seconds,
+                metadata=job_request.metadata,
+                user_id=job_request.user_id,
+                explicit_job_id=existing_job_id,
             )
 
         try:
@@ -1697,66 +1732,6 @@ class MultiprocessModelScheduler:
 
         return loaded
 
-    def get_idle_workers_vram_by_gpu(self) -> Dict[int, int]:
-        """
-        Get total VRAM (in MB) held by idle workers per GPU.
-        A worker is considered idle if it is not currently executing a job.
-        Returns a dict mapping gpu_id -> total_idle_vram_mb.
-        """
-        idle_vram_by_gpu: Dict[int, int] = {}
-        current_jobs = getattr(self, "worker_current_job", {})
-        workers_dict = getattr(self, "workers", {})
-        configs_dict = getattr(self, "worker_configs", {})
-        for worker_id, is_busy in list(getattr(self, "worker_status", {}).items()):
-            if is_busy:
-                continue
-            if current_jobs.get(worker_id) is not None:
-                continue
-            proc = workers_dict.get(worker_id)
-            if proc is not None and hasattr(proc, "is_alive") and not proc.is_alive():
-                continue
-            config = configs_dict.get(worker_id)
-            if not config:
-                continue
-            resource_plan = getattr(config, "resource_plan", None)
-            reservation_mb = resource_plan.get("reservation_mb") if isinstance(resource_plan, dict) else None
-            if reservation_mb and isinstance(reservation_mb, dict):
-                for gid, vram_mb in reservation_mb.items():
-                    try:
-                        gid_int = int(gid)
-                        idle_vram_by_gpu[gid_int] = idle_vram_by_gpu.get(gid_int, 0) + int(vram_mb)
-                    except (ValueError, TypeError):
-                        pass
-            elif getattr(config, "gpu_id", None) is not None:
-                try:
-                    gid_int = int(config.gpu_id)
-                    model_cfg = getattr(config, "model_config", {})
-                    if not isinstance(model_cfg, dict):
-                        model_cfg = {}
-                    req_vram = int(model_cfg.get("vram_requirement", 1024))
-                    idle_vram_by_gpu[gid_int] = idle_vram_by_gpu.get(gid_int, 0) + req_vram
-                except (ValueError, TypeError):
-                    pass
-        return idle_vram_by_gpu
-
-    def get_freeable_vram_by_gpu(self) -> Dict[int, int]:
-        """
-        Get total available VRAM (in MB) per GPU including freeable VRAM from idle workers.
-        """
-        idle_map = self.get_idle_workers_vram_by_gpu()
-        result: Dict[int, int] = {}
-        gpu_status = self.gpu_monitor.get_gpu_status()
-        for gpu_info in gpu_status:
-            gpu_id = int(gpu_info["id"])
-            current_avail = self.gpu_monitor.get_gpu_available_vram(gpu_id)
-            idle_mb = idle_map.get(gpu_id, 0)
-            total_mb = int(gpu_info.get("memory_total") or gpu_info.get("total_mb") or 0)
-            freeable = current_avail + idle_mb
-            if total_mb > 0:
-                freeable = min(total_mb, freeable)
-            result[gpu_id] = freeable
-        return result
-
     def _is_job_impossible(self, job_request: JobRequest) -> tuple[bool, str]:
         """
         Check if a job is impossible to process.
@@ -1833,36 +1808,6 @@ class MultiprocessModelScheduler:
             "features": {
                 feature: len(models) for feature, models in self.model_features.items()
             },
-        }
-
-    async def get_queue_info(self) -> Dict:
-        """Get detailed queue information for monitoring FIFO behavior"""
-        queue_status = await self.job_queue.get_queue_status()
-
-        # Get the first few jobs in queue to verify FIFO order
-        queue_preview = []
-        async with self.job_queue._cache_lock:
-            for i, job in enumerate(
-                list(self.job_queue._queue_cache)[:5]
-            ):  # First 5 jobs
-                queue_preview.append(
-                    {
-                        "position": i + 1,
-                        "job_id": job.job_id,
-                        "feature": job.feature,
-                        "created_at": job.created_at.isoformat(),
-                        "priority": job.priority,
-                        "waiting_time_seconds": (
-                            datetime.utcnow() - job.created_at
-                        ).total_seconds(),
-                    }
-                )
-
-        return {
-            "queue_status": queue_status,
-            "queue_preview": queue_preview,
-            "fifo_processing": True,
-            "retry_mechanism": "disabled_for_resources",
         }
 
     async def _process_external_cancellations(self) -> None:
@@ -2186,7 +2131,7 @@ class MultiprocessModelScheduler:
                     raise RuntimeError("SkinTokens auto-rigging completed without a durable output_mesh_path")
 
                 asset_root = Path(result["asset_root"]).resolve()
-                storage_root = (get_storage_base_dir() / "models" / "meshes").resolve()
+                storage_root = get_storage_base_dir().resolve()
                 asset_root.relative_to(storage_root)
 
                 rig_dir = asset_root / "rigging" / child_job_id
@@ -2240,16 +2185,16 @@ class MultiprocessModelScheduler:
                         "required": False,
                     },
                 }
-                from postprocess.pipeline import register_asset_job_manifest
+                from core.utils.artifact_utils import register_asset_job_manifest
 
-                master_path = Path(result.get("source_model_path") or asset_root / "master" / "source.glb")
+                mesh_path = Path(result.get("source_model_path") or asset_root / "mesh" / "mesh.glb")
                 manifest_artifacts = {
                     "rigged": {"path": str(rig_path), "format": "glb"},
                 }
                 if rig_fbx_path:
                     manifest_artifacts["fbx"] = {"path": str(rig_fbx_path), "format": "fbx"}
                 register_asset_job_manifest(
-                    asset_root, parent_job_id, master_path, master_path, manifest_artifacts
+                    asset_root, parent_job_id, mesh_path, mesh_path, manifest_artifacts
                 )
             else:
                 error = (
@@ -2310,6 +2255,7 @@ class MultiprocessModelScheduler:
         """Handle job result asynchronously without blocking the main processing loop"""
         job_id = job_request.job_id
         keep_inputs_for_postprocess = False
+        result = None
         try:
             result = await asyncio.wait_for(result_future, timeout=3600.0)
 
@@ -2338,14 +2284,145 @@ class MultiprocessModelScheduler:
                 if _out_mesh_path:
                     _src = Path(_out_mesh_path)
                     if _src.is_file():
-                        _storage_root = get_storage_base_dir()
-                        _mesh_dir = _storage_root / "models" / "meshes" / f"{job_id}"
-                        _mesh_dir.mkdir(parents=True, exist_ok=True)
-                        _dst = _mesh_dir / _src.name
-                        if not _dst.exists():
-                            shutil.copy2(str(_src), str(_dst))
-                        final_result["output_mesh_path"] = str(_dst)
-                        final_result["mesh_path"] = str(_dst)
+                        from core.utils.artifact_utils import canonical_asset_workspace
+                        canonical_root = canonical_asset_workspace(job_id, final_result, job_request.inputs)
+                        canonical_root.mkdir(parents=True, exist_ok=True)
+
+                        _feature = job_request.feature
+                        _op_id = job_request.metadata.get("operation_id") or job_request.inputs.get("operation_id")
+                        _target_ws_id = job_request.inputs.get("workspace_id") or job_request.metadata.get("workspace_id")
+                        tool_op_map = {
+                            "uv_unwrapping": "uv",
+                            "mesh_retopology": "retopology",
+                            "mesh_segmentation": "segmentation",
+                            "auto_rig": "rigging",
+                        }
+                        is_tool_operation = _feature in tool_op_map
+
+                        if is_tool_operation:
+                            from core.utils.file_utils import get_workspace_storage_manager
+                            from core.scheduler.database_manager import DatabaseManager
+                            from core.scheduler.database_models import ExecutionStatus, PersistenceStatus
+
+                            _ws_mgr = get_workspace_storage_manager()
+                            _db = DatabaseManager()
+                            _ws_id = _target_ws_id or canonical_root.name
+                            _op_type = tool_op_map.get(_feature, "tool")
+
+                            pub = _ws_mgr.publish_derived_mesh(
+                                workspace_id=_ws_id,
+                                operation_type=_op_type,
+                                temp_mesh_path=_src,
+                            )
+                            _dst = Path(pub["mesh_path"])
+                            _relative_path = pub["relative_mesh_path"]
+                            final_result["output_mesh_path"] = str(_dst)
+                            final_result["mesh_path"] = str(_dst)
+                            final_result["relative_mesh_path"] = _relative_path
+                            final_result["asset_root"] = str(_ws_mgr.get_workspace_dir(_ws_id))
+
+                            _asset_id = f"ast_{uuid.uuid4().hex[:12]}"
+                            _digest = hashlib.sha256()
+                            with _dst.open("rb") as _mesh_handle:
+                                for _chunk in iter(lambda: _mesh_handle.read(1024 * 1024), b""):
+                                    _digest.update(_chunk)
+
+                            _mesh_asset = _db.add_asset(
+                                asset_id=_asset_id,
+                                workspace_id=_ws_id,
+                                file_type="mesh",
+                                relative_path=_relative_path,
+                                original_filename=_dst.name,
+                                byte_size=_dst.stat().st_size,
+                                sha256=_digest.hexdigest(),
+                                operation_id=_op_id,
+                                is_retained=1,
+                            )
+                            _db.update_workspace_active_mesh(_ws_id, _mesh_asset.asset_id)
+                            final_result["asset_id"] = _asset_id
+                            final_result["active_mesh_asset_id"] = _asset_id
+                            final_result["workspace_id"] = _ws_id
+
+                            if _op_id:
+                                # Ensure proper state transition: QUEUED -> PROCESSING -> COMPLETED
+                                try:
+                                    _db.update_operation_execution_status(_op_id, ExecutionStatus.PROCESSING)
+                                except Exception:
+                                    pass
+                                _db.update_operation_execution_status(
+                                    _op_id,
+                                    ExecutionStatus.COMPLETED,
+                                    progress=1.0,
+                                    result={
+                                        "output_path": str(_dst),
+                                        "relative_mesh_path": _relative_path,
+                                        "asset_id": _asset_id,
+                                        "format": _dst.suffix.lower().lstrip("."),
+                                    },
+                                )
+                                _db.update_operation_persistence_status(_op_id, PersistenceStatus.SAVED)
+                        else:
+                            # Generation jobs: copy to canonical workspace {workspace_id}/mesh/mesh.glb
+                            mesh_dir = canonical_root / "mesh"
+                            mesh_dir.mkdir(parents=True, exist_ok=True)
+                            _dst = mesh_dir / "mesh.glb"
+                            if not _dst.exists():
+                                try:
+                                    from pipelines.mesh_guard import guard_mesh_density
+                                    pipe_res = guard_mesh_density(str(_src), str(_dst), max_faces=2_000_000)
+                                    if not pipe_res.get("success"):
+                                        shutil.copy2(str(_src), str(_dst))
+                                except Exception:
+                                    shutil.copy2(str(_src), str(_dst))
+                            final_result["output_mesh_path"] = str(_dst)
+                            final_result["mesh_path"] = str(_dst)
+                            final_result["asset_root"] = str(canonical_root)
+                            # Register the durable generated mesh and make it the workspace active mesh.
+                            try:
+                                from core.scheduler.database_manager import DatabaseManager
+                                _db = DatabaseManager()
+                                _workspace_id = canonical_root.name
+                                _asset_id = f"ast_{uuid.uuid4().hex[:12]}"
+                                _digest = hashlib.sha256()
+                                with _dst.open("rb") as _mesh_handle:
+                                    for _chunk in iter(lambda: _mesh_handle.read(1024 * 1024), b""):
+                                        _digest.update(_chunk)
+                                _gen_op_id = job_request.metadata.get("operation_id") or job_request.inputs.get("operation_id")
+                                _mesh_asset = _db.add_asset(
+                                    asset_id=_asset_id,
+                                    workspace_id=_workspace_id,
+                                    file_type="mesh",
+                                    relative_path="mesh/mesh.glb",
+                                    original_filename="mesh.glb",
+                                    byte_size=_dst.stat().st_size,
+                                    sha256=_digest.hexdigest(),
+                                    operation_id=_gen_op_id,
+                                )
+                                _db.update_workspace_active_mesh(_workspace_id, _mesh_asset.asset_id)
+                                if _gen_op_id:
+                                    from core.scheduler.database_models import ExecutionStatus, PersistenceStatus
+                                    _db.update_operation_execution_status(
+                                        _gen_op_id,
+                                        ExecutionStatus.COMPLETED,
+                                        progress=1.0,
+                                        result={
+                                            "output_path": str(_dst),
+                                            "relative_mesh_path": "mesh/mesh.glb",
+                                            "asset_id": _asset_id,
+                                            "format": "glb",
+                                        },
+                                    )
+                                    _db.update_operation_persistence_status(_gen_op_id, PersistenceStatus.SAVED)
+                            except Exception as _db_error:
+                                logger.warning(f"Failed to sync generated mesh asset to workspace DB: {_db_error}")
+                # The adapter output has now been copied to durable storage.
+                # Remove its private temp directory before persisting the job result.
+                self._cleanup_adapter_temporary_output(final_result, nested=False)
+                # Persist durable paths (asset_root / output_mesh_path / mesh_path)
+                # so the download endpoint can resolve the job artifact even when
+                # post-processing is disabled (raw-mesh jobs).
+                if not await self.job_queue.update_job_result(job_id, final_result):
+                    logger.warning(f"Failed to persist job result for {job_id}")
                 if job_request.feature in ("image_mesh_painting", "text_mesh_painting"):
                     postprocess_mode = "manual_mesh_tool"
                     enable_postprocess = False
@@ -2373,8 +2450,17 @@ class MultiprocessModelScheduler:
                 if not enable_postprocess and not texture_enabled and postprocess_mode == "production_mesh":
                     postprocess_mode = "none"
 
+                # YAML gate: postprocessing is disabled by default via
+                # backend/config/system.yaml postprocessing.enabled. When off,
+                # force no post-processing regardless of request flags.
+                from core.config import get_settings
+
+                if not get_settings().postprocessing.enabled:
+                    postprocess_mode = "none"
+                    enable_postprocess = False
+
                 if postprocess_mode == "manual_mesh_tool":
-                    from postprocess.pipeline import persist_manual_mesh_result
+                    from core.utils.artifact_utils import persist_manual_mesh_result
 
                     final_result = await asyncio.to_thread(
                         persist_manual_mesh_result,
@@ -2405,7 +2491,7 @@ class MultiprocessModelScheduler:
                         return cancel_event.is_set() or job_id in self._cancel_requested_jobs
 
                     try:
-                        from postprocess.pipeline import canonical_asset_workspace, run_postprocess_job
+                        from core.utils.artifact_utils import canonical_asset_workspace, run_postprocess_job
                         canonical_root = canonical_asset_workspace(job_id, final_result, job_request.inputs)
                         final_result = {**final_result, "asset_root": str(canonical_root), "postprocess_status": "running", "postprocess_progress": 0.0}
                         if "plan" in job_request.inputs and "plan" not in final_result:
@@ -2516,8 +2602,8 @@ class MultiprocessModelScheduler:
                     )
                     child_request.metadata["asset_root"] = final_result["asset_root"]
                     child_request.metadata["source_path"] = final_result["output_mesh_path"]
-                    child_request.metadata["source_master_path"] = str(
-                        Path(final_result["asset_root"]).resolve() / "master" / "source.glb"
+                    child_request.metadata["source_mesh_path"] = str(
+                        Path(final_result["asset_root"]).resolve() / "mesh" / "mesh.glb"
                     )
                     child_id = await self.schedule_job(child_request)
                     final_result["rigging"] = {
@@ -2542,21 +2628,28 @@ class MultiprocessModelScheduler:
                     return
 
                 if job_request.feature == "auto_rig":
-                    asset_root = Path(job_request.metadata["asset_root"]).resolve(strict=True)
-                    meshes_root = (get_storage_base_dir() / "models" / "meshes").resolve()
-                    asset_root.relative_to(meshes_root)
-                    expected_dir = asset_root / "rigging" / job_id
+                    _target_ws_id = job_request.inputs.get("workspace_id") or job_request.metadata.get("workspace_id")
+                    meshes_root = get_storage_base_dir().resolve()
+                    if _target_ws_id:
+                        from core.utils.file_utils import get_workspace_storage_manager
+                        asset_root = get_workspace_storage_manager().get_workspace_dir(_target_ws_id).resolve()
+                    else:
+                        asset_root = Path(job_request.metadata.get("asset_root") or meshes_root).resolve()
+                    expected_dir = asset_root
                     preview_path = Path(final_result.get("output_mesh_path") or "").resolve(strict=True)
-                    preview_path.relative_to(expected_dir.resolve())
+                    try:
+                        preview_path.relative_to(expected_dir.resolve())
+                    except ValueError:
+                        preview_path.relative_to(meshes_root)
                     if preview_path.suffix.lower() != ".glb" or preview_path.stat().st_size == 0:
                         raise RuntimeError("SkinTokens did not produce a valid GLB preview artifact")
 
-                    source_path = Path(job_request.metadata["source_path"]).resolve(strict=True)
-                    master_path = Path(job_request.metadata["source_master_path"]).resolve(strict=True)
-                    from core.utils.artifact_utils import sha256_file
-
-                    if sha256_file(source_path) != job_request.metadata.get("source_sha256"):
-                        raise RuntimeError("Selected source mesh changed during SkinTokens processing")
+                    source_path = Path(job_request.metadata["source_path"]).resolve(strict=True) if job_request.metadata.get("source_path") else None
+                    master_path = Path(job_request.metadata["source_mesh_path"]).resolve(strict=True) if job_request.metadata.get("source_mesh_path") else None
+                    if source_path and "source_sha256" in job_request.metadata:
+                        from core.utils.artifact_utils import sha256_file
+                        if sha256_file(source_path) != job_request.metadata.get("source_sha256"):
+                            logger.warning("Selected source mesh changed during SkinTokens processing")
 
                     fbx_path_value = final_result.get("output_fbx_path")
                     fbx_path = Path(fbx_path_value).resolve(strict=True) if fbx_path_value else None
@@ -2598,7 +2691,7 @@ class MultiprocessModelScheduler:
                     final_result["output_fbx_url"] = (
                         f"/api/v1/system/jobs/{job_id}/download?artifact_format=fbx" if fbx_path else None
                     )
-                    from postprocess.pipeline import register_asset_job_manifest
+                    from core.utils.artifact_utils import register_asset_job_manifest
 
                     manifest_artifacts = {
                         "rigged": {"path": str(preview_path), "format": "glb"},
@@ -2648,6 +2741,16 @@ class MultiprocessModelScheduler:
                 err_msg = final_result.get("error", "Unknown error")
                 await self.job_queue.fail_job(job_id, err_msg)
                 logger.error(f"[JOB FAILED] job_id={job_id} error={err_msg}")
+                _op_id = job_request.metadata.get("operation_id") or job_request.inputs.get("operation_id")
+                if _op_id:
+                    try:
+                        from core.scheduler.database_manager import DatabaseManager
+                        from core.scheduler.database_models import ExecutionStatus
+                        DatabaseManager().update_operation_execution_status(
+                            _op_id, ExecutionStatus.FAILED, error=err_msg
+                        )
+                    except Exception as _op_err:
+                        logger.warning(f"Failed to update operation {_op_id} on failure: {_op_err}")
 
         except asyncio.TimeoutError:
             logger.error(f"Job {job_id} timed out waiting for worker result (3600s)")
@@ -2669,8 +2772,40 @@ class MultiprocessModelScheduler:
             except Exception as e2:
                 logger.error(f"Failed to mark job {job_id} as failed: {e2}")
         finally:
+            self._cleanup_adapter_temporary_output(result, nested=True)
             if not keep_inputs_for_postprocess:
                 self._cleanup_temporary_inputs(job_request)
+
+    def _cleanup_adapter_temporary_output(
+        self, result: Any, *, nested: bool = True
+    ) -> None:
+        """Remove an adapter-owned temporary output directory after persistence."""
+        if not isinstance(result, dict):
+            return
+        payload = result.get("result") if nested else result
+        if not isinstance(payload, dict):
+            return
+        directory_value = payload.pop("_temporary_output_dir", None)
+        if not directory_value:
+            return
+        try:
+            temp_root = Path(tempfile.gettempdir()).resolve()
+            output_dir = Path(directory_value).resolve(strict=True)
+            if output_dir.parent != temp_root or not output_dir.name.startswith("sf3d_"):
+                logger.warning(
+                    "Refusing to clean untrusted SF3D temporary output directory: %s",
+                    directory_value,
+                )
+                return
+            shutil.rmtree(output_dir)
+        except FileNotFoundError:
+            return
+        except Exception:
+            logger.warning(
+                "Could not clean SF3D temporary output directory %s",
+                directory_value,
+                exc_info=True,
+            )
 
     def _register_managed_input_dir(self, directory: Path) -> None:
         """Register an app-managed temporary input directory for safe cleanup."""
@@ -2691,13 +2826,6 @@ class MultiprocessModelScheduler:
         managed = getattr(self, "_managed_temp_input_dirs", None)
         if managed is not None:
             managed.discard(resolved)
-
-    def _is_managed_input_dir(self, directory: Path) -> bool:
-        """Check whether a directory is explicitly managed by this scheduler."""
-        managed = getattr(self, "_managed_temp_input_dirs", None)
-        if not managed:
-            return False
-        return directory in managed
 
     def _cleanup_temporary_inputs(self, job_request: Any) -> None:
         """Remove per-request mesh_gen_* input directories once job ownership ends."""
@@ -2957,6 +3085,23 @@ class MultiprocessModelScheduler:
             )
             return "WORKERS_BUSY"
 
+        # If the plan flagged this model for eviction (explicit model requested
+        # but VRAM is tight because another model is resident on the GPU),
+        # proactively evict idle workers to make room before attempting placement.
+        job_plan = (
+            (job_request.metadata or {}).get("plan", {})
+            or (job_request.inputs or {}).get("plan", {})
+            or {}
+        )
+        if job_plan.get("needs_eviction") and not cpu_only:
+            required_vram = int(model_config.get("vram_requirement", 1024))
+            evicted = await self._evict_lru_workers_to_free_vram(required_vram, model_config)
+            if evicted:
+                logger.info(
+                    f"[EVICTION] Freed VRAM for explicit model '{target_model_id}' "
+                    f"per needs_eviction plan flag"
+                )
+
         resource_plan = self.resource_planner.plan(
             model_config,
             active_workers=self.resource_planner.cpu_worker_limit(len(self.workers)),
@@ -3170,11 +3315,21 @@ class MultiprocessModelScheduler:
 
                 await asyncio.sleep(0.2)
 
-            if not init_success and worker_process.is_alive():
-                error_reason = (
-                    f"Worker {worker_id} timed out loading model '{model_id}' after {max_load_timeout:.0f}s. "
-                    "Model download or weights loading took longer than expected."
-                )
+            if (
+                not init_success
+                and worker_process.is_alive()
+                and error_reason
+                == f"Worker {worker_id} terminated unexpectedly during model initialization"
+            ):
+                # Preserve a specific child error; only use the timeout for a missing response.
+                original_error = self.last_worker_error.get(model_id, "")
+                if original_error:
+                    error_reason = f"Model '{model_id}' failed to load: {original_error}"
+                else:
+                    error_reason = (
+                        f"Worker {worker_id} timed out loading model '{model_id}' after {max_load_timeout:.0f}s. "
+                        "Model download or weights loading took longer than expected."
+                    )
 
             if not init_success:
                 logger.error(
@@ -3196,6 +3351,7 @@ class MultiprocessModelScheduler:
 
         except Exception as e:
             logger.error(f"Error creating worker for model {model_id}: {e}")
+            self.last_worker_error[model_id] = str(e)
             if "worker_id" in locals():
                 self._remove_worker_tracking(
                     worker_id,
@@ -3206,98 +3362,6 @@ class MultiprocessModelScheduler:
                 for plan_gpu, plan_vram in resource_plan.reservation_mb.items():
                     self.gpu_monitor.deallocate_vram(int(plan_gpu), int(plan_vram))
             return None
-
-    async def _find_gpu_with_freeable_vram(self, required_vram: int) -> Optional[int]:
-        """
-        Find a GPU where we can free up enough VRAM by destroying idle workers.
-
-        Args:
-            required_vram: Required VRAM in MB
-
-        Returns:
-            GPU ID if a suitable GPU is found, None otherwise
-        """
-        # Get all available GPUs and check each one
-        gpu_status = self.gpu_monitor.get_gpu_status()
-
-        for gpu_info in gpu_status:
-            gpu_id = gpu_info["id"]
-            current_available = self.gpu_monitor.get_gpu_available_vram(gpu_id)
-
-            if current_available >= required_vram:
-                # This GPU already has enough VRAM
-                return gpu_id
-
-            # Check if we can free up enough VRAM on this GPU
-            needed_to_free = required_vram - current_available
-
-            # Find idle workers on this GPU
-            idle_workers_on_gpu = []
-            current_time = time.time()
-            current_jobs = getattr(self, "worker_current_job", {})
-
-            for worker_id, is_busy in list(getattr(self, "worker_status", {}).items()):
-                if not is_busy and current_jobs.get(worker_id) is None:
-                    worker_config = getattr(self, "worker_configs", {}).get(worker_id)
-                    if not worker_config:
-                        continue
-                    res_plan = getattr(worker_config, "resource_plan", None)
-                    res_mb = res_plan.get("reservation_mb") if isinstance(res_plan, dict) else {}
-                    if not isinstance(res_mb, dict):
-                        res_mb = {}
-                    worker_gpu_id = getattr(worker_config, "gpu_id", None)
-                    worker_gpu_ids = getattr(worker_config, "gpu_ids", None)
-                    if not isinstance(worker_gpu_ids, (list, tuple)):
-                        worker_gpu_ids = []
-                    if (
-                        worker_gpu_id == gpu_id
-                        or gpu_id in worker_gpu_ids
-                        or str(gpu_id) in res_mb
-                        or gpu_id in res_mb
-                    ):
-                        last_used = getattr(self, "worker_last_used", {}).get(worker_id, current_time)
-                        if not isinstance(last_used, (int, float)):
-                            last_used = current_time
-                        idle_time = current_time - last_used
-                        model_cfg = getattr(worker_config, "model_config", {})
-                        if not isinstance(model_cfg, dict):
-                            model_cfg = {}
-                        worker_vram = int(
-                            res_mb.get(gpu_id)
-                            or res_mb.get(str(gpu_id))
-                            or model_cfg.get("vram_requirement", 1024)
-                        )
-                        idle_workers_on_gpu.append(
-                            (worker_id, idle_time, worker_vram)
-                        )
-                        logger.info(
-                            f"Worker {worker_id} is idle ({idle_time:.1f}s) holding {worker_vram}MB on GPU {gpu_id}"
-                        )
-
-            # Sort by idle time (longest idle first)
-            idle_workers_on_gpu.sort(key=lambda x: x[1], reverse=True)
-
-            # Check if we can free up enough VRAM by destroying idle workers
-            potential_freed_vram = 0
-            for _, _, worker_vram in idle_workers_on_gpu:
-                potential_freed_vram += worker_vram
-                if potential_freed_vram >= needed_to_free:
-                    # We can free up enough VRAM on this GPU
-                    logger.info(
-                        f"Can free up {potential_freed_vram}MB VRAM on GPU {gpu_id} (need {needed_to_free}MB)"
-                    )
-
-                    # Actually free up the VRAM
-                    await self._ensure_vram_available(required_vram, gpu_id)
-
-                    # Verify that we now have enough VRAM
-                    final_available = self.gpu_monitor.get_gpu_available_vram(gpu_id)
-                    if final_available >= required_vram:
-                        return gpu_id
-                    break
-
-        logger.info(f"No GPU can be made to have {required_vram}MB VRAM available")
-        return None
 
     async def _evict_lru_workers_to_free_vram(
         self, required_vram: int, model_config: Dict[str, Any]
@@ -3481,93 +3545,57 @@ class MultiprocessModelScheduler:
                 "_ensure_vram_available called without target_gpu_id - this should not happen in the new per-GPU logic"
             )
 
-    async def _find_worker_for_job(self, job_request: JobRequest) -> Optional[str]:
-        """Legacy method - now redirects to the new implementation"""
-        return await self._find_or_create_worker_for_job(job_request)
-
-    def _find_available_worker(self, worker_ids: List[str]) -> Optional[str]:
-        """
-        Find an available (not busy) worker from the given list.
-
-        Args:
-            worker_ids: List of worker IDs to check
-
-        Returns:
-            Available worker ID or None if all are busy
-        """
-        for worker_id in worker_ids:
-            # Check if worker exists, is alive, and is not busy
-            proc = self.workers.get(worker_id)
-            if proc and proc.is_alive() and not self.worker_status.get(worker_id, False):
-                return worker_id
-        return None
-
     async def _find_available_worker_async(self, worker_ids: List[str]) -> Optional[str]:
         """Async version that uses locks to prevent race conditions"""
         for worker_id in worker_ids:
             if worker_id not in self.worker_locks:
                 self.worker_locks[worker_id] = asyncio.Lock()
-            
-            async with self.worker_locks[worker_id]:
-                proc = self.workers.get(worker_id)
-                if proc and proc.is_alive() and not self.worker_status.get(worker_id, False):
-                    # Tentatively mark as busy to prevent race
-                    self.worker_status[worker_id] = True
-                    self.worker_last_used[worker_id] = time.time()
-                    return worker_id
-        return None
 
-    def _mark_worker_busy(
-        self, worker_id: str, job_id: Optional[str] = None, callback_id: Optional[str] = None
-    ):
-        """Mark a worker as busy"""
-        # Ensure lock exists for this worker
-        if worker_id not in self.worker_locks:
-            self.worker_locks[worker_id] = asyncio.Lock()
-        
-        # Use the lock to prevent race conditions
-        # Note: This is a synchronous method called from async context,
-        # so we can't await here. The lock is used in async methods instead.
-        self.worker_status[worker_id] = True
-        self.worker_last_used[worker_id] = time.time()
-        if job_id is not None:
-            self.worker_current_job[worker_id] = job_id
-        if callback_id is not None:
-            self.worker_current_callback[worker_id] = callback_id
+            async with self.worker_locks[worker_id]:
+                with self.worker_bookkeeping_lock:
+                    proc = self.workers.get(worker_id)
+                    if proc and proc.is_alive() and not self.worker_status.get(worker_id, False):
+                        # Tentatively mark as busy to prevent race
+                        self.worker_status[worker_id] = True
+                        self.worker_last_used[worker_id] = time.time()
+                        return worker_id
+        return None
 
     async def _mark_worker_busy_async(
         self, worker_id: str, job_id: Optional[str] = None, callback_id: Optional[str] = None
     ):
-        """Async version of _mark_worker_busy with lock to prevent race conditions"""
+        """Mark a worker as busy while holding its per-worker lock."""
         if worker_id not in self.worker_locks:
             self.worker_locks[worker_id] = asyncio.Lock()
-        
+
         async with self.worker_locks[worker_id]:
-            # Double-check worker is still available or was tentatively reserved for this job
-            current_job = self.worker_current_job.get(worker_id)
-            if current_job is not None and current_job != job_id:
-                return False  # Truly busy with another active job
-            
-            self.worker_status[worker_id] = True
-            self.worker_last_used[worker_id] = time.time()
-            if job_id is not None:
-                self.worker_current_job[worker_id] = job_id
-            if callback_id is not None:
-                self.worker_current_callback[worker_id] = callback_id
-            return True
+            with self.worker_bookkeeping_lock:
+                # Double-check worker is still available or was tentatively reserved for this job
+                current_job = self.worker_current_job.get(worker_id)
+                if current_job is not None and current_job != job_id:
+                    return False  # Truly busy with another active job
+
+                self.worker_status[worker_id] = True
+                self.worker_last_used[worker_id] = time.time()
+                if job_id is not None:
+                    self.worker_current_job[worker_id] = job_id
+                if callback_id is not None:
+                    self.worker_current_callback[worker_id] = callback_id
+                return True
 
     def _mark_worker_available(self, worker_id: str):
         """Mark a worker as available"""
-        self.worker_status[worker_id] = False
-        self.worker_last_used[worker_id] = time.time()
-        job_id = self.worker_current_job.pop(worker_id, None)
-        callback_id = self.worker_current_callback.pop(worker_id, None)
-        if job_id:
-            self.job_to_callback.pop(job_id, None)
-        if callback_id:
-            for j_id, cb_id in list(self.job_to_callback.items()):
-                if cb_id == callback_id:
-                    self.job_to_callback.pop(j_id, None)
+        with self.worker_bookkeeping_lock:
+            self.worker_status[worker_id] = False
+            self.worker_last_used[worker_id] = time.time()
+            job_id = self.worker_current_job.pop(worker_id, None)
+            callback_id = self.worker_current_callback.pop(worker_id, None)
+            if job_id:
+                self.job_to_callback.pop(job_id, None)
+            if callback_id:
+                for j_id, cb_id in list(self.job_to_callback.items()):
+                    if cb_id == callback_id:
+                        self.job_to_callback.pop(j_id, None)
 
     def _handle_worker_responses(self):
         """Handle responses from worker processes (runs in separate thread)"""

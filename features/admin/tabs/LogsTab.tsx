@@ -5,7 +5,7 @@ import { getApiClient } from "@/services/apiClient";
 import { LOG_VIEW_INITIAL_TAIL, LOG_VIEW_MAX_LINES } from "@/constants/logs";
 import { toast } from "sonner";
 
-type ConnStatus = "CONNECTING" | "CONNECTED" | "ERROR" | "PAUSED";
+type ConnStatus = "CONNECTING" | "STREAMING" | "PAUSED" | "DISCONNECTED" | "ERROR";
 
 export function LogsTab() {
   const [live, setLive] = useState(true);
@@ -153,7 +153,7 @@ export function LogsTab() {
             hasReceivedContentRef.current = true;
             setHasReceivedContent(true);
           }
-          setStatus("CONNECTED");
+          setStatus("STREAMING");
         }
       } catch {
         if (!disposed && status !== "ERROR") {
@@ -185,7 +185,7 @@ export function LogsTab() {
       source.onopen = () => {
         if (disposed) return;
         retryDelay = 1000;
-        setStatus("CONNECTED");
+        setStatus("STREAMING");
       };
 
       source.addEventListener("sync", (event) => {
@@ -322,7 +322,7 @@ export function LogsTab() {
   };
 
   const statusColor =
-    status === "CONNECTED"
+    status === "STREAMING"
       ? "#4CAF50"
       : status === "ERROR"
         ? "#F44336"
@@ -343,7 +343,7 @@ export function LogsTab() {
         <div className="flex items-center justify-between px-4 py-2 border-b border-[#2d2d2d] text-xs flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <span style={{ color: statusColor }} className="font-bold whitespace-nowrap">
-              ● {status === "CONNECTED" ? "LIVE (250ms)" : status}
+              ● {status === "STREAMING" ? "LIVE (250ms)" : status}
             </span>
             <span className="text-[#555555] truncate">logs/{fileName}</span>
             <span className="text-[#888888] whitespace-nowrap">
@@ -387,7 +387,7 @@ export function LogsTab() {
           {!hasReceivedContent && (
             <div className="text-[#555555] mt-2">
               {status === "CONNECTING" && "⏳ Connecting to master.log..."}
-              {status === "CONNECTED" &&
+              {status === "STREAMING" &&
                 `⏳ Fetching recent lines from ${fileName}…`}
               {status === "ERROR" && "✗ Stream interrupted; retrying automatically."}
               {status === "PAUSED" && "⏸ Stream paused. Click Resume to continue from the last received byte."}

@@ -240,6 +240,13 @@ export interface SchedulerStatus {
 export interface ModelRuntimeDetails {
   id: string;
   feature: string;
+  model_name?: string;
+  model_type?: 'mesh' | 'texture' | 'rigging' | 'retopology' | 'uv' | 'motion' | string;
+  ui_label?: string;
+  ui_tag?: string;
+  ui_note?: string;
+  ui_badge?: string;
+  enabled?: boolean;
   status: 'ready' | 'weights_missing' | 'gpu_unavailable' | string;
   weights_available: boolean;
   weights_downloadable: boolean;
@@ -313,32 +320,18 @@ export interface ImageToMeshRequest {
   image_path?: string;
   image_base64?: string;
   image_file_id?: string; // preferred method
-  output_format: OutputFormat;
-  model_preference?: string;
-  model_parameters?: Record<string, any>;
-  intent?: 'game_ready' | 'cinematic' | 'animation' | '3d_print' | 'mobile';
-  preprocessing_artifact_id?: string;
-  preprocessing_review_override?: boolean;
-  enhancement_enabled?: boolean;
-  enable_printability_check?: boolean;
-  enable_auto_repair?: boolean;
-  enable_auto_rig?: boolean;
-  auto_rig_mode?: 'skeleton' | 'skin' | 'full';
-
-}
-
-export interface ImageToTexturedMeshRequest {
-  image_path?: string;
-  image_base64?: string;
-  image_file_id?: string; // preferred method
   texture_image_path?: string;
   texture_image_base64?: string;
-  texture_image_file_id?: string; //preferred method
+  texture_image_file_id?: string;
+  texture_enabled?: boolean;
+  generate_texture?: boolean;
   texture_resolution?: number;
+  texture_settings?: Record<string, any>;
+  workspace_id?: string;
+  parent_operation_id?: string;
   output_format: OutputFormat;
   model_preference?: string;
   model_parameters?: Record<string, any>;
-  intent?: 'game_ready' | 'cinematic' | 'animation' | '3d_print' | 'mobile';
   preprocessing_artifact_id?: string;
   preprocessing_review_override?: boolean;
   enhancement_enabled?: boolean;
@@ -538,49 +531,6 @@ export interface ApiConfig {
   retries?: number;
 }
 
-// Authentication Types
-export interface AuthStatus {
-  user_auth_enabled: boolean;
-  api_key_required: boolean;
-  mode: 'simple' | 'authenticated' | 'api_key';
-  description: string;
-  features: {
-    job_isolation: boolean;
-    user_management: boolean;
-    role_based_access: boolean;
-  };
-  timestamp: string;
-}
-
-export interface RegisterRequest {
-  username: string;
-  email: string;
-  password: string;
-}
-
-export interface LoginRequest {
-  username: string;
-  password: string;
-}
-
-export interface AuthResponse {
-  token: string;
-  user: {
-    user_id: string;
-    username: string;
-    email: string;
-    role: string;
-  };
-  message: string;
-}
-
-export interface UserInfo {
-  user_id: string;
-  username: string;
-  email: string;
-  role: string;
-}
-
 // Model Parameters Types
 export interface ParameterSchema {
   type: 'integer' | 'number' | 'boolean' | 'string';
@@ -600,56 +550,6 @@ export interface ModelParametersResponse {
     parameters: Record<string, ParameterSchema>;
   };
   timestamp: string;
-}
-
-// Mesh Editing Types
-export interface TextMeshEditingRequest {
-  mesh_path?: string;
-  mesh_base64?: string;
-  mesh_file_id?: string;
-  mask_bbox?: {
-    center: [number, number, number];
-    dimensions: [number, number, number];
-  };
-  mask_ellipsoid?: {
-    center: [number, number, number];
-    radii: [number, number, number];
-  };
-  source_prompt: string;
-  target_prompt: string;
-  num_views?: number;
-  resolution?: number;
-  output_format: OutputFormat;
-  model_preference?: string;
-  model_parameters?: Record<string, any>;
-}
-
-export interface ImageMeshEditingRequest {
-  mesh_path?: string;
-  mesh_base64?: string;
-  mesh_file_id?: string;
-  source_image_path?: string;
-  source_image_base64?: string;
-  source_image_file_id?: string;
-  target_image_path?: string;
-  target_image_base64?: string;
-  target_image_file_id?: string;
-  mask_image_path?: string;
-  mask_image_base64?: string;
-  mask_image_file_id?: string;
-  mask_bbox?: {
-    center: [number, number, number];
-    dimensions: [number, number, number];
-  };
-  mask_ellipsoid?: {
-    center: [number, number, number];
-    radii: [number, number, number];
-  };
-  num_views?: number;
-  resolution?: number;
-  output_format: OutputFormat;
-  model_preference?: string;
-  model_parameters?: Record<string, any>;
 }
 
 // Queue Stats Types

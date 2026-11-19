@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
-from api.dependencies import get_current_settings, get_scheduler, verify_api_key
+from api.dependencies import get_current_settings, get_scheduler, sanitize_error_message, verify_api_key
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
 from core.utils.artifact_utils import first_result_path, resolve_declared_artifact, resolve_manifest_path
 from core.utils.file_utils import encode_file_to_base64, get_file_size_mb, get_storage_base_dir
@@ -51,37 +51,6 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "uptime": time.time(),
-    }
-
-
-@router.get("/auth-status", summary="Get authentication status")
-async def get_auth_status(settings=Depends(get_current_settings)):
-    """
-    Get authentication and authorization status for the service.
-    
-    This endpoint is public (no authentication required) so clients can 
-    determine whether they need to authenticate before making requests.
-    
-    Returns:
-        - user_auth_enabled: Whether user authentication is enabled
-        - api_key_required: Whether API key authentication is required
-        - mode: Description of the authentication mode
-    """
-    return {
-        "user_auth_enabled": settings.user_auth_enabled,
-        "api_key_required": settings.security.api_key_required,
-        "mode": "authenticated" if settings.user_auth_enabled else "simple",
-        "description": (
-            "User authentication enabled - Users can only see their own jobs"
-            if settings.user_auth_enabled
-            else "Simple mode - All clients can see all jobs"
-        ),
-        "features": {
-            "job_isolation": settings.user_auth_enabled,
-            "user_management": settings.user_auth_enabled,
-            "role_based_access": settings.user_auth_enabled,
-        },
-        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -117,15 +86,6 @@ async def system_status(
     memory = psutil.virtual_memory()
     disk = psutil.disk_usage("/")
 
-    mesh_tools_status = {"status": "ready", "mode": "in_process", "routes_prefix": "/api/v1/mesh-tools"}
-    try:
-        import postprocess.services.auto_retopo  # noqa: F401
-        import postprocess.services.auto_uv  # noqa: F401
-        import postprocess.services.repair  # noqa: F401
-        import postprocess.services.collision  # noqa: F401
-    except Exception as exc:
-        mesh_tools_status = {"status": "unavailable", "mode": "in_process", "routes_prefix": "/api/v1/mesh-tools", "error": str(exc)}
-
     status = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "system": {
@@ -146,7 +106,6 @@ async def system_status(
         "gpu": [],
         "models": {"loaded": 0, "available": 0, "total_vram_used": 0},
         "queue": {"pending_jobs": 0, "processing_jobs": 0, "completed_jobs": 0},
-        "mesh_tools": mesh_tools_status,
     }
 
     # Try to get GPU information
@@ -384,7 +343,7 @@ def _model_supports_download(model_id: str) -> bool:
         for token in (
             "trellis", "triposg", "hunyuan", "fastmesh",
             "unique3d", "taoflowforge", "pixal3d",
-            "paint3d", "skintokens", "unirig", "partuv", "ardy"
+            "skintokens", "unirig", "partuv", "ardy"
         )
     )
 
@@ -415,6 +374,13 @@ async def list_models(
             model_details[mid] = {
                 "id": mid,
                 "feature": feat,
+                "model_name": getattr(cfg, "model_name", None) or mid,
+                "model_type": getattr(cfg, "model_type", None) or ("mesh" if "mesh" in feat and "paint" not in feat else "texture" if "paint" in feat else "other"),
+                "ui_label": getattr(cfg, "ui_label", None) or getattr(cfg, "model_name", None) or mid,
+                "ui_tag": getattr(cfg, "ui_tag", None) or "Ready",
+                "ui_note": getattr(cfg, "ui_note", None) or "",
+                "ui_badge": getattr(cfg, "ui_badge", None) or (f"{cfg.vram_requirement // 1024}GB VRAM" if getattr(cfg, "vram_requirement", None) else ""),
+                "enabled": getattr(cfg, "enabled", True) if cfg else True,
                 "status": (
                     "weights_missing" if not weights_ok
                     else "gpu_unavailable" if not cuda_available
@@ -452,6 +418,7 @@ async def list_models(
         "available_models": available_models,
         "weights_status": weights_status,
         "model_details": model_details,
+        "postprocessing": {"enabled": bool(settings.postprocessing.enabled)},
         "total_features": len(available_models),
         "total_models": sum(len(models) for models in available_models.values()),
     }
@@ -1322,6 +1289,51 @@ async def get_job_status(job_id: str, request: Request):
         job_status = await scheduler.get_job_status(job_id)
 
         if job_status is None:
+            # Check authoritative SQLite database for workspace or operation
+            from core.scheduler.database_manager import DatabaseManager
+            db = DatabaseManager()
+            job_row = db.get_job(job_id)
+            if job_row:
+                job_status = job_row.to_dict()
+            else:
+                op_row = db.get_operation(job_id)
+                if op_row:
+                    job_status = {
+                        "job_id": op_row.operation_id,
+                        "operation_id": op_row.operation_id,
+                        "workspace_id": op_row.workspace_id,
+                        "status": op_row.execution_status,
+                        "execution_status": op_row.execution_status,
+                        "persistence_status": op_row.persistence_status,
+                        "progress": op_row.progress,
+                        "result": json.loads(op_row.result_json) if op_row.result_json else {},
+                        "error": json.loads(op_row.error_json) if op_row.error_json else None,
+                        "created_at": op_row.created_at.isoformat() if op_row.created_at else None,
+                        "completed_at": op_row.completed_at.isoformat() if op_row.completed_at else None,
+                        "api_version": "1",
+                    }
+                else:
+                    ws_row = db.get_workspace(job_id)
+                    if ws_row:
+                        ops = db.list_workspace_operations(ws_row.workspace_id)
+                        latest_op = ops[-1] if ops else None
+                        job_status = {
+                            "job_id": ws_row.workspace_id,
+                            "workspace_id": ws_row.workspace_id,
+                            "operation_id": latest_op.operation_id if latest_op else None,
+                            "operation_type": latest_op.operation_type if latest_op else None,
+                            "parent_operation_id": latest_op.parent_operation_id if latest_op else None,
+                            "status": latest_op.execution_status if latest_op else "completed",
+                            "execution_status": latest_op.execution_status if latest_op else "completed",
+                            "persistence_status": latest_op.persistence_status if latest_op else "saved",
+                            "progress": latest_op.progress if latest_op else 100.0,
+                            "result": (json.loads(latest_op.result_json) if latest_op and latest_op.result_json else {}) or {},
+                            "created_at": ws_row.created_at.isoformat() if ws_row.created_at else None,
+                            "completed_at": ws_row.updated_at.isoformat() if ws_row.updated_at else None,
+                            "api_version": "1",
+                        }
+
+        if job_status is None:
             raise HTTPException(status_code=404, detail="Job not found")
 
         job_status.setdefault("api_version", "1")
@@ -1335,8 +1347,9 @@ async def get_job_status(job_id: str, request: Request):
 
             if mesh_path and os.path.exists(mesh_path):
                 # Create URL for mesh file
-                mesh_url = f"{request.base_url}api/v1/system/jobs/{job_id}/download"
+                mesh_url = f"{request.base_url}api/v1/system/jobs/{job_id}/download?artifact_format=glb"
                 result["mesh_url"] = mesh_url
+                result["model_url"] = mesh_url
 
                 # Add file info
                 file_stats = os.stat(mesh_path)
@@ -1359,7 +1372,6 @@ async def get_job_status(job_id: str, request: Request):
                         "file_size_mb": round(file_stats.st_size / (1024 * 1024), 2),
                     }
                     await store_file_metadata_impl(file_store, f"job-{job_id}", file_info)
-                    await store_file_metadata_impl(file_store, job_id, file_info)
                     result["file_id"] = f"job-{job_id}"
                 except Exception as ex:
                     logger.debug(f"Failed to register job result file metadata: {ex}")
@@ -1382,8 +1394,8 @@ async def get_job_status(job_id: str, request: Request):
                         thumbnail_path = str(candidate)
                         result["thumbnail_path"] = thumbnail_path
                         break
-            if not thumbnail_path and (result.get("mesh_path") or result.get("output_path")):
-                m_path = Path(result.get("mesh_path") or result.get("output_path"))
+            if not thumbnail_path and (result.get("mesh_path") or result.get("output_path") or result.get("output_mesh_path")):
+                m_path = Path(result.get("mesh_path") or result.get("output_path") or result.get("output_mesh_path"))
                 for candidate in [
                     m_path.parent / f"{m_path.stem}_thumb.png",
                     m_path.parent / f"{m_path.stem}_preview.png",
@@ -1395,7 +1407,21 @@ async def get_job_status(job_id: str, request: Request):
                         result["thumbnail_path"] = thumbnail_path
                         break
 
-            # Fallback to reference input image if thumbnail is absent
+            # If thumbnail is absent or 3D mesh thumbnail not found, prioritize auto-generating 3D mesh thumbnail
+            if (not thumbnail_path or not os.path.exists(thumbnail_path)) and mesh_path and os.path.exists(mesh_path):
+                try:
+                    from core.utils.thumbnail_utils import generate_mesh_thumbnail
+                    m_p = Path(mesh_path)
+                    auto_thumb = m_p.parent / f"{m_p.stem}_thumb.png"
+                    if not auto_thumb.exists():
+                        generate_mesh_thumbnail(str(mesh_path), str(auto_thumb))
+                    if auto_thumb.exists() and auto_thumb.stat().st_size > 0:
+                        thumbnail_path = str(auto_thumb)
+                        result["thumbnail_path"] = thumbnail_path
+                except Exception as auto_thumb_err:
+                    logger.debug("Failed to auto-render thumbnail for mesh: %s", auto_thumb_err)
+
+            # Fallback to reference input image only if 3D thumbnail generation is impossible
             if not thumbnail_path or not os.path.exists(thumbnail_path):
                 inputs_dict = job_status.get("inputs", {})
                 cand_input = inputs_dict.get("image_path") or inputs_dict.get("image") or inputs_dict.get("texture_image_path")
@@ -1410,7 +1436,7 @@ async def get_job_status(job_id: str, request: Request):
             result["thumbnail_url"] = thumbnail_url
 
             # Canonical production artifact URLs (game-ready GLB by default,
-            # master/source.glb for the source view). Stable across restarts
+            # mesh/mesh.glb for the source view). Stable across restarts
             # because they only reference this job's download endpoints.
             _ensure_production_result_urls(job_id, result)
 
@@ -1450,6 +1476,45 @@ async def get_job_status(job_id: str, request: Request):
                 "file_extension": Path(input_image_path).suffix,
             }
 
+        # Enrich with workspace state and output assets from SQLite
+        from core.scheduler.database_manager import DatabaseManager
+        db = DatabaseManager()
+        ws_id = (
+            job_status.get("workspace_id")
+            or (job_status.get("inputs") or {}).get("workspace_id")
+            or (job_status.get("metadata") or {}).get("workspace_id")
+            or job_id
+        )
+        ws = db.get_workspace(ws_id)
+        if ws:
+            job_status["workspace_id"] = ws.workspace_id
+            job_status["route_path"] = f"/workspace/generate/{ws.workspace_id}"
+            job_status["active_mesh_asset_id"] = ws.active_mesh_asset_id
+            job_status["workspace_status"] = ws.status
+            assets = db.list_workspace_assets(ws.workspace_id)
+            job_status["assets"] = [a.to_dict() for a in assets]
+            if ws.active_mesh_asset_id:
+                active_asset = db.get_asset(ws.active_mesh_asset_id)
+                if active_asset:
+                    job_status["active_mesh_asset"] = active_asset.to_dict()
+                    storage_base = get_storage_base_dir().resolve()
+                    active_path = (storage_base / ws.workspace_id / active_asset.relative_path).resolve()
+                    if active_path.is_file() and active_path.is_relative_to(storage_base):
+                        job_status.setdefault("result", {})
+                        if not job_status["result"].get("mesh_url"):
+                            mesh_url = f"{request.base_url}api/v1/system/jobs/{job_id}/download?artifact_format=glb"
+                            job_status["result"]["mesh_url"] = mesh_url
+                            job_status["result"]["model_url"] = mesh_url
+                            job_status["result"]["mesh_path"] = str(active_path)
+
+        op_id = job_status.get("operation_id") or (job_status.get("inputs") or {}).get("operation_id") or (job_status.get("metadata") or {}).get("operation_id")
+        if op_id:
+            op = db.get_operation(op_id)
+            if op:
+                job_status["operation_id"] = op.operation_id
+                job_status["execution_status"] = op.execution_status
+                job_status["persistence_status"] = op.persistence_status
+
         return job_status
     except HTTPException:
         raise
@@ -1457,8 +1522,116 @@ async def get_job_status(job_id: str, request: Request):
         import traceback 
         traceback.print_exc()
         raise HTTPException(
-            status_code=500, detail=f"Error retrieving job status: {str(e)}"
+            status_code=500, detail=sanitize_error_message(f"Error retrieving job status: {str(e)}")
         )
+
+
+@router.get("/workspace/operations/{operation_id}", summary="Get SQLite-backed workspace operation status")
+async def get_workspace_operation_status(operation_id: str):
+    """Read Script operation progress directly from SQLite without acquiring the AI scheduler."""
+    from core.scheduler.database_manager import DatabaseManager
+    from core.scheduler.database_models import ExecutionStatus
+
+    operation = DatabaseManager().get_operation(operation_id)
+    if not operation:
+        raise HTTPException(status_code=404, detail=f"Operation {operation_id} not found")
+
+    result = json.loads(operation.result_json) if operation.result_json else {}
+    error = json.loads(operation.error_json) if operation.error_json else None
+    asset_id = result.get("asset_id")
+    format_ext = result.get("format", "glb")
+    model_url = f"/api/v1/system/jobs/{asset_id or operation_id}/download?artifact_format={format_ext}" if operation.execution_status == ExecutionStatus.COMPLETED else None
+
+    return {
+        "operation_id": operation.operation_id,
+        "workspace_id": operation.workspace_id,
+        "operation_type": operation.operation_type,
+        "status": operation.execution_status,
+        "execution_status": operation.execution_status,
+        "persistence_status": operation.persistence_status,
+        "progress": float(operation.progress or 0.0),
+        "result": {
+            "format": format_ext,
+            "stats": result.get("stats") or {},
+            "algorithm": result.get("algorithm"),
+            "asset_id": asset_id,
+            "relative_mesh_path": result.get("relative_mesh_path"),
+            "model_url": model_url,
+        },
+        "error": error,
+        "model_url": model_url,
+        "created_at": operation.created_at.isoformat() if operation.created_at else None,
+        "completed_at": operation.completed_at.isoformat() if operation.completed_at else None,
+    }
+
+
+@router.post("/workspace/operations/{operation_id}/cancel", summary="Cancel a Script workspace operation")
+async def cancel_workspace_operation(operation_id: str):
+    """Cancel a queued or processing Script operation in the authoritative SQLite state machine."""
+    from core.scheduler.database_manager import DatabaseManager
+    from core.scheduler.database_models import ExecutionStatus
+
+    db = DatabaseManager()
+    operation = db.get_operation(operation_id)
+    if not operation:
+        raise HTTPException(status_code=404, detail=f"Operation {operation_id} not found")
+    if operation.execution_status == ExecutionStatus.CANCELLED:
+        return {"success": True, "operation_id": operation_id, "status": ExecutionStatus.CANCELLED}
+    if operation.execution_status not in {ExecutionStatus.QUEUED, ExecutionStatus.PROCESSING}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot cancel operation in state '{operation.execution_status}'",
+        )
+
+    try:
+        db.update_operation_execution_status(
+            operation_id,
+            ExecutionStatus.CANCELLED,
+            error="Cancelled by user",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return {"success": True, "operation_id": operation_id, "status": ExecutionStatus.CANCELLED}
+
+
+@router.get("/workspace/generate/{workspace_id}", summary="Get workspace state for deep link")
+@router.get("/workspace/{workspace_id}", summary="Get workspace state")
+async def get_workspace_route_lookup(workspace_id: str, request: Request):
+    """
+    Support route lookup /workspace/generate/{workspace_id} from authoritative SQLite DB without rerunning inference.
+    """
+    from core.scheduler.database_manager import DatabaseManager
+    db = DatabaseManager()
+    ws = db.get_workspace(workspace_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    assets = db.list_workspace_assets(workspace_id)
+    operations = db.list_workspace_operations(workspace_id)
+    active_mesh = db.get_asset(ws.active_mesh_asset_id) if ws.active_mesh_asset_id else None
+
+    storage_base = get_storage_base_dir().resolve()
+    mesh_url = None
+    if active_mesh:
+        active_path = (storage_base / ws.workspace_id / active_mesh.relative_path).resolve()
+        if active_path.is_file() and active_path.is_relative_to(storage_base):
+            mesh_url = f"{request.base_url}api/v1/system/jobs/{workspace_id}/download?artifact_format=glb"
+
+    return {
+        "workspace_id": ws.workspace_id,
+        "name": ws.name,
+        "status": ws.status,
+        "active_mesh_asset_id": ws.active_mesh_asset_id,
+        "active_mesh": active_mesh.to_dict() if active_mesh else None,
+        "mesh_url": mesh_url,
+        "route_path": f"/workspace/generate/{ws.workspace_id}",
+        "created_at": ws.created_at.isoformat() if ws.created_at else None,
+        "updated_at": ws.updated_at.isoformat() if ws.updated_at else None,
+        "settings": ws.to_dict().get("settings", {}),
+        "assets": [a.to_dict() for a in assets],
+        "operations": [op.to_dict() for op in operations],
+    }
 
 
 @router.get("/adapters", summary="List registered adapters")
@@ -1556,6 +1729,63 @@ async def download_job_result(
         job_status = await scheduler.get_job_status(job_id)
 
         if job_status is None:
+            from core.scheduler.database_manager import DatabaseManager
+            db = DatabaseManager()
+            ws = db.get_workspace(job_id)
+            storage_base = get_storage_base_dir().resolve()
+            asset = None
+            if ws and ws.active_mesh_asset_id:
+                active_asset = db.get_asset(ws.active_mesh_asset_id)
+                if active_asset and active_asset.file_type == "mesh":
+                    asset = active_asset
+            if asset and ws:
+                file_path = (storage_base / ws.workspace_id / asset.relative_path).resolve()
+                if file_path.is_file() and file_path.is_relative_to(storage_base):
+                    return FileResponse(
+                        path=str(file_path),
+                        filename=filename or asset.original_filename,
+                        media_type=get_content_type_for_file(str(file_path)),
+                    )
+            elif ws and ws.source_asset_id:
+                source_asset = db.get_asset(ws.source_asset_id)
+                if source_asset and source_asset.file_type == "image":
+                    source_path = Path(source_asset.relative_path).resolve()
+                    if source_path.is_file() and not source_path.is_relative_to(storage_base):
+                        return FileResponse(path=str(source_path), filename=filename or source_asset.original_filename, media_type=get_content_type_for_file(str(source_path)))
+            asset = db.get_asset(job_id)
+            if asset:
+                storage_base = get_storage_base_dir().resolve()
+                file_path = (storage_base / asset.workspace_id / asset.relative_path).resolve()
+                if file_path.is_file() and file_path.is_relative_to(storage_base):
+                    return FileResponse(
+                        path=str(file_path),
+                        filename=filename or asset.original_filename,
+                        media_type=get_content_type_for_file(str(file_path)),
+                    )
+            op = db.get_operation(job_id)
+            if op:
+                mgr = get_workspace_storage_manager()
+                temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / job_id)
+                temp_dir = temp_dir.resolve()
+                if temp_dir.is_dir():
+                    candidates = sorted([*temp_dir.glob("*.glb"), *temp_dir.glob("*.obj")], key=lambda p: p.name)
+                    for cand in candidates:
+                        if cand.is_file() and not cand.is_symlink():
+                            return FileResponse(
+                                path=str(cand),
+                                filename=filename or cand.name,
+                                media_type=get_content_type_for_file(str(cand)),
+                            )
+            # Direct fallback: generated mesh is saved at <workspace_id>/mesh/mesh.glb
+            # by the scheduler. asset_root/output_mesh_path may not be in Redis when
+            # job_id is actually a workspace_id (frontend passes workspace_id as job_id).
+            direct_mesh_path = (storage_base / ws.workspace_id / "mesh" / "mesh.glb") if ws else None
+            if direct_mesh_path and direct_mesh_path.is_file() and direct_mesh_path.is_relative_to(storage_base):
+                return FileResponse(
+                    path=str(direct_mesh_path),
+                    filename=filename or "mesh.glb",
+                    media_type=get_content_type_for_file(str(direct_mesh_path)),
+                )
             raise HTTPException(status_code=404, detail="Job not found")
 
         if job_status.get("status") != "completed":
@@ -1577,9 +1807,9 @@ async def download_job_result(
         asset_root = result.get("asset_root")
         asset_name = result.get("asset_name")
 
-        models_root = (get_storage_base_dir() / "models").resolve()
+        models_root = get_storage_base_dir().resolve()
         asset_root_path = Path(asset_root).resolve() if asset_root else None
-        if asset_root_path and (asset_root_path == models_root or models_root not in asset_root_path.parents):
+        if asset_root_path and (asset_root_path == models_root or not asset_root_path.is_relative_to(models_root)):
             raise HTTPException(status_code=400, detail="Invalid asset workspace")
 
         if canonical_format in {"fbx", "rigged_fbx"}:
@@ -1602,8 +1832,8 @@ async def download_job_result(
                             fbx_candidate = str(asset_root_path / fbx_candidate)
                     except (OSError, json.JSONDecodeError):
                         pass
-                if not fbx_candidate and (asset_root_path / "game_ready").is_dir():
-                    pre_exported = list((asset_root_path / "game_ready").glob("*.fbx"))
+                if not fbx_candidate and (asset_root_path / "rigging").is_dir():
+                    pre_exported = list((asset_root_path / "rigging").glob("*.fbx"))
                     if pre_exported:
                         fbx_candidate = str(pre_exported[0])
 
@@ -1632,6 +1862,7 @@ async def download_job_result(
             rigged_candidate = (
                 (result.get("artifacts", {}).get("rigged", {}).get("path") if isinstance(result.get("artifacts"), dict) else None)
                 or (result.get("rigging", {}).get("artifact_path") if isinstance(result.get("rigging"), dict) else None)
+                or result.get("output_mesh_path")
             )
             if not rigged_candidate and asset_root_path:
                 job_manifest = asset_root_path / "metadata" / "jobs" / f"{job_id}.json"
@@ -1662,7 +1893,10 @@ async def download_job_result(
             try:
                 resolved_rigged.relative_to(models_root)
                 if asset_root_path:
-                    resolved_rigged.relative_to(asset_root_path)
+                    try:
+                        resolved_rigged.relative_to(asset_root_path)
+                    except ValueError:
+                        pass
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid rigged artifact path")
             output_path = resolved_rigged
@@ -1677,16 +1911,16 @@ async def download_job_result(
                 if job_manifest.is_file():
                     try:
                         m_data = json.loads(job_manifest.read_text(encoding="utf-8"))
-                        master_rel = m_data.get("master_path")
+                        master_rel = m_data.get("mesh_path") or m_data.get("master_path")
                         if master_rel:
                             master_candidate = str(asset_root_path / master_rel)
                     except (OSError, json.JSONDecodeError):
                         pass
                 if not master_candidate:
-                    if (asset_root_path / "master" / "source.glb").is_file():
-                        master_candidate = str(asset_root_path / "master" / "source.glb")
-                    elif (asset_root_path / "master").is_dir():
-                        matches = list((asset_root_path / "master").glob("source.*"))
+                    if (asset_root_path / "mesh" / "mesh.glb").is_file():
+                        master_candidate = str(asset_root_path / "mesh" / "mesh.glb")
+                    elif (asset_root_path / "mesh").is_dir():
+                        matches = list((asset_root_path / "mesh").glob("*.glb"))
                         if matches:
                             master_candidate = str(matches[0])
             if not master_candidate:
@@ -1730,49 +1964,27 @@ async def download_job_result(
             output_path = resolved_derived
 
         elif asset_root_path:
-            is_auto_rig_job = (
-                job_status.get("feature") == "auto_rig"
-                or (isinstance(result.get("artifacts"), dict) and "rigged" in result["artifacts"] and str(result.get("output_mesh_path", "")).endswith("rigged.glb"))
+            feature_name = job_status.get("feature")
+            is_tool_job = (
+                feature_name in {"auto_rig", "uv_unwrapping", "mesh_retopology", "mesh_segmentation"}
+                or bool(result.get("operation_id"))
+                or (isinstance(result.get("artifacts"), dict) and "rigged" in result["artifacts"])
             )
-            if not is_auto_rig_job and canonical_format in {"glb", "gltf", "obj", "stl", "ply", "quad_obj"} and (asset_root_path / "game_ready").is_dir():
+            if not is_tool_job and canonical_format in {"glb", "gltf", "obj", "stl", "ply", "quad_obj"}:
                 target_ext = "obj" if canonical_format == "quad_obj" else canonical_format
-                candidate = asset_root_path / "game_ready" / f"{asset_root_path.name}.{target_ext}"
-                if not candidate.exists() and asset_name:
-                    alt = asset_root_path / "game_ready" / f"{asset_name}.{target_ext}"
-                    if alt.exists():
-                        candidate = alt
-                if not candidate.exists():
-                    matches = list((asset_root_path / "game_ready").glob(f"*.{target_ext}"))
-                    if matches:
-                        candidate = matches[0]
-                if not candidate.exists():
-                    # On-demand conversion from game-ready GLB
-                    glb_matches = list((asset_root_path / "game_ready").glob("*.glb"))
-                    if glb_matches:
-                        src_glb = glb_matches[0]
-                        target_file = asset_root_path / "game_ready" / f"{src_glb.stem}.{target_ext}"
-                        try:
-                            if target_ext == "gltf":
-                                from postprocess.pipeline import _export_gltf_embedded
-                                _export_gltf_embedded(src_glb.read_bytes(), target_file)
-                            else:
-                                import trimesh
-                                from postprocess.pipeline import _export_bytes
-                                mesh = trimesh.load(src_glb, file_type="glb", process=False)
-                                if isinstance(mesh, trimesh.Scene):
-                                    mesh = trimesh.util.concatenate([g for g in mesh.geometry.values() if isinstance(g, trimesh.Trimesh)])
-                                target_file.write_bytes(_export_bytes(mesh, target_ext))
-                            if target_file.exists():
-                                candidate = target_file
-                        except Exception as conv_err:
-                            logger.warning(f"On-demand conversion to {canonical_format} failed: {conv_err}")
-                output_path = candidate
+                # First preference for generation jobs: {workspace_id}/mesh/mesh.glb
+                candidate = asset_root_path / "mesh" / f"mesh.{target_ext}"
+                if candidate.is_file():
+                    output_path = candidate
+                else:
+                    candidate = None
             elif canonical_format in {"glb", "gltf", "obj", "stl", "ply", "quad_obj"}:
                 target_ext = "obj" if canonical_format == "quad_obj" else canonical_format
                 candidates = [
+                    result.get("output_mesh_path"),
+                    result.get("mesh_path"),
                     (result.get("artifacts", {}).get("rigged", {}).get("path") if isinstance(result.get("artifacts"), dict) else None),
                     (result.get("artifacts", {}).get("derived", {}).get("path") if isinstance(result.get("artifacts"), dict) else None),
-                    result.get("output_mesh_path"),
                     first_result_path(result),
                 ]
                 for cand in candidates:
@@ -1781,20 +1993,16 @@ async def download_job_result(
                         if p.is_file() and p.suffix.lower() == f".{target_ext}":
                             output_path = p
                             break
-            elif canonical_format in {"lod0", "lod1", "lod2", "lod3"}:
-                output_path = asset_root_path / "lods" / f"{canonical_format}.glb"
             elif canonical_format == "textured":
-                output_path = asset_root_path / "textures" / "textured.glb"
+                output_path = asset_root_path / "texture" / "textured.glb"
                 if not output_path.exists() and asset_name:
-                    alt = asset_root_path / "textures" / f"{asset_name}_textured.glb"
+                    alt = asset_root_path / "texture" / f"{asset_name}_textured.glb"
                     if alt.exists():
                         output_path = alt
                 if not output_path.exists():
-                    matches = list((asset_root_path / "textures").glob("*_textured.glb"))
+                    matches = list((asset_root_path / "texture").glob("*_textured.glb"))
                     if matches:
                         output_path = matches[0]
-            elif canonical_format == "collision":
-                output_path = asset_root_path / "collision" / "collision.glb"
             elif canonical_format == "thumbnail":
                 output_path = asset_root_path / "previews" / "thumbnail.png"
             elif canonical_format == "qa_report":
@@ -1809,7 +2017,7 @@ async def download_job_result(
                 texture_name = canonical_format.removeprefix("texture_")
                 if texture_name not in {"base_color", "normal", "ao", "roughness", "metallic", "orm"}:
                     raise HTTPException(status_code=400, detail="Unsupported texture artifact")
-                output_path = asset_root_path / "textures" / f"{texture_name}.png"
+                output_path = asset_root_path / "texture" / f"{texture_name}.png"
             elif canonical_format == "zip":
                 temp_dir = Path(tempfile.mkdtemp(prefix=f"formash3d-{job_id}-"))
                 archive_path = temp_dir / f"{asset_root_path.name}.zip"
@@ -1834,7 +2042,24 @@ async def download_job_result(
                 raise HTTPException(status_code=400, detail=f"Unsupported artifact format: {canonical_format}")
         else:
             output_path = first_result_path(result)
-
+            if not output_path:
+                # Robust fallback: build path from workspace_id when result lacks
+                # asset_root/output_mesh_path (e.g. older job records or raw-mesh
+                # jobs where result fields were not persisted). Mesh is saved at
+                # <workspace_id>/mesh/mesh.glb by the scheduler.
+                workspace_id = (
+                    result.get("workspace_id")
+                    or (isinstance(job_status, dict) and job_status.get("workspace_id"))
+                )
+                if not workspace_id and isinstance(job_status, dict):
+                    inputs = job_status.get("inputs") or {}
+                    workspace_id = inputs.get("workspace_id")
+                if workspace_id:
+                    fallback_candidate = (
+                        get_storage_base_dir().resolve() / workspace_id / "mesh" / "mesh.glb"
+                    )
+                    if fallback_candidate.is_file():
+                        output_path = str(fallback_candidate)
         if not output_path:
             raise HTTPException(status_code=404, detail="No output file path found in job result")
 
@@ -1934,6 +2159,32 @@ async def download_job_thumbnail(
             job_status = raw_status
 
         if job_status is None:
+            from core.scheduler.database_manager import DatabaseManager
+            db = DatabaseManager()
+            ws = db.get_workspace(job_id)
+            if ws and ws.active_mesh_asset_id:
+                asset = db.get_asset(ws.active_mesh_asset_id)
+            elif ws and ws.source_asset_id:
+                asset = db.get_asset(ws.source_asset_id)
+                if asset and asset.thumbnail_path:
+                    storage_base = get_storage_base_dir().resolve()
+                    thumb_path = (storage_base / ws.workspace_id / asset.thumbnail_path).resolve()
+                    if thumb_path.is_file() and thumb_path.is_relative_to(storage_base):
+                        return FileResponse(
+                            path=str(thumb_path),
+                            filename=filename or f"{job_id}_thumb.png",
+                            media_type="image/png",
+                        )
+            asset = db.get_asset(job_id)
+            if asset and asset.thumbnail_path:
+                storage_base = get_storage_base_dir().resolve()
+                thumb_path = (storage_base / asset.workspace_id / asset.thumbnail_path).resolve()
+                if thumb_path.is_file() and thumb_path.is_relative_to(storage_base):
+                    return FileResponse(
+                        path=str(thumb_path),
+                        filename=filename or f"{job_id}_thumb.png",
+                        media_type="image/png",
+                    )
             raise HTTPException(status_code=404, detail="Job not found")
 
         if job_status.get("status") != "completed":
@@ -1977,7 +2228,22 @@ async def download_job_thumbnail(
                     thumbnail_path = str(candidate)
                     break
 
-        # Fallback to reference input image if present
+        # Prioritize auto-generating 3D thumbnail from the mesh
+        if not thumbnail_path or not os.path.exists(thumbnail_path):
+            cand_mesh = result.get("mesh_path") or result.get("output_path") or result.get("output_mesh_path")
+            if cand_mesh and os.path.exists(cand_mesh):
+                try:
+                    from core.utils.thumbnail_utils import generate_mesh_thumbnail
+                    m_p = Path(cand_mesh)
+                    auto_thumb = m_p.parent / f"{m_p.stem}_thumb.png"
+                    if not auto_thumb.exists():
+                        generate_mesh_thumbnail(str(cand_mesh), str(auto_thumb))
+                    if auto_thumb.exists() and auto_thumb.stat().st_size > 0:
+                        thumbnail_path = str(auto_thumb)
+                except Exception as auto_err:
+                    logger.debug("Failed to auto-render thumbnail: %s", auto_err)
+
+        # Fallback to reference input image only if mesh thumbnail is unavailable
         if not thumbnail_path or not os.path.exists(thumbnail_path):
             inputs_dict = job_status.get("inputs", {})
             cand_input = inputs_dict.get("image_path") or inputs_dict.get("image") or inputs_dict.get("texture_image_path")
@@ -2166,6 +2432,51 @@ async def download_job_input(
         )
 
 
+def _count_glb_triangles(glb_path: str | Path) -> int | None:
+    """Count triangles in a GLB file without a mesh library.
+
+    Walks the GLB chunks, parses the JSON chunk, and sums
+    ``accessor.count // 3`` over every primitive's indices accessor, falling
+    back to ``POSITION`` vertex count / 3 for non-indexed primitives.
+
+    shortcut: assumes all primitives use TRIANGLES mode; upgrade if
+    non-triangle primitive modes appear in generated assets.
+    """
+    try:
+        data = Path(glb_path).read_bytes()
+    except OSError:
+        return None
+    if len(data) < 20 or data[:4] != b'glTF':
+        return None
+    offset = 12
+    while offset + 8 <= len(data):
+        chunk_len = int.from_bytes(data[offset:offset + 4], 'little')
+        chunk_type = data[offset + 4:offset + 8]
+        offset += 8
+        if offset + chunk_len > len(data):
+            return None
+        if chunk_type != b'JSON\x00':
+            offset += chunk_len
+            continue
+        try:
+            doc = json.loads(data[offset:offset + chunk_len].decode('utf-8'))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        accessors = doc.get('accessors') or []
+        total = 0
+        for mesh in doc.get('meshes') or []:
+            for prim in mesh.get('primitives') or []:
+                indices = prim.get('indices')
+                if indices is not None:
+                    total += int((accessors[indices] or {}).get('count', 0)) // 3
+                else:
+                    pos_attr = (prim.get('attributes') or {}).get('POSITION')
+                    if pos_attr is not None:
+                        total += int((accessors[pos_attr] or {}).get('count', 0)) // 3
+        return total
+    return None
+
+
 @router.get("/jobs/{job_id}/info", summary="Get job result information")
 async def get_job_result_info(job_id: str, request: Request):
     """
@@ -2195,9 +2506,30 @@ async def get_job_result_info(job_id: str, request: Request):
 
         # Get file information
         output_path = first_result_path(result)
+        file_exists = bool(output_path and os.path.exists(output_path))
+
+        # Requested target (from the job's generation parameters) and raw
+        # actual (parsed from the generated GLB on disk) are measured
+        # independently; actual is never derived from requested.
+        requested_triangles = None
+        generation_info = result.get("generation_info")
+        if not isinstance(generation_info, dict):
+            generation_info = {}
+        for source in (result, generation_info, job_status.get("inputs") or {}, job_status.get("parameters") or {}):
+            if not isinstance(source, dict):
+                continue
+            for key in ("target_polycount", "native_target_polycount", "targetPolycount"):
+                value = source.get(key)
+                if isinstance(value, (int, float)) and value > 0:
+                    requested_triangles = int(value)
+                    break
+            if requested_triangles is not None:
+                break
+
+        actual_triangles = _count_glb_triangles(output_path) if file_exists else None
 
         file_info = {}
-        if output_path and os.path.exists(output_path):
+        if file_exists:
             file_stats = os.stat(output_path)
             file_info = {
                 "filename": os.path.basename(output_path),
@@ -2213,6 +2545,10 @@ async def get_job_result_info(job_id: str, request: Request):
             }
         else:
             file_info = {"file_exists": False, "error": "Output file not found"}
+        if requested_triangles is not None:
+            file_info["requested_triangles"] = requested_triangles
+        if actual_triangles is not None:
+            file_info["actual_triangles"] = actual_triangles
 
         return {
             "job_id": job_id,
@@ -2309,7 +2645,7 @@ async def select_candidate_mesh(
     request: Request,
 ):
     """
-    T-06: On selection, promote chosen candidate through master/source.glb lineage,
+    T-06: On selection, promote chosen candidate through mesh/mesh.glb lineage,
     and garbage-collect unselected candidate files.
     """
     scheduler = await get_scheduler(request)
@@ -2326,14 +2662,13 @@ async def select_candidate_mesh(
     if not chosen_mesh or not os.path.exists(chosen_mesh):
         raise HTTPException(status_code=404, detail="Candidate mesh file missing on disk")
 
-    from postprocess.pipeline import canonical_asset_workspace
+    from core.utils.artifact_utils import canonical_asset_workspace
     asset_root = canonical_asset_workspace(job_id, result, job_status.get("inputs"))
-    master_dir = asset_root / "master"
-    master_dir.mkdir(parents=True, exist_ok=True)
-    master_source = master_dir / "source.glb"
 
-    # Promote chosen candidate to master/source.glb
-    shutil.copy2(chosen_mesh, master_source)
+    # Promote chosen candidate to {workspace_id}/mesh/mesh.glb (no master/ subdirectory)
+    mesh_dst = asset_root / "mesh" / "mesh.glb"
+    mesh_dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(chosen_mesh, mesh_dst)
 
     # Garbage-collect unselected candidate files
     cleaned = 0
@@ -2352,18 +2687,18 @@ async def select_candidate_mesh(
             cand["selected"] = True
 
     # Update primary output mesh path to chosen mesh
-    result["output_mesh_path"] = str(master_source)
+    result["output_mesh_path"] = str(mesh_dst)
     result["selected_candidate_id"] = candidate_id
     result["candidates"] = candidates
 
     await scheduler.job_queue.update_job_result(job_id, result)
-    logger.info(f"[T-06 CANDIDATE PROMOTED] job_id={job_id} promoted candidate #{candidate_id} to {master_source}, cleaned {cleaned} files")
+    logger.info(f"[T-06 CANDIDATE PROMOTED] job_id={job_id} promoted candidate #{candidate_id} to {mesh_dst}, cleaned {cleaned} files")
 
     return {
         "success": True,
         "job_id": job_id,
         "selected_candidate_id": candidate_id,
-        "promoted_to_master": str(master_source),
+        "promoted_to_mesh": str(mesh_dst),
         "cleaned_candidates_count": cleaned,
         "candidates": candidates,
     }
@@ -2374,54 +2709,11 @@ async def retry_job_postprocess(
     job_id: str, request: Request, _: bool = Depends(verify_api_key)
 ):
     """Rebuild derived production artifacts from the immutable canonical master."""
-    try:
-        from postprocess.pipeline import run_postprocess_job
-
-        scheduler = await get_scheduler(request)
-        job_status = await scheduler.get_job_status(job_id)
-        if job_status is None:
-            raise HTTPException(status_code=404, detail="Job not found")
-
-        result = job_status.get("result") or {}
-        asset_root = result.get("asset_root")
-        if not asset_root:
-            raise HTTPException(status_code=400, detail="Job has no canonical asset workspace to retry")
-
-        asset_root_path = Path(asset_root).resolve()
-        models_root = (get_storage_base_dir() / "models").resolve()
-        if asset_root_path == models_root or models_root not in asset_root_path.parents:
-            raise HTTPException(status_code=400, detail="Invalid asset workspace")
-
-        master_path = asset_root_path / "master" / "source.glb"
-        if not master_path.is_file():
-            raise HTTPException(status_code=409, detail="Immutable master source.glb is missing")
-
-        job = await scheduler.job_queue.prepare_postprocess_retry(job_id)
-        if job is None:
-            raise HTTPException(status_code=409, detail="Job is not retryable from its canonical master")
-
-        for name in ("game_ready", "lods", "collision", "textures", "previews", "metadata"):
-            shutil.rmtree(asset_root_path / name, ignore_errors=True)
-
-        try:
-            final_result = await asyncio.to_thread(
-                run_postprocess_job,
-                job_id,
-                {"success": True, "output_mesh_path": str(master_path)},
-                job.inputs,
-                job.metadata,
-            )
-        except Exception as exc:
-            await scheduler.job_queue.fail_job(job_id, f"Post-process retry failed: {exc}")
-            raise HTTPException(status_code=500, detail=f"Post-process retry failed: {exc}") from exc
-
-        await scheduler.job_queue.complete_job(job_id, final_result)
-        return {"job_id": job_id, "status": "completed", "postprocess_status": "completed", "result": final_result}
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("Post-process retry failed for %s: %s", job_id, exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error retrying post-processing: {exc}") from exc
+    return {
+        "job_id": job_id,
+        "status": "unavailable",
+        "message": "Post-processing pipeline is disabled / under reconstruction.",
+    }
 
 
 def _dir_size_bytes(path: Path) -> int:
@@ -2454,7 +2746,7 @@ async def get_system_storage():
     used_percent = round((stat.used / stat.total) * 100, 1) if stat.total > 0 else 0.0
 
     directories = {}
-    for sub in ["models", "uploads", "exports", "thumbnails", "temp"]:
+    for sub in ["uploads", "exports", "thumbnails", "temp"]:
         sub_path = storage_base_dir / sub
         size_bytes = _dir_size_bytes(sub_path)
         directories[sub] = {
@@ -2527,10 +2819,8 @@ async def get_storage_breakdown():
     storage_base_dir = get_storage_base_dir()
 
     categories: Dict[str, Dict[str, Any]] = {
-        "master": {"bytes": 0, "count": 0},
-        "game_ready": {"bytes": 0, "count": 0},
-        "textures": {"bytes": 0, "count": 0},
-        "lods": {"bytes": 0, "count": 0},
+        "mesh": {"bytes": 0, "count": 0},
+        "texture": {"bytes": 0, "count": 0},
         "rigging": {"bytes": 0, "count": 0},
         "temp": {"bytes": 0, "count": 0},
     }
@@ -2552,15 +2842,11 @@ async def get_storage_breakdown():
                     elif "rigging" in rel or "skintokens" in rel or "unirig" in rel or "rigged" in fname or "skeleton" in fname:
                         cat = "rigging"
                     elif "lod" in rel or any(f"lod{i}" in fname for i in range(4)):
-                        cat = "lods"
+                        cat = "lod"
                     elif "texture" in rel or ext in (".png", ".jpg", ".jpeg", ".webp", ".tga", ".exr", ".hdr"):
-                        cat = "textures"
-                    elif "game_ready" in rel or "game_ready" in fname or "game-ready" in fname:
-                        cat = "game_ready"
-                    elif "master" in rel or "source" in fname or "/uploads" in rel or rel.startswith("uploads"):
-                        cat = "master"
-                    elif ext in (".glb", ".gltf", ".fbx", ".obj", ".stl", ".ply"):
-                        cat = "game_ready"
+                        cat = "texture"
+                    elif "mesh" in rel or ext in (".glb", ".gltf", ".fbx", ".obj", ".stl", ".ply"):
+                        cat = "mesh"
                     else:
                         cat = "temp"
 
@@ -2593,7 +2879,7 @@ async def cleanup_intermediate_storage(
 ):
     """
     Identifies and cleans up obsolete scratch/temp outputs older than N days.
-    Guarantees master/source.glb lineage and uploads are strictly protected.
+    Guarantees mesh/mesh.glb lineage and uploads are strictly protected.
     """
     from core.utils.file_utils import get_storage_base_dir
     import shutil
@@ -2614,8 +2900,8 @@ async def cleanup_intermediate_storage(
         if root.is_dir():
             for p in list(root.iterdir()):
                 try:
-                    # Protection rule: Never touch master/source.glb lineage
-                    if "source." in p.name.lower() or "master" in p.name.lower():
+                    # Protection rule: Never touch mesh/mesh.glb lineage
+                    if "source." in p.name.lower() or "mesh" in p.name.lower():
                         continue
                     stat = p.stat()
                     if stat.st_mtime <= cutoff_time:
@@ -2774,7 +3060,7 @@ async def delete_job(
             from core.utils.file_utils import get_storage_base_dir
 
             asset_root_path = Path(asset_root).resolve()
-            models_root = (get_storage_base_dir() / "models").resolve()
+            models_root = get_storage_base_dir().resolve()
             if asset_root_path == models_root or models_root not in asset_root_path.parents:
                 raise HTTPException(status_code=400, detail="Invalid asset workspace")
 
@@ -2947,67 +3233,6 @@ async def get_logging_config(_: bool = Depends(verify_api_key)):
         logger.error(f"Error retrieving logging config: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Error retrieving logging config: {str(e)}"
-        )
-
-
-@router.post("/logs/test", summary="Generate test log entries")
-async def generate_test_logs(
-    level: str = Query("INFO", description="Log level for test entries"),
-    count: int = Query(5, description="Number of test entries to generate"),
-    _: bool = Depends(verify_api_key),
-):
-    """Generate test log entries for testing the logging system"""
-
-    valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-    if level.upper() not in valid_levels:
-        raise HTTPException(
-            status_code=400, detail=f"Invalid log level. Must be one of: {valid_levels}"
-        )
-
-    if count < 1 or count > 50:
-        raise HTTPException(status_code=400, detail="Count must be between 1 and 50")
-
-    try:
-        test_logger = logging.getLogger("api.test")
-        log_level = getattr(logging, level.upper())
-
-        test_messages = [
-            "Test log entry for system verification",
-            "Simulating application workflow",
-            "Testing log aggregation and viewing",
-            "Verifying log formatting and parsing",
-            "Checking log file rotation and storage",
-            "Testing different logger configurations",
-            "Simulating error conditions for testing",
-            "Validating log filtering and search",
-            "Testing concurrent logging operations",
-            "Verifying logging performance and reliability",
-        ]
-
-        generated_entries = []
-        for i in range(count):
-            message = f"{test_messages[i % len(test_messages)]} (#{i + 1})"
-            test_logger.log(log_level, message)
-            generated_entries.append(
-                {
-                    "level": level.upper(),
-                    "message": message,
-                    "logger": "api.test",
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
-
-        return {
-            "message": f"Generated {count} test log entries at {level.upper()} level",
-            "entries": generated_entries,
-            "level": level.upper(),
-            "count": count,
-        }
-
-    except Exception as e:
-        logger.error(f"Error generating test logs: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Error generating test logs: {str(e)}"
         )
 
 

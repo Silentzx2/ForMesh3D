@@ -4,12 +4,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useViewerStore } from '@/stores/useViewerStore';
-import { Rotate3d, Sparkles } from 'lucide-react';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { ThreeDRotateIcon, SparklesIcon } from '@hugeicons/core-free-icons';
 
 export interface RealModelPreviewCanvasProps {
   mode: 'rigging' | 'segmentation' | 'uv' | 'animation';
   selectedId?: string | null;
   onSelectId?: (id: string) => void;
+  onHoverId?: (id: string | null) => void;
   xrayBones?: boolean;
   orbitYaw?: number;
   bones?: Array<{ id: string; name: string; parent: string | null; pos: [number, number, number] }>;
@@ -27,6 +29,7 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
   mode,
   selectedId,
   onSelectId,
+  onHoverId,
   xrayBones = true,
   orbitYaw,
   bones = [],
@@ -42,6 +45,7 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const activeModel = useViewerStore((s) => s.activeModelObject);
   const [hovered, setHovered] = useState<string | null>(null);
+  const [webglError, setWebglError] = useState<string | null>(null);
   const interactivesRef = useRef<{ obj: THREE.Object3D; id: string }[]>([]);
 
   useEffect(() => {
@@ -54,6 +58,18 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
     const camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 50);
     camera.position.set(0, 0.4, 3.2);
 
+    // Pre-check WebGL availability before constructing the renderer (getContext
+    // returns null silently when WebGL is disabled/sandboxed — no throw, no
+    // Three.js console spam).
+    const webglProbe = document.createElement('canvas');
+    const webglContext =
+      webglProbe.getContext('webgl') || webglProbe.getContext('webgl2');
+    if (!webglContext) {
+      const msg = 'WebGL context is not available in this browser/environment.';
+      setWebglError(msg);
+      console.warn('[RealModelPreviewCanvas] WebGL not available:', msg);
+      return;
+    }
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     renderer.setSize(w, h);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -180,15 +196,22 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
       renderer.dispose();
       if (renderer.domElement && el.contains(renderer.domElement)) el.removeChild(renderer.domElement);
     };
-  }, [activeModel, mode, selectedId, xrayBones, orbitYaw, bones, parts, highlightBoundaries, colorizeViewport, viewAngle, highlightSeams, viewportChecker, showArmature]);
+  }, [activeModel, mode, selectedId, xrayBones, orbitYaw, bones, parts, highlightBoundaries, colorizeViewport, viewAngle, highlightSeams, viewportChecker, showArmature, onHoverId]);
 
   const handlePointer = (e: React.MouseEvent<HTMLDivElement>, isClick: boolean) => {
     const el = containerRef.current;
     if (!el || interactivesRef.current.length === 0) return;
     const rect = el.getBoundingClientRect();
     const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+    // Mirror the camera position used in the render loop so raycasting matches the view
+    let camX = 0, camY = 0.4, camZ = 3.2;
+    if (orbitYaw !== undefined) {
+      const rad = (orbitYaw * Math.PI) / 180;
+      camX = Math.sin(rad) * 3.2; camZ = Math.cos(rad) * 3.2;
+    } else if (viewAngle === 'front') { camX = 0; camY = 0; camZ = 3.2; }
+    else if (viewAngle === 'side') { camX = 3.2; camY = 0.2; camZ = 0; }
     const camera = new THREE.PerspectiveCamera(40, rect.width / rect.height, 0.1, 50);
-    camera.position.set(0, 0.4, 3.2);
+    camera.position.set(camX, camY, camZ);
     const ray = new THREE.Raycaster();
     ray.setFromCamera(mouse, camera);
     const hits = ray.intersectObjects(interactivesRef.current.map((i) => i.obj), true);
@@ -197,11 +220,11 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
       const found = interactivesRef.current.find((i) => i.obj === hit || i.obj.children.includes(hit));
       if (found) {
         if (isClick && onSelectId) onSelectId(found.id);
-        else setHovered(found.id);
+        else { setHovered(found.id); onHoverId?.(found.id); }
         return;
       }
     }
-    if (!isClick) setHovered(null);
+    if (!isClick) { setHovered(null); onHoverId?.(null); }
   };
 
   return (
@@ -209,18 +232,29 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
       ref={containerRef}
       onClick={(e) => handlePointer(e, true)}
       onMouseMove={(e) => handlePointer(e, false)}
-      className={`relative w-full aspect-square max-h-[220px] rounded-xl overflow-hidden border border-white/[0.08] bg-[#0c0d14] ${
+      className={`relative w-full aspect-square max-h-[220px] rounded-xl overflow-hidden border border-white/[0.08] bg-[hsl(var(--surface-0))] ${
         hovered ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
       }`}
     >
+      {webglError && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 bg-black/80 text-white text-center">
+          <HugeiconsIcon icon={SparklesIcon} size={24} className="text-[#F9CF00] mb-2" />
+          <h3 className="text-sm font-semibold mb-1">WebGL not available</h3>
+          <p className="text-[10px] text-zinc-300 max-w-[180px]">
+            The 3D preview could not initialize because WebGL context creation failed.
+            <br />
+            {webglError}
+          </p>
+        </div>
+      )}
       <div className="absolute inset-0 opacity-40 pointer-events-none [background:radial-gradient(circle_at_50%_50%,rgba(35,30,60,0.5)_0%,transparent_80%)]" />
       <div className="absolute top-1.5 left-2 text-[8px] font-mono text-zinc-500 pointer-events-none flex items-center gap-1 z-20">
-        <Rotate3d className="w-2.5 h-2.5 text-[#F9CF00]" />
+        <HugeiconsIcon icon={ThreeDRotateIcon} size={10} className="text-[hsl(var(--primary))]" />
         <span>Orbit · Select in 3D</span>
       </div>
       {activeModel && (
         <div className="absolute bottom-1.5 right-2 text-[8px] font-mono font-bold px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 flex items-center gap-0.5 z-20 pointer-events-none">
-          <Sparkles className="w-2 h-2" />
+          <HugeiconsIcon icon={SparklesIcon} size={8} />
           <span>Real Mesh</span>
         </div>
       )}

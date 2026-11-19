@@ -11,7 +11,7 @@ supplied by the scheduler. The package exposes each adapter module for
 from __future__ import annotations
 # Map of registered model ID -> adapter module path.
 # Used by runtime_probe._get_installed_adapters() to report which adapters
-# are installed, and by planner._is_adapter_registered() to admit candidates.
+# are installed and available.
 # Keys are the canonical model IDs from backend/config/models.yaml; values are
 # the adapter module that implements that model.
 _ADAPTER_MAP: dict[str, str] = {
@@ -30,13 +30,14 @@ _ADAPTER_MAP: dict[str, str] = {
     # ── legacy textured-mesh aliases ───────────────────────────────────
     "trellis_image_to_textured_mesh": "backend.adapters.trellis_adapter",
     "trellis2_image_to_textured_mesh": "backend.adapters.trellis2_adapter",
+    "stable_fast_3d_image_to_textured_mesh": "backend.adapters.stable_fast_3d_adapter",
     # ── image-mesh-painting ────────────────────────────────────────────
     "trellis_image_mesh_painting": "backend.adapters.trellis_adapter",
     "trellis2_image_mesh_painting": "backend.adapters.trellis2_adapter",
-    "hunyuan3d_paint_v21_image_mesh_painting": "backend.adapters.hunyuan3d_paint_v21",
-    "paint3d": "backend.adapters.paint3d_adapter",
+    "hunyuan3d_paint_v21_image_mesh_painting": "backend.adapters.hunyuan3d_adapter_v21",
+    "hunyuan3d_v20_paint_image_mesh_painting": "backend.adapters.hunyuan3d_v20_paint_adapter",
     # ── mesh-retopology ────────────────────────────────────────────────
-    "fastmesh_v1k_retopology": "backend.adapters.fastmesh_adapter",
+    # FastMesh removed from main repo (thirdparty/FastMesh deleted).
     # ── uv-unwrapping ──────────────────────────────────────────────────
     "partuv_uv_unwrapping": "backend.adapters.partuv_adapter",
     # ── auto-rigging ───────────────────────────────────────────────────

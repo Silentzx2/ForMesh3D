@@ -1,4 +1,4 @@
-import { JobStatus, OutputFormat, JobInfo, SystemStatus, AuthStatus, UserInfo } from './api';
+import { JobStatus, OutputFormat, JobInfo, SystemStatus } from './api';
 import * as THREE from 'three';
 
 // Application State Types
@@ -11,16 +11,6 @@ export interface AppState {
   tasks: TaskState;
   ui: UIState;
   system: SystemState;
-  auth: AuthState;
-}
-
-// Authentication State Types
-export interface AuthState {
-  isAuthenticated: boolean;
-  token: string | null;
-  user: UserInfo | null;
-  authStatus: AuthStatus | null;
-  isCheckingAuth: boolean;
 }
 
 // Module Types

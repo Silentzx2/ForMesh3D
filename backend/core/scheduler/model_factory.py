@@ -72,11 +72,11 @@ class ModelFactory:
             "class": "Trellis2ImageToRawMeshAdapter",
         },
         "trellis2_image_mesh_painting": {
-            "module": "adapters.trellis2_paint_adapter",
+            "module": "adapters.trellis2_adapter",
             "class": "Trellis2ImageMeshPaintingAdapter",
         },
         "trellis2_paint": {
-            "module": "adapters.trellis2_paint_adapter",
+            "module": "adapters.trellis2_adapter",
             "class": "Trellis2ImageMeshPaintingAdapter",
         },
         # Hunyuan3D adapters
@@ -93,8 +93,8 @@ class ModelFactory:
             "class": "Hunyuan3DShapeV21ImageToRawMeshAdapter",
         },
         "hunyuan3d_paint_v21_image_mesh_painting": {
-            "module": "adapters.hunyuan3d_paint_v21",
-            "class": "Hunyuan3DPaintV21ImageMeshPaintingAdapter",
+            "module": "adapters.hunyuan3d_adapter_v21",
+            "class": "Hunyuan3DV21ImageMeshPaintingAdapter",
         },
         "hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh": {
             "module": "adapters.hunyuan3d_dit_v2_mini_turbo",
@@ -155,15 +155,6 @@ class ModelFactory:
             "module": "adapters.unique3d_adapter",
             "class": "Unique3DImageToRawMeshAdapter",
         },
-        # Paint3D adapters
-        "paint3d": {
-            "module": "adapters.paint3d_adapter",
-            "class": "Paint3DAdapter",
-        },
-        "paint3d_image_mesh_painting": {
-            "module": "adapters.paint3d_adapter",
-            "class": "Paint3DAdapter",
-        },
         # Pixal3D adapter
         "pixal3d_image_to_raw_mesh": {
             "module": "adapters.pixal3d_adapter",
@@ -177,6 +168,16 @@ class ModelFactory:
         "taoflowforge_image_to_raw_mesh": {
             "module": "adapters.taoflowforge_adapter",
             "class": "TaoFlowForgeImageToRawMeshAdapter",
+        },
+        # Stable Fast 3D (single-image to textured mesh)
+        "stable_fast_3d_image_to_textured_mesh": {
+            "module": "adapters.stable_fast_3d_adapter",
+            "class": "StableFast3DAdapter",
+        },
+        # Hunyuan3D-2 (v2.0) Paint (image mesh painting)
+        "hunyuan3d_v20_paint_image_mesh_painting": {
+            "module": "adapters.hunyuan3d_v20_paint_adapter",
+            "class": "Hunyuan3DV20PaintImageMeshPaintingAdapter",
         },
     }
 
@@ -234,8 +235,12 @@ class ModelFactory:
             # Validate config structure early.
             cls.validate_config(config)
 
-            # Route legacy image_to_textured_mesh feature to raw geometry
-            if feature_type == "image_to_textured_mesh":
+            # Only legacy alias models are forced to raw geometry. Native textured models
+            # like stable_fast_3d_image_to_textured_mesh must retain their real feature.
+            if (
+                feature_type == "image_to_textured_mesh"
+                and model_id in cls.LEGACY_IMAGE_TO_RAW_ALIASES
+            ):
                 logger.info(
                     f"Legacy feature_type '{feature_type}' for model '{model_id}' "
                     "resolved to raw geometry ('image_to_raw_mesh')"

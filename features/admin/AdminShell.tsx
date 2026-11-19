@@ -59,6 +59,19 @@ export type AdminTab =
   | 'database'
   | 'settings';
 
+const TAB_LABELS: Record<string, string> = {
+  overview: 'Dashboard',
+  models: 'Models',
+  runtime: 'Runtime',
+  logs: 'Logs',
+  jobs: 'Jobs',
+  queue: 'Queue',
+  health: 'Health',
+  storage: 'Storage',
+  database: 'Database',
+  settings: 'Settings',
+};
+
 interface AdminShellProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
@@ -246,6 +259,19 @@ export function AdminShell({ activeTab, onTabChange, children }: AdminShellProps
         </header>
 
         <main className="flex-1 overflow-y-auto scrollbar-thin">
+          <div className="px-4 lg:px-6 mb-2">
+            <nav className="flex items-center gap-1 text-xs text-[hsl(var(--muted-foreground))]" aria-label="Breadcrumb">
+              <Link href="/workspace" className="hover:text-foreground transition-colors cursor-pointer">
+                Home
+              </Link>
+              <span>/</span>
+              <Link href="/admin" className="hover:text-foreground transition-colors cursor-pointer">
+                Admin
+              </Link>
+              <span>/</span>
+              <span className="text-[hsl(var(--foreground))] font-medium">{TAB_LABELS[activeTab] || activeTab}</span>
+            </nav>
+          </div>
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}

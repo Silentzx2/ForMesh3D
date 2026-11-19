@@ -11,18 +11,23 @@ from pathlib import Path
 import tempfile
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from api.dependencies import get_file_store, get_scheduler
+from api.dependencies import get_file_store, get_scheduler, sanitize_error_message
 from api.routers.file_upload import resolve_file_id_async, resolve_input_reference_async
 from core.file_store import FileStore
+from core.scheduler.database_manager import DatabaseManager
+from core.scheduler.database_models import generate_operation_id
+from api.routers.script_execution import execute_script_operation
 from core.scheduler.job_queue import JobRequest
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
 from core.utils.file_utils import (
     MIME_TYPE_MAPPING,
     SUPPORTED_MESH_FORMATS,
+    get_storage_base_dir,
+    get_workspace_storage_manager,
     validate_base64_data,
     validate_mesh_file,
 )
@@ -30,7 +35,7 @@ from core.utils.file_utils import (
 logger = logging.getLogger(__name__)
 MAX_MESH_BASE64_BYTES = 200 * 1024 * 1024
 
-router = APIRouter(prefix="/mesh-segmentation", tags=["mesh_segmentation"])
+router = APIRouter(prefix="/segment", tags=["segmentation"])
 
 
 def validate_model_preference(
@@ -83,21 +88,37 @@ class MeshSegmentationRequest(BaseModel):
         description="Model-specific parameters (query /system/models/{model_id}/parameters for schema)"
     )
 
+    workspace_id: Optional[str] = Field(None, description="Target workspace ID")
+    engine: str = Field("ai", description="Execution engine: ai or script")
+    parent_operation_id: Optional[str] = Field(None, description="Parent operation for retry/regeneration")
+    method: str = Field("geometric", description="Script segmentation method")
+    hierarchical: bool = False
+    min_face_island_threshold: int = Field(50, ge=0, le=5000)
+    colorize_preview: bool = True
+    save_individual_parts: bool = False
+
     @model_validator(mode="after")
     def validate_inputs(self):
         inputs_provided = sum(
             bool(x) for x in [self.mesh_path, self.mesh_base64, self.mesh_file_id]
         )
 
-        if inputs_provided == 0:
+        if inputs_provided == 0 and not getattr(self, "workspace_id", None):
             raise ValueError(
-                "One of mesh_path, mesh_base64, or mesh_file_id must be provided"
+                "One of mesh_path, mesh_base64, mesh_file_id, or workspace_id must be provided"
             )
         if inputs_provided > 1:
             raise ValueError(
                 "Only one of mesh_path, mesh_base64, or mesh_file_id should be provided"
             )
         return self
+
+    @field_validator("engine")
+    @classmethod
+    def validate_engine(cls, value):
+        if value not in {"ai", "script"}:
+            raise ValueError("engine must be ai or script")
+        return value
 
     model_config = ConfigDict(protected_namespaces=("settings_",))
 
@@ -109,12 +130,20 @@ class MeshSegmentationResponse(BaseModel):
     job_id: str = Field(..., description="Unique job identifier")
     status: str = Field(..., description="Job status")
     message: str = Field(..., description="Status message")
+    workspace_id: Optional[str] = Field(None, description="Workspace ID")
+    operation_id: Optional[str] = Field(None, description="Operation ID")
+    preview_url: Optional[str] = None
+    model_url: Optional[str] = None
+    asset_id: Optional[str] = None
+    format: Optional[str] = None
+    stats: Optional[dict] = None
 
 
-@router.post("/segment-mesh", response_model=MeshSegmentationResponse)
+@router.post("", response_model=MeshSegmentationResponse)
 async def segment_mesh(
     request: MeshSegmentationRequest,
-    scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
+    http_request: Request,
+    background_tasks: BackgroundTasks,
     file_store: Optional[FileStore] = Depends(get_file_store),
 ):
     """
@@ -130,19 +159,33 @@ async def segment_mesh(
     """
     temp_dir = None
     scheduled = False
+    scheduler = None
     try:
         user_id = None
+        if request.engine != "script":
+            scheduler = await get_scheduler(http_request)
+            validate_model_preference(request.model_preference, "mesh_segmentation", scheduler)
 
-        # Validate model preference
-        validate_model_preference(
-            request.model_preference, "mesh_segmentation", scheduler
-        )
+        db = DatabaseManager()
+        ws_storage = get_workspace_storage_manager()
+
+        target_ws_id = getattr(request, "workspace_id", None)
+        input_asset = None
+        if request.mesh_file_id:
+            input_asset = db.get_asset(request.mesh_file_id)
+            if input_asset:
+                if not target_ws_id:
+                    target_ws_id = input_asset.workspace_id
+                if input_asset.file_type != "mesh":
+                    raise HTTPException(
+                        status_code=400, detail="Prerequisite failed: Input asset must be a mesh file"
+                    )
 
         # Validate input - either mesh_path, mesh_base64, or mesh_file_id must be provided
-        if not any([request.mesh_path, request.mesh_base64, request.mesh_file_id]):
+        if not any([request.mesh_path, request.mesh_base64, request.mesh_file_id, target_ws_id]):
             raise HTTPException(
                 status_code=400,
-                detail="One of mesh_path, mesh_base64, or mesh_file_id must be provided",
+                detail="One of mesh_path, mesh_base64, mesh_file_id, or workspace_id must be provided",
             )
 
         # Process mesh input
@@ -209,11 +252,78 @@ async def segment_mesh(
                     detail="Mesh file not found on the server. Re-import or regenerate the model, then retry.",
                 )
 
-        # Validate mesh file exists
-        if mesh_file_path and not Path(mesh_file_path).exists():
+        if target_ws_id and not mesh_file_path:
+            ws = db.get_workspace(target_ws_id)
+            if ws and ws.active_mesh_asset_id:
+                active_asset = db.get_asset(ws.active_mesh_asset_id)
+                if active_asset:
+                    input_asset = active_asset
+                    storage_base = get_storage_base_dir().resolve()
+                    cand_path = (storage_base / ws.workspace_id / active_asset.relative_path).resolve()
+                    if cand_path.is_file() and cand_path.is_relative_to(storage_base):
+                        mesh_file_path = str(cand_path)
+
+        # Validate mesh file exists and prerequisite format
+        if not mesh_file_path:
+            raise HTTPException(
+                status_code=400, detail="Mesh path or file ID must be provided"
+            )
+
+        if not Path(mesh_file_path).exists():
             raise HTTPException(
                 status_code=404, detail=f"Mesh file not found: {mesh_file_path}"
             )
+
+        ext = Path(mesh_file_path).suffix.lower()
+        if ext not in {".glb", ".gltf", ".obj", ".ply", ".stl"}:
+            raise HTTPException(
+                status_code=400, detail=f"Prerequisite failed: Unsupported mesh format {ext}"
+            )
+
+        if request.engine == "script":
+            if request.method not in {"geometric", "connected_components"}:
+                raise HTTPException(status_code=422, detail="Script segmentation supports geometric or connected_components methods; semantic segmentation requires AI mode")
+            from pipelines.segment import execute_segment
+            result = await execute_script_operation(
+                db=db, storage=ws_storage, background_tasks=background_tasks, workspace_id=target_ws_id,
+                input_asset_id=input_asset.asset_id if input_asset else None,
+                operation_type="segmentation", input_path=mesh_file_path,
+                settings={
+                    "num_parts": request.num_parts, "method": request.method,
+                    "hierarchical": request.hierarchical, "min_face_island_threshold": request.min_face_island_threshold,
+                    "colorize_preview": request.colorize_preview,
+                    "save_individual_parts": request.save_individual_parts,
+                    "output_format": request.output_format,
+                },
+                pipeline=execute_segment,
+                options={
+                    "num_parts": request.num_parts, "method": request.method,
+                    "hierarchical": request.hierarchical, "min_face_island_threshold": request.min_face_island_threshold,
+                    "colorize_preview": request.colorize_preview,
+                    "save_individual_parts": request.save_individual_parts,
+                    "output_format": request.output_format,
+                },
+                output_format=request.output_format,
+                parent_operation_id=request.parent_operation_id,
+            )
+            return MeshSegmentationResponse(**result)
+
+        operation_id = None
+        if target_ws_id:
+            operation_id = generate_operation_id()
+            op_row, is_new = db.enqueue_operation(
+                operation_id=operation_id,
+                workspace_id=target_ws_id,
+                operation_type="segmentation",
+                input_asset_id=input_asset.asset_id if input_asset else None,
+                parent_operation_id=request.parent_operation_id,
+                settings={
+                    "num_parts": request.num_parts,
+                    "output_format": request.output_format,
+                    **(request.model_parameters or {}),
+                },
+            )
+            operation_id = op_row.operation_id
 
         # Create job request
         job_request = JobRequest(
@@ -222,11 +332,18 @@ async def segment_mesh(
                 "mesh_path": mesh_file_path,
                 "num_parts": request.num_parts,
                 "output_format": request.output_format,
+                "workspace_id": target_ws_id,
+                "operation_id": operation_id,
+                "parent_operation_id": request.parent_operation_id,
                 **(request.model_parameters or {}),
             },
             model_preference=request.model_preference,
             priority=1,
-            metadata={"postprocess_mode": "manual_mesh_tool", "feature_type": "mesh_segmentation"},
+            metadata={
+                "feature_type": "mesh_segmentation",
+                "workspace_id": target_ws_id,
+                "operation_id": operation_id,
+            },
             user_id=user_id,
         )
 
@@ -239,6 +356,8 @@ async def segment_mesh(
             job_id=job_id,
             status="queued",
             message="Mesh segmentation job queued successfully",
+            workspace_id=target_ws_id,
+            operation_id=operation_id,
         )
 
     except HTTPException:
@@ -246,7 +365,7 @@ async def segment_mesh(
         raise
     except Exception as e:
         logger.error(f"Error scheduling mesh segmentation job: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to schedule job: {str(e)}")
+        raise HTTPException(status_code=500, detail=sanitize_error_message(f"Failed to schedule job: {str(e)}"))
     finally:
         if temp_dir and not scheduled:
             shutil.rmtree(temp_dir, ignore_errors=True)

@@ -308,7 +308,7 @@ export function ProjectTimeline({ onLoadProject, className }: ProjectTimelinePro
               className={cn(
                 'px-3 py-1.5 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all whitespace-nowrap',
                 statusFilter === filter
-                  ? 'bg-primary text-[#080808] font-bold shadow-sm'
+                  ? 'bg-primary text-[hsl(var(--primary-foreground))] font-bold shadow-sm'
                   : 'bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))]'
               )}
             >

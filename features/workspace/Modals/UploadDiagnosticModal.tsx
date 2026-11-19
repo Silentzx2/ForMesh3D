@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 
 import { HugeiconsIcon } from '@hugeicons/react';
-import { Cancel, CheckIcon, CheckmarkCircle02Icon, Copy, FileBoxIcon, LightbulbIcon, ReplyIcon, SearchIcon, SendIcon, TriangleAlertIcon } from '@hugeicons/core-free-icons';
+import { Cancel, CheckIcon, CheckmarkCircle02Icon, Copy, FileBoxIcon, LightbulbIcon, ReplyIcon, SendIcon, TriangleAlertIcon } from '@hugeicons/core-free-icons';
 import {
   diagnoseUpload,
   createSampleGlbFile,
@@ -82,7 +82,7 @@ export const UploadDiagnosticModal: React.FC<UploadDiagnosticModalProps> = ({
         <div className="flex items-center justify-between px-5 py-4 bg-[hsl(var(--surface-1))] border-b border-[hsl(var(--border))]">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] flex items-center justify-center text-[hsl(var(--primary))]">
-              <HugeiconsIcon icon={SearchIcon} size={16} className="w-4 h-4" />
+              <HugeiconsIcon icon={FileBoxIcon} size={16} className="w-4 h-4" />
             </div>
             <div>
               <h3 className="font-bold text-sm text-[hsl(var(--foreground))]">Upload Diagnostics</h3>
@@ -135,7 +135,7 @@ export const UploadDiagnosticModal: React.FC<UploadDiagnosticModalProps> = ({
                 </>
               ) : (
                 <>
-                  <HugeiconsIcon icon={SearchIcon} size={16} className="w-3.5 h-3.5" />
+                  <HugeiconsIcon icon={LightbulbIcon} size={16} className="w-3.5 h-3.5" />
                   <span>Run Diagnostic</span>
                 </>
               )}

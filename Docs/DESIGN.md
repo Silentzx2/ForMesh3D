@@ -1,7 +1,7 @@
 # UI Design System & Component Reference
 
-> **Design Version**: 0.3.0
-> **Last Updated**: November 9, 2026
+> **Design Version**: 0.4.0
+> **Last Updated**: November 15, 2026
 > **Design System**: Studio Gold (`#FFCC00`, `48 100% 50%`) on Matte Black (`#080808`)
 
 ---
@@ -14,16 +14,17 @@ All colors and surfaces in ForMesh 3D use HSL CSS variable design tokens. Direct
 | :--- | :--- | :--- | :--- |
 | `background` | `0 0% 3.1%` | `#080808` | Global Matte Black app backdrop / canvas shell base |
 | `foreground` | `0 0% 96%` | `#F5F5F5` | Primary high-contrast typography (clean crisp white) |
-| `--surface-0` | `0 0% 2.4%` | `#060606` | Deepest surface (3D viewport, canvas background) |
-| `--surface-1` | `0 0% 6.7%` | `#111111` | Primary panel backgrounds, cards, navigation rails |
-| `--surface-2` | `0 0% 10.2%` | `#1A1A1A` | Secondary containers, active tabs, nested sub-panels |
-| `--surface-3` | `0 0% 14.1%` | `#242424` | Hovered interactive states, input backgrounds |
-| `--surface-4` | `0 0% 20%` | `#333333` | Raised borders, highlighted elements |
-| `--primary` | `48 100% 50%` | `#FFCC00` | Vivid Studio Electric Gold (high-saturation, maximum LCD punch) |
-| `--primary-foreground`| `0 0% 3%` | `#080808` | High-contrast dark typography on primary yellow (>12:1 WCAG contrast) |
+| `--surface-0` | `0 0% 6%` | `#0F0F0F` | Deepest surface (3D viewport, canvas background) — brightened from 3.1% for visibility |
+| `--surface-1` | `0 0% 7.5%` | `#131313` | Primary panel backgrounds, cards, navigation rails — kept dark |
+| `--surface-2` | `0 0% 14%` | `#242424` | Secondary containers, active tabs, nested sub-panels — slightly brighter from 11.5% |
+| `--surface-3` | `0 0% 15.5%` | `#272727` | Hovered interactive states, input backgrounds |
+| `--surface-4` | `0 0% 22%` | `#383838` | Raised borders, highlighted elements |
+| `--primary` | `44 89% 61%` | `#F9CF00` | Studio Gold — icon color, hover glow, primary accent |
+| `--primary-foreground`| `0 0% 5%` | `#0D0D0D` | High-contrast dark typography on primary yellow (>12:1 WCAG contrast) |
+| `--ring` | `44 89% 61%` | `#F9CF00` | Focus ring color |
 | `--accent-dark` | — | `#E09800` | Pressed states, gradient bottom stop |
 | `--accent-light` | — | `#FFE066` | Hover states, specular highlight top stop |
-| `--border` | `0 0% 20%` | `#333333` | Standard card and container borders |
+| `--border` | `0 0% 22%` | `#383838` | Standard card and container borders |
 | `--muted-foreground` | `0 0% 63%` | `#A0A0A0` | Readable secondary/placeholder typography (>4.5:1 WCAG AA) |
 | `--chart-gpu` | `48 100% 50%` | `#FFCC00` | Telemetry GPU telemetry line |
 | `--chart-vram`| `48 100% 70%`| `#FFE066` | Telemetry VRAM telemetry line |
@@ -33,6 +34,22 @@ All colors and surfaces in ForMesh 3D use HSL CSS variable design tokens. Direct
 | Semantic Warning | — | `#FFCC00` / `amber-400` | Degraded service, queue wait |
 | Semantic Destructive | `0 72% 56%` | `#EF4444` / `rose-500` | Errors, deletion modals, fatal logs |
 | Semantic Info | — | `#3B82F6` / `sky-400` | Info notices, informative tooltips |
+
+### Icon color scheme
+
+All icons across panels (LeftNavigation, GeneratePanel) use Studio Gold (`#F9CF00`) as their active color with a subtle hover glow:
+
+- **Resting:** `#A1A1AA` (muted gray)
+- **Active:** `#F9CF00` + `drop-shadow-[0_0_10px_rgba(249,207,0,0.6)]`
+- **Hover (inactive):** `#F9CF00` + `drop-shadow-[0_0_8px_rgba(249,207,0,0.5)]`
+- **Animation:** `transition-transform duration-200 group-hover:scale-110` + `transition-colors duration-300`
+
+### Surface brightness rules
+
+- Viewport (`--surface-0`): 6% — bright enough for mesh detail, still dark enough for studio feel
+- Left navigation (`--surface-1`): 7.5% — kept dark for contrast against brighter viewport
+- Right panel (`--surface-2`): 14% — slightly brighter than before for readable secondary content
+
 
 ### Color Palette Visual Reference
 
@@ -99,7 +116,7 @@ flowchart TB
 
 **Primary Icon Library**: [Hugeicons](https://hugeicons.com) (`@hugeicons/react` + `@hugeicons/core-free-icons`).
 
-> No other icon libraries are permitted. Custom SVGs are restricted to brand/logo assets only.
+> Hugeicons is the canonical icon library. Legacy icon component imports in workspace panels are rendered through `components/icons/hugeicons-components.tsx`; new UI should use `HugeiconsIcon` with `@hugeicons/core-free-icons` directly. Custom SVGs are restricted to brand/logo assets only.
 
 ### Icon Size Hierarchy
 
@@ -198,6 +215,9 @@ Universal motion specifications compatible with `motion/react`:
 
 ### Existing UI Primitives
 - `components/premium/*`: `GlassCard`, `NeonButton`, `Badge`, `StatusDot`, `MetricCard`, `ProgressBar`, `Spinner`.
+- `components/workspace/components/GlowButton.tsx` (NEW): Layout-stable glow button with 5 variants — Keep (Studio Gold #F9CF00), Discard (rose #F43F5E), Regenerate (indigo #6366F1), Cancel (alert #EF4444), Export (download). Resting #A1A1AA → active variant + drop-shadow. Hover: color/shadow only (150-300ms), NO scale/translate. Focus ring visible. Disabled: opacity 50%.
+- `components/workspace/components/JobProgressBar.tsx` (NEW): Determinate 0-100% progress bar + stage text. Consumes `executionProgress`/`executionStep`/`executionStatus` from `useWorkspace` (single source of truth, no duplicated state).
+- `components/workspace/components/JobProgressStage.tsx` (NEW): Label chip + status icon (spinner/check/alert). Status-driven: empty/loading/completed/error.
 
 ### Core Components
 - `components/ui/simple-tooltip.tsx`: Tooltip with configurable position and delay.
@@ -205,11 +225,11 @@ Universal motion specifications compatible with `motion/react`:
 - `components/Providers.tsx`: Root providers (Theme, Toast, etc.).
 
 ### Texture Studio & Generation Panel Components
-- `TexturePanel.tsx`: Atlas resolution presets (1K, 2K, 4K, 8K), automatic engine routing (Paint3D for 1K/2K, Hunyuan3D-Paint for 4K/8K), reference image binding/upload, PBR map inspection. RealESRGAN runs as part of Hunyuan Paint; there is no separate UI toggle.
-- `GeneratePanel.tsx`: Simplified Studio Interface with single Target Polycount / Output Preset card (six canonical preset chips derived from the backend catalogue), locked model inference profiles, single postprocessing master switch, and clean Advanced production drawer. Universal Textured Generation toggle for all image-to-3D geometry models, atlas resolution preset selector, VRAM warning for 4K/8K.
-- Source-generation controls output raw geometry; texturing runs as a separate, optional, non-destructive stage preserving `master/source.glb`.
+- `TexturePanel.tsx`: Atlas resolution presets (1K, 2K, 4K, 8K), explicit selection between registered paint engines including Hunyuan3D-Paint v2.0 and v2.1, reference image binding/upload, PBR map inspection. RealESRGAN runs within the v2.1 adapter; there is no separate UI toggle.
+- `GeneratePanel.tsx`: Simplified Studio Interface with single Target Polycount / Output Preset card (six canonical preset chips derived from the backend catalogue), locked model inference profiles, and clean Advanced production drawer. Universal Textured Generation toggle for all image-to-3D geometry models, atlas resolution preset selector, VRAM warning for 4K/8K.
+- Source-generation controls output raw geometry; texturing runs as a separate, optional, non-destructive stage preserving `mesh/mesh.glb`.
 - `systemStats`: Real-time GPU/VRAM telemetry in texture panel
-- Spot-mask mode draws to a separate UV mask canvas; localized inference remains visibly unavailable until supported by Paint3D/Hunyuan adapter calls.
+- Spot-mask mode draws to a separate UV mask canvas; localized inference remains visibly unavailable until supported by Hunyuan adapter calls.
 - UV Inspector is bound to the loaded viewport mesh's UV attributes; sampled edges are for responsiveness and only computed counts/bounds are shown.
 
 ### Simplified Generate Studio Panel & Production Drawer (GeneratePanel.tsx)
@@ -219,26 +239,13 @@ The Generate studio interface is organized into a clean beginner-friendly flow a
 #### 1. Primary Flow (Beginner-Friendly Main Panel)
 - **Reference Image Intake**: Single drag-and-drop zone, file upload, or bridge pre-load from Board (`useAppStore.pendingBoardImage`).
 - **AI 3D Engine Selector**: Dropdown over the discovered model registry. Every row shows the model label, its VRAM requirement (`NGB VRAM`, or `Standard` when the model declares none) and a capability badge (`PBR Texture` or `Raw Mesh`). Models that are not ready carry an extra `GPU Req` (CUDA unavailable) or `Weights Missing` flag.
-- **Single Post-Processing Master Switch**: Exactly one master toggle. When active, enables full production finishing. When toggled OFF, fast mode bypasses downstream finishing and returns raw geometry immediately.
-- **Textured Generation Toggle**: Switches the optional texture stage on/off and shows the current atlas size. It is blocked (labelled `BLOCKED`) while post-processing is OFF, because texture baking and UV unwrapping are post-processing stages.
-- **Single Target Polycount & Output Preset Card**:
-  - Six production output recipes, defined by `backend/config/smart_presets.yaml`:
-    - `mobile`: 20K triangles, 1K atlas, mobile LOD ratios.
-    - `game_ready`: 50K triangles, 1K atlas, LOD chain, collision hull.
-    - `cinematic`: 200K triangles, 2K atlas, LOD chain.
-    - `animation`: 30K triangles, 1K atlas, LOD chain, auto-rig.
-    - `3d_print`: raw mesh (no decimation), printability check, auto-repair.
-    - `native`: raw generative mesh with post-processing bypassed.
-  - Each chip's summary line is derived from the backend preset data (for example `50K · 1K PBR · LOD · Col`), not hardcoded in the UI.
-  - Smooth polycount slider (5K–200K tris) for fine-tuning the budget; moving the slider clears the active preset. Chips other than `Native` are blocked while post-processing is OFF.
-  - Preset clicks fill recommended defaults non-destructively and **never** trigger automatic generation submission.
-- **Generate Button**: Shimmer action button with a live step label and progress bar, plus a `Queue Next` action that submits the job to the background queue. Missing or unapproved inputs are surfaced as an inline notice rather than a disabled control.
+- Generation UI has no post-processing master switch. Model-native generation controls stay in GeneratePanel; Retopo, UV, and Segmentation settings are exposed only in their dedicated workspace panels.
 
-#### 2. Advanced Production Drawer (Genuine Production Controls Only)
-- **Candidate Variations (Pick-Best-of-N)**: Multi-variation selector (1 to 4 seeds) with deterministic stepping (`base_seed + i × seed_step`) and composite quality scoring (`_score_and_select`) promoting the highest-scoring candidate to `master/source.glb`; the completed-asset card also allows manual promotion of any variation.
+### 2. Advanced Production Drawer (Genuine Production Controls Only)
+- **Candidate Variations (Pick-Best-of-N)**: Multi-variation selector (1 to 4 seeds) with deterministic stepping (`base_seed + i × seed_step`) and composite quality scoring (`_score_and_select`) promoting the highest-scoring candidate to `mesh/mesh.glb`; the completed-asset card also allows manual promotion of any variation.
 - **Topology Target**: Triangle decimation vs. quad-dominant retopology (AutoRetopo quad conversion).
 - **Automatic UV Unwrapping**: Conformal seam placement and atlas chart packing (xatlas / PartUV) run inside the production pipeline. There is no user-facing UV-unwrapping toggle.
-- **High-to-Low Normal Map Baking**: `Bake Normal Maps` toggle for ray-cast detail transfer from immutable `master/source.glb` to the decimated output mesh.
+- **High-to-Low Normal Map Baking**: `Bake Normal Maps` toggle for ray-cast detail transfer from immutable `mesh/mesh.glb` to the decimated output mesh.
 - **LOD Generation**: On/off toggle plus a ratio preset (mobile / low / medium / high) and a level count of 2, 3 or 4 levels — the pipeline supports at most LOD0–LOD3. Ratios come from the backend preset table (for example `high` = 100% / 60% / 30% / 15%, `medium` = 100% / 50% / 25% / 12.5%).
 - **Topology Gate & Targeted Hole Repair**: The topology gate always runs as part of the production pipeline; the `Auto-Repair` toggle only decides whether the repair step may mutate the mesh (targeted boundary loop hole closure, ≤50 vertices).
 - **Physics Preparation**: Collision toggle plus body behaviour, collision quality, density, mass and material quick presets (Default, Rubber, Stone, Wood, Ice, Metal), backed by convex hull generation (Trimesh) with optional CoACD multi-part decomposition.
@@ -246,7 +253,7 @@ The Generate studio interface is organized into a clean beginner-friendly flow a
 #### 3. Banned & Removed Controls
 - No inference step sliders, guidance scale inputs, sampler overrides, or octree resolution pickers (locked inside adapter code).
 - No fake Fast/Balanced/High inference quality selector.
-- No duplicate Target Polycount cards or duplicate post-process master switches.
+- No duplicate Target Polycount cards or retired generation switches.
 - No separate UV-unwrapping toggle — unwrapping is automatic and gated by the production pipeline.
 - No separate "Topology Gate" toggle — the gate always runs and the `Auto-Repair` toggle only controls whether repair may mutate the mesh.
 - No Low VRAM toggles in the generation flow — adapter-owned profiles own the inference schedule.
@@ -254,13 +261,32 @@ The Generate studio interface is organized into a clean beginner-friendly flow a
 
 #### 4. Request Contract (`features/workspace/utils/buildGenerationParameters.ts`)
 
-The panel builds the body for `POST /api/v1/mesh-generation/image-to-raw-mesh` from: `image_file_id` | `image_base64`, `candidate_count`, `asset_name`, `image_name`, `output_format`, `model_preference`, `intent`, `preprocessing_artifact_id`, `preprocessing_review_override`, `enhancement_enabled`, `enable_printability_check`, `enable_auto_repair`, `enable_auto_rig`, `auto_rig_mode`, `enable_postprocess`, `target_polycount`, `generate_lod`, `lod_preset`, `lod_count`, `model_parameters` (seed only), `physics_enabled`, `physics_config`, `topology_mode`, `quad_topology`, `bake_normal_maps`, `texture_enabled`, `generate_texture`, `texture_resolution`, `texture_resolution_preset`.
+The panel builds the body for `POST /api/v1/generate` from: `image_file_id` | `image_base64`, `candidate_count`, `asset_name`, `image_name`, `output_format`, `model_preference`, `intent`, `preprocessing_artifact_id`, `preprocessing_review_override`, `enhancement_enabled`, `enable_printability_check`, `enable_auto_repair`, `enable_auto_rig`, `auto_rig_mode`, `target_polycount`, `generate_lod`, `lod_preset`, `lod_count`, `model_parameters` (seed only), `physics_enabled`, `physics_config`, `topology_mode`, `quad_topology`, `bake_normal_maps`, `texture_enabled`, `generate_texture`, `texture_resolution`, `texture_resolution_preset`.
 
 There is no `output_preset` body field and no `auto_optimize` field. The output preset reaches the backend through `intent`, and the preset-derived budgets are expanded into the explicit fields above. The minimal offline fallback table in `constants/smartPresetFallback.json` is guarded by `backend/tests/test_smart_preset_parity.py`, so the panel and `backend/config/smart_presets.yaml` cannot drift apart silently.
 
 
 ### Generation & Texture Power Tools (Batch 2)
-- `GeneratePanel.tsx` (Pick-Best-of-N Candidate Generation): Multi-variation count selector (1 to 4) stepping seeds deterministically. Interactive Candidate Comparison Grid rendered on completion with individual candidate seed display, 3D viewport previewing (`loadModelInViewer`), and one-click promotion to `master/source.glb` with unselected candidate file garbage collection.
+- `GeneratePanel.tsx` (Pick-Best-of-N Candidate Generation): Multi-variation count selector (1 to 4) stepping seeds deterministically. Interactive Candidate Comparison Grid rendered on completion with individual candidate seed display, 3D viewport previewing (`loadModelInViewer`), and one-click promotion to `mesh/mesh.glb` with unselected candidate file garbage collection.
+
+### Viewport Operation Controls & Action Bar (Batch 5)
+
+#### 1. Operation Action Bar (`OperationActionBar.tsx`)
+- Docked at bottom-center of the 3D viewport during active preview inspection (`executionState === 'completed'`, `persistenceState === 'not_saved'`).
+- Floating dark pill container (`bg-[#141522]/95 backdrop-blur-xl border border-white/[0.15] shadow-2xl`).
+- **Keep in Workspace**: Primary Studio Gold gradient button with CheckIcon committing the preview permanently into the workspace tree.
+- **Regenerate**: Secondary glass button with RefreshCw icon triggering a linked re-execution attempt (`parent_operation_id`).
+- **Discard Preview**: Subtle rose-accent button with Trash2 icon cleaning temporary output files and restoring the base mesh in viewport.
+
+#### 2. Dynamic Mesh Versions Selector (`ViewportToolOverlay.tsx`)
+- Docked at top-left of the 3D viewport.
+- Hidden when the workspace contains only its initial base mesh; dynamically visible once derived assets are retained.
+- Studio dark dropdown with live amber indicator pulse, allowing one-click preview switching between saved versions (`Base Mesh (v001)`, `Textured Mesh (v002)`, `Remeshed Mesh (v003)`).
+- Decoupled from URL route mutation: switching versions updates only `active_mesh_asset_id` and viewport model object without modifying the browser URL.
+
+#### 3. Assets Library Thumbnail Resilience (`RightAssetsPanel.tsx`)
+- Graceful `onError` placeholder fallback: failed or missing thumbnail images automatically transition to a styled geometric Box placeholder icon, preventing broken image indicators.
+- Workspace scope toggle: allows instantaneous filtering between assets belonging to the active workspace versus global library assets.
 - `TexturePanel.tsx` (Spot Retexture / UV Region Mask): Sub-tool toggle between Surface Color Paint and Spot Retexture Mask. Interactive 3D surface painting generating a binary/grayscale UV mask aligned to the mesh's existing xatlas UV layout without re-unwrapping. Localized prompt input, brush dynamics, mask thumbnail preview, PNG mask export, and versioned non-destructive output reservation (`textures/<name>_textured_v{n}.glb`) with clear labeling of backend adapter limitations.
 - `constants/models.ts` & `TexturePanel.tsx` (Material Prompt Presets): 8 curated material presets (Brushed Metal, Weathered Wood, Matte Plastic, Rough Stone, Fabric, Chrome, Carbon Fiber, Gold) with CSS gradient previews, pre-filling editable prompt guidance without parallel preset code paths.
 - `GeneratePanel.tsx` (Physics Material Quick Presets): 6 friction/restitution preset chips (Default, Rubber, Stone, Wood, Ice, Metal) setting sliders non-destructively in the Physics Preparation drawer.
@@ -288,7 +314,9 @@ There is no `output_preset` body field and no `auto_optimize` field. The output 
 
 ---
 
-## 5. Centralized Texture Pipeline Flow (Paint3D & Hunyuan3D-Paint)
+## 5. Texture Pipeline Flow (Hunyuan3D-Paint)
+
+Texture generation runs inside the selected model's adapter after raw mesh inference, using already-loaded weights (no second weights load for models that share the texture-capable adapter).
 
 ```mermaid
 flowchart TD
@@ -297,14 +325,12 @@ flowchart TD
     classDef output fill:#1e293b,stroke:#ec4899,stroke-width:2px,color:#fff
     classDef guard fill:#0f172a,stroke:#f59e0b,stroke-width:2px,color:#fff
 
-    IN["Immutable master/source.glb<br/>Raw Geometry"]:::input
+    IN["Immutable mesh/mesh.glb<br/>Raw Geometry"]:::input
     IN --> TEXTURE{"Textured Generation enabled?"}:::guard
     TEXTURE -->|No| RAW["Keep raw master<br/>No texture stage"]:::output
     TEXTURE -->|Yes| SIZE{"Requested atlas preset"}:::guard
-    SIZE -->|1K / 2K| PAINT3D["Paint3D<br/>Coarse generation + UV refinement"]:::process
-    SIZE -->|4K / 8K| HUNYUAN["Hunyuan3D-Paint v2.1<br/>RealESRGAN enabled internally"]:::process
-    PAINT3D --> VERIFY["Inspect embedded base-colour atlas<br/>Require exact requested square size"]:::process
-    HUNYUAN --> VERIFY
+    SIZE -->|Any atlas size| PAINT["Selected paint model: v2.0 or v2.1; v2.1 uses RealESRGAN at 4K / 8K"]:::process
+    PAINT --> VERIFY
     VERIFY -->|Verified| EXPORT["Export separate textured GLB<br/>Keep source.glb untouched"]:::output
     VERIFY -->|Missing / mismatch / failure| RAWFAIL["Preserve raw master<br/>Record texture-stage failure"]:::output
 ```mermaid
@@ -314,14 +340,12 @@ flowchart TD
     classDef output fill:#1e293b,stroke:#ec4899,stroke-width:2px,color:#fff
     classDef guard fill:#0f172a,stroke:#f59e0b,stroke-width:2px,color:#fff
 
-    IN["Immutable master/source.glb<br/>Raw Geometry"]:::input
+    IN["Immutable mesh/mesh.glb<br/>Raw Geometry"]:::input
     IN --> TEXTURE{"Textured Generation enabled?"}:::guard
     TEXTURE -->|No| RAW["Keep raw master<br/>No texture stage"]:::output
     TEXTURE -->|Yes| SIZE{"Requested atlas preset"}:::guard
-    SIZE -->|1K / 2K| PAINT3D["Paint3D<br/>Coarse generation + UV refinement"]:::process
-    SIZE -->|4K / 8K| HUNYUAN["Hunyuan3D-Paint v2.1<br/>RealESRGAN enabled internally"]:::process
-    PAINT3D --> VERIFY["Inspect embedded base-colour atlas<br/>Require exact requested square size"]:::process
-    HUNYUAN --> VERIFY
+    SIZE -->|Any atlas size| PAINT["Selected paint model: v2.0 or v2.1; v2.1 uses RealESRGAN at 4K / 8K"]:::process
+    PAINT --> VERIFY
     VERIFY -->|Verified| EXPORT["Export separate textured GLB<br/>Keep source.glb untouched"]:::output
     VERIFY -->|Missing / mismatch / failure| RAWFAIL["Preserve raw master<br/>Record texture-stage failure"]:::output
 ```
@@ -496,17 +520,19 @@ Workspace export actions treat game_ready/ as the default user-facing artifact. 
 
 The ZIP option snapshots the complete canonical workspace; it is not a selective package builder.
 
-Post-processing stage and progress reuse the existing job status model rather than introducing a second progress subsystem.
+Generation progress follows the existing job status model. Script workspace tools use SQLite operation progress and their dedicated operation status endpoint.
 
 Export Quick-Profiles (`ExportModal.tsx`) enable 1-click loading and custom creation of format/LOD/collision combinations (e.g. "GLB Game-Ready", "Unity Mobile", "Unreal High-Poly", "Blender Raw") persisted in `services/settingsPersistence.ts`. Profiles only pre-fill validated toggles and reuse the single canonical export execution pipeline.
 
-Storage Breakdown & Safe Cleanup (`OutputsPage.tsx`, `/api/v1/system/storage-breakdown`, `/api/v1/system/storage-cleanup`) provides an authentic byte-level overview across `master/`, `game_ready/`, `textures/`, `lods/`, `rigging/`, and `temp/` using canonical server filesystem sizes. The safe cleanup action removes obsolete intermediate processing artifacts older than a user-specified day threshold while strictly preserving `master/source.glb` lineage and primary game-ready files.
+Storage Breakdown & Safe Cleanup (`OutputsPage.tsx`, `/api/v1/system/storage-breakdown`, `/api/v1/system/storage-cleanup`) provides an authentic byte-level overview across `master/`, `game_ready/`, `textures/`, `lods/`, `rigging/`, and `temp/` using canonical server filesystem sizes. The safe cleanup action removes obsolete intermediate processing artifacts older than a user-specified day threshold while strictly preserving `mesh/mesh.glb` lineage and primary game-ready files.
 
 ## Physics UX
-The Generate panel keeps Physics Preparation behind a compact Advanced Generation drawer so the primary workflow stays short and scroll-light. The viewer exposes a top-level Test Physics action. On Physics Ready assets it uses the canonical collision runtime; on ordinary loaded meshes it falls back to a lightweight bounds-based rigid-body smoke test without mutating the asset or running post-processing. The viewer still provides Play, Pause, Step, Reset, collider debug, Drop, Bounce, Slide, and Spin controls. Deformable/jiggle simulation remains capability-gated and is not faked.
+The Generate panel keeps Physics Preparation behind a compact Advanced Generation drawer so the primary workflow stays short and scroll-light. The viewer exposes a top-level Test Physics action. On Physics Ready assets it uses the canonical collision runtime; on ordinary loaded meshes it falls back to a lightweight bounds-based rigid-body smoke test without mutating the asset. The viewer still provides Play, Pause, Step, Reset, collider debug, Drop, Bounce, Slide, and Spin controls. Deformable/jiggle simulation remains capability-gated and is not faked.
 
 ## Viewport Inspect UX
 The viewport keeps frequent actions in the center-view rail: camera, shading, wireframe, turntable, Test Physics, and Mirror/Reflection Peek. Reflection Peek is an event-driven viewport snapshot that provides a real-time thumbnail preview of the mesh and lighting. Rather than running an unthrottled timer loop, snapshot capture executes once on initial mesh load and then listens to OrbitControls `'end'` events debounced at 250ms. Previous object URLs are revoked upon each capture to prevent memory bloat, and the capture loop is completely halted when the scene is static or unmounted.
+
+**Floating Mesh Details HUD (`ViewportToolOverlay.tsx`)** replaces the old bottom-left stats pill with a collapsible, gold-accented viewport card. It presents Faces, Verts, Edges, Materials, and Size in a compact horizontal layout, positioned above the bottom material dock and the bottom-right XYZ orientation control. Geometry counts and material totals come from the loaded Three.js scene before viewport recentering and scaling. Size comes from the uploaded file or the selected generated asset's actual backend file metadata. A metric is omitted when no authoritative value is available; the card does not display sample values, zero defaults, or placeholder dashes. Exact edge enumeration is capped at 250,000 rendered faces to bound main-thread work.
 
 Turntable 360° capture (`MeshViewer.tsx`) enables client-side recording of a complete 360° rotation directly from the canvas via native `MediaRecorder` and `canvas.captureStream(30)`. Capture executes over a deterministic 90-frame rotation loop (3.0s at 30fps) with synchronized shadow map updates, leaving scene materials, lighting, and shading identical to viewport inspection. Outputs standard `.webm` or `.mp4` video with fallback to PNG snapshot for unsupported browsers, and logs an export activity record.
 
@@ -592,11 +618,11 @@ Current adapter-owned inference profiles:
 - TaoFlowForge: `fill_holes` enabled, offload `auto`
 - Unique3D: `input_processing` and `do_refine` enabled, expansion weight 0.1
 
-The visible output preset chips (`Mobile / Game Ready / Cinematic / Animation / 3D Print / Native`) map to production post-processing budgets, not inference schedules. `Native` preserves the model-native source density and skips downstream polycount reduction.
+The visible output preset chips (`Mobile / Game Ready / Cinematic / Animation / 3D Print / Native`) are generation intents, not downstream mesh-processing controls. `Native` preserves the model-native source density and skips downstream polycount reduction.
 
 ## Resource-Aware Generation UX — 2026-10-08
 
-The workspace receives the normalized runtime capability contract. Model-specific controls are shown only when supported; quality/polycount choices are routed through the scheduler and production post-process rather than silently changing model-native source density. High-fidelity source and game-ready derivatives remain separately inspectable.
+The workspace receives the normalized runtime capability contract. Model-specific controls are shown only when supported; quality/polycount choices are routed through the generation request contract without silently changing model-native source density. High-fidelity source and game-ready derivatives remain separately inspectable.
 
 ## Phase 1 Generation UX Contract
 
@@ -604,10 +630,10 @@ The workspace receives the normalized runtime capability contract. Model-specifi
 The Generate panel exposes Original versus Generation Preview, approval/reuse, regeneration, manual editor navigation, and a disable path. Changing the source invalidates the previous preprocessing artifact.
 
 ### Smart Intent
-Compact controls expose Game Ready, Cinematic, Animation, 3D Print, and Mobile, plus a `Native` chip that bypasses post-processing and returns the raw generative mesh. Selecting an intent fills the panel's settings from the backend preset catalogue without submitting a job; at submission time the backend resolves the actual chosen model for that intent and the normal generation lifecycle runs. The UI does not reimplement resource admission.
+Compact controls expose Game Ready, Cinematic, Animation, 3D Print, and Mobile, plus a `Native` chip that requests direct model-native extraction. Selecting an intent fills the panel's settings from the backend preset catalogue without submitting a job; at submission time the backend resolves the actual chosen model for that intent and the normal generation lifecycle runs. The UI does not reimplement resource admission.
 
 ### Production QA
-Printability, Auto-Repair, and Auto-Rig are explicit controls. All execute through the existing scheduler/post-process lifecycle and expose degraded failure state rather than false success.
+Printability, Auto-Repair, and Auto-Rig are explicit controls. These execute through their dedicated operation lifecycle and expose degraded failure state rather than false success.
 
 ## High-Fidelity Generation UX Contract — 2026-10-08
 
@@ -678,6 +704,12 @@ An output preset must never silently downgrade the immutable master. A requested
   - **Top**: Downward planar snap along Y-axis (`[0, distance, 0]`).
 - Dispatches `setCameraPreset` custom events handled by `applyCameraPreset()`, maintaining model focal point and bounding-sphere framing.
 
+### Floating XYZ Orientation Gizmo
+- **Reference-Matched Artwork**: The viewport uses the supplied axis-sphere artwork from `public/assets/xyz-orientation-gizmo.png`, cropped to the artwork bounds and blended with the dark viewport so it reads as a floating control rather than a panel or tile.
+- **Six-Axis Camera Interaction**: The visible X/Y/Z labels are the positive-axis hit targets. The opposite `−X`, `−Y`, and `−Z` directions remain available as transparent hit targets and reveal a compact label on hover or keyboard focus.
+- **Camera Contract**: Hit targets dispatch the existing `setCameraPreset` event; `MeshViewer` maps `right/left` to `±X`, `top/bottom` to `±Y`, and `front/back` to `±Z`. The camera focal point and current orbit distance are preserved.
+- **Placement & Accessibility**: The control floats at the viewport's lower-right edge, scales down on narrow viewports, and exposes descriptive accessible names, native titles, and visible keyboard focus without intercepting pointer input outside its six hit areas.
+
 ### MeshDiffViewer Dual-Scene WebGL Architecture
 - **Uncoupled Animation Loop**: Dual comparative viewports (`leftScene` / `rightScene`) operate on an independent `requestAnimationFrame` loop completely decoupled from React state, eliminating 60–120fps component re-renders.
 - **Synchronized Camera Orbiting**: Interacting with either the left or right viewport smoothly mirrors camera matrices to provide seamless side-by-side mesh diffing.
@@ -725,3 +757,15 @@ Workspace Settings → AI Inference → Generation Output Recipes is a native di
 - The viewport rail exposes one Before / After tool, disabled until the selected asset supplies distinct source and processed model artifacts.
 - Comparison is opt-in and overlays the existing MeshViewer canvas with a draggable, keyboard-accessible wipe divider. Both halves share the same scene, camera, lighting, renderer and render loop; only the source model is loaded on demand, and it is disposed when comparison closes.
 - Texture and PBR are two routes of the same TexturePanel. The PBR tab navigates through the existing /workspace/texture-pbr route using the workspace's replace-state tool navigation, so the left panel and WebGL viewport do not remount. PBR map options reuse the existing controls rather than duplicating a second form.
+
+## Dynamic Flyout & Main Generate Panel Layout Architecture — 2026-11-13
+
+- **Main Panel Direct Controls:** Generation-critical settings reside directly in `GeneratePanel.tsx`:
+  - **Polycount Target Slider:** Range 500 to 600,000 faces, recording the requested native geometry budget (`native_target_polycount`).
+  - **Model-Aware Texture Settings:** Integrated switch for texture generation and atlas resolution pills (2K / 4K) conditionally rendered based on the selected model's pipeline capability (`none`, `2k`, `4k`).
+- **Dynamic Floating Geometry & Texture Settings:** Secondary refinement controls are ported to `#geometry-texture-flyout` via `createPortal`:
+  - **Remove Lighting Switch:** De-lights albedo textures to extract true material colors.
+  - **PBR Maps Switch:** Enables physically-based roughness, metallic, and normal map generation.
+  - **Topology Mode Pills:** Quad vs Triangle topology selection.
+- **Generation Controls:** Generation delivers model-native geometry; mesh tools run explicitly from their workspace panels.
+

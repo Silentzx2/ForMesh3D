@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getApiClient } from '@/services/apiClient';
-import { FeatureInfo, AvailableModels } from '@/types/api';
+import { FeatureInfo, AvailableModels, ModelRuntimeDetails } from '@/types/api';
 
 export interface FeatureAvailability {
   [featureName: string]: {
@@ -10,12 +10,27 @@ export interface FeatureAvailability {
   };
 }
 
+export type FeatureAvailabilityStatus = 'idle' | 'loading' | 'loaded' | 'error';
+
+export interface ModelUiMeta {
+  label: string;
+  tag: string;
+  note: string;
+  badge: string;
+  enabled: boolean;
+}
+
 export interface UseFeatureAvailabilityReturn {
   features: FeatureAvailability;
+  modelDetails: Record<string, ModelRuntimeDetails>;
+  weightsStatus: Record<string, boolean>;
   loading: boolean;
+  status: FeatureAvailabilityStatus;
   error: string | null;
   checkFeature: (featureName: string) => boolean;
   getModelsForFeature: (featureName: string) => string[];
+  getModelCapabilities: (modelId: string) => Record<string, any>;
+  getModelUiMeta: (modelId: string) => ModelUiMeta;
   refetch: () => Promise<void>;
 }
 
@@ -34,18 +49,19 @@ const FEATURE_NAME_MAPPING: Record<string, string> = {
   'motion_generation': 'motion_generation',
   'animation': 'motion_generation',
   'part-completion': 'part_completion', 
-  'text-mesh-editing': 'text_mesh_editing', 
-  'image-mesh-editing': 'image_mesh_editing'
 };
 
 export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
   const [features, setFeatures] = useState<FeatureAvailability>({});
-  const [loading, setLoading] = useState(true);
+  const [modelDetails, setModelDetails] = useState<Record<string, ModelRuntimeDetails>>({});
+  const [weightsStatus, setWeightsStatus] = useState<Record<string, boolean>>({});
+  const [status, setStatus] = useState<FeatureAvailabilityStatus>('loading');
+  const loading = status === 'loading';
   const [error, setError] = useState<string | null>(null);
 
   const fetchFeatureAvailability = useCallback(async () => {
     try {
-      setLoading(true);
+      setStatus('loading');
       setError(null);
 
       const apiClient = getApiClient();
@@ -93,12 +109,13 @@ export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
             key => FEATURE_NAME_MAPPING[key] === apiFeatureName
           );
 
-          if (uiFeatureNames.length > 0 && Array.isArray(models)) {
-            // Keep aliases synchronized so feature checks behave the same for hyphenated and API names.
-            uiFeatureNames.forEach(uiFeatureName => {
-              const existing = featureAvailability[uiFeatureName] || { available: false, models: [] };
+          // Populate under both raw API name (image_to_raw_mesh) and UI hyphenated names (image-to-raw-mesh)
+          const allFeatureKeys = Array.from(new Set([apiFeatureName, ...uiFeatureNames]));
+          if (Array.isArray(models)) {
+            allFeatureKeys.forEach(key => {
+              const existing = featureAvailability[key] || { available: false, models: [] };
               const mergedModels = Array.from(new Set([...existing.models, ...models]));
-              featureAvailability[uiFeatureName] = {
+              featureAvailability[key] = {
                 available: mergedModels.length > 0,
                 models: mergedModels,
                 error: mergedModels.length === 0 ? 'No models available for this feature' : undefined
@@ -109,11 +126,15 @@ export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
       }
 
       setFeatures(featureAvailability);
+      setModelDetails(modelsResponse.model_details || {});
+      setWeightsStatus(modelsResponse.weights_status || {});
+      setStatus('loaded');
       console.log('[FeatureAvailability] Loaded features:', featureAvailability);
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to check feature availability';
       setError(errorMessage);
+      setStatus('error');
       console.error('[FeatureAvailability] Error:', err);
       
       // Set all features as unavailable with error
@@ -127,7 +148,7 @@ export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
       });
       setFeatures(errorFeatures);
     } finally {
-      setLoading(false);
+      // loading is derived from status (=== 'loading'); no separate setter exists.
     }
   }, []);
 
@@ -145,6 +166,21 @@ export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
       [];
   }, [features]);
 
+  const getModelCapabilities = useCallback((modelId: string): Record<string, any> => {
+    return modelDetails[modelId]?.capabilities || {};
+  }, [modelDetails]);
+
+  const getModelUiMeta = useCallback((modelId: string): ModelUiMeta => {
+    const detail = modelDetails[modelId];
+    return {
+      label: detail?.ui_label || detail?.model_name || modelId,
+      tag: detail?.ui_tag || 'Ready',
+      note: detail?.ui_note || '',
+      badge: detail?.ui_badge || '',
+      enabled: detail?.enabled !== false,
+    };
+  }, [modelDetails]);
+
   const refetch = useCallback(async () => {
     await fetchFeatureAvailability();
   }, [fetchFeatureAvailability]);
@@ -155,10 +191,15 @@ export const useFeatureAvailability = (): UseFeatureAvailabilityReturn => {
 
   return {
     features,
+    modelDetails,
+    weightsStatus,
     loading,
+    status,
     error,
     checkFeature,
     getModelsForFeature,
+    getModelCapabilities,
+    getModelUiMeta,
     refetch
   };
 }; 

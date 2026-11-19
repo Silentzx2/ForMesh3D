@@ -54,7 +54,7 @@ export function JobsTab() {
         mode: j.feature,
         provider: j.model_preference,
       })));
-      setError(data.jobs.length === 0 ? 'No jobs found' : null);
+      setError(null);
     } catch (e: any) {
       setError(e?.message || 'Failed to load jobs');
     } finally {
@@ -174,7 +174,7 @@ export function JobsTab() {
                       )}
                       <button
                         type="button"
-                        onClick={() => router.push(`/workspace/jobs?id=${job.id}`)}
+                        onClick={() => router.push(`/workspace/jobs/${job.id}`)}
                         className="text-[11px] text-[hsl(var(--admin-accent))] hover:underline flex items-center gap-0.5 font-medium cursor-pointer ml-auto"
                       >
                         <span>Inspect in Workspace</span>

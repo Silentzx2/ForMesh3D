@@ -63,7 +63,7 @@ check_nvidia_runtime() {
 # Create necessary directories
 create_directories() {
     print_status "Creating necessary directories..."
-    mkdir -p data uploads models logs
+    mkdir -p data uploads logs
     print_success "Directories created"
 }
 

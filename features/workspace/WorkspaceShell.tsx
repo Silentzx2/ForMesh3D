@@ -26,7 +26,6 @@ import {
 import { StudioToolTemplate } from './Panels/StudioToolTemplate';
 import { settingsPersistence } from '@/services/settingsPersistence';
 import { useUIStore } from '@/stores/useUIStore';
-import { useRiggingStore } from '@/stores/useRiggingStore';
 import { useAnimationStore } from '@/stores/useAnimationStore';
 import { toast } from 'sonner';
 // Dynamic imports for heavy 3D components and panels
@@ -38,12 +37,39 @@ const MeshViewer = dynamic(() => import('./Viewport/MeshViewer').then(mod => mod
 import { MOTION_FAST, MOTION_SPRING } from '@/lib/motion';
 
 import { GeneratePanel } from './Panels/GeneratePanel';
-import { TexturePanel } from './Panels/TexturePanel';
-import { SegmentationPanel } from './Panels/SegmentationPanel';
-import { RemeshPanel } from './Panels/RemeshPanel';
-import { UVPanel } from './Panels/UVPanel';
-import { RiggingPanel } from './Panels/RiggingPanel';
-import { AnimationPanel } from './Panels/AnimationPanel';
+
+const PanelLoadingFallback = () => (
+  <div className="w-full h-full p-4 space-y-4 animate-pulse bg-[hsl(var(--surface-0))]">
+    <div className="h-7 bg-white/5 rounded-lg w-1/2" />
+    <div className="h-20 bg-white/5 rounded-lg w-full" />
+    <div className="h-36 bg-white/5 rounded-lg w-full" />
+  </div>
+);
+
+const TexturePanel = dynamic(() => import('./Panels/TexturePanel').then(mod => mod.TexturePanel), {
+  ssr: false,
+  loading: () => <PanelLoadingFallback />,
+});
+const SegmentationPanel = dynamic(() => import('./Panels/SegmentationPanel').then(mod => mod.SegmentationPanel), {
+  ssr: false,
+  loading: () => <PanelLoadingFallback />,
+});
+const RemeshPanel = dynamic(() => import('./Panels/RemeshPanel').then(mod => mod.RemeshPanel), {
+  ssr: false,
+  loading: () => <PanelLoadingFallback />,
+});
+const UVPanel = dynamic(() => import('./Panels/UVPanel').then(mod => mod.UVPanel), {
+  ssr: false,
+  loading: () => <PanelLoadingFallback />,
+});
+const RiggingPanel = dynamic(() => import('./Panels/RiggingPanel').then(mod => mod.RiggingPanel), {
+  ssr: false,
+  loading: () => <PanelLoadingFallback />,
+});
+const AnimationPanel = dynamic(() => import('./Panels/AnimationPanel').then(mod => mod.AnimationPanel), {
+  ssr: false,
+  loading: () => <PanelLoadingFallback />,
+});
 const JobDetailView = dynamic(() => import('./Jobs/JobDetailView').then(mod => mod.JobDetailView), {
   ssr: false,
   loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
@@ -118,6 +144,7 @@ export const WorkspaceShell: React.FC = () => {
   // Mobile menu state: left navigation drawer
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const mobileNavRef = useRef<HTMLElement | null>(null);
+  const firstToolButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (!isMobileNavOpen) return;
@@ -157,7 +184,7 @@ export const WorkspaceShell: React.FC = () => {
         if (previouslyFocused.getClientRects().length > 0) {
           previouslyFocused.focus();
         } else {
-          document.querySelector<HTMLElement>('#left-tool-rail button')?.focus();
+          firstToolButtonRef.current?.focus();
         }
       }
     };
@@ -265,21 +292,15 @@ export const WorkspaceShell: React.FC = () => {
     const rawPath = pathname?.toLowerCase() ?? '';
     const cleanPath = rawPath.replace(/\/+$/, ''); // Strip trailing slashes
 
-    // Overview / Dashboard routes
-    if (cleanPath === '/workspace/overview' || cleanPath === '/workspace/dashboard' || cleanPath === '/dashboard' || cleanPath === '/') {
-      setMainNav('dashboard');
+    // Bare /workspace always opens Generate; never an empty dashboard
+    if (cleanPath === '/workspace') {
+      router.replace('/workspace/generate');
       return;
     }
 
     // Outputs / Assets routes
     if (cleanPath === '/workspace/assets' || cleanPath === '/workspace/outputs' || cleanPath === '/outputs' || cleanPath === '/assets') {
       setMainNav('assets');
-      return;
-    }
-
-    // System routes
-    if (cleanPath === '/workspace/system' || cleanPath === '/system') {
-      setMainNav('system');
       return;
     }
 
@@ -309,16 +330,14 @@ export const WorkspaceShell: React.FC = () => {
       return;
     }
 
-    // Workspace tool routes: /workspace/[tool] or /workspace
+    // Workspace tool routes: /workspace/[tool]
     setMainNav('workspace');
     if (cleanPath.startsWith('/workspace/')) {
       const toolSegment = cleanPath.replace('/workspace/', '').split('/')[0];
       const matched = ROUTE_SEGMENT_TO_TOOL[toolSegment] || 'model';
       setActiveTool(matched);
-    } else if (cleanPath === '/workspace') {
-      setActiveTool('model');
     }
-  }, [pathname, setMainNav, setActiveTool]);
+  }, [pathname, setMainNav, setActiveTool, router]);
 
   // Close mobile nav on tool change
   useEffect(() => {
@@ -456,7 +475,7 @@ export const WorkspaceShell: React.FC = () => {
             >
               {/* Left Rail Column: 46px */}
               <div className="w-[46px] h-full flex-shrink-0 bg-[hsl(var(--surface-1))] border-r border-[hsl(var(--border))]">
-                <LeftNavigation />
+                <LeftNavigation firstToolButtonRef={firstToolButtonRef} />
               </div>
 
               {/* Right Tool Content Column: 228px */}

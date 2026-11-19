@@ -23,5 +23,11 @@ security:
 environment: "production"
 debug: false
 
+# Post-processing opt-in. Default disabled: default generation returns the
+# raw model-extracted mesh with no automatic post-processing pipeline.
+# Operators set `enabled: true` to restore the existing post-processing path.
+postprocessing:
+  enabled: false
+
 # Essential configuration parameters (can be overridden via CLI or env vars)
 user_auth_enabled: false

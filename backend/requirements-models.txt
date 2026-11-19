@@ -2,7 +2,7 @@
 # UNIFIED model dependencies file.
 # Installed only when compute mode is cuda. These are heavy ML packages
 # required by model adapters (TRELLIS, Hunyuan3D, TripoSG, Unique3D, Pixal3D,
-# SkinTokens, PartUV, FastMesh, ARDY, TaoFlowForge, Paint3D).
+# SkinTokens, PartUV, ARDY, TaoFlowForge).
 #
 # Version policy: only packages NOT already in requirements.txt go here.
 # Shared packages (numpy, scipy, trimesh, pillow, fastapi, uvicorn, pydantic,
@@ -18,7 +18,6 @@
 #   [TRIPOSG] backend/thirdparty/TripoSG/requirements.txt
 #   [SKINTOKENS] backend/thirdparty/SkinTokens/requirements.txt
 #   [PARTUV] backend/thirdparty/PartUV/requirements.txt
-#   [FASTMESH] backend/thirdparty/FastMesh/models/miche/requirements.txt
 #   [TRELLIS] backend/thirdparty/TRELLIS.2
 
 # ── ML-only packages (not in core) ────────────────────────────
@@ -60,7 +59,7 @@ igraph                      # [TRELLIS] install.sh line 480
 easydict==1.13              # [PIXAL3D]
 zstandard==0.25.0           # [PIXAL3D]
 plyfile==1.1.3              # [PIXAL3D] [PARTUV] unpinned
-utils3d                     # [PIXAL3D] install.sh line 826
+# utils3d installed from Git source in install.sh (https://github.com/EasternJournalist/utils3d.git)
 # natten removed: source build fails (curand_kernel.h missing during CUDA
 # compile) and no prebuilt natten wheel exists in the wheel house. Add it back
 # with a verified cp310+cu124 wheel if Pixal3D requires it.
@@ -94,10 +93,9 @@ seaborn                     # [PARTUV]
 # ── TaoFlowForge extra deps (from requirements.txt) ───────────
 plotly==6.8.0               # [TAOFLOWFORGE] requirements.txt
 
-# ── FastMesh (packages not in core) ───────────────────────────
-absl-py==1.4.0              # [FASTMESH]
-opencv-contrib-python==4.8.0.74  # [FASTMESH]
-pythreejs==2.4.2            # [FASTMESH] ([HUNYUAN] unpinned)
-pytz==2022.7.1              # [FASTMESH]
-starlette==0.27.0           # [FASTMESH]
-triton>=1.1.1               # [FASTMESH] (relaxed: ==1.1.1 wheels only go up to cp39; env is cp310)
+# ── Stable Fast 3D (SF3D) extra deps (from thirdparty/StableFast3D/requirements.txt) ──
+gpytoolbox==0.2.0           # [SF3D] sf3d/models/mesh.py — Marching Tetrahedra isosurface
+open_clip_torch==2.24.0     # [SF3D] image-text encoding
+pynanoinstantmeshes==0.0.3  # [SF3D] instant meshes remeshing
+
+# ── FastMesh removed (thirdparty/FastMesh deleted from main repo) ───────────

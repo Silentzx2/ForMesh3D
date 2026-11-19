@@ -27,7 +27,6 @@ import {
   PaletteIcon,
   PlayIcon,
   RotateCw,
-  Search01Icon,
   SettingsIcon,
   SlidersHorizontalIcon,
   SparklesIcon,
@@ -112,7 +111,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
   return (
     <CommandDialog open={isOpen} onOpenChange={setIsOpen}>
-      <CommandInput placeholder="Search tools, assets, navigation, and viewport actions..." />
+      <CommandInput placeholder="Tools, assets, navigation..." />
       <CommandList className="max-h-[min(70vh,520px)] p-1 no-scrollbar">
         <CommandEmpty>No matching tools or assets found.</CommandEmpty>
 

@@ -142,8 +142,17 @@ export const ExportModal: React.FC = () => {
         selectedUrl = artifacts?.gameReadyFormats?.[exportFormat] || null;
       }
 
-      if (!selectedUrl && currentAsset?.category === 'generation' && currentAsset?.id) {
-        selectedUrl = `/api/v1/system/jobs/${currentAsset.id}/download?artifact_format=${exportFormat}`;
+      if (!selectedUrl && currentAsset?.category === 'generation') {
+        // Prefer source.fileId which carries job-${jobId} for non-retained results
+        // (matches MeshViewer's URL construction). Fall back to asset id lookup.
+        const fileId = currentAsset.source?.fileId;
+        if (fileId?.startsWith('job-')) {
+          selectedUrl = `/api/v1/system/jobs/${encodeURIComponent(fileId.slice(4))}/download?artifact_format=${exportFormat}`;
+        } else if (fileId) {
+          selectedUrl = `/api/v1/file-upload/download/${encodeURIComponent(fileId)}`;
+        } else if (currentAsset.id) {
+          selectedUrl = `/api/v1/system/jobs/${encodeURIComponent(currentAsset.id)}/download?artifact_format=${exportFormat}`;
+        }
       }
       downloadExtension = exportFormat;
     }
@@ -358,7 +367,7 @@ export const ExportModal: React.FC = () => {
                   placeholder="Profile Name (e.g. Unity Mobile)"
                   value={newProfileName}
                   onChange={e => setNewProfileName(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleSaveCurrentAsProfile(); if (e.key === 'Escape') setIsCreatingProfile(false); }}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (!e.nativeEvent.isComposing && e.keyCode !== 229) handleSaveCurrentAsProfile(); } if (e.key === 'Escape') setIsCreatingProfile(false); }}
                   className="flex-1 px-2.5 py-1.5 rounded-lg bg-[hsl(var(--surface-1))] border border-white/[0.15] text-xs text-white outline-none focus:border-primary"
                   autoFocus
                 />

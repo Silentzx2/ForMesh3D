@@ -141,6 +141,14 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
         gen_device = exec_device if exec_device is not None else (f"cuda:{self.gpu_id}" if self.gpu_id is not None and torch and torch.cuda.is_available() else "cpu")
         generator = torch.Generator(device=gen_device).manual_seed(seed) if torch is not None else None
 
+        # Native polycount target: passed through from the generation request.
+        native_target_polycount = int(
+            inputs.get("native_target_polycount")
+            or inputs.get("target_polycount")
+            or 0
+        )
+        remesh_option = str(inputs.get("remesh_option", "none") or "none").strip().lower()
+
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
             outputs = pipeline(
@@ -167,32 +175,6 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
                 "error": f"Hunyuan3D-2.1 returned an unsupported mesh result: {type(mesh).__name__}",
             }
 
-        # Cap max topology at 600k faces per user specification
-        MAX_TOPOLOGY_FACES = 600_000
-        face_count = len(mesh.faces) if hasattr(mesh, "faces") else 0
-        if face_count > MAX_TOPOLOGY_FACES:
-            logger.info(
-                "Hunyuan3D Shape mesh has %d faces, exceeding %d cap. Decimating...",
-                face_count,
-                MAX_TOPOLOGY_FACES,
-            )
-            try:
-                import fast_simplification
-                v_red, f_red = fast_simplification.simplify(
-                    mesh.vertices,
-                    mesh.faces,
-                    target_count=MAX_TOPOLOGY_FACES,
-                )
-                import trimesh
-                mesh = trimesh.Trimesh(vertices=v_red, faces=f_red, process=True)
-                mesh.remove_unreferenced_vertices()
-            except Exception:
-                try:
-                    mesh = mesh.simplify_quadric_decimation(face_count=MAX_TOPOLOGY_FACES)
-                    mesh.remove_unreferenced_vertices()
-                except Exception as simp_err:
-                    logger.warning("Could not decimate Hunyuan3D Shape mesh to %d faces: %s", MAX_TOPOLOGY_FACES, simp_err)
-
         import tempfile
 
         out = Path(tempfile.mkdtemp()) / f"hunyuan3d_shape_{seed}.glb"
@@ -208,12 +190,16 @@ class Hunyuan3DShapeV21ImageToRawMeshAdapter(BaseModel):
             "success": True,
             "output_mesh_path": str(out),
             "mesh_path": str(out),
+            "actual_face_count": len(mesh.faces),
+            "actual_vertex_count": len(mesh.vertices),
             "generation_info": {
                 "seed": seed,
                 "num_inference_steps": 50,
                 "guidance_scale": 7.5,
                 "octree_resolution": 512,
                 "num_chunks": 8000,
+                "native_target_polycount": native_target_polycount or None,
+                "remesh_option": remesh_option,
             },
         }
 

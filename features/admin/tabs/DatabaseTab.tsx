@@ -12,7 +12,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   Database01Icon, RefreshCwIcon, LoaderCircleIcon, AlertCircleIcon, TrashIcon, StopCircleIcon,
-  Search01Icon, Key01Icon, ArrowDown01Icon, CancelCircleIcon, File01Icon, TriangleAlertIcon
+  Search01Icon, Key01Icon, ArrowDown01Icon, CancelCircleIcon, File01Icon, TriangleAlertIcon, HardDriveIcon
 } from '@hugeicons/core-free-icons';
 import { getApiClient } from '@/services/apiClient';
 import { toast } from 'sonner';
@@ -92,26 +92,42 @@ export function DatabaseTab() {
   const [totalJobs, setTotalJobs] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [filter, setFilter] = useState<StatusFilter>('all');
+  const [sort, setSort] = useState<{ field: string; dir: 'asc' | 'desc' } | null>(null);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [nextOffset, setNextOffset] = useState(0);
   const [selected, setSelected] = useState<string[]>([]);
-  const [busy, setBusy] = useState<string | null>(null);
 
-  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
-  const [pendingBulk, setPendingBulk] = useState<{ label: string; jobIds?: string[]; status?: StatusFilter } | null>(null);
+  // Explicit per-control state machines: idle | confirming | executing | success | error
+  // Guards reject impossible combos: no two controls execute at once; executing implies its
+  // confirm/job id is set; confirming without a target id is unreachable.
+  type ControlState = 'idle' | 'confirming' | 'executing' | 'success' | 'error';
+  const [cancelState, setCancelState] = useState<ControlState>('idle');
+  const [cancelJobId, setCancelJobId] = useState<string | null>(null);
+  const [deleteState, setDeleteState] = useState<ControlState>('idle');
+  const [deleteJobId, setDeleteJobId] = useState<string | null>(null);
+  const [bulkState, setBulkState] = useState<ControlState>('idle');
+  const [clearJobsState, setClearJobsState] = useState<ControlState>('idle');
+  const [clearFilesState, setClearFilesState] = useState<ControlState>('idle');
 
   const [pattern, setPattern] = useState('3daigc:*');
+  const [redisLimit, setRedisLimit] = useState(REDIS_KEY_LIMIT);
   const [redis, setRedis] = useState<RedisKeysResult | null>(null);
   const [redisLoading, setRedisLoading] = useState(false);
   const [redisError, setRedisError] = useState<string | null>(null);
 
-  const [clearJobsOpen, setClearJobsOpen] = useState(false);
-  const [clearFilesOpen, setClearFilesOpen] = useState(false);
   const [jobsToken, setJobsToken] = useState('');
   const [filesToken, setFilesToken] = useState('');
-  const [clearing, setClearing] = useState(false);
+
+  // Storage breakdown + cleanup (P2.5)
+  const [storage, setStorage] = useState<any>(null);
+  const [storageLoading, setStorageLoading] = useState(false);
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const [cleanupDays, setCleanupDays] = useState(7);
+  const [cleanupDryRun, setCleanupDryRun] = useState(true);
+  const [cleanupState, setCleanupState] = useState<ControlState>('idle');
+
   const statsRequestSequence = useRef(0);
   const jobsRequestSequence = useRef(0);
 
@@ -168,7 +184,16 @@ export function DatabaseTab() {
         setLoadingMore(false);
       }
     }
-  }, [filter]);
+    // client-side sort on the loaded page (P2.2)
+    if (sort) {
+      setJobs((current) => [...current].sort((a, b) => {
+        const av = a[sort.field as keyof DbJob] ?? '';
+        const bv = b[sort.field as keyof DbJob] ?? '';
+        const cmp = String(av).localeCompare(String(bv));
+        return sort.dir === 'asc' ? cmp : -cmp;
+      }));
+    }
+  }, [filter, sort]);
 
   const refreshAll = useCallback(() => {
     void fetchStats(true);
@@ -190,24 +215,31 @@ export function DatabaseTab() {
   }, [fetchStats, fetchJobs, jobs.length]);
 
   const handleCancel = async (jobId: string) => {
-    setBusy(`cancel:${jobId}`);
+    if (cancelState === 'executing') return; // guard: no-op while executing
+    if (!jobId) return;
+    setCancelJobId(jobId);
+    setCancelState('confirming');
     try {
-      await getApiClient().cancelGenerationJob(jobId);
+      await getApiClient().cancelJob(jobId);
+      setCancelState('success');
       toast.success('Job cancelled', { description: `${jobId} was marked as cancelled.` });
       refreshAll();
     } catch (err: any) {
+      setCancelState('error');
       toast.error('Failed to cancel job', { description: errMessage(err, 'The worker could not be signalled.') });
     } finally {
-      setBusy(null);
+      // auto-resolve success/error back to idle after a brief moment so the row re-renders
+      if (cancelState === 'success' || cancelState === 'error') {
+        setTimeout(() => { setCancelState('idle'); setCancelJobId(null); }, 1200);
+      }
     }
   };
 
   const confirmDeleteJob = async () => {
-    if (!pendingDelete) return;
-    const jobId = pendingDelete;
-    setBusy(`delete:${jobId}`);
+    if (!deleteJobId) return;
+    setDeleteState('executing');
     try {
-      const res = await getApiClient().deleteJob(jobId);
+      const res = await getApiClient().deleteJob(deleteJobId);
       const wsStatus = (res as any).asset_workspace_status;
       let wsMsg = 'and its workspace was deleted';
       if (wsStatus === 'deleted' || (res.asset_workspace_deleted && !wsStatus)) {
@@ -221,70 +253,86 @@ export function DatabaseTab() {
       } else if (res.asset_workspace_deleted === false) {
         wsMsg = 'but no workspace was recorded';
       }
-      toast.success('Job deleted', { description: `${jobId} was removed from the jobs database ${wsMsg}.` });
-      setPendingDelete(null);
-      setSelected((prev) => prev.filter((id) => id !== jobId));
+      setDeleteState('success');
+      toast.success('Job deleted', { description: `${deleteJobId} was removed from the jobs database ${wsMsg}.` });
+      setDeleteJobId(null);
+      setSelected((prev) => prev.filter((id) => id !== deleteJobId));
       refreshAll();
     } catch (err: any) {
+      setDeleteState('error');
       toast.error('Failed to delete job', { description: errMessage(err, 'The job row could not be removed.') });
     } finally {
-      setBusy(null);
+      if (deleteState === 'success' || deleteState === 'error') {
+        setTimeout(() => { setDeleteState('idle'); setDeleteJobId(null); }, 1200);
+      }
     }
   };
 
   const confirmBulkDelete = async () => {
-    if (!pendingBulk) return;
-    setBusy('bulk');
+    const targetIds = selected.length ? selected : null;
+    if (!targetIds || targetIds.length === 0) return;
+    setBulkState('executing');
     try {
       const res = await getApiClient().deleteDatabaseJobs({
         confirm: true,
-        ...(pendingBulk.jobIds ? { job_ids: pendingBulk.jobIds } : { status: pendingBulk.status }),
+        job_ids: targetIds,
       });
+      setBulkState('success');
       toast.success(`Deleted ${res.deleted} job(s)`, {
         description: `Skipped ${res.skipped}, failed ${res.failed}. Skipped jobs are still running or queued — cancel them first.`,
       });
-      setPendingBulk(null);
       setSelected([]);
       refreshAll();
     } catch (err: any) {
+      setBulkState('error');
       toast.error('Bulk delete failed', { description: errMessage(err, 'The database rejected the bulk delete.') });
     } finally {
-      setBusy(null);
+      if (bulkState === 'success' || bulkState === 'error') {
+        setTimeout(() => setBulkState('idle'), 1200);
+      }
     }
   };
 
   const handleClearJobs = async () => {
-    setClearing(true);
+    if (jobsToken !== 'CLEAR_ALL_JOBS') return;
+    setClearJobsState('executing');
     try {
       const res = await getApiClient().clearDatabaseJobs();
+      setClearJobsState('success');
       toast.success('Job database cleared', {
         description: `${res.jobs_deleted} jobs deleted, ${res.sqlite_rows_deleted} SQLite rows removed, ${res.workspaces_removed} workspaces removed${res.jobs_cancelled ? `, ${res.jobs_cancelled} cancelled` : ''}${res.active_unresponsive?.length ? `, ${res.active_unresponsive.length} active jobs could not be stopped` : ''}${res.jobs_failed ? `, ${res.jobs_failed} failed` : ''}.`,
       });
-      setClearJobsOpen(false);
       setJobsToken('');
       setSelected([]);
       refreshAll();
     } catch (err: any) {
+      setClearJobsState('error');
       toast.error('Failed to clear jobs', { description: errMessage(err, 'The clear operation failed.') });
     } finally {
-      setClearing(false);
+      if (clearJobsState === 'success' || clearJobsState === 'error') {
+        setTimeout(() => setClearJobsState('idle'), 1200);
+      }
     }
   };
 
   const handleClearFiles = async () => {
-    setClearing(true);
+    if (filesToken !== 'CLEAR_ALL_FILES') return;
+    setClearFilesState('executing');
     try {
       const res = await getApiClient().clearDatabaseFiles();
+      setClearFilesState('success');
       toast.success('File metadata and uploads cleared', {
         description: `${res.file_metadata_removed} metadata records removed, ${res.redis_keys_swept} Redis keys swept${res.errors?.length ? `, ${res.errors.length} errors` : ''}.`,
       });
-      setClearFilesOpen(false);
       setFilesToken('');
       refreshAll();
     } catch (err: any) {
+      setClearFilesState('error');
       toast.error('Failed to clear files', { description: errMessage(err, 'The clear operation failed.') });
     } finally {
-      setClearing(false);
+      if (clearFilesState === 'success' || clearFilesState === 'error') {
+        setTimeout(() => setClearFilesState('idle'), 1200);
+      }
     }
   };
 
@@ -292,12 +340,64 @@ export function DatabaseTab() {
     setRedisLoading(true);
     setRedisError(null);
     try {
-      setRedis(await getApiClient().getRedisKeys({ pattern, limit: REDIS_KEY_LIMIT }));
+      setRedis(await getApiClient().getRedisKeys({ pattern, limit: redisLimit }));
     } catch (err: any) {
       setRedis(null);
       setRedisError(errMessage(err, 'Redis is not available.'));
     } finally {
       setRedisLoading(false);
+    }
+  };
+
+  const fetchStorage = async () => {
+    setStorageLoading(true);
+    setStorageError(null);
+    try {
+      setStorage(await getApiClient().getStorageBreakdown());
+    } catch (err: any) {
+      setStorage(null);
+      setStorageError(errMessage(err, 'Failed to load storage breakdown.'));
+    } finally {
+      setStorageLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void fetchStorage();
+  }, []);
+
+  const handleCleanupStorage = async () => {
+    if (cleanupState === 'executing') return;
+    if (cleanupDryRun) {
+      // Phase 1: dry-run preview -> confirming
+      setCleanupState('confirming');
+      try {
+        const preview = await getApiClient().cleanupStorage(cleanupDays, true);
+        // stay in 'confirming' so the user can review the preview and click confirm
+        toast.success('Dry run complete', { description: preview.message });
+        return;
+      } catch (err: any) {
+        setCleanupState('error');
+        toast.error('Dry run failed', { description: errMessage(err, 'Storage cleanup preview failed.') });
+        setTimeout(() => setCleanupState('idle'), 1200);
+        return;
+      }
+    }
+    // Phase 2: actual cleanup -> executing
+    setCleanupState('executing');
+    try {
+      const res = await getApiClient().cleanupStorage(cleanupDays, false);
+      setCleanupState('success');
+      toast.success('Storage cleaned up', { description: res.message });
+      setCleanupDryRun(true);
+      void fetchStorage();
+    } catch (err: any) {
+      setCleanupState('error');
+      toast.error('Storage cleanup failed', { description: errMessage(err, 'Cleanup could not complete.') });
+    } finally {
+      if (cleanupState === 'success' || cleanupState === 'error') {
+        setTimeout(() => setCleanupState('idle'), 1200);
+      }
     }
   };
 
@@ -335,6 +435,8 @@ export function DatabaseTab() {
   const disk = stats?.disk ?? {};
   const fileMeta = stats?.file_metadata ?? {};
 
+  const isExecutingAny = cancelState === 'executing' || deleteState === 'executing' || bulkState === 'executing' || clearJobsState === 'executing' || clearFilesState === 'executing' || cleanupState === 'executing';
+
   return (
     <div className="p-6 space-y-6 max-w-6xl">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -347,7 +449,7 @@ export function DatabaseTab() {
             Every job record, Redis key, and destructive database operation for the dual-store job queue (SQLite + Redis).
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={refreshAll} disabled={loading} className="text-xs font-semibold">
+        <Button variant="outline" size="sm" onClick={refreshAll} disabled={loading || isExecutingAny} className="text-xs font-semibold">
           <HugeiconsIcon icon={RefreshCwIcon} size={16} className={cn('w-3.5 h-3.5 mr-1.5', loading && 'animate-spin')} />
           Refresh
         </Button>
@@ -447,6 +549,84 @@ export function DatabaseTab() {
         </Card>
       </div>
 
+      {/* Storage breakdown + cleanup (P2.5) */}
+      <Card className="border-[hsl(var(--border)/0.8)] bg-[hsl(var(--surface-1))] shadow-sm">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center lg:justify-between gap-3">
+            <div>
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <HugeiconsIcon icon={HardDriveIcon} size={16} className="w-4 h-4 text-primary" /> Storage Breakdown
+              </CardTitle>
+              <CardDescription>{storage?.data?.root_path || 'loading…'}</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" disabled={storageLoading || cleanupState === 'executing'} onClick={() => void fetchStorage()}>
+                <HugeiconsIcon icon={RefreshCwIcon} size={16} className="w-3.5 h-3.5 mr-1" />
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {storageError && (
+            <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive flex items-center justify-between text-xs">
+              <span className="flex items-center gap-2"><HugeiconsIcon icon={AlertCircleIcon} size={16} className="w-4 h-4" /> {storageError}</span>
+              <Button variant="outline" size="sm" className="text-xs" onClick={() => void fetchStorage()}>Retry</Button>
+            </div>
+          )}
+          {storage && (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {Object.entries(storage.data.categories).map(([cat, info]: [string, any]) => (
+                  <div key={cat} className="rounded-lg border border-[hsl(var(--border)/0.6)] p-3 bg-[hsl(var(--surface-2))]">
+                    <div className="flex justify-between items-baseline mb-2">
+                      <span className="text-xs font-medium text-[hsl(var(--foreground))]">{cat}</span>
+                      <span className="text-xs font-mono text-[hsl(var(--muted-foreground))]">{info.size_mb} MB ({info.percent}%)</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-[hsl(var(--border)/0.3)] rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full transition-all duration-300 ${cat === 'mesh' ? 'bg-emerald-500' : 'bg-[hsl(var(--primary))]'}`} style={{ width: `${Math.min(info.percent ?? 0, 100)}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="pt-2 border-t border-[hsl(var(--border)/0.4)]">
+                <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+                  <HugeiconsIcon icon={TriangleAlertIcon} size={14} className="w-3.5 h-3.5 text-amber-400" /> Cleanup Storage
+                </CardTitle>
+                <CardDescription className="text-xs">Removes temp/exports older than N days. mesh/mesh.glb lineage and uploads are always protected.</CardDescription>
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  <Input type="number" value={cleanupDays} onChange={(e) => setCleanupDays(Number(e.target.value) || 0)} min="0" placeholder="7" className="w-20 text-xs font-mono" />
+                  <Button size="sm" className="text-xs" onClick={() => setCleanupDryRun((p) => !p)}>
+                    {cleanupDryRun ? 'Dry run (preview)' : 'Execute cleanup'}
+                  </Button>
+                  <Button
+                    variant={cleanupDryRun ? 'outline' : 'destructive'}
+                    size="sm"
+                    disabled={cleanupState === 'executing' || (!cleanupDryRun && cleanupState !== 'confirming')}
+                    onClick={() => void handleCleanupStorage()}
+                  >
+                    {cleanupState === 'confirming' ? 'Confirm cleanup' : cleanupDryRun ? 'Preview (dry run)' : 'Clean up'}
+                  </Button>
+                  {cleanupState === 'executing' && <HugeiconsIcon icon={LoaderCircleIcon} size={16} className="w-3.5 h-3.5 animate-spin" />}
+                </div>
+                {cleanupState === 'error' && (
+                  <p className="text-xs text-destructive mt-1">Cleanup failed — see toast for details.</p>
+                )}
+                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-2 flex items-center gap-1">
+                  <HugeiconsIcon icon={TriangleAlertIcon} size={12} className="w-3 h-3 text-amber-400 shrink-0" />
+                  <span>Master/source.glb lineage and uploads are always protected by the backend.</span>
+                </p>
+              </div>
+            </>
+          )}
+          {!storage && storageLoading && (
+            <div className="flex h-32 items-center justify-center gap-3">
+              <HugeiconsIcon icon={LoaderCircleIcon} size={16} className="w-6 h-6 animate-spin" />
+              <span className="text-xs text-[hsl(var(--muted-foreground))]">Loading storage breakdown…</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card className="border-[hsl(var(--border)/0.8)] bg-[hsl(var(--surface-1))] shadow-sm">
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -458,9 +638,9 @@ export function DatabaseTab() {
               {STATUS_FILTERS.map((f) => (
                 <button
                   key={f}
-                  onClick={() => { setFilter(f); setSelected([]); }}
+                  onClick={() => { setFilter(f); setSelected([]); setSort(null); }}
                   className={cn(
-                    'px-3 py-1.5 rounded-xl text-xs font-medium capitalize transition-all border cursor-pointer',
+                    'px-3 py-1.5 rounded-xl text-xs font-medium capitalize transition-all border cursor-pointer focus-visible:ring-2 focus-visible:ring-primary',
                     filter === f
                       ? 'bg-primary/15 text-primary border-primary/30 font-semibold'
                       : 'bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] border-[hsl(var(--border))] hover:text-[hsl(var(--foreground))]'
@@ -474,7 +654,8 @@ export function DatabaseTab() {
                   variant="destructive"
                   size="sm"
                   className="text-xs font-bold ml-1"
-                  onClick={() => setPendingBulk({ label: `all ${filter} jobs`, status: filter })}
+                  disabled={isExecutingAny}
+                  onClick={() => setBulkState('confirming')}
                 >
                   <HugeiconsIcon icon={TrashIcon} size={16} className="w-3.5 h-3.5 mr-1.5" />
                   Delete all {filter}
@@ -487,7 +668,7 @@ export function DatabaseTab() {
           {selected.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
               <span className="text-xs font-semibold text-destructive">{selected.length} selected</span>
-              <Button variant="destructive" size="sm" className="text-xs" onClick={() => setPendingBulk({ label: `${selected.length} selected job(s)`, jobIds: selected })}>
+              <Button variant="destructive" size="sm" className="text-xs" disabled={isExecutingAny} onClick={() => setBulkState('confirming')}>
                 <HugeiconsIcon icon={TrashIcon} size={16} className="w-3.5 h-3.5 mr-1.5" />
                 Delete selected ({selected.length})
               </Button>
@@ -512,12 +693,24 @@ export function DatabaseTab() {
                   <th className="px-3 py-2 w-8">
                     <Checkbox checked={allVisibleSelected} onCheckedChange={() => setSelected(allVisibleSelected ? [] : jobs.map((j) => j.job_id))} aria-label="Select all jobs" />
                   </th>
-                  <th className="px-3 py-2">Job ID</th>
-                  <th className="px-3 py-2">Feature</th>
-                  <th className="px-3 py-2">Model</th>
-                  <th className="px-3 py-2">Created</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2 w-24">Progress</th>
+                  <th className="px-3 py-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setSort({ field: 'job_id', dir: sort?.field === 'job_id' && sort.dir === 'asc' ? 'desc' : 'asc' })}>
+                    Job ID {sort?.field === 'job_id' && (sort.dir === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th className="px-3 py-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setSort({ field: 'feature', dir: sort?.field === 'feature' && sort.dir === 'asc' ? 'desc' : 'asc' })}>
+                    Feature {sort?.field === 'feature' && (sort.dir === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th className="px-3 py-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setSort({ field: 'assigned_model', dir: sort?.field === 'assigned_model' && sort.dir === 'asc' ? 'desc' : 'asc' })}>
+                    Model {sort?.field === 'assigned_model' && (sort.dir === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th className="px-3 py-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setSort({ field: 'created_at', dir: sort?.field === 'created_at' && sort.dir === 'asc' ? 'desc' : 'asc' })}>
+                    Created {sort?.field === 'created_at' && (sort.dir === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th className="px-3 py-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setSort({ field: 'status', dir: sort?.field === 'status' && sort.dir === 'asc' ? 'desc' : 'asc' })}>
+                    Status {sort?.field === 'status' && (sort.dir === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th className="px-3 py-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setSort({ field: 'progress', dir: sort?.field === 'progress' && sort.dir === 'asc' ? 'desc' : 'asc' })}>
+                    Progress {sort?.field === 'progress' && (sort.dir === 'asc' ? '↑' : '↓')}
+                  </th>
                   <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
@@ -525,10 +718,11 @@ export function DatabaseTab() {
                 {jobs.map((j) => {
                   const running = j.status === 'queued' || j.status === 'processing';
                   const pct = progressPct(j.progress);
+                  const isSelected = selected.includes(j.job_id);
                   return (
-                    <tr key={j.job_id} className="hover:bg-[hsl(var(--surface-2))] transition-colors">
+                    <tr key={j.job_id} className={cn('hover:bg-[hsl(var(--surface-2))] transition-colors duration-150', isSelected && 'bg-[hsl(var(--primary)/0.08)] border-l-2 border-l-primary')} >
                       <td className="px-3 py-2">
-                        <Checkbox checked={selected.includes(j.job_id)} onCheckedChange={() => toggleSelect(j.job_id)} aria-label={`Select ${j.job_id}`} />
+                        <Checkbox checked={isSelected} onCheckedChange={() => toggleSelect(j.job_id)} aria-label={`Select ${j.job_id}`} />
                       </td>
                       <td className="px-3 py-2 font-mono text-[hsl(var(--foreground))]">
                         <span className="block max-w-[140px] truncate" title={j.job_id}>{j.job_id}</span>
@@ -539,7 +733,7 @@ export function DatabaseTab() {
                         {j.created_at ? new Date(j.created_at).toLocaleString() : '—'}
                       </td>
                       <td className="px-3 py-2">
-                        <span className={cn('text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border', STATUS_CHIP[j.status] || STATUS_CHIP.cancelled)}>
+                        <span className={cn('text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border cursor-pointer', STATUS_CHIP[j.status] || STATUS_CHIP.cancelled, filter === j.status ? 'ring-1 ring-inset ring-primary' : '')}>
                           {j.status}
                         </span>
                       </td>
@@ -553,14 +747,14 @@ export function DatabaseTab() {
                       </td>
                       <td className="px-3 py-2 text-right">
                         {running ? (
-                          <Button variant="outline" size="sm" className="text-xs" disabled={busy === `cancel:${j.job_id}`} onClick={() => void handleCancel(j.job_id)}>
-                            {busy === `cancel:${j.job_id}`
+                          <Button variant="outline" size="sm" className="text-xs" disabled={cancelState === 'executing' && cancelJobId === j.job_id} onClick={() => void handleCancel(j.job_id)}>
+                            {cancelState === 'executing' && cancelJobId === j.job_id
                               ? loadingButton(true, 'Cancelling')
                               : <><HugeiconsIcon icon={StopCircleIcon} size={16} className="w-3.5 h-3.5 mr-1.5" />Cancel</>}
                           </Button>
                         ) : (
-                          <Button variant="ghost" size="sm" className="text-xs text-destructive hover:bg-destructive/10" onClick={() => setPendingDelete(j.job_id)}>
-                            <HugeiconsIcon icon={TrashIcon} size={16} className="w-3.5 h-3.5 mr-1.5" /> Delete
+                          <Button variant="ghost" size="sm" className="text-xs text-destructive hover:bg-destructive/10" disabled={deleteState === 'executing' && deleteJobId === j.job_id} onClick={() => { setDeleteJobId(j.job_id); setDeleteState('confirming'); }}>
+                            {deleteState === 'executing' && deleteJobId === j.job_id ? loadingButton(true, 'Deleting') : <><HugeiconsIcon icon={TrashIcon} size={16} className="w-3.5 h-3.5 mr-1.5" /> Delete</>}
                           </Button>
                         )}
                       </td>
@@ -601,7 +795,7 @@ export function DatabaseTab() {
           <CardTitle className="text-base font-semibold flex items-center gap-2">
             <HugeiconsIcon icon={Key01Icon} size={16} className="w-4 h-4 text-primary" /> Redis Key Inspector
           </CardTitle>
-          <CardDescription>Read-only SCAN over live keys (capped at {REDIS_KEY_LIMIT}). No key mutations here.</CardDescription>
+          <CardDescription>Read-only SCAN over live keys (capped at limit). No key mutations here.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-col sm:flex-row gap-2">
@@ -609,9 +803,16 @@ export function DatabaseTab() {
               <HugeiconsIcon icon={Search01Icon} size={16} className="w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] absolute left-2.5 top-1/2 -translate-y-1/2" />
               <Input value={pattern} onChange={(e) => setPattern(e.target.value)} placeholder="3daigc:*" className="pl-8 font-mono text-xs" />
             </div>
-            <Button size="sm" className="text-xs font-semibold" disabled={redisLoading} onClick={() => void inspectRedis()}>
-              {redisLoading ? loadingButton(true, 'Inspecting') : 'Inspect'}
-            </Button>
+            <div className="flex items-end gap-2">
+              <select value={redisLimit} onChange={(e) => setRedisLimit(Number(e.target.value))} className="h-9 w-20 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--input))] px-2 text-xs font-mono focus:border-primary focus:outline-none">
+                {[50, 100, 200, 500].map((l) => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
+              </select>
+              <Button size="sm" className="text-xs font-semibold" disabled={redisLoading || isExecutingAny} onClick={() => void inspectRedis()}>
+                {redisLoading ? loadingButton(true, 'Inspecting') : 'Inspect'}
+              </Button>
+            </div>
           </div>
 
           {redisError && (
@@ -625,7 +826,7 @@ export function DatabaseTab() {
             <div className="space-y-2">
               <p className="text-[10px] text-[hsl(var(--muted-foreground))] font-mono">
                 {redis.count} keys matching {redis.pattern}
-                {redis.truncated && <span className="text-amber-300"> · truncated — narrow the pattern to see the rest</span>}
+                {redis.truncated && <span className="text-amber-300"> · truncated — narrow the pattern or raise the limit</span>}
               </p>
               <div className="max-h-72 overflow-y-auto rounded-lg border border-[hsl(var(--border)/0.6)]">
                 <table className="w-full text-xs">
@@ -669,9 +870,9 @@ export function DatabaseTab() {
               <p className="text-sm font-semibold">Clear All Jobs</p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Deletes every job row from Redis + SQLite and removes all asset workspaces. Uploads and file metadata are kept.</p>
             </div>
-            <AlertDialog open={clearJobsOpen} onOpenChange={(open) => { setClearJobsOpen(open); if (!open) setJobsToken(''); }}>
+            <AlertDialog open={clearJobsState === 'confirming' || clearJobsState === 'executing'} onOpenChange={(open) => { if (!open) { setClearJobsState('idle'); setJobsToken(''); } }}>
               <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm" className="text-xs font-bold shrink-0">
+                <Button variant="destructive" size="sm" className="text-xs font-bold shrink-0" disabled={isExecutingAny}>
                   <HugeiconsIcon icon={TrashIcon} size={16} className="w-3.5 h-3.5 mr-1.5" /> Clear All Jobs
                 </Button>
               </AlertDialogTrigger>
@@ -684,16 +885,18 @@ export function DatabaseTab() {
                 </AlertDialogHeader>
                 <div className="space-y-1.5">
                   <p className="text-xs font-medium">Type <code className="font-mono text-destructive">CLEAR_ALL_JOBS</code> to confirm</p>
-                  <Input value={jobsToken} onChange={(e) => setJobsToken(e.target.value)} placeholder="CLEAR_ALL_JOBS" className="font-mono text-xs" />
+                  <Input value={jobsToken} onChange={(e) => setJobsToken(e.target.value)} placeholder="CLEAR_ALL_JOBS" className="font-mono text-xs" disabled={clearJobsState === 'executing'} />
+                  {clearJobsState === 'executing' && <p className="text-xs text-amber-400">Clearing…</p>}
+                  {clearJobsState === 'error' && <p className="text-xs text-destructive">Clear failed — see toast.</p>}
                 </div>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel onClick={() => { setClearJobsState('idle'); setJobsToken(''); }}>Cancel</AlertDialogCancel>
                   <AlertDialogAction
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    disabled={jobsToken !== 'CLEAR_ALL_JOBS' || clearing}
+                    disabled={jobsToken !== 'CLEAR_ALL_JOBS' || clearJobsState === 'executing'}
                     onClick={(e) => { e.preventDefault(); void handleClearJobs(); }}
                   >
-                    {clearing ? loadingButton(true, 'Clearing') : 'Clear All Jobs'}
+                    {clearJobsState === 'executing' ? loadingButton(true, 'Clearing') : 'Clear All Jobs'}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -705,9 +908,9 @@ export function DatabaseTab() {
               <p className="text-sm font-semibold">Clear All File Metadata &amp; Uploads</p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Deletes all file metadata records and every upload file on disk. Job records and generated assets are preserved.</p>
             </div>
-            <AlertDialog open={clearFilesOpen} onOpenChange={(open) => { setClearFilesOpen(open); if (!open) setFilesToken(''); }}>
+            <AlertDialog open={clearFilesState === 'confirming' || clearFilesState === 'executing'} onOpenChange={(open) => { if (!open) { setClearFilesState('idle'); setFilesToken(''); } }}>
               <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm" className="text-xs font-bold shrink-0">
+                <Button variant="destructive" size="sm" className="text-xs font-bold shrink-0" disabled={isExecutingAny}>
                   <HugeiconsIcon icon={File01Icon} size={16} className="w-3.5 h-3.5 mr-1.5" /> Clear All Files
                 </Button>
               </AlertDialogTrigger>
@@ -720,16 +923,18 @@ export function DatabaseTab() {
                 </AlertDialogHeader>
                 <div className="space-y-1.5">
                   <p className="text-xs font-medium">Type <code className="font-mono text-destructive">CLEAR_ALL_FILES</code> to confirm</p>
-                  <Input value={filesToken} onChange={(e) => setFilesToken(e.target.value)} placeholder="CLEAR_ALL_FILES" className="font-mono text-xs" />
+                  <Input value={filesToken} onChange={(e) => setFilesToken(e.target.value)} placeholder="CLEAR_ALL_FILES" className="font-mono text-xs" disabled={clearFilesState === 'executing'} />
+                  {clearFilesState === 'executing' && <p className="text-xs text-amber-400">Clearing…</p>}
+                  {clearFilesState === 'error' && <p className="text-xs text-destructive">Clear failed — see toast.</p>}
                 </div>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel onClick={() => { setClearFilesState('idle'); setFilesToken(''); }}>Cancel</AlertDialogCancel>
                   <AlertDialogAction
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    disabled={filesToken !== 'CLEAR_ALL_FILES' || clearing}
+                    disabled={filesToken !== 'CLEAR_ALL_FILES' || clearFilesState === 'executing'}
                     onClick={(e) => { e.preventDefault(); void handleClearFiles(); }}
                   >
-                    {clearing ? loadingButton(true, 'Clearing') : 'Clear All Files'}
+                    {clearFilesState === 'executing' ? loadingButton(true, 'Clearing') : 'Clear All Files'}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -738,43 +943,43 @@ export function DatabaseTab() {
         </CardContent>
       </Card>
 
-      <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
+      <AlertDialog open={deleteState === 'confirming' || deleteState === 'executing'} onOpenChange={(open) => { if (!open) { setDeleteState('idle'); setDeleteJobId(null); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this job permanently?</AlertDialogTitle>
             <AlertDialogDescription>
-              <span className="font-mono text-[hsl(var(--foreground))] break-all">{pendingDelete}</span> will be removed from Redis and SQLite together with its asset workspace. This cannot be undone.
+              <span className="font-mono text-[hsl(var(--foreground))] break-all">{deleteJobId}</span> will be removed from Redis and SQLite together with its asset workspace. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => { setDeleteState('idle'); setDeleteJobId(null); }}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={busy?.startsWith('delete:')}
+              disabled={deleteState === 'executing'}
               onClick={(e) => { e.preventDefault(); void confirmDeleteJob(); }}
             >
-              {busy?.startsWith('delete:') ? loadingButton(true, 'Deleting') : 'Delete job'}
+              {deleteState === 'executing' ? loadingButton(true, 'Deleting') : 'Delete job'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={pendingBulk !== null} onOpenChange={(open) => { if (!open) setPendingBulk(null); }}>
+      <AlertDialog open={bulkState === 'confirming' || bulkState === 'executing'} onOpenChange={(open) => { if (!open) setBulkState('idle'); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {pendingBulk?.label}?</AlertDialogTitle>
+            <AlertDialogTitle>Delete {selected.length} selected job(s)?</AlertDialogTitle>
             <AlertDialogDescription>
               Matching jobs are removed from Redis and SQLite together with their asset workspaces. Running and queued jobs are skipped and reported — cancel them first if you want them gone too.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setBulkState('idle')}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={busy === 'bulk'}
+              disabled={bulkState === 'executing'}
               onClick={(e) => { e.preventDefault(); void confirmBulkDelete(); }}
             >
-              {busy === 'bulk' ? loadingButton(true, 'Deleting') : 'Delete jobs'}
+              {bulkState === 'executing' ? loadingButton(true, 'Deleting') : 'Delete jobs'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

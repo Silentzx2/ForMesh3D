@@ -3,21 +3,84 @@ Database manager for job queue persistence using SQLAlchemy.
 Handles connection management, transactions, and CRUD operations.
 """
 
+import hashlib
+import json
 import logging
 import os
+import re
+import shutil
+import sqlite3
 from pathlib import Path
 from contextlib import contextmanager
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timedelta
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from sqlalchemy import and_, asc, create_engine, desc, event, func, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from .database_models import Base, JobModel, JobStatus
+from core.utils.file_utils import get_workspace_storage_manager
+from .database_models import (
+    Base,
+    JobModel,
+    JobStatus,
+    ExecutionStatus,
+    PersistenceStatus,
+    WorkspaceModel,
+    AssetModel,
+    OperationModel,
+    generate_workspace_id,
+    generate_asset_id,
+    generate_operation_id,
+    compute_dedupe_fingerprint,
+    classify_operation_error,
+)
 
 logger = logging.getLogger(__name__)
+
+# DB paths already backed up / initialized in this process. The hot backup is
+# meant for schema-migration safety; SQLAlchemy create_all is idempotent, so
+# re-instantiating DatabaseManager per request must not re-copy the DB or
+# re-log initialization every time.
+_BACKED_UP_DBS: set = set()
+_INITIALIZED_DBS: set = set()
+
+
+class ProcessFileLock:
+    """Cross-process file lock using fcntl.flock for atomic operation claiming."""
+
+    def __init__(self, lock_path: Optional[Path] = None):
+        if lock_path is None:
+            data_dir = os.environ.get(
+                "DATA_DIR",
+                str(Path(__file__).resolve().parents[2] / "storage"),
+            )
+            lock_path = Path(data_dir) / ".worker_claim.lock"
+        self.lock_path = Path(lock_path)
+        self.lock_file = None
+
+    def __enter__(self):
+        try:
+            self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+            self.lock_file = open(self.lock_path, "w+")
+            import fcntl
+            fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_EX)
+        except Exception as e:
+            if self.lock_file:
+                self.lock_file.close()
+                self.lock_file = None
+            raise RuntimeError(f"Unable to acquire process lock at {self.lock_path}") from e
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.lock_file:
+            try:
+                import fcntl
+                fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_UN)
+                self.lock_file.close()
+            except Exception:
+                pass
 
 
 class DatabaseManager:
@@ -116,16 +179,64 @@ class DatabaseManager:
                 autocommit=False,
                 autoflush=False,
             )
-
-            # Create tables
-            Base.metadata.create_all(bind=self.engine)
-
             self._initialized = True
-            logger.info(f"Database initialized successfully: {self.database_url}")
+
+            # Idempotent migration with automated hot backup
+            self._init_db()
+
+            if self.database_url not in _INITIALIZED_DBS:
+                _INITIALIZED_DBS.add(self.database_url)
+                logger.info(f"Database initialized successfully: {self.database_url}")
 
         except Exception as e:
+            self._initialized = False
             logger.error(f"Failed to initialize database: {e}")
             raise
+
+    def _backup_database_if_exists(self):
+        """Create an automated hot backup before schema alteration (Docs/TASKS.md §8.5)."""
+        if not self.database_url or not self.database_url.startswith("sqlite:///"):
+            return
+        if self.database_url in _BACKED_UP_DBS:
+            return
+        db_path_str = self.database_url.replace("sqlite:///", "")
+        db_path = Path(db_path_str)
+        if db_path.is_file() and db_path.stat().st_size > 0:
+            backup_path = db_path.with_name(f"{db_path.name}.bak")
+            try:
+                src = sqlite3.connect(str(db_path))
+                dst = sqlite3.connect(str(backup_path))
+                with dst:
+                    src.backup(dst)
+                dst.close()
+                src.close()
+                _BACKED_UP_DBS.add(self.database_url)
+                logger.info(f"Automated SQLite hot backup created at {backup_path}")
+            except Exception as e:
+                try:
+                    shutil.copy2(str(db_path), str(backup_path))
+                    _BACKED_UP_DBS.add(self.database_url)
+                    logger.info(f"Automated hot backup created via copy at {backup_path}")
+                except Exception as copy_err:
+                    logger.warning(f"Failed to create hot backup for {db_path}: {copy_err}")
+
+    def _init_db(self):
+        """
+        Idempotent schema migration:
+        Automated hot backup, table creation, and index verification.
+        """
+        self._backup_database_if_exists()
+        Base.metadata.create_all(bind=self.engine)
+        # Idempotent column additions for existing databases (create_all won't
+        # alter tables). SQLite returns "duplicate column name" if already present.
+        with self.engine.begin() as conn:
+            for column_def in (
+                "ALTER TABLE assets ADD COLUMN operation_type VARCHAR(32)",
+            ):
+                try:
+                    conn.execute(text(column_def))
+                except Exception:
+                    pass
 
     @contextmanager
     def get_session(self):
@@ -186,6 +297,56 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Unexpected error saving job {job_request.job_id}: {e}")
             return False
+
+    def find_job_by_source(
+        self,
+        feature: str,
+        image_file_id: str,
+        model_preference: Optional[str] = None,
+    ) -> Optional[JobModel]:
+        """
+        Find the most recent job for a given source (image + feature + model).
+
+        Used for idempotent job-id reuse: a failed/interrupted generation for the
+        same image+model should resume under its existing job id, while a
+        previously completed generation gets a fresh id. image_file_id lives
+        inside the inputs JSON column, so candidates are matched in Python for
+        DB portability.
+
+        Returns the most recent failed/cancelled job if one exists, else None.
+        QUEUED/PROCESSING (in-flight) and COMPLETED jobs are not reused.
+        """
+        if not image_file_id:
+            return None
+        try:
+            with self.get_session() as session:
+                rows = (
+                    session.query(JobModel)
+                    .filter_by(feature=feature)
+                    .order_by(JobModel.created_at.desc())
+                    .all()
+                )
+                for row in rows:
+                    inputs = row.inputs
+                    if isinstance(inputs, str):
+                        try:
+                            inputs = json.loads(inputs or "{}")
+                        except Exception:
+                            inputs = {}
+                    if not isinstance(inputs, dict) or inputs.get("image_file_id") != image_file_id:
+                        continue
+                    if model_preference is not None and row.model_preference != model_preference:
+                        continue
+                    # Only reuse terminal failure/cancellation states so a retry
+                    # after failure resumes the same id; never reuse in-flight or
+                    # completed jobs.
+                    if row.status not in (JobStatus.FAILED.value, JobStatus.CANCELLED.value):
+                        continue
+                    return row
+                return None
+        except SQLAlchemyError as e:
+            logger.warning(f"find_job_by_source failed for feature={feature}: {e}")
+            return None
 
     def get_job(self, job_id: str) -> Optional[JobModel]:
         """
@@ -613,3 +774,819 @@ class DatabaseManager:
                 logger.info("Database connections closed")
         except Exception as e:
             logger.error(f"Error closing database: {e}")
+
+    # ==========================================================================
+    # Workspace & Asset Helper Methods (Milestone 2: B2-T1)
+    # ==========================================================================
+
+    def create_workspace(
+        self,
+        workspace_id: str,
+        name: str,
+        active_mesh_asset_id: Optional[str] = None,
+        source_asset_id: Optional[str] = None,
+        settings_json: Optional[str] = None,
+    ) -> WorkspaceModel:
+        """Create or update a workspace record idempotently."""
+        with self.get_session() as session:
+            ws = session.query(WorkspaceModel).filter_by(workspace_id=workspace_id).first()
+            now = datetime.utcnow()
+            if ws:
+                ws.name = name
+                if active_mesh_asset_id is not None:
+                    ws.active_mesh_asset_id = active_mesh_asset_id
+                if source_asset_id is not None:
+                    ws.source_asset_id = source_asset_id
+                if settings_json is not None:
+                    ws.settings_json = settings_json
+                ws.updated_at = now
+            else:
+                ws = WorkspaceModel(
+                    workspace_id=workspace_id,
+                    name=name,
+                    active_mesh_asset_id=active_mesh_asset_id,
+                    source_asset_id=source_asset_id,
+                    status="active",
+                    settings_json=settings_json,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(ws)
+            session.commit()
+            session.refresh(ws)
+            session.expunge(ws)
+            return ws
+
+    def get_workspace(self, workspace_id: str) -> Optional[WorkspaceModel]:
+        """Fetch a workspace record by workspace_id."""
+        with self.get_session() as session:
+            ws = session.query(WorkspaceModel).filter_by(workspace_id=workspace_id).first()
+            if ws:
+                session.expunge(ws)
+            return ws
+
+    def update_workspace_active_mesh(self, workspace_id: str, active_mesh_asset_id: str) -> bool:
+        """Update active_mesh_asset_id for a workspace."""
+        with self.get_session() as session:
+            ws = session.query(WorkspaceModel).filter_by(workspace_id=workspace_id).first()
+            if not ws:
+                return False
+            ws.active_mesh_asset_id = active_mesh_asset_id
+            ws.updated_at = datetime.utcnow()
+            session.commit()
+            return True
+
+    def update_workspace_settings(self, workspace_id: str, settings_json: str) -> bool:
+        """Update settings_json for a workspace."""
+        with self.get_session() as session:
+            ws = session.query(WorkspaceModel).filter_by(workspace_id=workspace_id).first()
+            if not ws:
+                return False
+            ws.settings_json = settings_json
+            ws.updated_at = datetime.utcnow()
+            session.commit()
+            return True
+
+    def list_workspaces_by_asset_and_model(
+        self, source_asset_id: str, model_preference: str
+    ) -> List[WorkspaceModel]:
+        """Find workspaces for an image asset using the same model (identity match).
+
+        Part II §13.1: same source image + same model reuses the workspace.
+        Settings changes alone do not create a new route.
+        """
+        with self.get_session() as session:
+            rows = (
+                session.query(WorkspaceModel)
+                .filter_by(source_asset_id=source_asset_id)
+                .order_by(WorkspaceModel.created_at.desc())
+                .all()
+            )
+            matches: List[WorkspaceModel] = []
+            for ws in rows:
+                settings = {}
+                if ws.settings_json:
+                    try:
+                        settings = json.loads(ws.settings_json)
+                    except (TypeError, ValueError):
+                        settings = {}
+                if settings.get("model_preference") == model_preference:
+                    matches.append(ws)
+            return matches
+
+    def add_asset(
+        self,
+        asset_id: str,
+        workspace_id: str,
+        file_type: str,
+        relative_path: str,
+        original_filename: str,
+        byte_size: int,
+        sha256: str,
+        thumbnail_path: Optional[str] = None,
+        operation_id: Optional[str] = None,
+        is_retained: bool = True,
+        status: str = "available",
+    ) -> AssetModel:
+        """Add or update an asset record."""
+        with self.get_session() as session:
+            asset = session.query(AssetModel).filter_by(asset_id=asset_id).first()
+            now = datetime.utcnow()
+            if asset:
+                asset.workspace_id = workspace_id
+                asset.operation_id = operation_id
+                asset.file_type = file_type
+                asset.relative_path = relative_path
+                asset.original_filename = original_filename
+                asset.byte_size = byte_size
+                asset.sha256 = sha256
+                if thumbnail_path is not None:
+                    asset.thumbnail_path = thumbnail_path
+                asset.is_retained = 1 if is_retained else 0
+                asset.status = status
+            else:
+                asset = AssetModel(
+                    asset_id=asset_id,
+                    workspace_id=workspace_id,
+                    operation_id=operation_id,
+                    file_type=file_type,
+                    relative_path=relative_path,
+                    original_filename=original_filename,
+                    byte_size=byte_size,
+                    sha256=sha256,
+                    thumbnail_path=thumbnail_path,
+                    is_retained=1 if is_retained else 0,
+                    status=status,
+                    created_at=now,
+                )
+                session.add(asset)
+            session.commit()
+            session.refresh(asset)
+            session.expunge(asset)
+            return asset
+
+    def get_asset(self, asset_id: str) -> Optional[AssetModel]:
+        """Fetch an asset record by asset_id."""
+        with self.get_session() as session:
+            asset = session.query(AssetModel).filter_by(asset_id=asset_id).first()
+            if asset:
+                session.expunge(asset)
+            return asset
+
+    def list_workspace_assets(self, workspace_id: str, file_type: Optional[str] = None) -> List[AssetModel]:
+        """List all assets belonging to a workspace, optionally filtered by file_type."""
+        with self.get_session() as session:
+            query = session.query(AssetModel).filter_by(workspace_id=workspace_id)
+            if file_type:
+                query = query.filter_by(file_type=file_type)
+            assets = query.order_by(asc(AssetModel.created_at)).all()
+            for a in assets:
+                session.expunge(a)
+            return assets
+
+    # ==========================================================================
+    # Operation Lifecycle & Dual State Machine Methods (Milestone 3: Batch 3)
+    # ==========================================================================
+
+    def count_queued_operations(self) -> int:
+        """Count active operations in queued status."""
+        with self.get_session() as session:
+            return (
+                session.query(OperationModel)
+                .filter_by(execution_status=ExecutionStatus.QUEUED)
+                .count()
+            )
+
+    def find_active_operation(
+        self,
+        workspace_id: str,
+        input_asset_id: Optional[str],
+        operation_type: str,
+        settings: Optional[Dict[str, Any]] = None,
+    ) -> Optional[OperationModel]:
+        """Find an in-flight operation (queued or processing) matching deduplication fingerprint."""
+        target_fp = compute_dedupe_fingerprint(workspace_id, input_asset_id, operation_type, settings)
+        with self.get_session() as session:
+            candidates = (
+                session.query(OperationModel)
+                .filter(
+                    OperationModel.workspace_id == workspace_id,
+                    OperationModel.operation_type == operation_type,
+                    OperationModel.execution_status.in_(
+                        [ExecutionStatus.QUEUED, ExecutionStatus.PROCESSING]
+                    ),
+                )
+                .all()
+            )
+            for op in candidates:
+                op_input = op.input_asset_id or None
+                target_input = input_asset_id or None
+                if op_input != target_input:
+                    continue
+                op_settings = {}
+                if op.settings_snapshot:
+                    try:
+                        op_settings = json.loads(op.settings_snapshot)
+                    except Exception:
+                        op_settings = {}
+                op_fp = compute_dedupe_fingerprint(op.workspace_id, op.input_asset_id, op.operation_type, op_settings)
+                if op_fp == target_fp:
+                    session.expunge(op)
+                    return op
+        return None
+
+    def enqueue_operation(
+        self,
+        operation_id: str,
+        workspace_id: str,
+        operation_type: str,
+        input_asset_id: Optional[str] = None,
+        parent_operation_id: Optional[str] = None,
+        settings: Optional[Dict[str, Any]] = None,
+        temp_dir: Optional[str] = None,
+        queue_cap: int = 10,
+        regenerate: bool = False,
+    ) -> Tuple[OperationModel, bool]:
+        """
+        Enqueue an operation into SQLite FIFO queue:
+        - Deduplication: returns existing in-flight operation if identical and not regenerating.
+        - Queue cap: rejects with RuntimeError("QUEUE_FULL") if queued count >= queue_cap.
+        - Immutable snapshot: settings_snapshot frozen at queue time.
+        Returns: (OperationModel, is_new: bool)
+        """
+        if not regenerate and not parent_operation_id:
+            active_op = self.find_active_operation(workspace_id, input_asset_id, operation_type, settings)
+            if active_op:
+                logger.info(
+                    "Deduplication matched existing active operation %s for workspace %s",
+                    active_op.operation_id,
+                    workspace_id,
+                )
+                return active_op, False
+
+        with ProcessFileLock():
+            queued_count = self.count_queued_operations()
+            if queued_count >= queue_cap:
+                raise RuntimeError(f"QUEUE_FULL: Queue capacity limit ({queue_cap}) reached")
+
+            settings_json = json.dumps(settings or {})
+            now = datetime.utcnow()
+            op = OperationModel(
+                operation_id=operation_id,
+                workspace_id=workspace_id,
+                input_asset_id=input_asset_id,
+                parent_operation_id=parent_operation_id,
+                operation_type=operation_type,
+                execution_status=ExecutionStatus.QUEUED,
+                persistence_status=PersistenceStatus.NOT_SAVED,
+                progress=0.0,
+                worker_lease=None,
+                lease_heartbeat=None,
+                settings_snapshot=settings_json,
+                temp_dir=temp_dir,
+                result_json=None,
+                error_json=None,
+                created_at=now,
+                completed_at=None,
+            )
+            with self.get_session() as session:
+                session.add(op)
+                session.commit()
+                session.refresh(op)
+                session.expunge(op)
+                logger.info(
+                    "Enqueued operation %s for workspace %s (%s)",
+                    operation_id,
+                    workspace_id,
+                    operation_type,
+                )
+                return op, True
+
+    def get_operation(self, operation_id: str) -> Optional[OperationModel]:
+        """Fetch an operation by operation_id."""
+        with self.get_session() as session:
+            op = session.query(OperationModel).filter_by(operation_id=operation_id).first()
+            if op:
+                session.expunge(op)
+            return op
+
+    def list_workspace_operations(self, workspace_id: str) -> List[OperationModel]:
+        """List all operations for a given workspace ordered by creation time."""
+        with self.get_session() as session:
+            ops = (
+                session.query(OperationModel)
+                .filter_by(workspace_id=workspace_id)
+                .order_by(asc(OperationModel.created_at))
+                .all()
+            )
+            for op in ops:
+                session.expunge(op)
+            return ops
+
+    def claim_next_operation(self, worker_lease: str) -> Optional[OperationModel]:
+        """
+        Atomically claim the oldest queued operation using process lock and conditional update.
+        """
+        with ProcessFileLock():
+            with self.get_session() as session:
+                op = (
+                    session.query(OperationModel)
+                    .filter_by(execution_status=ExecutionStatus.QUEUED)
+                    .order_by(asc(OperationModel.created_at))
+                    .first()
+                )
+                if not op:
+                    return None
+                now = datetime.utcnow()
+                rows_updated = (
+                    session.query(OperationModel)
+                    .filter_by(
+                        operation_id=op.operation_id,
+                        execution_status=ExecutionStatus.QUEUED,
+                    )
+                    .update(
+                        {
+                            "execution_status": ExecutionStatus.PROCESSING,
+                            "worker_lease": worker_lease,
+                            "lease_heartbeat": now,
+                        }
+                    )
+                )
+                session.commit()
+                if rows_updated == 1:
+                    session.refresh(op)
+                    session.expunge(op)
+                    logger.info("Worker %s claimed operation %s", worker_lease, op.operation_id)
+                    return op
+                return None
+
+    def update_operation_execution_status(
+        self,
+        operation_id: str,
+        new_status: str,
+        worker_lease: Optional[str] = None,
+        progress: Optional[float] = None,
+        result: Optional[Any] = None,
+        error: Optional[Any] = None,
+    ) -> bool:
+        """
+        Update execution status with strict state machine validation and terminal immutability.
+        """
+        with self.get_session() as session:
+            op = session.query(OperationModel).filter_by(operation_id=operation_id).first()
+            if not op:
+                return False
+
+            current = op.execution_status
+            if new_status != current:
+                allowed = ExecutionStatus.ALLOWED_TRANSITIONS.get(current, set())
+                if new_status not in allowed:
+                    raise ValueError(
+                        f"Illegal execution state transition: {current} -> {new_status}"
+                    )
+                op.execution_status = new_status
+
+            now = datetime.utcnow()
+            if worker_lease is not None:
+                op.worker_lease = worker_lease
+                op.lease_heartbeat = now
+            elif new_status == ExecutionStatus.PROCESSING:
+                op.lease_heartbeat = now
+
+            if progress is not None:
+                op.progress = float(progress)
+
+            if new_status == ExecutionStatus.COMPLETED:
+                op.progress = 1.0
+                op.completed_at = now
+                if result is not None:
+                    op.result_json = json.dumps(result)
+            elif new_status in (
+                ExecutionStatus.FAILED,
+                ExecutionStatus.INTERRUPTED,
+                ExecutionStatus.CANCELLED,
+            ):
+                op.completed_at = now
+                if error is not None:
+                    structured = classify_operation_error(error)
+                    op.error_json = json.dumps(structured)
+
+            session.commit()
+            return True
+
+    def update_operation_persistence_status(
+        self,
+        operation_id: str,
+        new_status: str,
+    ) -> bool:
+        """
+        Update persistence status with strict state machine validation and terminal immutability.
+        """
+        with self.get_session() as session:
+            op = session.query(OperationModel).filter_by(operation_id=operation_id).first()
+            if not op:
+                return False
+
+            current = op.persistence_status
+            if new_status != current:
+                allowed = PersistenceStatus.ALLOWED_TRANSITIONS.get(current, set())
+                if new_status not in allowed:
+                    raise ValueError(
+                        f"Illegal persistence state transition: {current} -> {new_status}"
+                    )
+                op.persistence_status = new_status
+
+            session.commit()
+            return True
+
+    def keep_operation_in_workspace(
+        self,
+        operation_id: str,
+        storage_manager: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Persist one completed operation output exactly once in its workspace."""
+        mgr = storage_manager or get_workspace_storage_manager()
+        mgr.assert_safe_id(operation_id)
+
+        with ProcessFileLock(lock_path=mgr.storage_root / ".workspace_persistence.lock"):
+            op = self.get_operation(operation_id)
+            if not op:
+                raise ValueError(f"Operation {operation_id} not found")
+            if op.execution_status != ExecutionStatus.COMPLETED:
+                raise ValueError(
+                    f"Cannot keep uncompleted operation (current status: {op.execution_status})"
+                )
+
+            ws_dir = mgr.get_workspace_dir(op.workspace_id).resolve()
+            if not ws_dir.is_dir():
+                raise FileNotFoundError(f"Workspace directory {ws_dir} does not exist")
+
+            def _asset_result(asset: AssetModel) -> Dict[str, Any]:
+                mesh_path = (ws_dir / asset.relative_path).resolve()
+                if not mesh_path.is_relative_to(ws_dir) or not mesh_path.is_file():
+                    raise FileNotFoundError(
+                        f"Saved asset file is missing or outside workspace: {asset.relative_path}"
+                    )
+                thumbnail_path = None
+                if asset.thumbnail_path:
+                    thumb = (ws_dir / asset.thumbnail_path).resolve()
+                    if thumb.is_relative_to(ws_dir) and thumb.is_file():
+                        thumbnail_path = str(thumb)
+                return {
+                    "operation_id": operation_id,
+                    "asset_id": asset.asset_id,
+                    "relative_mesh_path": asset.relative_path,
+                    "relative_thumbnail_path": asset.thumbnail_path,
+                    "mesh_path": str(mesh_path),
+                    "thumbnail_path": thumbnail_path,
+                }
+
+            # A repeated Keep is a read of the already-persisted asset, never a new version.
+            with self.get_session() as session:
+                op_row = session.query(OperationModel).filter_by(operation_id=operation_id).first()
+                if not op_row:
+                    raise ValueError(f"Operation {operation_id} not found")
+                existing_asset = (
+                    session.query(AssetModel)
+                    .filter_by(operation_id=operation_id, is_retained=1)
+                    .first()
+                )
+                if op_row.persistence_status == PersistenceStatus.SAVED:
+                    if not existing_asset:
+                        raise RuntimeError(
+                            f"Operation {operation_id} is marked saved but has no retained asset"
+                        )
+                    session.expunge(existing_asset)
+                    return _asset_result(existing_asset)
+                if op_row.persistence_status not in (
+                    PersistenceStatus.NOT_SAVED,
+                    PersistenceStatus.SAVE_FAILED,
+                ):
+                    raise ValueError(
+                        f"Cannot keep operation in persistence state {op_row.persistence_status}"
+                    )
+                if existing_asset:
+                    existing_mesh_path = (ws_dir / existing_asset.relative_path).resolve()
+                    if not existing_mesh_path.is_relative_to(ws_dir) or not existing_mesh_path.is_file():
+                        raise FileNotFoundError(
+                            f"Existing retained asset is missing or outside workspace: {existing_asset.relative_path}"
+                        )
+                    existing_asset_id = existing_asset.asset_id
+                    op_row.persistence_status = PersistenceStatus.SAVED
+                    workspace = session.query(WorkspaceModel).filter_by(
+                        workspace_id=op.workspace_id
+                    ).first()
+                    if not workspace:
+                        raise ValueError(f"Workspace {op.workspace_id} not found")
+                    workspace.active_mesh_asset_id = existing_asset_id
+                    workspace.updated_at = datetime.utcnow()
+                    session.commit()
+                    session.refresh(existing_asset)
+                    session.expunge(existing_asset)
+                    result = _asset_result(existing_asset)
+                    try:
+                        mgr.build_manifest_projection(op.workspace_id, self)
+                    except Exception as exc:
+                        logger.warning(
+                            "Saved operation %s but manifest projection failed: %s",
+                            operation_id,
+                            exc,
+                        )
+                    return result
+
+            storage_root = mgr.storage_root.resolve()
+            if mgr.temp_root.is_symlink():
+                raise ValueError("Storage temp root must not be a symlink")
+            temp_root = mgr.temp_root.resolve()
+            if temp_root != (storage_root / "temp").resolve() or not temp_root.is_relative_to(storage_root):
+                raise ValueError("Storage temp root is outside the configured storage directory")
+            raw_temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / operation_id)
+            if raw_temp_dir.is_symlink():
+                raise ValueError("Operation temp directory must not be a symlink")
+            temp_dir = raw_temp_dir.resolve()
+            expected_temp_dir = (temp_root / operation_id).resolve()
+            if temp_dir != expected_temp_dir or not temp_dir.is_relative_to(temp_root):
+                raise ValueError("Operation temp directory is outside its assigned temp location")
+            if not temp_dir.is_dir():
+                raise FileNotFoundError(f"Operation temp directory {temp_dir} does not exist")
+
+            mesh_candidates = sorted(
+                [*temp_dir.glob("*.glb"), *temp_dir.glob("*.obj")],
+                key=lambda path: path.name,
+            )
+            temp_mesh_path = next(
+                (
+                    candidate.resolve()
+                    for candidate in mesh_candidates
+                    if not candidate.is_symlink()
+                    and candidate.resolve().parent == temp_dir
+                    and candidate.is_file()
+                ),
+                None,
+            )
+            if temp_mesh_path is None:
+                raise FileNotFoundError(f"No safe GLB or OBJ output found in {temp_dir}")
+
+            temp_thumb_path = temp_dir / "thumbnail.png"
+            if temp_thumb_path.is_symlink():
+                raise ValueError("Operation thumbnail must not be a symlink")
+            if temp_thumb_path.exists():
+                temp_thumb_path = temp_thumb_path.resolve()
+                if temp_thumb_path.parent != temp_dir or not temp_thumb_path.is_file():
+                    raise ValueError("Operation thumbnail is outside its assigned temp directory")
+            else:
+                temp_thumb_path = None
+
+            self.update_operation_persistence_status(
+                operation_id, PersistenceStatus.SAVING
+            )
+
+            published = None
+            db_committed = False
+            try:
+                published = mgr.publish_derived_mesh(
+                    workspace_id=op.workspace_id,
+                    operation_type=op.operation_type,
+                    temp_mesh_path=temp_mesh_path,
+                    temp_thumbnail_path=temp_thumb_path,
+                )
+                mesh_file = published["mesh_path"]
+                mesh_bytes = mesh_file.read_bytes()
+                asset_id = generate_asset_id()
+                asset = AssetModel(
+                    asset_id=asset_id,
+                    workspace_id=op.workspace_id,
+                    operation_id=operation_id,
+                    operation_type=op.operation_type,
+                    file_type="mesh",
+                    relative_path=published["relative_mesh_path"],
+                    original_filename=mesh_file.name,
+                    byte_size=len(mesh_bytes),
+                    sha256=hashlib.sha256(mesh_bytes).hexdigest(),
+                    thumbnail_path=published["relative_thumbnail_path"],
+                    is_retained=1,
+                    status="available",
+                    created_at=datetime.utcnow(),
+                )
+
+                # Asset registration, active-mesh selection and SAVED transition commit together.
+                with self.get_session() as session:
+                    op_row = session.query(OperationModel).filter_by(
+                        operation_id=operation_id
+                    ).first()
+                    workspace = session.query(WorkspaceModel).filter_by(
+                        workspace_id=op.workspace_id
+                    ).first()
+                    if not op_row or op_row.persistence_status != PersistenceStatus.SAVING:
+                        raise RuntimeError("Operation persistence state changed while saving")
+                    if not workspace:
+                        raise ValueError(f"Workspace {op.workspace_id} not found")
+                    session.add(asset)
+                    workspace.active_mesh_asset_id = asset_id
+                    workspace.updated_at = datetime.utcnow()
+                    op_row.persistence_status = PersistenceStatus.SAVED
+                    session.commit()
+                    db_committed = True
+
+                manifest_updated = True
+                try:
+                    mgr.build_manifest_projection(op.workspace_id, self)
+                except Exception as exc:
+                    manifest_updated = False
+                    logger.warning(
+                        "Operation %s saved; metadata projection will need rebuilding: %s",
+                        operation_id,
+                        exc,
+                    )
+
+                return {
+                    "operation_id": operation_id,
+                    "asset_id": asset_id,
+                    "relative_mesh_path": published["relative_mesh_path"],
+                    "relative_thumbnail_path": published["relative_thumbnail_path"],
+                    "mesh_path": str(mesh_file),
+                    "thumbnail_path": str(published["thumbnail_path"]) if published["thumbnail_path"] else None,
+                    "manifest_updated": manifest_updated,
+                }
+            except Exception as exc:
+                if not db_committed and published:
+                    for published_path in (published.get("mesh_path"), published.get("thumbnail_path")):
+                        if published_path:
+                            try:
+                                Path(published_path).unlink(missing_ok=True)
+                            except OSError as cleanup_exc:
+                                logger.warning(
+                                    "Could not roll back published file %s: %s",
+                                    published_path,
+                                    cleanup_exc,
+                                )
+                if not db_committed:
+                    try:
+                        self.update_operation_persistence_status(
+                            operation_id, PersistenceStatus.SAVE_FAILED
+                        )
+                    except Exception as state_exc:
+                        logger.error(
+                            "Could not mark operation %s save_failed: %s",
+                            operation_id,
+                            state_exc,
+                        )
+                logger.error("Failed to keep operation %s in workspace: %s", operation_id, exc)
+                raise
+
+    def discard_operation_preview(
+        self,
+        operation_id: str,
+        storage_manager: Optional[Any] = None,
+    ) -> bool:
+        """Discard only this operation's temp preview; retain job and workspace history."""
+        mgr = storage_manager or get_workspace_storage_manager()
+        mgr.assert_safe_id(operation_id)
+
+        with ProcessFileLock(lock_path=mgr.storage_root / ".workspace_persistence.lock"):
+            op = self.get_operation(operation_id)
+            if not op:
+                return False
+            if op.persistence_status in (
+                PersistenceStatus.SAVED,
+                PersistenceStatus.SAVING,
+            ):
+                raise ValueError(
+                    f"Cannot discard operation in persistence state {op.persistence_status}"
+                )
+
+            storage_root = mgr.storage_root.resolve()
+            if mgr.temp_root.is_symlink():
+                raise ValueError("Storage temp root must not be a symlink")
+            temp_root = mgr.temp_root.resolve()
+            if temp_root != (storage_root / "temp").resolve() or not temp_root.is_relative_to(storage_root):
+                raise ValueError("Storage temp root is outside the configured storage directory")
+            raw_temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / operation_id)
+            if raw_temp_dir.is_symlink():
+                raise ValueError("Operation temp directory must not be a symlink")
+            temp_dir = raw_temp_dir.resolve()
+            expected_temp_dir = (temp_root / operation_id).resolve()
+            if temp_dir != expected_temp_dir or not temp_dir.is_relative_to(temp_root):
+                raise ValueError("Operation temp directory is outside its assigned temp location")
+
+            if op.persistence_status == PersistenceStatus.PREVIEW_EXPIRED:
+                return True
+            if op.persistence_status not in (
+                PersistenceStatus.NOT_SAVED,
+                PersistenceStatus.SAVE_FAILED,
+                PersistenceStatus.CLEANUP_PENDING,
+                PersistenceStatus.DISCARDED,
+            ):
+                raise ValueError(
+                    f"Cannot discard operation in persistence state {op.persistence_status}"
+                )
+
+            if temp_dir.exists():
+                if op.persistence_status not in (
+                    PersistenceStatus.CLEANUP_PENDING,
+                    PersistenceStatus.DISCARDED,
+                ):
+                    self.update_operation_persistence_status(
+                        operation_id, PersistenceStatus.CLEANUP_PENDING
+                    )
+                try:
+                    if not temp_dir.is_dir():
+                        raise ValueError("Operation temp path is not a directory")
+                    shutil.rmtree(temp_dir)
+                except OSError as exc:
+                    logger.warning(
+                        "Discard cleanup remains pending for operation %s: %s",
+                        operation_id,
+                        exc,
+                    )
+                    raise
+            if op.persistence_status != PersistenceStatus.DISCARDED:
+                self.update_operation_persistence_status(
+                    operation_id, PersistenceStatus.DISCARDED
+                )
+            return True
+
+    def recover_orphaned_operations(
+        self,
+        is_pid_alive_fn: Optional[Any] = None,
+    ) -> int:
+        """
+        Startup recovery: check active worker lease before marking operations interrupted.
+        If worker lease PID is alive, leaves it in processing.
+        If dead or missing, marks INTERRUPTED with structured WORKER_CRASHED error.
+        """
+        def _default_pid_alive(lease: Optional[str]) -> bool:
+            if not lease:
+                return False
+            pid_digits = re.sub(r"[^\d]", "", lease)
+            if not pid_digits:
+                return False
+            try:
+                pid = int(pid_digits)
+                os.kill(pid, 0)
+                return True
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                return True
+            except OSError:
+                return False
+
+        check_fn = is_pid_alive_fn or _default_pid_alive
+        interrupted_count = 0
+
+        with self.get_session() as session:
+            processing_ops = (
+                session.query(OperationModel)
+                .filter_by(execution_status=ExecutionStatus.PROCESSING)
+                .all()
+            )
+            for op in processing_ops:
+                if not op.worker_lease or not check_fn(op.worker_lease):
+                    op.execution_status = ExecutionStatus.INTERRUPTED
+                    op.completed_at = datetime.utcnow()
+                    op.error_json = json.dumps(
+                        classify_operation_error(
+                            "WORKER_CRASHED: Worker process stopped unexpectedly"
+                        )
+                    )
+                    interrupted_count += 1
+                    logger.warning(
+                        "Orphaned operation %s (lease: %s) marked INTERRUPTED on startup recovery",
+                        op.operation_id,
+                        op.worker_lease,
+                    )
+            session.commit()
+        return interrupted_count
+
+    def cleanup_expired_previews(self, ttl_hours: int = 24) -> int:
+        """
+        Purge temporary preview directories older than TTL for unretained operations.
+        Never touches saved assets. Transitions persistence_status to preview_expired.
+        """
+        cutoff = datetime.utcnow() - timedelta(hours=ttl_hours)
+        expired_count = 0
+
+        with self.get_session() as session:
+            expired_ops = (
+                session.query(OperationModel)
+                .filter(
+                    OperationModel.persistence_status == PersistenceStatus.NOT_SAVED,
+                    OperationModel.created_at < cutoff,
+                )
+                .all()
+            )
+            for op in expired_ops:
+                if op.temp_dir and Path(op.temp_dir).exists():
+                    try:
+                        resolved = Path(op.temp_dir).resolve()
+                        if "temp" in resolved.parts:
+                            shutil.rmtree(resolved)
+                    except Exception as e:
+                        logger.warning("Failed to remove expired temp %s: %s", op.temp_dir, e)
+                op.persistence_status = PersistenceStatus.PREVIEW_EXPIRED
+                expired_count += 1
+            session.commit()
+        return expired_count
+
+

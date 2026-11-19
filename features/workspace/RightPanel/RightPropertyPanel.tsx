@@ -22,7 +22,6 @@ import {
   PaletteIcon,
   Plus,
   RefreshCw,
-  Search01Icon,
   ShieldCheckIcon,
   SlidersHorizontalIcon,
   SparklesIcon,
@@ -37,11 +36,12 @@ import { DynamicUVInspector } from '../dynamic/DynamicUVInspector';
 import { DynamicSegmentationInspector } from '../dynamic/DynamicSegmentationInspector';
 import { DynamicAnimationInspector } from '../dynamic/DynamicAnimationInspector';
 import { DynamicRiggingInspector } from '../dynamic/DynamicRiggingInspector';
-import { Grid3X3, Scissors, Film, Bone } from 'lucide-react';
+import { Grid3X3, Scissors, Film, Bone } from '@/components/icons/hugeicons-components';
 
 export const RightPropertyPanel: React.FC = () => {
-  const { 
-    currentAsset, 
+  const {
+    currentAsset,
+    setCurrentAsset,
     activeTool,
     shadingMode,
     setShadingMode,
@@ -55,15 +55,19 @@ export const RightPropertyPanel: React.FC = () => {
 
   const modelStats = useViewerStore((s) => s.modelStats);
   const activeModelObject = useViewerStore((s) => s.activeModelObject);
+  const assetSelectionState = useViewerStore((s) => s.assetSelectionState);
+  const assetLoadError = useViewerStore((s) => s.assetLoadError);
+  const selectedAsset = useViewerStore((s) => s.selectedAsset);
+  const requestAssetSelection = useViewerStore((s) => s.requestAssetSelection);
+  const verifyAsset = useViewerStore((s) => s.verifyAsset);
+  const beginAssetLoad = useViewerStore((s) => s.beginAssetLoad);
+  const completeAssetLoad = useViewerStore((s) => s.completeAssetLoad);
+  const failAssetLoad = useViewerStore((s) => s.failAssetLoad);
 
   // Accordion state persisted in UI store
   const rightPanelSections = useUIStore((s) => s.rightPanelSections);
   const setRightPanelSectionExpanded = useUIStore((s) => s.setRightPanelSectionExpanded);
   const toggleRightPanelSection = useUIStore((s) => s.toggleRightPanelSection);
-
-  // Client-side text filter
-  const [filterQuery, setFilterQuery] = useState('');
-  const normalizedFilter = filterQuery.trim().toLowerCase();
 
   // Model comparison state
   const [selectedCompareAssetId, setSelectedCompareAssetId] = useState<string | null>(null);
@@ -95,20 +99,10 @@ export const RightPropertyPanel: React.FC = () => {
     toggleRightPanelSection(sectionId);
   };
 
-  const isSectionVisible = (keywords: string[]) => {
-    if (!normalizedFilter) return true;
-    return keywords.some(
-      (kw) => kw.toLowerCase().includes(normalizedFilter) || normalizedFilter.includes(kw.toLowerCase())
-    );
-  };
-
-  const isSectionExpanded = (sectionId: string, keywords: string[]) => {
-    if (normalizedFilter) {
-      return isSectionVisible(keywords);
-    }
+  const isSectionExpanded = (sectionId: string) => {
     // Context section is ALWAYS expanded by default for tool inspectors
     if (sectionId === 'context') return true;
-    // When inside a dedicated dynamic tool, collapse general mesh properties by default to keep the dynamic inspector front & center
+    // When inside a dedicated dynamic tool, collapse general mesh properties by default
     if (activeTool === 'rigging' || activeTool === 'segment' || activeTool === 'uv' || activeTool === 'animation') {
       return rightPanelSections?.[sectionId] ?? false;
     }
@@ -228,6 +222,20 @@ export const RightPropertyPanel: React.FC = () => {
     }
   };
 
+  const buildGenerationDownloadUrl = (asset: { id: string; source?: { fileId?: string } | null }, format: string): string | undefined => {
+    const fileId = asset.source?.fileId;
+    if (fileId?.startsWith('job-')) {
+      return `/api/v1/system/jobs/${encodeURIComponent(fileId.slice(4))}/download?artifact_format=${format}`;
+    }
+    if (fileId) {
+      return `/api/v1/file-upload/download/${encodeURIComponent(fileId)}`;
+    }
+    if (asset.id) {
+      return `/api/v1/system/jobs/${encodeURIComponent(asset.id)}/download?artifact_format=${format}`;
+    }
+    return undefined;
+  };
+
   const handleExportDownload = async () => {
     if (!currentAsset) return;
     const sourceUrl =
@@ -235,9 +243,7 @@ export const RightPropertyPanel: React.FC = () => {
       (exportFormat === 'glb' ? currentAsset.artifacts?.gameReady : undefined) ||
       (exportFormat === 'glb' ? currentAsset.source?.localUrl || currentAsset.source?.viewUrl : undefined) ||
       (exportFormat === 'fbx' ? currentAsset.artifacts?.riggedFbx : undefined) ||
-      (currentAsset.category === 'generation' && currentAsset.id
-        ? `/api/v1/system/jobs/${currentAsset.id}/download?artifact_format=${exportFormat}`
-        : undefined);
+      (currentAsset.category === 'generation' ? buildGenerationDownloadUrl(currentAsset, exportFormat) : undefined);
 
     const assetBaseName = currentAsset.name.replace(/\.[^.]+$/, '');
 
@@ -631,17 +637,9 @@ export const RightPropertyPanel: React.FC = () => {
     );
   }
 
-  // Keywords for filtering
-  const transformKeywords = ['transform', 'position', 'rotation', 'scale', 'world space', 'euler', 'ratio', 'x', 'y', 'z'];
-  const geometryKeywords = ['geometry', 'topology', 'manifold', 'watertight', 'vertices', 'polygons', 'faces', 'surface area', 'volume', 'uv charts', 'dimensions', 'components', 'semantic', 'details'];
-  const contextKeywords = ['ai generator', 'pipeline', 'model engine', 'octree', 'diffusion', 'rmbg', 'cutout', 'generator'];
-  const shadingKeywords = ['shading', 'viewport', 'pbr lit', 'clay', 'gold', 'chrome', 'ceramic', 'normals', 'wire solo', 'wireframe', 'overlay'];
-  const comparisonKeywords = ['model comparison', 'comparison', 'compare', 'lineage', 'qa', 'score', 'delta'];
-  const exportKeywords = ['quick export', 'export', 'download', 'format', 'glb', 'gltf', 'fbx', 'obj', 'stl', 'ply', 'embed', 'draco', 'compression'];
-
-  // QA score calculations for Model Comparison (never estimate client-side)
-  const currentQAReport = (currentAsset.artifacts?.qaReport as any);
-  const currentQA = (currentQAReport?.qa as any) || currentQAReport;
+  const activeCompareTarget = selectedLineageUrl || selectedCompareAssetId;
+  const currentQAReport = currentAsset.artifacts?.qaReport as Record<string, unknown> | undefined;
+  const currentQA = (currentQAReport?.qa as Record<string, unknown> | undefined) ?? currentQAReport;
   const currentScore = typeof currentAsset.qaScore === 'number'
     ? currentAsset.qaScore
     : typeof currentQA?.score === 'number'
@@ -649,9 +647,9 @@ export const RightPropertyPanel: React.FC = () => {
     : typeof currentQAReport?.score === 'number'
     ? currentQAReport.score
     : undefined;
-  const currentTopology = currentQA?.subscores?.geometry_topology ?? currentQAReport?.subscores?.geometry_topology;
-  const currentUV = currentQA?.subscores?.uv_material ?? currentQAReport?.subscores?.uv_material;
-  const currentBudget = currentQA?.subscores?.platform ?? currentQAReport?.subscores?.platform;
+  const currentTopology = (currentQA as any)?.subscores?.geometry_topology ?? (currentQAReport as any)?.subscores?.geometry_topology;
+  const currentUV = (currentQA as any)?.subscores?.uv_material ?? (currentQAReport as any)?.subscores?.uv_material;
+  const currentBudget = (currentQA as any)?.subscores?.platform ?? (currentQAReport as any)?.subscores?.platform;
 
   let compareScore: number | undefined;
   let compareTopology: number | undefined;
@@ -675,7 +673,7 @@ export const RightPropertyPanel: React.FC = () => {
       compareBudget = compQA?.subscores?.platform ?? compReport?.subscores?.platform;
     }
   } else if (selectedLineageUrl) {
-    const beforeQA = (currentQAReport?.before_postprocess?.qa as any) || (currentQAReport?.before_postprocess as any) || (currentQAReport?.before as any);
+    const beforeQA = ((currentQAReport as any)?.before_postprocess?.qa as any) || ((currentQAReport as any)?.before_postprocess as any) || ((currentQAReport as any)?.before as any);
     if (beforeQA) {
       compareScore = beforeQA.score;
       compareTopology = beforeQA.subscores?.geometry_topology;
@@ -684,7 +682,61 @@ export const RightPropertyPanel: React.FC = () => {
     }
   }
 
-  const activeCompareTarget = selectedLineageUrl || selectedCompareAssetId;
+  // Group workspace assets into parent/base mesh + derived meshes by operation type.
+  // Version labels (v001, v002…) assigned by creation order within each group.
+  const renderMeshHierarchy = (allAssets: ModelAsset[]) => {
+    const base = allAssets.filter(
+      (a) => a.is_base_mesh || !a.operation_type
+    );
+    const derived = allAssets.filter(
+      (a) => !a.is_base_mesh && Boolean(a.operation_type)
+    );
+    const byType = new Map<string, ModelAsset[]>();
+    derived.forEach((a) => {
+      const key = a.operation_type || 'other';
+      if (!byType.has(key)) byType.set(key, []);
+      byType.get(key)!.push(a);
+    });
+    const rows: React.ReactNode[] = [];
+    if (base.length) {
+      const baseAsset = base[0];
+      const handleBaseClick = () => {
+        const requestId = requestAssetSelection(baseAsset as any);
+        verifyAsset(requestId);
+        beginAssetLoad(requestId);
+        setCurrentAsset(baseAsset);
+      };
+      rows.push(
+        <div key="base" className="flex items-center gap-1 px-1 py-1 rounded bg-[hsl(var(--surface-2))] cursor-pointer" onClick={handleBaseClick}>
+          <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
+          <span className="text-[9px] font-medium text-[hsl(var(--muted-foreground))] truncate">Parent / Base Mesh</span>
+          <span className="ml-auto text-[9px] font-mono text-[hsl(var(--muted-foreground))]">{baseAsset.format}</span>
+        </div>
+      );
+    }
+    byType.forEach((group, type) => {
+      group.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+      group.forEach((a, i) => {
+        const isCurrent = currentAsset?.id === a.id;
+        const handleDerivedClick = () => {
+          const requestId = requestAssetSelection(a as any);
+          verifyAsset(requestId);
+          beginAssetLoad(requestId);
+          setCurrentAsset(a);
+        };
+        rows.push(
+          <div key={a.id} className="flex items-center gap-1 px-1 py-1 rounded cursor-pointer" onClick={handleDerivedClick}>
+            <span className={`w-2 h-2 rounded-full shrink-0 ${isCurrent ? 'bg-primary' : 'bg-[hsl(var(--surface-3))]'}`} />
+            <span className={`text-[9px] font-medium truncate ${isCurrent ? 'text-primary' : 'text-[hsl(var(--muted-foreground))]'}`}>
+              {type.charAt(0).toUpperCase() + type.slice(1)} · v{i + 1}
+            </span>
+            <span className="ml-auto text-[9px] font-mono text-[hsl(var(--muted-foreground))]">{a.format}</span>
+          </div>
+        );
+      });
+    });
+    return rows;
+  };
 
   return (
     <div 
@@ -707,33 +759,52 @@ export const RightPropertyPanel: React.FC = () => {
         </span>
       </div>
 
-      {/* Client-side text filter */}
-      <div className="px-2.5 py-2 border-b border-[hsl(var(--border))] bg-[hsl(var(--surface-0))]/50">
-        <div className="relative flex items-center">
-          <HugeiconsIcon icon={Search01Icon} size={14} className="absolute left-2.5 text-[hsl(var(--muted-foreground))] pointer-events-none" />
-          <input
-            type="text"
-            value={filterQuery}
-            onChange={(e) => setFilterQuery(e.target.value)}
-            placeholder="Filter properties..."
-            className="w-full pl-8 pr-7 py-1 text-xs rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:ring-1 focus:ring-primary transition-all font-mono"
-          />
-          {filterQuery && (
+      {/* Mesh Selection State */}
+      {assetSelectionState !== 'idle' && assetSelectionState !== 'ready' && (
+        <div className="px-2.5 py-2 border-b border-[hsl(var(--border))] bg-[hsl(var(--surface-0))]/40 flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <span className={`w-1.5 h-1.5 rounded-full ${assetSelectionState === 'loading' ? 'bg-primary animate-pulse' : 'bg-amber-500'}`} />
+            <span className="text-[9px] font-mono font-semibold text-[hsl(var(--muted-foreground))]">
+              {assetSelectionState === 'loading' ? 'Loading mesh…' : assetSelectionState === 'verifying' ? 'Verifying…' : 'Selecting…'}
+            </span>
+          </div>
+          {assetSelectionState === 'error' && assetLoadError && (
+            <div className="text-[9px] text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-1.5 py-1">
+              {assetLoadError}
+            </div>
+          )}
+          {assetSelectionState === 'error' && assetLoadError && (
             <button
-              onClick={() => setFilterQuery('')}
-              className="absolute right-2 text-[hsl(var(--muted-foreground))] hover:text-white"
+              type="button"
+              onClick={() => {
+                const requestId = requestAssetSelection(selectedAsset);
+                verifyAsset(requestId);
+                beginAssetLoad(requestId);
+              }}
+              className="mt-1 inline-flex items-center gap-1 px-2 py-1 rounded bg-[#F8FAFC] text-[#080808] text-[10px] font-semibold cursor-pointer transition-colors duration-200 hover:bg-[#F8FAFC]/90 focus-visible:ring-2 focus-visible:ring-[#000]"
             >
-              <HugeiconsIcon icon={Cancel} size={12} />
+              <HugeiconsIcon icon={RefreshCw} size={12} className="text-[#080808]" />
+              <span>Retry</span>
             </button>
           )}
         </div>
-      </div>
+      )}
+
+      {/* Mesh Hierarchy: Parent + Derived grouped by operation type */}
+      {assets.length > 1 && (
+        <div className="px-2.5 border-b border-[hsl(var(--border))]">
+          <h3 className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1.5 px-1">
+            Workspace Mesh Hierarchy
+          </h3>
+          <div className="space-y-1">{renderMeshHierarchy(assets)}</div>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
         {/* 3. 3D AI Generator Pipeline (Shown exclusively on Model page) */}
-        {activeTool === 'model' && isSectionVisible(contextKeywords) && (
+        {activeTool === 'model' && isSectionExpanded('context') && (
           <Collapsible
-            open={isSectionExpanded('context', contextKeywords)}
+            open={isSectionExpanded('context')}
             onOpenChange={() => handleManualToggle('context')}
             className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden transition-all"
           >
@@ -751,7 +822,7 @@ export const RightPropertyPanel: React.FC = () => {
                     icon={ChevronDown}
                     size={14}
                     className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
-                      isSectionExpanded('context', contextKeywords) ? 'rotate-180 text-primary' : ''
+                      isSectionExpanded('context') ? 'rotate-180 text-primary' : ''
                     }`}
                   />
                 </button>
@@ -781,9 +852,9 @@ export const RightPropertyPanel: React.FC = () => {
           </Collapsible>
         )}
         {/* 1. Object Transform Section */}
-        {isSectionVisible(transformKeywords) && (
+        {isSectionExpanded('transform') && (
           <Collapsible
-            open={isSectionExpanded('transform', transformKeywords)}
+            open={isSectionExpanded('transform')}
             onOpenChange={() => handleManualToggle('transform')}
             className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden transition-all"
           >
@@ -801,7 +872,7 @@ export const RightPropertyPanel: React.FC = () => {
                     icon={ChevronDown}
                     size={14}
                     className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
-                      isSectionExpanded('transform', transformKeywords) ? 'rotate-180 text-primary' : ''
+                      isSectionExpanded('transform') ? 'rotate-180 text-primary' : ''
                     }`}
                   />
                 </button>
@@ -961,7 +1032,7 @@ export const RightPropertyPanel: React.FC = () => {
         )}
 
         {/* 2. Geometry Statistics & Topology Health */}
-        {isSectionVisible(geometryKeywords) && (() => {
+        {isSectionExpanded('geometry') && (() => {
           const verticesDisplay = currentAsset?.vertices
             ? currentAsset.vertices.toLocaleString()
             : modelStats?.vertices
@@ -982,7 +1053,7 @@ export const RightPropertyPanel: React.FC = () => {
 
           return (
             <Collapsible
-              open={isSectionExpanded('geometry', geometryKeywords)}
+              open={isSectionExpanded('geometry')}
               onOpenChange={() => handleManualToggle('geometry')}
               className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden transition-all"
             >
@@ -1000,7 +1071,7 @@ export const RightPropertyPanel: React.FC = () => {
                       icon={ChevronDown}
                       size={14}
                       className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
-                        isSectionExpanded('geometry', geometryKeywords) ? 'rotate-180 text-primary' : ''
+                        isSectionExpanded('geometry') ? 'rotate-180 text-primary' : ''
                       }`}
                     />
                   </button>
@@ -1061,6 +1132,12 @@ export const RightPropertyPanel: React.FC = () => {
                     <span className="font-mono text-[hsl(var(--foreground))]">{currentAsset.dimensions.x} × {currentAsset.dimensions.y} × {currentAsset.dimensions.z} m</span>
                   </div>
                 )}
+                {currentAsset.fileSize && (
+                  <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))] pt-1 border-t border-[hsl(var(--border))]">
+                    <span>File Size</span>
+                    <span className="font-mono text-[hsl(var(--foreground))]">{currentAsset.fileSize}</span>
+                  </div>
+                )}
                 {currentAsset.componentCount !== undefined && (
                   <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))] pt-1 border-t border-[hsl(var(--border))]">
                     <span>Components / Parts</span>
@@ -1089,9 +1166,9 @@ export const RightPropertyPanel: React.FC = () => {
 
 
         {/* 4. Shading & Render Viewport Overrides */}
-        {isSectionVisible(shadingKeywords) && (
+        {isSectionExpanded('shading') && (
           <Collapsible
-            open={isSectionExpanded('shading', shadingKeywords)}
+            open={isSectionExpanded('shading')}
             onOpenChange={() => handleManualToggle('shading')}
             className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden transition-all"
           >
@@ -1109,7 +1186,7 @@ export const RightPropertyPanel: React.FC = () => {
                     icon={ChevronDown}
                     size={14}
                     className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
-                      isSectionExpanded('shading', shadingKeywords) ? 'rotate-180 text-primary' : ''
+                      isSectionExpanded('shading') ? 'rotate-180 text-primary' : ''
                     }`}
                   />
                 </button>
@@ -1211,9 +1288,9 @@ export const RightPropertyPanel: React.FC = () => {
         )}
 
         {/* 5. Model Comparison Viewer (UX-02) */}
-        {currentAsset && isSectionVisible(comparisonKeywords) && (
+        {currentAsset && isSectionExpanded('modelComparison') && (
           <Collapsible
-            open={isSectionExpanded('modelComparison', comparisonKeywords)}
+            open={isSectionExpanded('modelComparison')}
             onOpenChange={() => handleManualToggle('modelComparison')}
             className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden transition-all"
           >
@@ -1231,7 +1308,7 @@ export const RightPropertyPanel: React.FC = () => {
                     icon={ChevronDown}
                     size={14}
                     className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
-                      isSectionExpanded('modelComparison', comparisonKeywords) ? 'rotate-180 text-primary' : ''
+                      isSectionExpanded('modelComparison') ? 'rotate-180 text-primary' : ''
                     }`}
                   />
                 </button>
@@ -1380,9 +1457,9 @@ export const RightPropertyPanel: React.FC = () => {
         )}
 
         {/* 7. Production Export Section */}
-        {isSectionVisible(exportKeywords) && (
+        {isSectionExpanded('export') && (
           <Collapsible
-            open={isSectionExpanded('export', exportKeywords)}
+            open={isSectionExpanded('export')}
             onOpenChange={() => handleManualToggle('export')}
             className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden transition-all"
           >
@@ -1400,7 +1477,7 @@ export const RightPropertyPanel: React.FC = () => {
                     icon={ChevronDown}
                     size={14}
                     className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
-                      isSectionExpanded('export', exportKeywords) ? 'rotate-180 text-primary' : ''
+                      isSectionExpanded('export') ? 'rotate-180 text-primary' : ''
                     }`}
                   />
                 </button>
@@ -1462,6 +1539,27 @@ export const RightPropertyPanel: React.FC = () => {
             </CollapsibleContent>
           </Collapsible>
         )}
+      </div>
+
+      {/* Pinned Bottom Export Action Bar */}
+      <div className="p-2.5 border-t border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] flex-shrink-0">
+        <button
+          id="btn-pinned-export-download"
+          onClick={handleExportDownload}
+          disabled={isExporting || !currentAsset}
+          className="w-full h-9 rounded-xl bg-primary hover:bg-primary/90 text-[hsl(var(--primary-foreground))] font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-md cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {isExporting ? (
+            <HugeiconsIcon icon={RefreshCw} size={16} className="w-4 h-4 animate-spin" />
+          ) : exportSuccess ? (
+            <HugeiconsIcon icon={CheckIcon} size={16} className="w-4 h-4 text-emerald-400" />
+          ) : (
+            <HugeiconsIcon icon={DownloadIcon} size={16} className="w-4 h-4" />
+          )}
+          <span>
+            {isExporting ? 'Packing 3D Bundle...' : exportSuccess ? 'Export Saved!' : `Export ${exportFormat.toUpperCase()}`}
+          </span>
+        </button>
       </div>
 
     </div>

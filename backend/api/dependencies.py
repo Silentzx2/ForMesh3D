@@ -2,6 +2,8 @@
 
 import hashlib
 import logging
+from pathlib import Path
+import re
 import secrets
 import time
 from typing import Any, Dict, Optional
@@ -337,9 +339,7 @@ def _rate_limit_redis_for_request(request: Request):
     if redis_client is not None:
         return redis_client
 
-    auth_service = getattr(app_state, "auth_service", None)
-    storage = getattr(auth_service, "storage", None)
-    return getattr(storage, "redis", None) if storage is not None else None
+    return None
 
 
 async def _rate_limit_result(request: Request, settings) -> Dict[str, Any]:
@@ -487,3 +487,33 @@ class CommonQueryParams:
         self.limit = min(limit, 1000)  # Cap at 1000
         self.sort_by = sort_by
         self.order = order
+
+
+def sanitize_error_message(msg: Any) -> str:
+    """Sanitize error messages to prevent leaking internal VPS paths."""
+    if not msg:
+        return "An error occurred"
+    text = str(msg)
+    for pattern in (
+        r"/workspaces/[^\s\"'>]+",
+        r"/home/[^\s\"'>]+",
+        r"/opt/[^\s\"'>]+",
+        r"/tmp/[^\s\"'>]+",
+        r"/var/[^\s\"'>]+",
+        r"/etc/[^\s\"'>]+",
+    ):
+        text = re.sub(pattern, lambda m: Path(m.group(0)).name, text)
+    return text
+
+
+def get_database_manager():
+    """Get DatabaseManager instance for authoritative SQLite operations."""
+    from core.scheduler.database_manager import DatabaseManager
+    return DatabaseManager()
+
+
+def get_workspace_storage_manager():
+    """Get WorkspaceStorageManager instance for filesystem hierarchy operations."""
+    from core.utils.file_utils import get_workspace_storage_manager as _get_wsm
+    return _get_wsm()
+

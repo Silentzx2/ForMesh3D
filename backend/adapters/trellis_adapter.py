@@ -71,6 +71,8 @@ class _TrellisBaseAdapter(BaseModel):
         self.version = "1.0"
         self.experimental = False
         self._pipeline: Any = None
+        self._paint_pipeline: Any = None
+        self._paint_app_rep: Any = None
 
     def _load_model(self) -> Any:
         # Make the vendored TRELLIS source importable in the worker subprocess,
@@ -88,6 +90,12 @@ class _TrellisBaseAdapter(BaseModel):
             major, _ = torch.cuda.get_device_capability(self.gpu_id)
             if major < 8:
                 os.environ.setdefault('SPARSE_ATTN_BACKEND', 'sdpa')
+
+        try:
+            import utils3d
+            import utils3d.torch
+        except Exception:
+            pass
 
         from trellis.pipelines.trellis_image_to_3d import TrellisImageTo3DPipeline
 
@@ -138,10 +146,27 @@ class _TrellisBaseAdapter(BaseModel):
         pipeline.to(device)
         self._pipeline = pipeline
         self.model = pipeline
+
+        # TRELLIS has no separate paint weights: texture is baked from the
+        # appearance representation with trellis.utils.postprocessing_utils.to_glb.
+        # Load the capability here so _process_request only runs the bake.
+        try:
+            from trellis.utils.postprocessing_utils import to_glb
+
+            self._paint_pipeline = to_glb
+            logger.info("TRELLIS paint/texture capability loaded (to_glb)")
+        except Exception as paint_err:
+            logger.warning(
+                "TRELLIS paint/texture capability not loaded (texture disabled): %s",
+                paint_err,
+            )
+            self._paint_pipeline = None
         return pipeline
 
     def _unload_model(self) -> None:
         self._pipeline = None
+        self._paint_pipeline = None
+        self._paint_app_rep = None
         self.model = None
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
@@ -161,9 +186,22 @@ class _TrellisBaseAdapter(BaseModel):
 
         image = Image.open(image_path)
 
+        # Native polycount target: passed through from the generation request.
+        native_target_polycount = int(
+            inputs.get("native_target_polycount")
+            or inputs.get("target_polycount")
+            or 0
+        )
+        texture_resolution = int(inputs.get("texture_resolution", 1024) or 1024)
+        texture_resolution = max(512, min(2048, texture_resolution))
+        remesh_option = str(inputs.get("remesh_option", "none") or "none").strip().lower()
+
+        want_texture = bool(inputs.get("texture_enabled")) and self._paint_pipeline is not None
+        formats = ["mesh", "gaussian"] if want_texture else ["mesh"]
+
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
-            result = pipeline.run(image, seed=seed, formats=["mesh"])
+            result = pipeline.run(image, seed=seed, formats=formats)
 
         mesh = result.get("mesh") if isinstance(result, dict) else None
         if mesh is None:
@@ -173,6 +211,14 @@ class _TrellisBaseAdapter(BaseModel):
             if mesh is None:
                 return {"success": False, "error": "TRELLIS produced no mesh"}
 
+        # Keep the appearance representation (gaussian) so the texture bake can
+        # reuse it after the raw mesh is exported.
+        app_rep = result.get("gaussian") if isinstance(result, dict) else None
+        if isinstance(app_rep, list):
+            app_rep = app_rep[0] if app_rep else None
+        self._paint_app_rep = app_rep
+
+        import numpy as np
         import trimesh
         import tempfile
 
@@ -183,17 +229,119 @@ class _TrellisBaseAdapter(BaseModel):
             faces=mesh.faces.cpu().numpy(),
             process=False,
         )
+
+        # Reorient TRELLIS output to a canonical upright pose.
+        # TRELLIS sparse-structure decoder emits vertices in its own frame;
+        # align the principal (tallest) axis with world Y-up and centre at origin.
+        verts = np.asarray(tmesh.vertices, dtype=float)
+        centroid = verts.mean(axis=0)
+        centred = verts - centroid
+        cov = centred.T @ centred / max(len(centred), 1)
+        evals, evecs = np.linalg.eigh(cov)
+        principal = evecs[:, int(np.argmax(evals))]
+        up = np.array([0.0, 1.0, 0.0])
+        if float(principal @ up) < 0:
+            principal = -principal
+        v = np.cross(principal, up)
+        c = float(principal @ up)
+        if float(v @ v) > 1e-12:
+            vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+            rot = np.eye(3) + vx + vx @ vx * ((1.0 - c) / float(v @ v))
+            tmesh.vertices = centred @ rot.T
+
         tmesh.export(str(out))
+
+        # Texture pipeline: bake a PBR texture from the appearance
+        # representation onto the raw mesh using the already-loaded to_glb
+        # (same capability as upstream postprocessing_utils.to_glb(app_rep, mesh, ...)).
+        # Guarded so failures fall back to the raw mesh instead of failing the request.
+        texture_enabled = bool(inputs.get("texture_enabled"))
+        texture_image_path = inputs.get("image_path") or inputs.get("image")
+        if (
+            texture_enabled
+            and texture_image_path
+            and Path(texture_image_path).is_file()
+            and self._paint_pipeline is not None
+            and self._paint_app_rep is not None
+        ):
+            try:
+                try:
+                    import utils3d
+                    import utils3d.torch
+                    # Compatibility shim: utils3d >= 0.3.0 replaced perspective_from_fov_xy with perspective_from_fov
+                    if not hasattr(utils3d.torch, "perspective_from_fov_xy"):
+                        if hasattr(utils3d.torch, "perspective_from_fov"):
+                            utils3d.torch.perspective_from_fov_xy = (
+                                lambda fov_x, fov_y, near, far: utils3d.torch.perspective_from_fov(
+                                    fov_x=fov_x, fov_y=fov_y, near=near, far=far
+                                )
+                            )
+                        elif hasattr(utils3d, "perspective_from_fov"):
+                            utils3d.torch.perspective_from_fov_xy = (
+                                lambda fov_x, fov_y, near, far: utils3d.perspective_from_fov(
+                                    fov_x=fov_x, fov_y=fov_y, near=near, far=far
+                                )
+                            )
+                except Exception:
+                    # utils3d not installed — texture generation unavailable;
+                    # fall back to raw mesh instead of crashing.
+                    logger.warning(
+                        "TRELLIS texture generation skipped: utils3d not installed; "
+                        "returning raw mesh"
+                    )
+                    return {
+                        "success": True,
+                        "output_mesh_path": str(out),
+                        "mesh_path": str(out),
+                        "textured_mesh_path": None,
+                        "texture_enabled": False,
+                        "actual_face_count": len(tmesh.faces),
+                        "actual_vertex_count": len(tmesh.vertices),
+                        "generation_info": {
+                            "seed": seed,
+                            "texture_resolution": texture_resolution,
+                            "remesh_option": remesh_option,
+                            "native_target_polycount": native_target_polycount or None,
+                        },
+                    }
+                textured = self._paint_pipeline(
+                    self._paint_app_rep, mesh, texture_size=texture_resolution
+                )
+                textured_out = Path(tempfile.mkdtemp()) / f"trellis_textured_{seed}.glb"
+                if hasattr(textured, "export"):
+                    textured.export(str(textured_out))
+                    return {
+                        "success": True,
+                        "output_mesh_path": str(out),
+                        "mesh_path": str(out),
+                        "textured_mesh_path": str(textured_out),
+                        "texture_enabled": True,
+                        "actual_face_count": len(tmesh.faces),
+                        "actual_vertex_count": len(tmesh.vertices),
+                        "generation_info": {
+                            "seed": seed,
+                            "texture_resolution": texture_resolution,
+                            "remesh_option": remesh_option,
+                            "native_target_polycount": native_target_polycount or None,
+                        },
+                    }
+                logger.warning(
+                    "TRELLIS paint pipeline returned non-exportable object; returning raw mesh only"
+                )
+            except Exception as tex_err:
+                logger.warning("TRELLIS texture generation failed: %s", tex_err, exc_info=True)
 
         return {
             "success": True,
             "output_mesh_path": str(out),
             "mesh_path": str(out),
+            "actual_face_count": len(tmesh.faces),
+            "actual_vertex_count": len(tmesh.vertices),
             "generation_info": {
                 "seed": seed,
-                "num_inference_steps": "adapter_owned",
-                "guidance_scale": "adapter_owned",
-                "octree_resolution": "adapter_owned",
+                "texture_resolution": texture_resolution,
+                "remesh_option": remesh_option,
+                "native_target_polycount": native_target_polycount or None,
             },
         }
 

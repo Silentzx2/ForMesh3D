@@ -221,6 +221,14 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
         seed = int(inputs.get("seed", DEFAULT_SEED))
         resolution = int(inputs.get("resolution", 1024))
 
+        # Native polycount target: passed through from the generation request.
+        # Pixal3D does not expose a direct face-count parameter in its upstream
+        # pipeline, so the value is logged and preserved in generation_info
+        # without downstream decimation.
+        native_target_polycount = int(inputs.get("native_target_polycount", 0) or 0)
+        if native_target_polycount:
+            logger.info("Pixal3D received native_target_polycount=%d (upstream pipeline has no direct face-count control; preserved native output)", native_target_polycount)
+
         from PIL import Image
 
         image = Image.open(image_path).convert("RGB")
@@ -263,6 +271,7 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
                 "seed": seed,
                 "resolution": resolution,
                 "camera_angle_x": camera_angle_x,
+                "native_target_polycount": native_target_polycount or None,
             },
         }
 

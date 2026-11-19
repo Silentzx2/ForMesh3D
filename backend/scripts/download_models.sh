@@ -5,7 +5,7 @@
 # 
 # Available models:
 #   hunyuan2mini, hunyuan21, trellis, trellis-text, trellis2,
-#   skintokens, partuv, fastmesh, triposg, ardy, unique3d, paint3d, pixal3d, taoflowforge, misc, all
+#   skintokens, partuv, fastmesh, triposg, ardy, unique3d, pixal3d, taoflowforge, misc, all
 #
 # Options:
 #   -h, --help              Show this help message
@@ -103,8 +103,8 @@ hf_download() {
         fi
     fi
 
-    # 3. Tertiary: Fallback to legacy huggingface-cli
-    if command -v huggingface-cli >/dev/null 2>&1; then
+    # 3. Tertiary: Fallback to legacy huggingface-cli only if hf CLI is absent
+    if ! command -v hf >/dev/null 2>&1 && command -v huggingface-cli >/dev/null 2>&1; then
         if huggingface-cli download "${HF_EXTRA_ARGS[@]}" "$@"; then
             return 0
         fi
@@ -119,7 +119,7 @@ VERIFY_ONLY=false
 FORCE_DOWNLOAD=false
 
 # Available models
-AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "partuv" "fastmesh" "triposg" "ardy" "unique3d" "paint3d" "pixal3d" "taoflowforge" "misc" "all")
+AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "stable_fast_3d" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "triposg" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
 
 show_help() {
     cat << EOF
@@ -143,13 +143,14 @@ Available models:
     trellis            - TRELLIS image-large model
     trellis-text       - TRELLIS text-xlarge model (optional)
     trellis2           - TRELLIS.2-4B model (image-based only)
-    skintokens         - SkinTokens model for unified auto-rigging
+    skintokens         - SkinTokens model for unified auto-rigging (alias: unirig)
     partuv             - PartUV model
     fastmesh           - FastMesh model
     triposg            - TripoSG and RMBG models
     ardy               - ARDY motion generation models
     unique3d           - Unique3D high-fidelity single-image to 3D model
-    paint3d            - Paint3D 1K/2K UV texture diffusion model
+    hunyuan3d_v20_paint       - Hunyuan3D-2 (v2.0) Paint model (texture weights only)
+    stable_fast_3d            - Stable Fast 3D — single image to textured mesh (~0.5s, ~6GB VRAM, HF-gated weights)
     pixal3d            - Pixal3D pixel-aligned image to 3D generation model
     taoflowforge       - TaoFlowForge progressive native mesh generation model (Alibaba)
     misc               - Miscellaneous utility models (RealESRGAN, DINOv2)
@@ -431,7 +432,84 @@ download_hunyuan3d_paint_v21() {
     if [ ! -f "$thirdparty_realesrgan_path" ] || [ "$FORCE_DOWNLOAD" = true ]; then
         cp "$realesrgan_path" "$thirdparty_realesrgan_path"
     fi
-    print_success "Hunyuan3D-Paint-v2-1 models and RealESRGAN dependency are ready"
+}
+
+# Function to download Hunyuan3D 2.0 Paint models (texture-only, no mesh weights)
+download_hunyuan3d_v20_paint() {
+    print_info "=========================================="
+    print_info "Downloading Hunyuan3D-2 (v2.0) Paint Models"
+    print_info "=========================================="
+
+    # Paint uses the same Hunyuan3D-2 root checkpoint as shape.
+    local model_dir="$PRETRAINED_DIR/tencent/Hunyuan3D-2"
+
+    if [ "$FORCE_DOWNLOAD" = false ] && \
+       verify_directory "$model_dir/hunyuan3d-paint-v2-0" 3 && \
+       verify_directory "$model_dir/hunyuan3d-delight-v2-0" 3; then
+        print_info "Hunyuan3D-2 (v2.0) Paint models already exist and verified"
+    else
+        mkdir -p "$model_dir" 2>/dev/null || true
+        ensure_writable_model_dir "$model_dir" || return 1
+        print_info "Downloading Hunyuan3D-2 (v2.0) paint models (texture + delight weights)..."
+        if hf_download tencent/Hunyuan3D-2 \
+            --include "hunyuan3d-paint-v2-0/*" \
+            --include "hunyuan3d-delight-v2-0/*" \
+            --local-dir "$model_dir"; then
+            print_success "Hunyuan3D-2 (v2.0) Paint models downloaded successfully"
+        else
+            print_error "Failed to download Hunyuan3D-2 (v2.0) Paint models"
+            return 1
+        fi
+    fi
+
+    # Verify the paint texture and delight files actually landed.
+    if ! verify_directory "$model_dir/hunyuan3d-paint-v2-0" 3 || ! verify_directory "$model_dir/hunyuan3d-delight-v2-0" 3; then
+        print_error "Hunyuan3D-2 (v2.0) Paint download did not produce expected texture/delight files"
+        return 1
+    fi
+
+    # RealESRGAN dependency for paint pipeline
+    local realesrgan_path="$PRETRAINED_DIR/misc/RealESRGAN_x4plus.pth"
+    if [ "$FORCE_DOWNLOAD" = false ] && verify_file "$realesrgan_path" 50000000; then
+        print_info "RealESRGAN_x4plus already exists and verified"
+    else
+        print_info "Downloading RealESRGAN_x4plus.pth..."
+        mkdir -p "$PRETRAINED_DIR/misc"
+        download_with_verify \
+            "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth" \
+            "$realesrgan_path" \
+            "RealESRGAN_x4plus model"
+    fi
+
+    print_success "Hunyuan3D-2 (v2.0) Paint models and RealESRGAN dependency are ready"
+}
+
+# Function to download Stable Fast 3D (single image → textured mesh, HF-gated)
+download_stable_fast_3d() {
+    print_info "=========================================="
+    print_info "Downloading Stable Fast 3D (SF3D)"
+    print_info "=========================================="
+
+    local model_dir="$PRETRAINED_DIR/stable-fast-3d"
+
+    if [ "$FORCE_DOWNLOAD" = false ] && verify_directory "$model_dir" 2; then
+        print_info "Stable Fast 3D already exists and verified"
+        return 0
+    fi
+
+    mkdir -p "$model_dir" 2>/dev/null || true
+    ensure_writable_model_dir "$model_dir" || return 1
+
+    print_info "Downloading Stable Fast 3D weights from stabilityai/stable-fast-3d (HF)..."
+    if hf_download stabilityai/stable-fast-3d --local-dir "$model_dir"; then
+        print_success "Stable Fast 3D downloaded successfully"
+    else
+        print_error "Failed to download Stable Fast 3D"
+        print_warning "stabilityai/stable-fast-3d is gated on Hugging Face — run 'hf auth login' with an accepted license first."
+        return 1
+    fi
+
+    print_success "Stable Fast 3D is ready"
 }
 
 # Function to download Hunyuan3D-DiT-v2-mini-Turbo models
@@ -539,8 +617,16 @@ download_skintokens() {
     ensure_writable_model_dir "$model_dir" || return 1
     print_info "Downloading SkinTokens checkpoints from VAST-AI/SkinTokens..."
     if hf_download VAST-AI/SkinTokens --local-dir "$model_dir"; then
-        print_info "Downloading Qwen3-0.6B LLM config for TokenRig..."
-        hf_download Qwen/Qwen3-0.6B --local-dir "$model_dir/models/Qwen3-0.6B" --exclude "*.bin" "*.safetensors" || true
+        print_info "Downloading Qwen3-0.6B LLM weights for TokenRig..."
+        local qwen_dir="$model_dir/models/Qwen3-0.6B"
+        mkdir -p "$qwen_dir" 2>/dev/null || true
+        hf_download Qwen/Qwen3-0.6B --local-dir "$qwen_dir"
+        if [ -d "$THIRDPARTY_DIR/SkinTokens" ]; then
+            mkdir -p "$THIRDPARTY_DIR/SkinTokens/models" 2>/dev/null || true
+            if [ ! -e "$THIRDPARTY_DIR/SkinTokens/models/Qwen3-0.6B" ]; then
+                ln -sf "$qwen_dir" "$THIRDPARTY_DIR/SkinTokens/models/Qwen3-0.6B" 2>/dev/null || true
+            fi
+        fi
         print_success "SkinTokens model downloaded successfully"
     else
         print_error "Failed to download SkinTokens model"
@@ -827,62 +913,7 @@ download_pixal3d() {
     print_success "Pixal3D model downloaded and verified successfully"
 }
 
-# Function to download Paint3D models
-download_paint3d() {
-    print_info "========================================"
-    print_info "Downloading Paint3D Models"
-    print_info "========================================"
-
-    local model_dir="$PRETRAINED_DIR/Paint3D"
-    local uv_control_dir="$model_dir/UVPos_Control"
-
-    if [ "$FORCE_DOWNLOAD" = false ] && \
-       verify_file "$uv_control_dir/diffusion_pytorch_model.bin" 100000000 && \
-       verify_file "$uv_control_dir/config.json"; then
-        print_info "Paint3D UV position ControlNet checkpoint already exists and verified"
-        return 0
-    fi
-
-    mkdir -p "$uv_control_dir"
-    print_info "Downloading Paint3D checkpoints from Hugging Face..."
-
-    local download_success=false
-    # First attempt: official GeorgeQi/Paint3d_UVPos_Control checkpoint
-    if hf_download GeorgeQi/Paint3d_UVPos_Control --local-dir "$uv_control_dir"; then
-        download_success=true
-        print_success "Paint3D UV Position ControlNet checkpoint downloaded"
-    fi
-
-    # Fallback or additional files from OpenTexture/Paint3D if available
-    if [ "$download_success" = false ]; then
-        print_info "Trying OpenTexture/Paint3D repository..."
-        if hf_download OpenTexture/Paint3D --local-dir "$model_dir"; then
-            download_success=true
-            if [ -f "$model_dir/diffusion_pytorch_model.bin" ]; then
-                cp -f "$model_dir/diffusion_pytorch_model.bin" "$uv_control_dir/"
-                [ -f "$model_dir/config.json" ] && cp -f "$model_dir/config.json" "$uv_control_dir/"
-            fi
-            print_success "Paint3D downloaded from OpenTexture/Paint3D"
-        fi
-    fi
-
-    # Verification logic checking mandatory files exist
-    if verify_file "$uv_control_dir/diffusion_pytorch_model.bin" 100000000 && \
-       verify_file "$uv_control_dir/config.json"; then
-        print_success "Paint3D mandatory checkpoint files verified"
-        return 0
-    elif [ -f "$model_dir/diffusion_pytorch_model.bin" ]; then
-        cp -f "$model_dir/diffusion_pytorch_model.bin" "$uv_control_dir/"
-        [ -f "$model_dir/config.json" ] && cp -f "$model_dir/config.json" "$uv_control_dir/"
-        print_success "Paint3D checkpoint files verified"
-        return 0
-    else
-        print_error "Paint3D mandatory checkpoint verification failed: required model files not found"
-        return 1
-    fi
-}
-
-# Function to download TaoFlowForge models
+# Function to download Pixal3D models
 download_taoflowforge() {
     print_info "========================================"
     print_info "Downloading TaoFlowForge Models"
@@ -1084,6 +1115,10 @@ verify_all_models() {
     print_info "Checking Hunyuan3D-Paint-v2-1..."
     verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2.1" 5 || all_verified=false
     
+    print_info "Checking Hunyuan3D-Paint-v2-0..."
+    verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2/hunyuan3d-paint-v2-0" 3 || all_verified=false
+    verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2/hunyuan3d-delight-v2-0" 3 || all_verified=false
+    
     print_info "Checking Hunyuan3D-DiT-v2-mini-Turbo..."
     verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2mini/hunyuan3d-dit-v2-mini-turbo" 3 || all_verified=false
     
@@ -1128,13 +1163,6 @@ verify_all_models() {
     # Also verify the thirdparty copy expected by the Paint adapter.
     verify_file "$PROJECT_ROOT/backend/thirdparty/hunyuan3d-paint-v2-1/hy3dpaint/ckpt/RealESRGAN_x4plus.pth" 50000000 || all_verified=false
 
-    print_info "Checking Paint3D..."
-    if [ -d "$PRETRAINED_DIR/Paint3D" ]; then
-        verify_directory "$PRETRAINED_DIR/Paint3D" 1 || all_verified=false
-    else
-        print_warning "Paint3D not found (can be downloaded via -m paint3d)"
-    fi
-
     print_info "Checking Pixal3D..."
     if [ -d "$PRETRAINED_DIR/Pixal3D" ]; then
         pixal3d_checkpoint_complete "$PRETRAINED_DIR/Pixal3D" || all_verified=false
@@ -1160,6 +1188,12 @@ verify_all_models() {
         print_warning "Some models are missing or corrupted. Run without -v flag to download them."
     fi
 }
+
+# ── Logging: tee all download activity to a log file ────────────────
+LOG_DIR="$PROJECT_ROOT/logs"
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+LOG_FILE="$LOG_DIR/model_download.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
 
 # Main execution
 print_info "========================================"
@@ -1201,6 +1235,12 @@ for model in "${MODELS_ARRAY[@]}"; do
         "hunyuan3d_paint_v21")
             download_hunyuan3d_paint_v21
             ;;
+        "hunyuan3d_v20_paint")
+            download_hunyuan3d_v20_paint
+            ;;
+        "stable_fast_3d")
+            download_stable_fast_3d
+            ;;
         "hunyuan3d_dit_v2_mini_turbo")
             download_hunyuan3d_dit_v2_mini_turbo
             ;;
@@ -1216,14 +1256,14 @@ for model in "${MODELS_ARRAY[@]}"; do
         "trellis2")
             download_trellis2
             ;;
-        "skintokens")
+        "skintokens"|"unirig")
             download_skintokens
             ;;
         "partuv")
             download_partuv
             ;;
         "fastmesh")
-            download_fastmesh
+            print_warning "FastMesh removed from main repo (thirdparty/FastMesh deleted). Skipping."
             ;;
         "triposg")
             download_triposg
@@ -1233,9 +1273,6 @@ for model in "${MODELS_ARRAY[@]}"; do
             ;;
         "unique3d")
             download_unique3d
-            ;;
-        "paint3d")
-            download_paint3d
             ;;
         "pixal3d")
             download_pixal3d
@@ -1249,6 +1286,8 @@ for model in "${MODELS_ARRAY[@]}"; do
         "all")
             download_hunyuan21
             download_hunyuan3d_paint_v21
+            download_hunyuan3d_v20_paint
+            download_stable_fast_3d
             download_hunyuan2mini
             download_trellis
             download_trellis_text
@@ -1259,7 +1298,6 @@ for model in "${MODELS_ARRAY[@]}"; do
             download_triposg
             download_ardy
             download_unique3d
-            download_paint3d
             download_pixal3d
             download_misc
             ;;

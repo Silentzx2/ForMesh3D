@@ -23,10 +23,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import shutil
 import sys
 import tempfile
-import uuid
 from pathlib import Path
 from typing import Any, Dict
 
@@ -37,7 +35,6 @@ except ImportError:  # pragma: no cover - torch optional in CPU-only environment
 
 from backend.core.models.base import BaseModel, ModelStatus
 from backend.loader import get_model_weights_dir
-from backend.core.utils.file_utils import get_storage_base_dir
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +111,15 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
         seed = int(inputs.get("seed", DEFAULT_SEED))
         steps = int(inputs.get("num_inference_steps", 50))
         guidance = float(inputs.get("guidance_scale", 7.0))
+        native_target_polycount = int(
+            inputs.get("native_target_polycount")
+            or inputs.get("target_polycount")
+            or 0
+        )
         faces = int(inputs.get("faces", -1))
+        # native_target_polycount is read for honest requested-vs-actual reporting only.
+        # It is NOT applied as a count-forcing post-process (Part I §7, Batch 2.2/2.5).
+        remesh_option = str(inputs.get("remesh_option", "none") or "none").strip().lower()
 
         from scripts.inference_triposg import run_triposg
 
@@ -141,39 +146,26 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
         if mesh is None:
             return {"success": False, "error": "TripoSG produced no mesh"}
 
-        import tempfile
-
         if not isinstance(mesh, trimesh.Trimesh):
             mesh = trimesh.Trimesh(vertices=mesh.vertices, faces=mesh.faces, process=False)
-        out = Path(tempfile.mkdtemp()) / f"triposg_{seed}.glb"
-        mesh.export(str(out))
 
-        # Copy to canonical storage so artifact downloads resolve.
-        # Temp dirs are cleaned when the job ends, so the mesh must live
-        # under the shared storage root for the download endpoint to find it.
-        try:
-            storage_root = get_storage_base_dir()
-            canonical_dir = storage_root / "models" / "meshes" / "triposg_output"
-            canonical_dir.mkdir(parents=True, exist_ok=True)
-            canonical_path = canonical_dir / f"{uuid.uuid4().hex}_{out.name}"
-            if not canonical_path.exists():
-                shutil.copy2(str(out), str(canonical_path))
-            out = canonical_path
-        except Exception as copy_err:
-            logger.warning(
-                "TripoSG canonical storage copy failed (%s); using temp path",
-                copy_err,
-            )
+        temp_dir = Path(tempfile.mkdtemp(prefix="triposg_"))
+        out = temp_dir / f"triposg_{seed}.glb"
+        mesh.export(str(out))
 
         return {
             "success": True,
             "output_mesh_path": str(out.resolve()),
             "mesh_path": str(out.resolve()),
+            "actual_face_count": len(mesh.faces),
+            "actual_vertex_count": len(mesh.vertices),
             "generation_info": {
                 "seed": seed,
                 "num_inference_steps": steps,
                 "guidance_scale": guidance,
                 "faces": faces,
+                "remesh_option": remesh_option,
+                "native_target_polycount": native_target_polycount or None,
             },
         }
 

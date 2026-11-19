@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { GenerationConfig, GenerationJob, GenerationMode, QualityPreset, ViewerState, ViewerMode, LogEntry, RecentPrompt, UploadedImage, InstallProgress, AdminJob, ProjectAsset, ProjectLayer, BatchQueueItem, GenerationResult } from '@/types';
-import type { GenerationSettings } from '@/features/workspace/types';
+import type { GenerationSettings, WorkspaceExecutionState, WorkspacePersistenceState } from '@/features/workspace/types';
 import { getApiClient } from '@/services/apiClient';
 
 export interface AppState {
@@ -25,6 +25,14 @@ export interface AppState {
   retryCount: number;
   generationSettings: GenerationSettings;
   loadHistory: () => Promise<void>;
+
+  // ── Workspace & Execution State ──
+  executionState: WorkspaceExecutionState;
+  persistenceState: WorkspacePersistenceState;
+  activeWorkspaceId: string | null;
+  setExecutionState: (state: WorkspaceExecutionState) => void;
+  setPersistenceState: (state: WorkspacePersistenceState) => void;
+  setActiveWorkspaceId: (workspaceId: string | null) => void;
 
   // ── References ──
   hdMode: 'hd' | 'smart';
@@ -227,7 +235,6 @@ const DEFAULT_STATE: AppStateData = {
     imageName: '',
     negativePrompt: '',
     paintResolution: 512,
-    intent: undefined,
     preprocessingArtifactId: null,
     preprocessingPreviewUrl: null,
     preprocessingMetadata: null,
@@ -238,6 +245,10 @@ const DEFAULT_STATE: AppStateData = {
     autoRigMode: 'full',
     candidateCount: 1,
   },
+
+  executionState: 'idle',
+  persistenceState: 'not_saved',
+  activeWorkspaceId: null,
 
   hdMode: 'hd',
   referenceModel: null,
@@ -364,6 +375,10 @@ export const useAppStore = create<AppState>()(
           currentJob: null,
         }),
 
+      setExecutionState: (executionState) => set({ executionState }),
+      setPersistenceState: (persistenceState) => set({ persistenceState }),
+      setActiveWorkspaceId: (activeWorkspaceId) => set({ activeWorkspaceId }),
+
       setHDMode: (hdMode) => set({ hdMode }),
       setReferenceModel: (referenceModel) => set({ referenceModel }),
 
@@ -380,7 +395,6 @@ export const useAppStore = create<AppState>()(
                preprocessingArtifactId: s.generationSettings.preprocessingArtifactId,
                preprocessingMetadata: s.generationSettings.preprocessingMetadata,
                aiModel: s.generationSettings.aiModel,
-               intent: s.generationSettings.intent,
                status: 'queued',
                progress: 0,
                jobId: undefined,
@@ -481,7 +495,11 @@ export const useAppStore = create<AppState>()(
         set((s) => {
           const cleaned: AppState['tasks'] = {};
           for (const [id, task] of Object.entries(s.tasks)) {
-            if (task.status !== 'completed' && task.status !== 'cancelled') {
+            if (
+              task.status !== 'completed' &&
+              task.status !== 'failed' &&
+              task.status !== 'cancelled'
+            ) {
               cleaned[id] = task;
             }
           }

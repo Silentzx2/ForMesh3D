@@ -8,18 +8,22 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from api.dependencies import get_file_store, get_scheduler
+from api.dependencies import get_file_store, get_scheduler, sanitize_error_message
 from api.routers.file_upload import resolve_file_id_async, resolve_input_reference_async
 from core.file_store import FileStore
+from core.scheduler.database_manager import DatabaseManager
+from core.scheduler.database_models import generate_operation_id
+from api.routers.script_execution import execute_script_operation
 from core.scheduler.job_queue import JobRequest
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
+from core.utils.file_utils import get_storage_base_dir, get_workspace_storage_manager
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/mesh-retopology", tags=["mesh_retopology"])
+router = APIRouter(prefix="/retopo", tags=["retopology"])
 
 
 def validate_model_preference(
@@ -97,15 +101,30 @@ class MeshRetopologyRequest(BaseModel):
             raise ValueError(f"Polygon type must be one of: {allowed_poly_types}")
         return v
 
+    workspace_id: Optional[str] = Field(None, description="Target workspace ID")
+    engine: str = Field("ai", description="Execution engine: ai or script")
+    parent_operation_id: Optional[str] = Field(None, description="Parent operation for retry/regeneration")
+    preserve_features: bool = True
+    feature_angle: float = Field(45.0, ge=0.0, le=180.0)
+    adaptive: bool = True
+    watertight: bool = False
+
     @model_validator(mode="after")
     def validate_inputs(self):
         inputs_provided = sum(bool(x) for x in [self.mesh_path, self.mesh_file_id])
 
-        if inputs_provided == 0:
-            raise ValueError("One of mesh_path or mesh_file_id must be provided")
+        if inputs_provided == 0 and not getattr(self, "workspace_id", None):
+            raise ValueError("One of mesh_path, mesh_file_id, or workspace_id must be provided")
         if inputs_provided > 1:
             raise ValueError("Only one of mesh_path or mesh_file_id should be provided")
         return self
+
+    @field_validator("engine")
+    @classmethod
+    def validate_engine(cls, value):
+        if value not in {"ai", "script"}:
+            raise ValueError("engine must be ai or script")
+        return value
 
     model_config = ConfigDict(protected_namespaces=("settings_",))
 
@@ -117,12 +136,20 @@ class MeshRetopologyResponse(BaseModel):
     job_id: str = Field(..., description="Unique job identifier")
     status: str = Field(..., description="Job status")
     message: str = Field(..., description="Status message")
+    workspace_id: Optional[str] = Field(None, description="Workspace ID")
+    operation_id: Optional[str] = Field(None, description="Operation ID")
+    preview_url: Optional[str] = None
+    model_url: Optional[str] = None
+    asset_id: Optional[str] = None
+    format: Optional[str] = None
+    stats: Optional[dict] = None
 
 
-@router.post("/retopologize-mesh", response_model=MeshRetopologyResponse)
+@router.post("", response_model=MeshRetopologyResponse)
 async def retopologize_mesh(
     request: MeshRetopologyRequest,
-    scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
+    http_request: Request,
+    background_tasks: BackgroundTasks,
     file_store: Optional[FileStore] = Depends(get_file_store),
 ):
     """
@@ -139,10 +166,20 @@ async def retopologize_mesh(
         Job information for the retopology task
     """
     try:
-        # Validate model preference
-        validate_model_preference(
-            request.model_preference, "mesh_retopology", scheduler
-        )
+        db = DatabaseManager()
+        ws_storage = get_workspace_storage_manager()
+
+        target_ws_id = getattr(request, "workspace_id", None)
+        input_asset = None
+        if request.mesh_file_id:
+            input_asset = db.get_asset(request.mesh_file_id)
+            if input_asset:
+                if not target_ws_id:
+                    target_ws_id = input_asset.workspace_id
+                if input_asset.file_type != "mesh":
+                    raise HTTPException(
+                        status_code=400, detail="Prerequisite failed: Input asset must be a mesh file"
+                    )
 
         # Process mesh input
         mesh_file_path = None
@@ -154,7 +191,7 @@ async def retopologize_mesh(
                 raise HTTPException(
                     status_code=404, detail="Mesh file not found or expired"
                 )
-        else:
+        elif request.mesh_path:
             # mesh_path may be a download URL or bare /{file_id} path from an upstream job
             mesh_file_path = await resolve_input_reference_async(
                 request.mesh_path, file_store
@@ -173,7 +210,18 @@ async def retopologize_mesh(
                     detail="Mesh file not found on the server. Re-import or regenerate the model, then retry.",
                 )
 
-        # Validate mesh file exists
+        if target_ws_id and not mesh_file_path:
+            ws = db.get_workspace(target_ws_id)
+            if ws and ws.active_mesh_asset_id:
+                active_asset = db.get_asset(ws.active_mesh_asset_id)
+                if active_asset:
+                    input_asset = active_asset
+                    storage_base = get_storage_base_dir().resolve()
+                    cand_path = (storage_base / ws.workspace_id / active_asset.relative_path).resolve()
+                    if cand_path.is_file() and cand_path.is_relative_to(storage_base):
+                        mesh_file_path = str(cand_path)
+
+        # Validate tool prerequisites
         if not mesh_file_path:
             raise HTTPException(
                 status_code=400, detail="Mesh path or file ID must be provided"
@@ -181,8 +229,62 @@ async def retopologize_mesh(
 
         if not Path(mesh_file_path).exists():
             raise HTTPException(
-                status_code=404, detail=f"Mesh file not found: {mesh_file_path}"
+                status_code=404, detail="Mesh file not found"
             )
+
+        ext = Path(mesh_file_path).suffix.lower()
+        if ext not in {".glb", ".gltf", ".obj", ".ply", ".stl"}:
+            raise HTTPException(
+                status_code=400, detail=f"Prerequisite failed: Unsupported mesh format {ext}"
+            )
+
+        if request.engine == "script":
+            from pipelines.retopo import execute_retopo
+            result = await execute_script_operation(
+                db=db, storage=ws_storage, background_tasks=background_tasks, workspace_id=target_ws_id,
+                input_asset_id=input_asset.asset_id if input_asset else None,
+                operation_type="retopology", input_path=mesh_file_path,
+                settings={
+                    "target_polycount": request.target_polycount, "poly_type": request.poly_type,
+                    "preserve_features": request.preserve_features, "feature_angle": request.feature_angle,
+                    "adaptive": request.adaptive, "watertight": request.watertight,
+                    "output_format": request.output_format,
+                },
+                pipeline=execute_retopo,
+                options={
+                    "target_faces": request.target_polycount or 50000,
+                    "quads": request.poly_type == "quad",
+                    "preserve_features": request.preserve_features,
+                    "feature_angle": request.feature_angle,
+                    "adaptive": request.adaptive,
+                    "watertight": request.watertight,
+                    "output_format": request.output_format,
+                },
+                output_format=request.output_format,
+                parent_operation_id=request.parent_operation_id,
+            )
+            return MeshRetopologyResponse(**result)
+
+        scheduler = await get_scheduler(http_request)
+        validate_model_preference(request.model_preference, "mesh_retopology", scheduler)
+
+        operation_id = None
+        if target_ws_id:
+            operation_id = generate_operation_id()
+            op_row, is_new = db.enqueue_operation(
+                operation_id=operation_id,
+                workspace_id=target_ws_id,
+                operation_type="retopology",
+                input_asset_id=input_asset.asset_id if input_asset else None,
+                parent_operation_id=request.parent_operation_id,
+                settings={
+                    "target_polycount": request.target_polycount,
+                    "poly_type": request.poly_type,
+                    "output_format": request.output_format,
+                    **(request.model_parameters or {}),
+                },
+            )
+            operation_id = op_row.operation_id
 
         # Create job request
         user_id = None
@@ -194,11 +296,18 @@ async def retopologize_mesh(
                 "poly_type": request.poly_type,
                 "output_format": request.output_format,
                 "seed": request.seed,
+                "workspace_id": target_ws_id,
+                "operation_id": operation_id,
+                "parent_operation_id": request.parent_operation_id,
                 **(request.model_parameters or {}),
             },
             model_preference=request.model_preference,
             priority=1,
-            metadata={"postprocess_mode": "manual_mesh_tool", "feature_type": "mesh_retopology"},
+            metadata={
+                "feature_type": "mesh_retopology",
+                "workspace_id": target_ws_id,
+                "operation_id": operation_id,
+            },
             user_id=user_id,
         )
 
@@ -208,6 +317,8 @@ async def retopologize_mesh(
             job_id=job_id,
             status="queued",
             message="Mesh retopology job queued successfully",
+            workspace_id=target_ws_id,
+            operation_id=operation_id,
         )
 
     except HTTPException:
@@ -215,7 +326,7 @@ async def retopologize_mesh(
     except Exception as e:
         logger.error(f"Error scheduling mesh retopology job: {str(e)}")
         raise HTTPException(
-            status_code=500, detail=f"Failed to schedule job: {str(e)}"
+            status_code=500, detail=sanitize_error_message(f"Failed to schedule job: {str(e)}")
         )
 
 

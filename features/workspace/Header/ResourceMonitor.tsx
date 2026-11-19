@@ -143,6 +143,8 @@ export const ResourceMonitor: React.FC = () => {
     { id: 'cpu', label: 'CPU', value: stats.cpu_percent, icon: CpuIcon },
   ];
 
+  const metricsSummaryText = metrics.map((m) => `${m.label} ${Math.round(m.value)}%`).join(' ');
+
   return (
     <div ref={containerRef} className="relative">
       {/* Collapsed View - vertical pipes with live load colors and percentages */}
@@ -152,7 +154,7 @@ export const ResourceMonitor: React.FC = () => {
           className={`group flex items-center gap-1.5 h-6 px-2 rounded-full bg-[hsl(var(--surface-0))] border transition-all cursor-pointer select-none active:scale-95 ${
             isExpanded ? 'border-primary/50 bg-[hsl(var(--surface-2))] shadow-sm' : 'border-white/[0.08] hover:border-white/[0.18] hover:bg-[hsl(var(--surface-2))]'
           }`}
-          aria-label={isExpanded ? 'Collapse resource monitor' : 'Expand resource monitor'}
+          aria-label={`${metricsSummaryText} - ${isExpanded ? 'Collapse resource monitor' : 'Expand resource monitor'}`}
           aria-expanded={isExpanded}
         >
           {metrics.map((m) => {

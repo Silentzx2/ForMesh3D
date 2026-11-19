@@ -1,7 +1,22 @@
 import type { JobDiagnostic } from '@/lib/jobDiagnostics';
+import type { WorkspacePreviewBaselineSnapshot } from './lib/workspacePreviewSnapshot';
 import { getApiClient } from '@/services/apiClient';
 import { validate3DFile } from './lib/fileValidation';
 import { requireUploadFileId } from './lib/uploadResponse';
+
+export type WorkspaceExecutionState = 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'interrupted' | 'cancelled';
+export type WorkspacePersistenceState = 'not_saved' | 'saving' | 'saved' | 'save_failed' | 'discarded';
+
+export interface WorkspaceVersionItem {
+  asset_id: string;
+  name: string;
+  version_label: string;
+  operation_type?: string;
+  url: string;
+  thumbnail_url?: string | null;
+  created_at?: string;
+  is_base?: boolean;
+}
 
 export type ToolType =
   | 'tools'
@@ -17,15 +32,24 @@ export type ToolType =
   | 'rigging';
 
 export interface ActiveTask {
+  /** Stable frontend task key; never use as a backend job, workspace, operation, or asset ID. */
   id: string;
   backendJobId?: string;
+  /** Canonical workspace identity returned by the backend. */
+  workspaceId?: string;
+  /** Canonical operation identity returned by the backend. */
+  operationId?: string;
+  /** Exact image-to-mesh request used to create this operation; retained for deterministic regeneration. */
+  submissionSnapshot?: { endpoint: string; body: Record<string, unknown> };
+  /** Immutable pre-operation viewer/workspace state used by Discard restoration. */
+  previewBaseline?: WorkspacePreviewBaselineSnapshot;
   isLocal?: boolean;
   type: 'image-to-3d' | 'segment' | 'remesh' | 'texture' | 'animation' | 'rigging' | 'uv' | 'edit' | 'refine';
   title: string;
   inputImage?: string;
   inputImageName?: string;
   startedAt: number;
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'interrupted';
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'interrupted' | 'cancelled';
   progress: number; // 0 to 100
   currentStep: string;
   stage?: string;
@@ -64,6 +88,15 @@ export type CameraViewPreset = 'perspective' | 'front' | 'back' | 'top' | 'botto
 
 export interface ModelAsset {
   id: string;
+  workspace_id?: string;
+  operation_id?: string;
+  operation_type?: string;
+  version?: string;
+  is_base_mesh?: boolean;
+  /** The asset this was derived from (input asset for operations). */
+  sourceAssetId?: string;
+  /** Snapshot of the settings used to produce this derived asset. */
+  settingsSnapshot?: Record<string, any>;
   fileId?: string;
   name: string;
   category: 'all' | 'mesh' | 'texture' | 'generation' | 'edit';
@@ -77,6 +110,10 @@ export interface ModelAsset {
   faces: number;
   vertices: number;
   triangles: number;
+  /** Requested target triangle count from the generation job (independent of the measured actual). */
+  requestedTriangles?: number;
+  /** Raw triangle count measured from the generated mesh (never inferred from requested). */
+  actualTriangles?: number;
   statsAvailable?: boolean;
   topology: 'Triangle' | 'Quad' | 'Adaptive';
   format: 'GLB' | 'GLTF' | 'OBJ' | 'PLY' | 'FBX' | 'STL' | 'IMAGE' | 'FILE';
@@ -138,6 +175,12 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
     (typeof polyCount === 'number' && polyCount > 0) ||
     (typeof vertCount === 'number' && vertCount > 0)
   );
+  const rawFileSizeMb = Number(raw.file_size_mb);
+  const fileSize = typeof raw.fileSize === 'string' && raw.fileSize.trim()
+    ? raw.fileSize.trim()
+    : raw.file_size_mb !== undefined && raw.file_size_mb !== null && Number.isFinite(rawFileSizeMb) && rawFileSizeMb >= 0
+      ? `${rawFileSizeMb.toFixed(1)} MB`
+      : undefined;
 
   const rawArtifacts = (raw.artifacts || {}) as Record<string, any>;
   const collisionUrl =
@@ -220,7 +263,10 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
   } : undefined;
 
   return {
-    id: String(raw.id || `asset-${Date.now()}`),
+    id: String(raw.asset_id || raw.id || `asset-${Date.now()}`),
+    workspace_id: raw.workspace_id || raw.workspaceId,
+    operation_id: raw.operation_id || raw.operationId,
+    operation_type: raw.operation_type || raw.operationType || undefined,
     name: String(raw.name || '3D Model'),
     category: raw.category || 'mesh',
     thumbnail: raw.thumbnail || raw.thumbnail_url || '',
@@ -229,13 +275,17 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
     faces: hasStats ? Number(polyCount) : 0,
     vertices: hasStats ? Number(vertCount) : 0,
     triangles: hasStats ? Number(polyCount) : 0,
+    requestedTriangles: raw.requestedTriangles ?? raw.requested_triangles ?? undefined,
+    actualTriangles: raw.actualTriangles ?? raw.actual_triangles ?? undefined,
     statsAvailable: hasStats,
     topology: raw.topology || 'Triangle',
     format: raw.format || 'GLB',
+    fileSize,
     dimensions: raw.dimensions,
     boundingBox: raw.boundingBox || raw.bounding_box,
     objectCount: raw.objectCount ?? raw.object_count,
     componentCount: raw.componentCount ?? raw.component_count,
+    materialCount: raw.materialCount ?? raw.material_count,
     postprocessStatus: (raw.production_status === 'degraded' || raw.productionStatus === 'degraded')
       ? 'degraded'
       : (raw.postprocessStatus ?? raw.postprocess_status),
@@ -307,7 +357,7 @@ export async function uploadMeshAsset(file: File, callbacks: MeshUploadCallbacks
     triangles: meshStats?.polygon_count || 0,
     statsAvailable: Boolean((meshStats?.polygon_count ?? 0) > 0 || (meshStats?.vertex_count ?? 0) > 0),
     format: formats[extension] || 'GLB',
-    fileSize: `${(file.size / 1048576).toFixed(1)} MB`,
+    file_size_mb: file.size / 1048576,
     source: {
       filename: result.filename || file.name,
       subfolder: 'models',
@@ -428,7 +478,7 @@ export interface TextureSettings {
   workflow: 'texture' | 'pbr';
   mode: 'ai' | 'manual';
   style: 'realistic' | 'game' | 'stylized' | 'anime';
-  resolution: '1K' | '2K' | '4K' | '8K';
+  resolution: '512' | '1K' | '2K' | '4K' | '8K';
   paintResolution?: 512 | 768;
   referenceImage: string | null;
   referenceImageFileId?: string | null;
@@ -465,8 +515,9 @@ export interface GenerationSettings {
   generateTexture?: boolean;
   texture_enabled?: boolean;
   textureEnabled?: boolean;
-  texture_resolution?: '1K' | '2K' | '4K' | '8K';
-  textureResolution?: '1K' | '2K' | '4K' | '8K';
+  texture_resolution?: '512' | '1K' | '2K' | '4K' | '8K';
+  texture_settings?: Record<string, any>;
+  textureResolution?: '512' | '1K' | '2K' | '4K' | '8K';
   targetPolycount?: number;
   target_polycount?: number;
   polycount?: number;
@@ -481,7 +532,6 @@ export interface GenerationSettings {
   imageName?: string;
   negativePrompt?: string;
   paintResolution?: 512 | 768;
-  intent?: string;
   preprocessingArtifactId?: string | null;
   preprocessingReviewOverride?: boolean;
   preprocessingPreviewUrl?: string | null;

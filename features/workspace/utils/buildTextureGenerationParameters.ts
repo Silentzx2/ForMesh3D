@@ -3,6 +3,7 @@ import type { TextureSettings } from '../types';
 type TextureResolution = TextureSettings['resolution'];
 
 export interface TextureGenerationRequestInput {
+  modelId?: string | null;
   resolution?: TextureResolution;
   prompt?: string | null;
   referenceImage?: string | null;
@@ -20,7 +21,7 @@ export interface TextureGenerationRequest {
   body: Record<string, unknown>;
 }
 
-const TEXTURE_ENDPOINT = '/api/v1/mesh-generation/image-mesh-painting';
+const TEXTURE_ENDPOINT = '/api/v1/texture';
 
 function resolutionInPixels(resolution: TextureResolution): number {
   return {
@@ -46,15 +47,18 @@ export function buildTextureGenerationParameters(
   sourceReference?: { url?: string | null; fileId?: string | null },
 ): TextureGenerationRequest {
   const resolution = settings.resolution || '2K';
-  const isHighResolution = resolution === '4K' || resolution === '8K';
-  const modelPreference = isHighResolution
-    ? 'hunyuan3d_paint_v21_image_mesh_painting'
-    : 'paint3d';
   const referenceImage = settings.referenceImage || sourceReference?.url;
   const referenceFileId = settings.referenceImageFileId || sourceReference?.fileId;
+  const prompt = settings.prompt?.trim() || '';
+  const hasImageReference = Boolean(referenceImage || referenceFileId);
+  const modelPreference = settings.modelId || (
+    hasImageReference
+      ? 'hunyuan3d_paint_v21_image_mesh_painting'
+      : 'trellis_text_mesh_painting'
+  );
 
-  if (!referenceImage && !referenceFileId) {
-    throw new Error('No texture reference image provided. Please supply one.');
+  if (!hasImageReference && !prompt) {
+    throw new Error('Provide a texture reference image or a text prompt.');
   }
 
   const body: Record<string, unknown> = {
@@ -75,9 +79,7 @@ export function buildTextureGenerationParameters(
     body.image_path = referenceImage;
   }
 
-  // Paint3D accepts text guidance; Hunyuan3D-Paint is reference-image guided.
-  const prompt = settings.prompt?.trim();
-  if (prompt && !isHighResolution) {
+  if (prompt) {
     body.text_prompt = prompt;
   }
 

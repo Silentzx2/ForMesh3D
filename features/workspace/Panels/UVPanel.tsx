@@ -7,7 +7,7 @@ import type { ModelAsset } from '../types';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import {
   Grid3X3,
-  Image as ImageIcon,
+  ImageIcon,
   Box,
   Lightbulb,
   SlidersHorizontal,
@@ -19,7 +19,7 @@ import {
   Cpu,
   ShieldCheck,
   Zap,
-} from 'lucide-react';
+} from '@/components/icons/hugeicons-components';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   CheckIcon,
@@ -514,7 +514,7 @@ export const UVPanel: React.FC = () => {
           engineMode,
           scriptId: activeScriptId,
           distortionThreshold,
-          packMethod: activeScriptId === 'blender_smart_uv' ? 'blender' : 'xatlas',
+          packMethod: engineMode === 'ai' ? 'blender' : (activeScriptId === 'blender_smart_uv' ? 'blender' : 'xatlas'),
           outputFormat,
           saveIndividualParts,
           unwrapStrategy,
@@ -806,6 +806,24 @@ export const UVPanel: React.FC = () => {
           activeScriptId={activeScriptId}
           onScriptChange={setActiveScriptId}
         />
+
+        {/* Neural AI Model Card (PartUV) when in AI Mode */}
+        {engineMode === 'ai' && (
+          <div className="space-y-1.5 p-3 rounded-2xl bg-[#12131d] border border-white/[0.08]">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-[#F9CF00]" />
+                <span className="text-xs font-bold text-white">PartUV — Neural UV Unwrapping</span>
+              </div>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#F9CF00]/15 text-[#F9CF00] font-mono font-bold border border-[#F9CF00]/30">
+                8GB VRAM
+              </span>
+            </div>
+            <p className="text-[10px] text-zinc-400 leading-relaxed">
+              Part-based neural boundary seam prediction &amp; low-distortion parameterization.
+            </p>
+          </div>
+        )}
 
         {/* 3. Unwrap Strategy: Organic vs Hard-Surface */}
         <div className="space-y-1">

@@ -9,7 +9,6 @@ export type ModelCategory =
   | 'mesh_retopology'
   | 'mesh_segmentation'
   | 'uv_unwrapping'
-  | 'mesh_editing'
   | 'auto_rig'
   | 'motion_generation';
 
@@ -68,6 +67,23 @@ export const CANONICAL_MODELS: ModelDefinition[] = [
     enabled: true,
     status: 'available',
     description: 'Ultra-high-definition image-to-3D pipeline with 2K texture baking and crisp geometry.',
+  },
+  {
+    id: 'stable_fast_3d_image_to_textured_mesh',
+    name: 'Stable Fast 3D (Image → Textured Mesh)',
+    category: 'mesh_generation',
+    feature: 'image_to_textured_mesh',
+    featureLabel: 'Image to Textured 3D',
+    vramMb: 6144,
+    lowVramSupported: true,
+    lowVramMb: 4096,
+    supportsTexture: true,
+    supportedInputs: ['image'],
+    supportedOutputs: ['glb', 'obj'],
+    modelPath: 'backend/pretrained/stable-fast-3d',
+    enabled: true,
+    status: 'available',
+    description: 'Ultra-fast single-image to textured mesh (~0.5s, ~6GB VRAM). UV-unwrapped PBR textures with albedo + normal maps. HF-gated weights.',
   },
   // ── MESH GENERATION (Image to Raw Geometry) ──────────────────────────
   {
@@ -254,38 +270,22 @@ export const CANONICAL_MODELS: ModelDefinition[] = [
     description: '2B PBR texture checkpoint for multi-view texture generation with native rendering/baking path.',
   },
   {
-    id: 'paint3d_image_mesh_painting',
-    name: 'Paint3D (Image Reference Paint)',
+    id: 'hunyuan3d_v20_paint_image_mesh_painting',
+    name: 'Hunyuan3D-2 (v2.0) — Paint',
     category: 'texture_painting',
     feature: 'image_mesh_painting',
     featureLabel: 'Image Mesh Painting',
-    vramMb: 12288,
-    lowVramSupported: false,
+    vramMb: 11264,
+    lowVramSupported: true,
+    lowVramMb: 8192,
     supportsTexture: true,
     supportedInputs: ['mesh', 'image'],
     supportedOutputs: ['glb', 'obj'],
-    modelPath: 'backend/pretrained/Paint3D',
+    modelPath: 'backend/pretrained/tencent/Hunyuan3D-2',
     enabled: true,
     status: 'available',
-    description: 'Two-stage coarse-to-fine UV texture generation with lighting-less PBR albedo map synthesis (1K/2K resolution).',
+    description: 'Lightweight PBR texture painting model (~11 GB VRAM), ideal for T4/16 GB cards. Single-image reference texturing on existing meshes.',
   },
-  {
-    id: 'paint3d',
-    name: 'Paint3D',
-    category: 'texture_painting',
-    feature: 'image_mesh_painting',
-    featureLabel: 'Image Mesh Painting',
-    vramMb: 12288,
-    lowVramSupported: false,
-    supportsTexture: true,
-    supportedInputs: ['mesh', 'image'],
-    supportedOutputs: ['glb', 'obj'],
-    modelPath: 'backend/pretrained/Paint3D',
-    enabled: true,
-    status: 'available',
-    description: 'Two-stage coarse-to-fine UV texture generation with lighting-less PBR albedo map synthesis (1K/2K resolution).',
-  },
-
   // ── RETOPOLOGY / REMESH ──────────────────────────────────────────────────
   {
     id: 'fastmesh_v1k_retopology',

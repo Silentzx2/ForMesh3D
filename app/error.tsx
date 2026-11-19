@@ -123,7 +123,7 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
           </Button>
           
           <Link href="/workspace" className="w-full sm:w-auto group">
-            <Button className="w-full bg-primary text-[#080808] hover:bg-primary/90 font-bold shadow-sm transition-all duration-300 hover:scale-105">
+            <Button className="w-full bg-primary text-[hsl(var(--primary-foreground))] hover:bg-primary/90 font-bold shadow-sm transition-all duration-300 hover:scale-105">
               <HugeiconsIcon icon={ArrowLeft01Icon} size={16} className="w-4 h-4 mr-2 transition-transform group-hover:-translate-x-1" />
               Abort to Workspace
             </Button>

@@ -10,7 +10,7 @@ import { useWorkspace } from '../store/WorkspaceContext';
 import { getApiClient } from '@/services/apiClient';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { Box, CameraIcon, Cancel, CheckIcon, ChevronDown, CloudUpload, CompassIcon, DownloadIcon, FlipHorizontalIcon, GridIcon, Hand, Maximize02Icon, MoveIcon, RotateCcwIcon, RotateCw, SearchIcon, SparklesIcon, SunIcon, ZapIcon, ZoomInIcon, ZoomOutIcon, LoaderCircle, AlertCircle } from '@hugeicons/core-free-icons';
+import { Box, CameraIcon, Cancel, CheckIcon, ChevronDown, CloudUpload, CompassIcon, DownloadIcon, FlipHorizontalIcon, GridIcon, Hand, Maximize02Icon, MoveIcon, RotateCcwIcon, RotateCw, SparklesIcon, SunIcon, ZapIcon, ZoomInIcon, ZoomOutIcon, LoaderCircle, AlertCircle } from '@hugeicons/core-free-icons';
 
 interface ModelComparisonViewerProps {
   className?: string;
@@ -328,6 +328,17 @@ export const ModelComparisonViewer: React.FC<ModelComparisonViewerProps> = ({
   useEffect(() => {
     containerRefs.forEach((containerRef, index) => {
       if (containerRef && !renderers[index]) {
+        // Pre-check WebGL availability before constructing the renderer
+        // (getContext returns null silently when WebGL is disabled/sandboxed).
+        const webglProbe = document.createElement('canvas');
+        const webglContext =
+          webglProbe.getContext('webgl') || webglProbe.getContext('webgl2');
+        if (!webglContext) {
+          const msg = 'WebGL context is not available in this browser/environment.';
+          setError(msg);
+          console.warn('[ModelComparisonViewer] WebGL not available:', msg);
+          return;
+        }
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setPixelRatio(window.devicePixelRatio || 1);
         renderer.setSize(containerRef.clientWidth, containerRef.clientHeight);

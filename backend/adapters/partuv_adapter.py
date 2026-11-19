@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sys
+import types
 from pathlib import Path
 from typing import Any, Dict
 
@@ -71,15 +73,21 @@ class PartUVUnwrappingAdapter(BaseModel):
         _partuv_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "PartUV")
         if _partuv_root not in sys.path:
             sys.path.insert(0, _partuv_root)
-        # The compiled C++ extension must be importable; fall back gracefully.
+        if "partuv._core" not in sys.modules:
+            try:
+                from partuv import _core  # type: ignore
+            except Exception as exc:
+                logger.warning("PartUV compiled extension not importable, using stub: %s", exc)
+                sys.modules["partuv._core"] = types.ModuleType("partuv._core")
         try:
-            from partuv import _core  # type: ignore
-        except ImportError as exc:
-            logger.warning("PartUV compiled extension not importable: %s", exc)
-            _core = None
-        from partuv.preprocess import preprocess
+            import preprocess_utils  # type: ignore
+            sys.modules["partuv.preprocess_utils"] = preprocess_utils
+            from partuv.preprocess import preprocess  # type: ignore
+            self._preprocess = preprocess
+        except Exception as exc:
+            logger.warning("PartUV preprocess could not be imported: %s", exc)
+            self._preprocess = None
 
-        self._preprocess = preprocess
         self.model = weights_dir
         return weights_dir
 
@@ -91,6 +99,8 @@ class PartUVUnwrappingAdapter(BaseModel):
         weights_dir = self.model
         if weights_dir is None:
             return {"success": False, "error": "PartUV not loaded"}
+        if self._preprocess is None:
+            return {"success": False, "error": "PartUV preprocess pipeline is unavailable"}
 
         mesh_path = inputs.get("mesh_path")
         if not mesh_path or not Path(mesh_path).is_file():

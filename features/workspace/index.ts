@@ -8,7 +8,6 @@ export { RightAssetsPanel } from './RightPanel/RightAssetsPanel';
 export { RightPropertyPanel } from './RightPanel/RightPropertyPanel';
 export { ExportModal } from './Modals/ExportModal';
 export { SettingsModal } from './Modals/SettingsModal';
-export { ProgressOverlay } from './Notifications/ProgressOverlay';
 export { StudioDashboard } from './Dashboard/StudioDashboard';
 export { SystemPage } from './Dashboard/SystemPage';
 export { OutputsPage } from './Dashboard/OutputsPage';
