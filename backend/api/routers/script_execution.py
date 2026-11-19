@@ -129,7 +129,7 @@ def _execute_script_operation_task(
                 candidate.unlink(missing_ok=True)
 
 
-def execute_script_operation(
+async def execute_script_operation(
     *,
     db: DatabaseManager,
     storage: WorkspaceStorageManager,
