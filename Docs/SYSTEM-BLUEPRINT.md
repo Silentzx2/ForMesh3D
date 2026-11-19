@@ -104,14 +104,13 @@ sequenceDiagram
 ### 4.1 Model-Native Source Fidelity
 - Generative models produce direct geometry; downstream lossy postprocessing is eliminated.
 - User parameter passthrough (`native_target_polycount`, `texture_resolution`, `seed`) routes directly from UI into adapters without router-level interceptors.
-- `mesh/mesh.glb` remains immutable once persisted in the workspace; derived tool operations generate preview assets (`_v002`, `_v003`) that can be explicitly Committed or Discarded via the Action Bar.
+- `mesh/mesh.glb` remains immutable once persisted in the workspace; derived tool operations write directly to `storage/<workspace_id>/<tool_type>/` under monotonic versions (`_v001`, `_v002`, ...), automatically updating `active_mesh_asset_id` with zero blocking modal staging.
 
 ### 4.2 Hardware Isolation & Safety (Priority Rule 1)
 - **Modern GPUs (`sm >= 80`)**: Zero regressions. Executes in 100% native upstream mode (official FlashAttention, native BF16, locked inference schedules).
 - **Pre-Ampere GPUs (`sm < 80`)**: Fallbacks isolated strictly behind `_is_pre_ampere` checks (query-chunked SDPA, FP16/FP32 guards).
 - **Patcher Isolation**: Runtime fixes live strictly in `patcher/<model-name>/` inside dedicated worker processes, preventing global monkeypatch leaks.
 
-### 4.3 Workspace Dual State Machine
+### 4.3 Workspace Operation & Versioning State Machine
 - **Execution State Machine**: `queued` -> `processing` -> `completed` | `failed` | `interrupted` | `cancelled`.
-- **Persistence State Machine**: `not_saved` -> `saving` -> `saved` | `save_failed` | `discarded` | `cleanup_pending` | `preview_expired`.
-- Terminal states are immutable. Preview retention is managed via `/api/v1/workspace/operations/{operation_id}/keep` and `discard`.
+- **Direct Workspace Persistence**: Operations publish directly to the workspace directory. New derived assets are registered in SQLite `assets` with `settings_snapshot` and immediately promoted to `active_mesh_asset_id`. Version history allows instant switching without recomputation.

@@ -280,6 +280,7 @@ async def unwrap_mesh(
                     "distortion_threshold": request.distortion_threshold,
                     "pack_method": request.pack_method,
                     "output_format": request.output_format,
+                    **(request.model_parameters or {}),
                 },
             )
             operation_id = op_row.operation_id

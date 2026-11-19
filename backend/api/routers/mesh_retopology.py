@@ -281,6 +281,7 @@ async def retopologize_mesh(
                     "target_polycount": request.target_polycount,
                     "poly_type": request.poly_type,
                     "output_format": request.output_format,
+                    **(request.model_parameters or {}),
                 },
             )
             operation_id = op_row.operation_id

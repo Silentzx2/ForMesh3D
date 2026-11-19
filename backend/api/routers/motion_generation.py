@@ -117,7 +117,6 @@ async def generate_motion(
                 },
             )
             operation_id = op_row.operation_id
-            ws_storage.create_operation_temp(operation_id)
 
         job_inputs = {
             "prompt": request.prompt.strip(),

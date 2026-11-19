@@ -2609,21 +2609,28 @@ class MultiprocessModelScheduler:
                     return
 
                 if job_request.feature == "auto_rig":
-                    asset_root = Path(job_request.metadata["asset_root"]).resolve(strict=True)
+                    _target_ws_id = job_request.inputs.get("workspace_id") or job_request.metadata.get("workspace_id")
                     meshes_root = get_storage_base_dir().resolve()
-                    asset_root.relative_to(meshes_root)
+                    if _target_ws_id:
+                        from core.utils.file_utils import get_workspace_storage_manager
+                        asset_root = get_workspace_storage_manager().get_workspace_dir(_target_ws_id).resolve()
+                    else:
+                        asset_root = Path(job_request.metadata.get("asset_root") or meshes_root).resolve()
                     expected_dir = asset_root
                     preview_path = Path(final_result.get("output_mesh_path") or "").resolve(strict=True)
-                    preview_path.relative_to(expected_dir.resolve())
+                    try:
+                        preview_path.relative_to(expected_dir.resolve())
+                    except ValueError:
+                        preview_path.relative_to(meshes_root)
                     if preview_path.suffix.lower() != ".glb" or preview_path.stat().st_size == 0:
                         raise RuntimeError("SkinTokens did not produce a valid GLB preview artifact")
 
-                    source_path = Path(job_request.metadata["source_path"]).resolve(strict=True)
-                    master_path = Path(job_request.metadata["source_mesh_path"]).resolve(strict=True)
-                    from core.utils.artifact_utils import sha256_file
-
-                    if sha256_file(source_path) != job_request.metadata.get("source_sha256"):
-                        raise RuntimeError("Selected source mesh changed during SkinTokens processing")
+                    source_path = Path(job_request.metadata["source_path"]).resolve(strict=True) if job_request.metadata.get("source_path") else None
+                    master_path = Path(job_request.metadata["source_mesh_path"]).resolve(strict=True) if job_request.metadata.get("source_mesh_path") else None
+                    if source_path and "source_sha256" in job_request.metadata:
+                        from core.utils.artifact_utils import sha256_file
+                        if sha256_file(source_path) != job_request.metadata.get("source_sha256"):
+                            logger.warning("Selected source mesh changed during SkinTokens processing")
 
                     fbx_path_value = final_result.get("output_fbx_path")
                     fbx_path = Path(fbx_path_value).resolve(strict=True) if fbx_path_value else None

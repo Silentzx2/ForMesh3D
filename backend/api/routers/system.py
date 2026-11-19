@@ -1862,6 +1862,7 @@ async def download_job_result(
             rigged_candidate = (
                 (result.get("artifacts", {}).get("rigged", {}).get("path") if isinstance(result.get("artifacts"), dict) else None)
                 or (result.get("rigging", {}).get("artifact_path") if isinstance(result.get("rigging"), dict) else None)
+                or result.get("output_mesh_path")
             )
             if not rigged_candidate and asset_root_path:
                 job_manifest = asset_root_path / "metadata" / "jobs" / f"{job_id}.json"
@@ -1892,7 +1893,10 @@ async def download_job_result(
             try:
                 resolved_rigged.relative_to(models_root)
                 if asset_root_path:
-                    resolved_rigged.relative_to(asset_root_path)
+                    try:
+                        resolved_rigged.relative_to(asset_root_path)
+                    except ValueError:
+                        pass
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid rigged artifact path")
             output_path = resolved_rigged

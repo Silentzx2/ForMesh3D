@@ -320,6 +320,7 @@ async def segment_mesh(
                 settings={
                     "num_parts": request.num_parts,
                     "output_format": request.output_format,
+                    **(request.model_parameters or {}),
                 },
             )
             operation_id = op_row.operation_id

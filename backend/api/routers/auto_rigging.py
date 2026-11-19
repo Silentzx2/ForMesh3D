@@ -227,6 +227,7 @@ async def generate_rig(
                 settings={
                     "rig_mode": request.rig_mode.lower(),
                     "output_format": request.output_format.lower().strip(),
+                    **(request.model_parameters or {}),
                 },
             )
             op_row = op_res[0] if isinstance(op_res, tuple) else op_res
@@ -256,9 +257,13 @@ async def generate_rig(
         from core.utils.artifact_utils import sha256_file
         from core.utils.artifact_utils import prepare_asset_job_workspace
 
-        asset_root, mesh_path = await run_in_threadpool(
-            prepare_asset_job_workspace, mesh_file_path, job_request.job_id
-        )
+        if target_ws_id:
+            asset_root = ws_storage.get_workspace_dir(target_ws_id)
+            mesh_path = Path(mesh_file_path).resolve()
+        else:
+            asset_root, mesh_path = await run_in_threadpool(
+                prepare_asset_job_workspace, mesh_file_path, job_request.job_id
+            )
         job_request.inputs["output_dir"] = str(asset_root)
         job_request.metadata.update({
             "asset_root": str(asset_root),

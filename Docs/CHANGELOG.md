@@ -1,47 +1,20 @@
-# ForMash3D Changelog
+# ForMesh3D Changelog
 
-## 2026-11-19 — Script-first canonical workspace processing
+## 2026-11-19 — Direct-Save Workspace Architecture, Temp Removal, & SkinTokens/PartUV Integration
+- **Direct Workspace Persistence**: Eliminated temporary staging (`storage/temp/`) and blocking Keep/Discard Action Bar. All operations (Script & AI) write directly to `storage/<workspace_id>/<tool_type>/` using monotonic versioning (`<ws_id>_<tool>_v00X.glb`).
+- **Complete Section C Removal**: Cleanly removed `/workspace/operations/{op_id}/keep`, `/discard`, `/preview` endpoints, and deleted `OperationActionBar.tsx`.
+- **SkinTokens Auto-Rigging Integration**: Connected `RiggingPanel.tsx` and `EngineModeSelector.tsx` to the `skintokens_auto_rigging` AI model (14GB VRAM). Exposed neural parameters (`temperature`, `top_k`, `num_beams`, `use_transfer`, `use_postprocess`) and mapped them cleanly to `JobRequest` and backend adapter.
+- **PartUV Smart UV Wiring**: Wired PartUV neural model badge and Blender pack method in `UVPanel.tsx`, with safe runtime shims for C++ `_core.so` and `partuv.preprocess_utils`.
+- **Parameter Snapshot Tracking**: Preserved full parameter snapshots in `AssetModel.settings_snapshot` and updated `active_mesh_asset_id` in SQLite upon run completion.
+
+## 2026-11-19 — Script-First Canonical Workspace Processing
 - Added the `engine: "ai" | "script"` discriminator to canonical Retopo, UV, and Segmentation requests; AI remains the default.
 - Routed Script requests directly to the existing Trimesh / Blender pipelines without acquiring the AI scheduler.
-- Registered Script executions in SQLite and staged preview outputs under `storage/temp/<operation_id>/`, reusing the existing preview, Keep, and Discard APIs.
-- Replaced the retired multipart/SSE bridge transport with canonical JSON requests and durable operation/preview references.
-- Added API integration coverage for scheduler isolation and the Script preview persistence lifecycle.
+- Registered Script executions in SQLite with durable operation status tracking and progress reporting.
+- Replaced retired multipart/SSE bridge transport with canonical JSON requests and durable operation references.
 
-
-## 2026-11-18 — Legacy mesh-tools documentation cleanup
-- Reconciled the task checklist and architecture documentation with the retired `/api/v1/mesh-tools/*` router.
-- Confirmed canonical retopo, UV unwrap, and segmentation pipeline routes remain in place and are not part of this retirement.
-- Removed stale references that described the retired router as active.
-
-
-## 2026-11-18 — Mesh download, thumbnail, and TRELLIS texture fixes
-- **Download 404 fix**: `download_job_result` now falls back to `<workspace_id>/mesh/mesh.glb` when the job result lacks `asset_root`/`output_mesh_path`, resolving 404s when clicking assets or after mesh generation.
-- **Workspace active asset**: `upload_image` now sets `active_mesh_asset_id=asset_id` in workspace creation, so download can resolve via `source_asset_id` fallback when `active_mesh_asset_id` is None.
-- **Job result persistence**: `update_job_result` now called after mesh copy so `asset_root`/`output_mesh_path` are persisted to Redis for all successful generation jobs (including raw-mesh with post-processing disabled).
-- **One workspace dir per job**: Image upload no longer creates a storage-root directory; generation creates exactly one `<workspace_id>/` and copies the image to `<workspace_id>/input/source_image<ext>`. Mesh saves to `<workspace_id>/mesh/mesh.glb`.
-- **TRELLIS texture fallback**: When `utils3d` is not installed, texture generation is skipped and the raw mesh is returned instead of crashing with `AttributeError: module 'utils3d' has no attribute 'torch'`.
-- **Manifest write fix**: `write_manifest` now creates the workspace directory before writing `.metadata_<hash>.tmp`, preventing `FileNotFoundError` on image upload manifest projection.
-- **Storage root cleanup**: Removed `models/`, `images/`, `thumbnails/` directory creation at `backend/storage/` root (setup.sh and build_docker.sh); only `uploads/` and `temp/` are created at root.
-- **No JSON manifest files**: Removed `_write_upload_manifest` from all upload paths; SQLite `assets` table is the single source of truth for file metadata.
-
-## 2026-11-16 — Workspace UI Audit Cleanup
-
-- Added IME composition guards to snapshot and export profile submissions.
-- Replaced native collection and preset confirmation prompts with accessible dialog flows, and replaced the workspace focus query with a React ref.
-- Migrated the remaining workspace Lucide icon usage to Hugeicons and replaced audited hex color literals with existing HSL theme tokens.
-- Fixed backend mesh-tool imports for workers started from the `backend/` directory.
-
-## 2026-11-16 — Script Engine for Mesh Tools: Retopo, Smart UV & Segment
-
-- **Mesh Tools Module Removed**: All `/api/v1/mesh-tools/*` endpoints removed from codebase. Deleted `backend/api/routers/mesh_tools.py` and removed all route registrations from `main_multiworker.py`, `main_singleworker.py`, `routers/__init__.py`, `system.py`, test files, and frontend `meshProcessingBridge.ts`.
-- **Flat Backend Pipelines**: Retained `backend/pipelines/retopo.py`, `smart_uv.py`, `segment.py`, and `mesh_utils.py` with density safety capping (`mesh_guard.py`). Retopo supports QuadriFlow & Trimesh decimation; UV supports Blender Smart Project & XAtlas; Segment supports connected components and spatial PCA clustering.
-- **Workspace Preview & Action Bar Lifecycle**: Staged outputs in `storage/temp/<operation_id>/`, served via `/api/v1/workspace/operations/{operation_id}/preview`. Keep persists an immutable workspace asset version; Discard purges temp preview and restores viewer baseline.
-
-## 2026-11-15 — Canonical Workspace API Consolidation
-
-- **Unified generation:** Existing image-to-mesh handler is exposed at `POST /api/v1/generate`; model registration selects the raw or textured-only scheduler feature. SQLite operation type follows the selected feature.
-- **Unified painting:** Existing image/text mesh-painting handlers are reused behind `POST /api/v1/texture`; image-guided and prompt-only requests remain supported.
-- **Specialist routes:** Existing retopo, UV, rigging, motion, and segmentation handlers are mounted at `/retopo`, `/unwrap`, `/rig`, `/motion`, and `/segment`.
-- **Removed dead routes:** Retired mesh-editing router, imports, frontend callback and request types are removed. No legacy endpoint aliases or redirects are mounted.
-- **Frontend and contracts:** API client, WorkspaceContext, request builders, mesh-processing bridge, proxy verification, API docs, architecture, design docs, README and regression tests use canonical endpoints.
-
+## 2026-11-18 — Legacy Mesh-Tools Cleanup & Download Fixes
+- Reconciled task checklist and architecture documentation with the retired `/api/v1/mesh-tools/*` router.
+- `download_job_result` falls back to `<workspace_id>/mesh/mesh.glb` when the job result lacks `asset_root`/`output_mesh_path`, resolving 404s when clicking assets or after mesh generation.
+- Workspace creation sets `active_mesh_asset_id=asset_id` so download resolves via `source_asset_id` fallback when `active_mesh_asset_id` is None.
+- Removed `models/`, `images/`, `thumbnails/` directory creation at `backend/storage/` root; SQLite `assets` table is the single source of truth for file metadata.
