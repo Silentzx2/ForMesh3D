@@ -31,9 +31,16 @@ export function useWebRTCStream({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const isConnectingRef = useRef(false);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Keep live refs for visual props so connect does not need to rebuild
+  const shadingModeRef = useRef(shadingMode);
+  shadingModeRef.current = shadingMode;
+  const showWireframeRef = useRef(showWireframe);
+  showWireframeRef.current = showWireframe;
 
   // Gesture state
   const isPointerDownRef = useRef(false);
@@ -145,7 +152,9 @@ export function useWebRTCStream({
    * Setup stream session and connect via WebRTC or WebSocket.
    */
   const connect = useCallback(async () => {
-    if (!enabled) return;
+    if (!enabled || (!workspaceId && !modelUrl)) return;
+    if (isConnectingRef.current) return;
+    isConnectingRef.current = true;
 
     setConnectionState('connecting');
     setErrorMessage(null);
@@ -156,13 +165,16 @@ export function useWebRTCStream({
 
     let sessionData: any;
     try {
-      const res = await api.post('/api/v1/stream/session/start', {
+      const res: any = await api.post('/api/v1/stream/session/start', {
         workspace_id: workspaceId || undefined,
         model_url: modelUrl || undefined,
         width,
         height,
       });
-      sessionData = res.data;
+      sessionData = (res && typeof res === 'object' && 'session_id' in res) ? res : res?.data;
+      if (!sessionData || !sessionData.session_id) {
+        throw new Error('Streaming server did not return a valid session ID');
+      }
       sessionIdRef.current = sessionData.session_id;
       if (sessionData.stats) {
         useViewerStore.getState().setModelStats(sessionData.stats);
@@ -171,6 +183,7 @@ export function useWebRTCStream({
       console.warn('[WebRTCStream] Session start failed:', err);
       setConnectionState('error');
       setErrorMessage(err?.message || 'Failed to start 3D streaming session');
+      isConnectingRef.current = false;
       return;
     }
 
@@ -190,11 +203,12 @@ export function useWebRTCStream({
       wsRef.current = ws;
 
       ws.onopen = () => {
+        isConnectingRef.current = false;
         setConnectionState('streaming');
         setStreamTransport('websocket');
-        // Initial sync of shading and wireframe
-        sendCommand({ action: 'shading', mode: shadingMode });
-        sendCommand({ action: 'wireframe', enabled: showWireframe });
+        // Initial sync of shading and wireframe using live refs
+        sendCommand({ action: 'shading', mode: shadingModeRef.current });
+        sendCommand({ action: 'wireframe', enabled: showWireframeRef.current });
       };
 
       ws.onmessage = async (event) => {
@@ -238,10 +252,8 @@ export function useWebRTCStream({
       };
 
       ws.onclose = () => {
-        if (connectionState === 'streaming') {
-          setConnectionState('idle');
-          setStreamTransport('none');
-        }
+        setConnectionState((prev) => (prev === 'streaming' ? 'idle' : prev));
+        setStreamTransport('none');
       };
     };
 
@@ -260,6 +272,7 @@ export function useWebRTCStream({
         pc.ontrack = (event) => {
           if (videoRef.current && event.streams[0]) {
             videoRef.current.srcObject = event.streams[0];
+            isConnectingRef.current = false;
             setConnectionState('streaming');
             setStreamTransport('webrtc');
           }
@@ -268,13 +281,16 @@ export function useWebRTCStream({
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
 
-        const answerRes = await api.post(`/api/v1/stream/session/${session_id}/offer`, {
+        const answerRes: any = await api.post(`/api/v1/stream/session/${session_id}/offer`, {
           sdp: pc.localDescription?.sdp,
           type: pc.localDescription?.type,
         });
 
-        await pc.setRemoteDescription(new RTCSessionDescription(answerRes.data));
-        return;
+        const answerData = (answerRes && typeof answerRes === 'object' && 'sdp' in answerRes) ? answerRes : answerRes?.data;
+        if (answerData && answerData.sdp) {
+          await pc.setRemoteDescription(new RTCSessionDescription(answerData));
+          return;
+        }
       } catch (webrtcErr) {
         console.warn('[WebRTCStream] WebRTC handshake failed, falling back to WebSocket:', webrtcErr);
         if (pcRef.current) {
@@ -286,12 +302,13 @@ export function useWebRTCStream({
 
     // Connect via WebSocket
     connectWebSocket();
-  }, [enabled, workspaceId, modelUrl, shadingMode, showWireframe, connectionState, sendCommand]);
+  }, [enabled, workspaceId, modelUrl, sendCommand]);
 
   /**
    * Clean up active connections on unmount or session stop.
    */
   const disconnect = useCallback(() => {
+    isConnectingRef.current = false;
     if (sessionIdRef.current) {
       const sid = sessionIdRef.current;
       sessionIdRef.current = null;

@@ -1,6 +1,7 @@
 # ForMesh3D Changelog
 
-## 2026-11-20 — Multi-Worker Backend Import Path Resolution & PYTHONPATH Parity
+## 2026-11-20 — WebRTC Stream Infinite Reconnect Loop Fix & Backend Import Parity
+- **WebRTC Stream Hook Response Unwrapping & Loop Prevention (`features/workspace/hooks/useWebRTCStream.ts`)**: Fixed `sessionData` unwrapping from `api.post` (which already returns unwrapped response body), eliminating `Cannot read properties of undefined (reading 'session_id')`. Removed cyclic `connectionState`, `shadingMode`, and `showWireframe` dependencies from `connect` callback to stop infinite `POST /api/v1/stream/session/start` request loops, and added `isConnectingRef` concurrency mutex.
 - **Streaming Router Resilient Imports (`backend/api/routers/streaming.py`)**: Added fallback import logic for `streaming` vs `backend.streaming` to prevent `ModuleNotFoundError: No module named 'backend'` during uvicorn worker router resolution when `cwd` is `backend/`.
 - **Server Startup PYTHONPATH Parity (`backend/scripts/run_server.sh`)**: Exported both `PROJECT_ROOT` and `BACKEND_DIR` into `PYTHONPATH`, guaranteeing consistent resolution for all `from backend.` and `from api.` imports across uvicorn multi-workers and standalone schedulers.
 
