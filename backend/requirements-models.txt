@@ -105,9 +105,15 @@ meshlib>=3.1.1              # [TRIFLOW] mesh voxelization & mrmesh C++ bindings
 meshiki>=0.0.7              # [TRIFLOW] mesh topology utilities
 PyMCubes>=0.1.6             # [TRIFLOW] marching cubes
 fbxloader>=0.0.2            # [TRIFLOW] fbx ingestion support
+PyOpenGL>=3.1.0             # [TRIFLOW] pyrender OpenGL mesh renderer
 
 # ── PartField (Neural Mesh Segmentation) extra deps (backend/thirdparty/PartField) ──
 yacs>=0.1.8                 # [PARTFIELD] configs/final/demo.yaml
 potpourri3d>=0.0.9          # [PARTFIELD] geodesic distance & mesh geometry utilities
 open3d>=0.18.0              # [PARTFIELD] run_part_clustering.py
 plyfile>=1.0.3              # [PARTFIELD] export_pointcloud_with_labels_to_ply
+mesh2sdf>=1.1.0             # [PARTFIELD] dataloader.py SDF remeshing
+tetgen>=0.6.5               # [PARTFIELD] dataloader.py tetrahedral mesh generation
+simple-parsing>=0.1.7       # [PARTFIELD] demo argument parsing
+arrgh>=1.0.0                # [PARTFIELD] demo command CLI
+polyscope>=2.4.0            # [PARTFIELD] interactive mesh visualization
