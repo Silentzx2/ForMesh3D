@@ -46,8 +46,6 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
     assets,
   } = useWorkspace();
 
-  const { streamMode, setStreamMode } = useViewerStore();
-
   const workspaceMeshVersions = React.useMemo(() => {
     if (!workspaceId) return [];
     const wsAssets = assets.filter(
@@ -163,40 +161,6 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
       id="viewport-tool-overlay"
       className="absolute inset-0 pointer-events-none z-10 overflow-hidden select-none"
     >
-      {/* Top-Center Segmented Viewport Switcher: Cloud Stream vs Local Mode */}
-      <div className="pointer-events-auto absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center p-0.5 rounded-full bg-[#161722]/90 backdrop-blur-md border border-white/[0.12] shadow-[0_8px_32px_rgba(0,0,0,0.6)] text-[11px]">
-        <button
-          type="button"
-          onClick={() => {
-            setStreamMode(true);
-            toast.success('Switched to Cloud 3D Stream (Instant)');
-          }}
-          className={`px-3 py-1 rounded-full flex items-center gap-1.5 font-medium transition-all cursor-pointer ${
-            streamMode
-              ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
-              : 'text-zinc-400 hover:text-white'
-          }`}
-          aria-label="Cloud Stream Mode"
-        >
-          <span>⚡ Cloud Stream</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setStreamMode(false);
-            toast.info('Switched to Local Three.js Mode');
-          }}
-          className={`px-3 py-1 rounded-full flex items-center gap-1.5 font-medium transition-all cursor-pointer ${
-            !streamMode
-              ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
-              : 'text-zinc-400 hover:text-white'
-          }`}
-          aria-label="Local Three.js Mode"
-        >
-          <span>💻 Local Mode</span>
-        </button>
-      </div>
-
       {/* Dynamic Mesh Versions Selector (Hidden if only base raw mesh exists) */}
       {workspaceMeshVersions.length > 1 && (
         <div className="pointer-events-auto absolute top-4 left-4 md:left-6 flex items-center gap-2 z-20">

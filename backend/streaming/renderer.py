@@ -56,6 +56,7 @@ class HeadlessRenderer:
         self.faces: np.ndarray = np.empty((0, 3), dtype=np.int32)
         self.normals: np.ndarray = np.empty((0, 3), dtype=np.float32)
         self.vertex_colors: Optional[np.ndarray] = None
+        self.dimensions: np.ndarray = np.array([1.0, 1.0, 1.0], dtype=np.float32)
 
         # Interactive proxy (decimated mesh for instant fluid rotation on heavy assets)
         self.proxy_vertices: np.ndarray = np.empty((0, 3), dtype=np.float32)
@@ -97,6 +98,11 @@ class HeadlessRenderer:
             # Extract raw coordinates
             v = np.asarray(loaded.vertices, dtype=np.float32)
             f = np.asarray(loaded.faces, dtype=np.int32)
+
+            if hasattr(loaded, "extents") and loaded.extents is not None:
+                self.dimensions = np.asarray(loaded.extents, dtype=np.float32)
+            else:
+                self.dimensions = np.asarray(v.max(axis=0) - v.min(axis=0), dtype=np.float32)
 
             # Center and scale to fit unit sphere [-0.9, 0.9]
             center = (v.min(axis=0) + v.max(axis=0)) * 0.5

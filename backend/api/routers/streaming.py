@@ -141,6 +141,15 @@ async def start_stream_session(req: StartStreamRequest) -> Dict[str, Any]:
         "mesh_loaded": bool(resolved_path),
         "webrtc_supported": AIORTC_AVAILABLE,
         "ws_url": f"/api/v1/stream/session/{session.session_id}/ws",
+        "stats": {
+            "vertices": int(len(session.renderer.vertices)),
+            "triangles": int(len(session.renderer.faces)),
+            "dimensions": {
+                "x": round(float(session.renderer.dimensions[0]), 3),
+                "y": round(float(session.renderer.dimensions[1]), 3),
+                "z": round(float(session.renderer.dimensions[2]), 3),
+            },
+        },
     }
 
 

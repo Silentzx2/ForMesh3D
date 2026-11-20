@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { getApiClient } from '@/services/apiClient';
+import { useViewerStore } from '@/stores/useViewerStore';
 
 export interface UseWebRTCStreamOptions {
   workspaceId?: string | null;
@@ -163,6 +164,9 @@ export function useWebRTCStream({
       });
       sessionData = res.data;
       sessionIdRef.current = sessionData.session_id;
+      if (sessionData.stats) {
+        useViewerStore.getState().setModelStats(sessionData.stats);
+      }
     } catch (err: any) {
       console.warn('[WebRTCStream] Session start failed:', err);
       setConnectionState('error');
@@ -175,7 +179,11 @@ export function useWebRTCStream({
     // Helper to connect over multiplexed WebSocket
     const connectWebSocket = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const fullWsUrl = `${protocol}//${window.location.host}${ws_url}`;
+      // If client runs on Next.js dev port 3000, direct WebSocket to FastAPI port 7842
+      const host = typeof window !== 'undefined' && window.location.port === '3000'
+        ? `${window.location.hostname}:7842`
+        : window.location.host;
+      const fullWsUrl = `${protocol}//${host}${ws_url}`;
 
       const ws = new WebSocket(fullWsUrl);
       ws.binaryType = 'arraybuffer';

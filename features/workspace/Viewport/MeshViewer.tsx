@@ -242,7 +242,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   })();
 
   const loadedModelUrl = useViewerStore((state) => state.loadedModelUrl);
-  const streamMode = useViewerStore((state) => state.streamMode);
 
   const [modelLoadStatus, setModelLoadStatus] = useState<'empty' | 'loading' | 'loaded' | 'error'>('empty');
   const [hasModel, setHasModel] = useState(false);
@@ -593,8 +592,38 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     };
   }, []);
 
-  // 4a. Camera Button — capture mesh only (hides grid/axes helpers)
+  // 4a. Camera Button — capture snapshot
   const captureSnapshot = useCallback(() => {
+    const streamCanvas = containerRef.current?.querySelector('canvas') as HTMLCanvasElement | null;
+    const streamVideo = containerRef.current?.querySelector('video') as HTMLVideoElement | null;
+    if (streamCanvas || streamVideo) {
+      try {
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = streamCanvas?.width || streamVideo?.videoWidth || 1280;
+        offCanvas.height = streamCanvas?.height || streamVideo?.videoHeight || 720;
+        const ctx = offCanvas.getContext('2d');
+        if (ctx) {
+          if (streamCanvas) ctx.drawImage(streamCanvas, 0, 0);
+          else if (streamVideo) ctx.drawImage(streamVideo, 0, 0);
+          offCanvas.toBlob((blob) => {
+            if (!blob) return;
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = `mesh-snapshot.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+            toast.success('Snapshot saved');
+          }, 'image/png');
+          return;
+        }
+      } catch (e) {
+        console.warn('Snapshot capture failed:', e);
+      }
+    }
+
     const renderer = rendererRef.current;
     const scene = sceneRef.current;
     const camera = cameraRef.current;
@@ -678,8 +707,38 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     return () => window.removeEventListener('takeViewportSnapshot', handleSnapshotEvent as EventListener);
   }, [captureSnapshot]);
 
-  // 4c. Header Snapshot Button — capture entire workspace as-is (no hiding helpers)
+  // 4c. Header Snapshot Button — capture entire workspace as-is
   const captureWorkspace = useCallback(() => {
+    const streamCanvas = containerRef.current?.querySelector('canvas') as HTMLCanvasElement | null;
+    const streamVideo = containerRef.current?.querySelector('video') as HTMLVideoElement | null;
+    if (streamCanvas || streamVideo) {
+      try {
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = streamCanvas?.width || streamVideo?.videoWidth || 1280;
+        offCanvas.height = streamCanvas?.height || streamVideo?.videoHeight || 720;
+        const ctx = offCanvas.getContext('2d');
+        if (ctx) {
+          if (streamCanvas) ctx.drawImage(streamCanvas, 0, 0);
+          else if (streamVideo) ctx.drawImage(streamVideo, 0, 0);
+          offCanvas.toBlob((blob) => {
+            if (!blob) return;
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = `workspace-snapshot.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+            toast.success('Snapshot saved');
+          }, 'image/png');
+          return;
+        }
+      } catch (e) {
+        console.warn('Workspace snapshot capture failed:', e);
+      }
+    }
+
     const renderer = rendererRef.current;
     const scene = sceneRef.current;
     const camera = cameraRef.current;
@@ -1006,10 +1065,10 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
   useEffect(() => {
     if (rendererRef.current?.domElement) {
-      const isStreaming = streamMode && !isComparing && Boolean(modelUrl);
-      rendererRef.current.domElement.style.display = isStreaming ? 'none' : 'block';
+      // 100% pure cloud streaming viewport; local Three.js canvas remains hidden
+      rendererRef.current.domElement.style.display = 'none';
     }
-  }, [streamMode, isComparing, modelUrl]);
+  }, []);
 
   // ponytail: load source only while Compare is open; caching waits for measured repeat-use cost.
   useEffect(() => {
@@ -1094,208 +1153,19 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   }, [isComparing, canCompareModels, comparisonBeforeUrl, setIsComparing, applyShadingToMesh]);
 
   useEffect(() => {
-    if (!modelUrl || !modelGroupRef.current) {
+    if (!modelUrl) {
       setModelLoadStatus('empty');
       setHasModel(false);
       setLoadError(null);
-      const group = modelGroupRef.current;
-      if (group) {
-        while (group.children.length > 0) {
-          const child = group.children[0];
-          group.remove(child);
-          disposeObject3D(child);
-        }
-      }
-      useViewerStore.getState().setActiveModelObject(null);
-      useViewerStore.getState().setModelStats(null);
-      if (mixerRef.current) {
-        mixerRef.current.stopAllAction();
-        mixerRef.current = null;
-      }
       return;
     }
 
-    const abortController = new AbortController();
-    let isCancelled = false;
-    setModelLoadStatus('loading');
+    // 100% Pure Cloud Streaming: Mesh rendering & computation run entirely on server GPU.
+    // Zero client-side download of heavy GLB files (saves 80-150MB+ bandwidth and prevents network choke).
+    setModelLoadStatus('loaded');
+    setHasModel(true);
     setLoadError(null);
-
-    // Clear previous model from scene
-    const group = modelGroupRef.current;
-    while (group.children.length > 0) {
-      const child = group.children[0];
-      group.remove(child);
-      disposeObject3D(child);
-    }
-    useViewerStore.getState().setActiveModelObject(null);
-    useViewerStore.getState().setModelStats(null);
-    if (mixerRef.current) {
-      mixerRef.current.stopAllAction();
-      mixerRef.current = null;
-    }
-
-    const detectedExt = modelUrl.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase();
-    const knownFormats = ['glb', 'gltf', 'obj', 'fbx', 'stl', 'ply'];
-    const format = (assetFormat && knownFormats.includes(assetFormat))
-      ? assetFormat
-      : (detectedExt && knownFormats.includes(detectedExt))
-        ? detectedExt
-        : 'glb';
-    const handleObjectLoaded = (object: THREE.Object3D, animations?: THREE.AnimationClip[]) => {
-      if (isCancelled || !modelGroupRef.current) {
-        disposeObject3D(object);
-        return;
-      }
-
-      // Capture native geometry before viewport normalization changes its dimensions.
-      useViewerStore.getState().setModelStats(collectMeshStats(object));
-
-      // Center and normalize model dimensions to fit comfortably inside unit space
-      const box = new THREE.Box3().setFromObject(object);
-      const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z);
-      const scale = maxDim > 0 ? 2.0 / maxDim : 1.0;
-
-      object.position.sub(center.clone().multiplyScalar(scale));
-      // Sit on ground
-      object.position.y += (size.y * scale) / 2;
-      object.scale.setScalar(scale);
-
-      const hasAnimations = Boolean(animations && animations.length > 0);
-      object.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          const triCount = child.geometry?.index
-            ? child.geometry.index.count / 3
-            : (child.geometry?.attributes?.position?.count || 0) / 3;
-          // Ultra-dense meshes (>800k tris) bypass shadow-map rasterization to preserve 60 FPS
-          child.castShadow = triCount < 800_000;
-          child.receiveShadow = true;
-          child.frustumCulled = true;
-          if (!hasAnimations) {
-            child.matrixAutoUpdate = false;
-            child.updateMatrix();
-          }
-          applyShadingToMesh(child, shadingModeRef.current, Boolean(showWireframeRef.current));
-        }
-      });
-
-      // Hook up animations if available
-      if (animations && animations.length > 0) {
-        try {
-          const mixer = new THREE.AnimationMixer(object);
-          mixerRef.current = mixer;
-          const action = mixer.clipAction(animations[0]);
-          action.play();
-          useAnimationStore.setState({ isPlaying: true, duration: animations[0].duration });
-        } catch {
-          // Skip if animation mixer cannot bind
-        }
-      }
-
-      group.add(object);
-      useViewerStore.getState().setActiveModelObject(object);
-      fitCameraToModel(object);
-      setModelLoadStatus('loaded');
-      setHasModel(true);
-    };
-
-    const handleLoadFailure = (msg: string) => {
-      if (!isCancelled) {
-        setModelLoadStatus('error');
-        setHasModel(false);
-        setLoadError(msg);
-      }
-    };
-
-    // Load by format
-    if (format === 'glb' || format === 'gltf') {
-      void loadGLBWithProgress(modelUrl, undefined, abortController.signal).then((buffer) => {
-        if (isCancelled || abortController.signal.aborted) return;
-        const basePath = modelUrl.startsWith('blob:') || modelUrl.startsWith('data:')
-          ? ''
-          : new URL('.', new URL(modelUrl, window.location.href)).href;
-        sharedGLTFLoader.parse(
-          buffer,
-          basePath,
-          (gltf) => {
-            if (isCancelled || abortController.signal.aborted) return;
-            handleObjectLoaded(gltf.scene, gltf.animations);
-          },
-          (err) => {
-            if (isCancelled || abortController.signal.aborted) return;
-            handleLoadFailure(`Failed to load 3D model: ${err instanceof Error ? err.message : 'Invalid model file'}`);
-          }
-        );
-      }).catch((err: unknown) => {
-        if (isCancelled || abortController.signal.aborted) return;
-        handleLoadFailure(`Failed to load 3D model: ${err instanceof Error ? err.message : 'Network error'}`);
-      });
-    } else if (format === 'obj') {
-      sharedOBJLoader.load(
-        modelUrl,
-        (obj) => {
-          if (isCancelled || abortController.signal.aborted) return;
-          handleObjectLoaded(obj);
-        },
-        undefined,
-        (err: unknown) => {
-          if (isCancelled || abortController.signal.aborted) return;
-          handleLoadFailure(`Failed to load OBJ: ${(err as any)?.message || 'Error'}`);
-        }
-      );
-    } else if (format === 'fbx') {
-      sharedFBXLoader.load(
-        modelUrl,
-        (fbx) => {
-          if (isCancelled || abortController.signal.aborted) return;
-          handleObjectLoaded(fbx, fbx.animations);
-        },
-        undefined,
-        (err: unknown) => {
-          if (isCancelled || abortController.signal.aborted) return;
-          handleLoadFailure(`Failed to load FBX: ${(err as any)?.message || 'Error'}`);
-        }
-      );
-    } else if (format === 'stl') {
-      sharedSTLLoader.load(
-        modelUrl,
-        (geom) => {
-          if (isCancelled || abortController.signal.aborted) return;
-          geom.computeVertexNormals();
-          const mat = new THREE.MeshStandardMaterial({ color: 0xc8cdd5, roughness: 0.6 });
-          const mesh = new THREE.Mesh(geom, mat);
-          handleObjectLoaded(mesh);
-        },
-        undefined,
-        (err: unknown) => {
-          if (isCancelled || abortController.signal.aborted) return;
-          handleLoadFailure(`Failed to load STL: ${(err as any)?.message || 'Error'}`);
-        }
-      );
-    } else if (format === 'ply') {
-      sharedPLYLoader.load(
-        modelUrl,
-        (geom) => {
-          if (isCancelled || abortController.signal.aborted) return;
-          geom.computeVertexNormals();
-          const mat = new THREE.MeshStandardMaterial({ color: 0xc8cdd5, roughness: 0.6 });
-          const mesh = new THREE.Mesh(geom, mat);
-          handleObjectLoaded(mesh);
-        },
-        undefined,
-        (err: unknown) => {
-          if (isCancelled || abortController.signal.aborted) return;
-          handleLoadFailure(`Failed to load PLY: ${(err as any)?.message || 'Error'}`);
-        }
-      );
-    }
-
-    return () => {
-      isCancelled = true;
-      abortController.abort();
-    };
-  }, [modelUrl, assetFormat, fitCameraToModel, applyShadingToMesh, retryKey]);
+  }, [modelUrl]);
 
   // 6. Highlight hovered part in main viewer (top-level hook — never nested inside another hook)
   useEffect(() => {
@@ -1437,8 +1307,8 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         </div>
       )}
 
-      {/* Remote 3D WebRTC/WebSocket Stream Viewport (Instant <1s Loading) */}
-      {streamMode && !isComparing && modelUrl && (
+      {/* 100% Server-Side Cloud 3D WebRTC/WebSocket Stream Viewport (Zero Client Download) */}
+      {modelUrl && (
         <StreamVideoViewer
           workspaceId={workspaceId}
           modelUrl={modelUrl}
