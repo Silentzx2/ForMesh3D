@@ -204,9 +204,19 @@ async def handle_sdp_offer(session_id: str, req: SDPOfferRequest) -> Dict[str, A
             await session.close()
 
     offer = RTCSessionDescription(sdp=req.sdp, type=req.type)
-    await pc.setRemoteDescription(offer)
-    answer = await pc.createAnswer()
-    await pc.setLocalDescription(answer)
+    try:
+        await pc.setRemoteDescription(offer)
+        answer = await pc.createAnswer()
+        await pc.setLocalDescription(answer)
+    except Exception as exc:
+        await pc.close()
+        session.pc = None
+        session.state = "idle"
+        logger.error("WebRTC offer/answer failed for session %s: %s", session_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"WebRTC handshake failed: {exc}",
+        )
 
     session.state = "connecting"
     return {
