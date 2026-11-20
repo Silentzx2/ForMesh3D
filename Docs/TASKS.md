@@ -1,112 +1,83 @@
-# Direct-Save Workspace Architecture & Complete Temp Removal
+# Comprehensive Architecture & Implementation Plan: Server-Side Remote 3D Streaming (WebRTC)
 
-## 1. AGENTS.md Governance & Priority Guardrails
-- **Large GPU Parity (`sm >= 80`)**: Zero regressions on Ampere/Hopper/Blackwell (A100, RTX 3090/4090, H100). Maintain native BF16, FlashAttention 2, and upstream flows. Any pre-Ampere (`sm < 80`) workarounds must remain strictly isolated behind `_is_pre_ampere`.
-- **Model Adapter Direct Patching**: Runtime fixes stay strictly inside specific adapters (`partuv_adapter.py`, `skintokens_adapter.py`) or `patcher/<model>/`; zero global monkeypatches leaking across sibling pipelines.
-- **Section C Complete Removal Protocol**: When removing temp preview staging, delete all traces: routes, imports, registrations, UI bars, types, test cases, and orphaned files.
-- **Ponytail Ladder**: YAGNI -> reuse existing codebase helpers -> stdlib -> platform -> installed dependencies -> minimal clean code.
-- **Strict Scope Boundary**: Mesh Generate panel (`GeneratePanel.tsx`, image-to-3d pipeline) is completely untouched.
-- **Context Budget Rule**: This document must strictly stay within 100–150 lines.
+## 1. Governance & Strict Scope Boundaries
+- **Zero Regression on Existing Pipelines**: Image-to-3D, Retopology, UV Unwrapping, Auto-Rigging, and Segmentation logic remain 100% UNTOUCHED.
+- **Large GPU Parity (`sm >= 80`)**: Hardware video encoding and EGL headless rendering run natively on modern GPUs (A100, RTX 3090/4090, H100) with zero CUDA degradation.
+- **Dual-Mode Viewport**: WebRTC Streaming is the default for instant (<1s) inspection of heavy meshes (80–150MB+); local Three.js WebGL rendering and direct `.glb` download remain available via toggle/export.
+- **Context Budget Rule**: This document strictly adheres to the <= 150 lines limit.
 
-## 2. Implicit State Machines (Full Lifecycle & Explicit Transitions)
-- **Problematic Legacy State**: Scattered booleans (`persistenceState`, `isSubmitting`, `isPreviewActive`, `isMeshGen`), race conditions between job polling and temp staging, and blocking Keep/Discard modal bars.
-- **Explicit Workspace Operation Lifecycle**:
-  - `IDLE`: Active mesh loaded in viewer. Workspace tool panel ready for parameter configuration.
-  - `VALIDATING`: Client verifies active mesh existence, file format (.glb/.obj), and parameter bounds.
-  - `SUBMITTING`: Canonical POST sent to backend (`/api/v1/{retopo,unwrap,segment,rig}`) with active `workspace_id`.
-  - `PROCESSING`: Real-time backend progress (`0-100%`) and execution step message; viewer shows non-blocking progress spinner.
-  - `PUBLISHING`: Backend atomic write to workspace directory, DB row created, active mesh pointer updated.
-  - `COMPLETED`: New derived asset promoted to `active_mesh_asset_id`, appended to Version History, viewer re-renders new mesh immediately.
-  - `FAILED`: Operation terminates cleanly, original active mesh remains active and untouched, user receives error toast.
-  - `CANCELLED`: User aborts job, partial artifacts unlinked on disk, workspace returns cleanly to `IDLE`.
-- **Explicit Version Switch State Machine**:
-  - `VIEWING(version_k)` -> User clicks `version_j` in Version History -> `SWITCHING` -> `VIEWING(version_j)`. Viewer loads selected asset; no re-computation or file movement required.
+## 2. Core Problem & Streaming Architecture
+- **Problem**: Large 80MB–100MB GLB files take 15–30 minutes to download over slow client internet before Three.js can render.
+- **Solution (WebRTC Pixel Streaming)**:
+  - Server GPU renders the 3D mesh offscreen into a framebuffer.
+  - Video frames are encoded (H.264/VP8) and streamed to the client via WebRTC.
+  - Client sends orbit/zoom/pan mouse inputs over WebRTC DataChannel (<30ms round-trip latency).
+  - Network footprint drops from a 100MB upfront download to a lightweight 1–2 Mbps video stream, achieving instant loading.
 
-## 3. Phase 1: Section C Complete Removal Plan
-- [x] **Backend Routes Removal**:
-  - Delete endpoints in `backend/api/routers/system.py`: `/workspace/operations/{operation_id}/keep`, `/operations/{operation_id}/keep`, `/workspace/operations/{operation_id}/discard`, `/operations/{operation_id}/discard`, `/workspace/operations/{operation_id}/preview`, `/operations/{operation_id}/preview`, and `/workspace/operations/{operation_id}`.
-  - Delete `execute_script_operation` temp staging logic in `backend/api/routers/script_execution.py`.
-- [x] **Backend Storage & Schema Cleanup**:
-  - Remove `create_operation_temp` and all filesystem operations writing to `storage/temp/`.
-  - Remove `temp_dir` column reliance in `DatabaseManager` and SQLite schema.
-- [x] **Frontend Component & State Removal**:
-  - Delete `features/workspace/Viewport/OperationActionBar.tsx`.
-  - Remove `persistenceState` ('not_saved' | 'saving' | 'saved' | 'save_failed' | 'discarded') from `WorkspaceContext.tsx` and `useViewerStore`.
-  - Remove `restorePreviewBaseline`, `discardActivePreview`, and temporary preview rollback caches.
+## 3. Explicit State Machines
+- **Stream Session State Machine**:
+  - `IDLE`: No active stream. Viewport displays placeholder or awaiting model URL.
+  - `SIGNALING`: Client exchanges SDP offer/answer and ICE candidates with `/api/v1/stream/session`.
+  - `CONNECTING`: WebRTC peer connection and DataChannel handshake in progress.
+  - `STREAMING`: Video frames rendering and streaming at 30–60 FPS during user interaction.
+  - `IDLE_PAUSED`: Zero-input power-save mode (drops to 1 FPS / keyframe hold after 2s of inactivity).
+  - `TERMINATING`: Client disconnects or tab closes; offscreen renderer resources freed immediately.
+- **Viewport Dual-Mode State Machine**:
+  - `STREAM_MODE (Default)`: HTML5 `<video>` element with interactive touch/mouse event interceptor.
+  - `LOCAL_MODE (Fallback)`: Traditional Three.js WebGL canvas loading cached GLB buffer.
 
-## 4. Phase 2: Canonical Direct-Save Pipeline (Script & AI Modes)
-- [x] **Canonical Tool Endpoints**:
-  - Retopo: `POST /api/v1/retopo` (`engine: "ai" | "script"`)
-  - UV Unwrap: `POST /api/v1/unwrap` (`engine: "ai" | "script"`)
-  - Segmentation: `POST /api/v1/segment` (`engine: "ai" | "script"`)
-  - Auto-Rig: `POST /api/v1/rig` (direct model invocation)
-  - Texturing: `POST /api/v1/texture/generate` (direct model invocation)
-- [x] **Direct Workspace Disk Persistence**:
-  - Script Execution: Synchronous/threadpool pipeline writes output directly to `storage/<workspace_id>/<tool_type>/` using `WorkspaceStorageManager.publish_derived_mesh`.
-  - AI Execution: Scheduler worker writes completed model output directly into `storage/<workspace_id>/<tool_type>/` via `publish_derived_mesh` instead of overwriting master `mesh.glb`.
-- [x] **Database Registration & Promotion**:
-  - New `AssetModel` row created with unique `asset_id`, `workspace_id`, `relative_path`, `byte_size`, `sha256`, and `settings_snapshot`.
-  - `DatabaseManager.update_workspace_active_mesh(workspace_id, asset_id)` automatically promotes the asset.
-  - Response returns full saved asset model, download URL, and computed face/vertex statistics.
+## 4. Phase 1: Backend Headless Rendering Engine
+- [ ] **EGL Offscreen Render Worker (`backend/streaming/renderer.py`)**:
+  - Initialize headless OpenGL/EGL context bound to server GPU (no X11 / virtual display required).
+  - Load target workspace mesh (`storage/<workspace_id>/mesh/mesh.glb` or active derived asset).
+  - Implement dynamic camera controller (orbit, pan, zoom, field-of-view, wireframe, and shading modes).
+  - Render offscreen color buffers (RGB numpy arrays / PyTorch tensors) at 720p/1080p target resolution.
+- [ ] **Adaptive FPS & Power-Save Mechanism**:
+  - Active user interaction: Render at 30–60 FPS for fluid manipulation.
+  - Idle state (>2s without input): Pause rendering loop, hold last frame to consume 0% GPU compute.
 
-## 5. Phase 3: Disk Management & Multi-Run Versioning Logic
-- [x] **Directory Layout Per Tool**:
-  - Retopology: `storage/<workspace_id>/retopology/<workspace_id>_retopology_v{NNN}.glb`
-  - UV Unwrapping: `storage/<workspace_id>/uv/<workspace_id>_uv_v{NNN}.glb`
-  - Segmentation: `storage/<workspace_id>/segmentation/<workspace_id>_segmentation_v{NNN}.glb`
-  - Rigging: `storage/<workspace_id>/rigging/<workspace_id>_rigging_v{NNN}.glb`
-  - Texturing: `storage/<workspace_id>/texture/pbr/<workspace_id>_textured_v{NNN}.glb`
-- [x] **Atomic Versioning on Disk**:
-  - Step 1: Scan target tool directory and resolve next monotonic version index (`_v002`, `_v003`, etc.) via `get_version_mesh_path`.
-  - Step 2: Write output initially to `.staging_<uuid>.tmp` inside the target directory.
-  - Step 3: Atomic replace: `staging_path.replace(final_version_path)`. Unlink partial files on any failure.
-  - Step 4: Generate paired thumbnail: `<final_version_stem>_thumbnail.png`.
-- [x] **Iterative Parameter Tracking**:
-  - Each run stores its exact input parameters in `AssetModel.settings_snapshot` (JSON string: `{ "target_faces": 5000, "engine": "script", "timestamp": "..." }`).
-  - Running an operation repeatedly with varying settings never overwrites prior iterations; all historical runs remain safely on disk and in DB.
+## 5. Phase 2: WebRTC Video Pipeline & Signaling Server
+- [ ] **WebRTC Media Streamer (`backend/streaming/webrtc_streamer.py`)**:
+  - Integrate `aiortc` (Python asynchronous WebRTC engine) with PyAV/H.264 hardware/software encoder.
+  - Implement custom `VideoStreamTrack` that pulls rendered frames from the offscreen renderer.
+  - Handle adaptive bitrate, dynamic frame dropping, and packet-loss recovery.
+- [ ] **FastAPI Signaling Endpoints (`backend/api/routers/streaming.py`)**:
+  - `POST /api/v1/stream/session/start`: Initialize stream session for target model/workspace, return session ID.
+  - `POST /api/v1/stream/session/{session_id}/offer`: Accept client SDP offer, return server SDP answer.
+  - `POST /api/v1/stream/session/{session_id}/ice`: Handle trickle ICE candidate exchange.
+  - `POST /api/v1/stream/session/{session_id}/stop`: Explicit teardown and GPU memory reclamation.
 
-## 6. Phase 4: UI State Machine & Version Switching
-- [x] **Immediate Promotion Flow**:
-  - Operation completion directly activates new asset in `WorkspaceContext`, clears execution spinner, and streams GLB to `MeshViewer`.
-  - Zero blocking Keep/Discard prompts or modal overlays.
-- [x] **Version History Selector**:
-  - Workspace displays chronological version list (`workspaceVersions`) with tool badges and parameter summaries.
-  - Clicking any prior version immediately updates `activeMeshAssetId` and switches the viewer mesh with zero recomputation.
-- [x] **Tool Panel Fixes**:
-  - `UVPanel.tsx`: Force `pack_method: "blender"` when `engine === "ai"` for PartUV to satisfy backend schema. Add PartUV neural model badge and parameter binding.
-  - `RiggingPanel.tsx`: Full SkinTokens neural model integration with EngineModeSelector (`tool="rig"`), SkinTokens model card (14GB VRAM), inference parameters (`top_k`, `top_p`, `temperature`, `num_beams`, `use_transfer`, `use_postprocess`), and direct workspace persistence.
-  - `SegmentationPanel.tsx`: Ensure semantic part count and hierarchical settings cleanly route to direct-save pipeline with AI readiness state.
-- [x] **Frontend Performance & Telemetry Optimization**:
-  - Dynamically import secondary tool panels (`TexturePanel`, `UVPanel`, `RemeshPanel`, `RiggingPanel`, `SegmentationPanel`, `AnimationPanel`) using Next.js `dynamic()` with fallback skeletons to eliminate ~258 KiB unused initial script evaluation.
-  - Flatten root redirects directly to `/workspace/generate` to eliminate 660ms double-hop redirect latency.
-  - Align Resource Monitor button `aria-label` with visible text metrics for WCAG 2.5.3 compliance.
+## 6. Phase 3: Bi-Directional Input & Control Channel
+- [ ] **DataChannel Input Protocol**:
+  - Define binary/JSON input payload schema:
+    - Orbit/Rotate: `{ action: "rotate", dx: float, dy: float }`
+    - Zoom/Dolly: `{ action: "zoom", delta: float }`
+    - Pan: `{ action: "pan", dx: float, dy: float }`
+    - View Presets: `{ action: "set_view", preset: "front" | "top" | "side" | "iso" }`
+    - Shading Toggle: `{ action: "shading", mode: "textured" | "clay" | "wireframe" }`
+    - Resize: `{ action: "resize", width: int, height: int }`
+  - Server input handler consumes events and updates camera matrices with sub-frame latency.
 
-## 7. Phase 5: Model Adapter Specifications (PartUV & SkinTokens)
-- **PartUV Adapter (`partuv_adapter.py`)**:
-  - Add missing `import sys` to eliminate `NameError`.
-  - Guard `partuv` import to ensure `preprocess` loads cleanly even if native `_core.so` is missing.
-  - Pack results and return canonical dictionary with `output_mesh_path` and `success: True`.
-- **SkinTokens Adapter (`skintokens_adapter.py`)**:
-  - Ensure thin adapter routes outputs directly to workspace target folder without intermediate temp copying.
-  - Preserve locked inference profile: TokenRig architecture, BF16 native on `sm >= 80`, FP16 on `sm < 80`.
-- **TripoSG Adapter & Patcher (`triposg_adapter.py`, `patcher/triposg/`)**:
-  - Route raw mesh exports to managed temporary paths promoted by the multiprocess scheduler to `storage/<workspace_id>/mesh/mesh.glb`.
-  - Completely eliminate diverging `triposg_output` directory creation and monkeypatching.
+## 7. Phase 4: Frontend Streaming Viewport Integration
+- [ ] **WebRTC Stream Hook (`features/workspace/hooks/useWebRTCStream.ts`)**:
+  - Manage `RTCPeerConnection`, DataChannel setup, SDP exchange, and auto-reconnection.
+  - Capture mouse drag, scroll wheel, and touch gestures from the canvas/video overlay and dispatch to DataChannel.
+  - Monitor stream health, latency stats (RTT, dropped frames), and connection state.
+- [ ] **Stream Video Viewport (`features/workspace/Viewport/StreamVideoViewer.tsx`)**:
+  - Embed low-latency `<video playsinline autoPlay muted>` receiving remote WebRTC media stream.
+  - Add transparent interaction overlay for seamless orbit controls matching Three.js OrbitControls feel.
+  - Display non-intrusive stream telemetry badge (FPS, Ping, Bitrate).
+- [ ] **Viewport Dual-Mode Switcher (`features/workspace/Viewport/ViewportToolOverlay.tsx`)**:
+  - Add "Stream Mode (Cloud GPU)" vs "Local Mode (Download)" segmented toggle.
+  - Seamless fallback to local Three.js loader if WebRTC connection fails or user explicitly downloads model.
 
-## 8. Phase 6: Error Handling & Failure Recovery Matrix
-- **Validation Failure (HTTP 400)**: Invalid mesh format or parameter bounds; no files written; viewer retains active mesh; instant warning toast.
-- **Pipeline Failure (HTTP 500)**: Script crash (e.g. missing QuadriFlow) or AI OOM; staging path unlinked; active mesh unchanged; error toast.
-- **Scheduler Cancellation**: User aborts job; worker process SIGTERM, partial files unlinked, DB job marked CANCELLED, UI returns to IDLE.
+## 8. Phase 5: Resource Management & Multi-Tenant Concurrency
+- [ ] **Session Lifecycle & Cleanup**:
+  - Heartbeat monitor: terminate sessions inactive for >5 minutes to release GPU render buffers.
+  - Process isolation: Offscreen render sessions run in dedicated worker threads/subprocesses.
+  - Multi-user port allocation and STUN/TURN fallback configuration.
 
-## 9. Phase 7: Verification & Integrity Checklist
-- [x] **Python Compilation**: Run `python3 -m compileall backend/` to guarantee zero syntax or import errors.
-- [x] **Frontend TypeScript Validation**: Run `bun tsc` or `npx tsc --noEmit` (no `bun run build`).
-- [x] **Section D Audit**: Verify zero dead references to removed endpoints, no orphan imports, and no lingering temp directories.
-
-## 10. Detailed Execution Sequence & Milestones
-- **Milestone 1**: Clean removal of temp endpoints and action bar (Section C audit passes).
-- **Milestone 2**: Backend direct publication in `publish_derived_mesh` and scheduler tool output routing.
-- **Milestone 3**: Canonical endpoints updated with `settings_snapshot` persistence and active asset promotion.
-- **Milestone 4**: Frontend state simplification (`WorkspaceContext`, `UVPanel`, `RiggingPanel`, `SegmentationPanel`).
-- **Milestone 5**: Full validation via `compileall` and `tsc --noEmit` before git push.
-- **Milestone 6**: Auto-retry loop elimination, canonical mesh output routing, TRELLIS utils3d shim, and UI retry toggle.
+## 9. Verification & Quality Gates
+- **Bandwidth Benchmark**: Verify client data consumption remains <200 KB/s during streaming (vs 80–100MB download).
+- **Latency Target**: Input-to-photon latency <= 60ms over standard broadband / 4G connections.
+- **Resource Recovery**: Closing browser tab immediately drops server GPU VRAM usage for that session to 0 MB.
