@@ -885,6 +885,7 @@ class DatabaseManager:
         sha256: str,
         thumbnail_path: Optional[str] = None,
         operation_id: Optional[str] = None,
+        operation_type: Optional[str] = None,
         is_retained: bool = True,
         status: str = "available",
     ) -> AssetModel:
@@ -895,6 +896,8 @@ class DatabaseManager:
             if asset:
                 asset.workspace_id = workspace_id
                 asset.operation_id = operation_id
+                if operation_type is not None:
+                    asset.operation_type = operation_type
                 asset.file_type = file_type
                 asset.relative_path = relative_path
                 asset.original_filename = original_filename
@@ -909,6 +912,7 @@ class DatabaseManager:
                     asset_id=asset_id,
                     workspace_id=workspace_id,
                     operation_id=operation_id,
+                    operation_type=operation_type,
                     file_type=file_type,
                     relative_path=relative_path,
                     original_filename=original_filename,

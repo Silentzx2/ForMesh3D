@@ -106,7 +106,6 @@ def _execute_script_operation_task(
             byte_size=final_mesh_path.stat().st_size,
             sha256=digest.hexdigest(),
             operation_id=operation_id,
-            operation_type=operation.operation_type,
             is_retained=1,
         )
         db.update_workspace_active_mesh(operation.workspace_id, asset.asset_id)

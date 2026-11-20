@@ -2401,6 +2401,10 @@ class MultiprocessModelScheduler:
                                 _db.update_workspace_active_mesh(_workspace_id, _mesh_asset.asset_id)
                                 if _gen_op_id:
                                     from core.scheduler.database_models import ExecutionStatus, PersistenceStatus
+                                    try:
+                                        _db.update_operation_execution_status(_gen_op_id, ExecutionStatus.PROCESSING)
+                                    except Exception:
+                                        pass
                                     _db.update_operation_execution_status(
                                         _gen_op_id,
                                         ExecutionStatus.COMPLETED,
