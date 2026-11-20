@@ -1812,6 +1812,25 @@ async def download_job_result(
                                 filename=filename or cand.name,
                                 media_type=get_content_type_for_file(str(cand)),
                             )
+                if op.workspace_id:
+                    op_ws = db.get_workspace(op.workspace_id)
+                    if op_ws and op_ws.active_mesh_asset_id:
+                        active_ast = db.get_asset(op_ws.active_mesh_asset_id)
+                        if active_ast and active_ast.relative_path:
+                            ast_file = (storage_base / op.workspace_id / active_ast.relative_path).resolve()
+                            if ast_file.is_file() and ast_file.is_relative_to(storage_base):
+                                return FileResponse(
+                                    path=str(ast_file),
+                                    filename=filename or active_ast.original_filename,
+                                    media_type=get_content_type_for_file(str(ast_file)),
+                                )
+                    direct_base = (storage_base / op.workspace_id / "mesh" / "mesh.glb").resolve()
+                    if direct_base.is_file() and direct_base.is_relative_to(storage_base):
+                        return FileResponse(
+                            path=str(direct_base),
+                            filename=filename or "mesh.glb",
+                            media_type=get_content_type_for_file(str(direct_base)),
+                        )
             # Direct fallback: generated mesh is saved at <workspace_id>/mesh/mesh.glb
             # by the scheduler. asset_root/output_mesh_path may not be in Redis when
             # job_id is actually a workspace_id (frontend passes workspace_id as job_id).

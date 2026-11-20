@@ -6,7 +6,9 @@ it without touching the model scheduler.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
 import logging
 import shutil
 import uuid
@@ -214,7 +216,7 @@ async def execute_script_operation(
             staged_output.unlink(missing_ok=True)
             raise HTTPException(status_code=409, detail="An identical operation is already queued or processing")
 
-        background_tasks.add_task(
+        await asyncio.to_thread(
             _execute_script_operation_task,
             db=db,
             storage=storage,
@@ -229,15 +231,26 @@ async def execute_script_operation(
         raise
     except Exception as exc:
         staged_output.unlink(missing_ok=True)
-        logger.exception("Could not queue Script operation")
-        raise HTTPException(status_code=500, detail=f"Could not queue Script operation: {exc}") from exc
+        logger.exception("Could not run Script operation")
+        raise HTTPException(status_code=500, detail=f"Could not run Script operation: {exc}") from exc
+
+    completed_op = db.get_operation(operation.operation_id)
+    op_res = {}
+    if completed_op and completed_op.result_json:
+        try:
+            op_res = json.loads(completed_op.result_json)
+        except Exception:
+            pass
 
     return {
         "job_id": operation.operation_id,
-        "status": ExecutionStatus.QUEUED,
-        "message": "Script operation queued",
+        "status": completed_op.execution_status if completed_op else ExecutionStatus.COMPLETED,
+        "message": "Script operation completed",
         "workspace_id": workspace_id,
         "operation_id": operation.operation_id,
+        "asset_id": op_res.get("asset_id"),
+        "model_url": f"/api/v1/system/jobs/{operation.operation_id}/download?artifact_format={fmt}",
+        "preview_url": f"/api/v1/system/jobs/{operation.operation_id}/download?artifact_format={fmt}",
         "format": fmt,
-        "stats": None,
+        "stats": op_res.get("stats"),
     }
