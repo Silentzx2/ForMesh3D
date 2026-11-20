@@ -297,6 +297,10 @@ export function useWebRTCStream({
           pcRef.current.close();
           pcRef.current = null;
         }
+        if (dataChannelRef.current) {
+          try { dataChannelRef.current.close(); } catch {}
+          dataChannelRef.current = null;
+        }
       }
     }
 
