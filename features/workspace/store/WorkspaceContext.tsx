@@ -2535,12 +2535,23 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   }, [remeshSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId, addAsset, selectAsset, setViewportResetTrigger]);
 
   const runTextureGeneration = useCallback(async () => {
-    const originalRefImage = currentAsset?.referenceImage || currentAsset?.inputImage || (currentAsset?.category === 'generation' ? currentAsset?.thumbnail : undefined);
-    const referenceImageFileId = currentAsset?.referenceImageFileId || (currentAsset as any)?.fileId;
-    const hasImageReference = Boolean(originalRefImage || referenceImageFileId);
-    const modelPreference = hasImageReference
-      ? (textureSettings.modelId || 'hunyuan3d_paint_v21_image_mesh_painting')
-      : 'trellis_text_mesh_painting';
+    // Texture generation is standalone: operates on an existing mesh + reference image.
+    // The mesh reference comes from the currently selected asset; the image reference
+    // comes from textureSettings (never from the mesh asset's fileId).
+    if (!currentAsset) {
+      const message = 'No mesh selected. Please select a 3D mesh to texture.';
+      setIsExecuting(false);
+      setExecutionStep(message);
+      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
+      toast.error(message);
+      return;
+    }
+
+    const referenceImage = textureSettings.referenceImage;
+    const referenceImageFileId = textureSettings.referenceImageFileId;
+    const hasImageReference = Boolean(referenceImage || referenceImageFileId);
+
+    const modelPreference = textureSettings.modelId || 'hunyuan3d_paint_v21_image_mesh_painting';
 
     const localTaskId = startTask('texture', 'Texture generation', undefined, modelPreference, undefined, undefined, comparisonGroupId ?? undefined, comparisonSourceUrl(currentAsset));
     const signal = activeAbortControllerRef.current?.signal;
@@ -2550,7 +2561,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         { ...textureSettings, modelId: modelPreference },
         meshRef,
         {
-          url: originalRefImage,
+          url: referenceImage,
           fileId: referenceImageFileId,
         },
       );

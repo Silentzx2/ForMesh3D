@@ -258,7 +258,6 @@ export const TexturePanel: React.FC = () => {
     executionProgress,
     executionStep,
     cancelExecution,
-    generate3DModel,
     runTextureGeneration,
     generationSettings,
     setGenerationSettings,
@@ -660,15 +659,19 @@ export const TexturePanel: React.FC = () => {
 
   const handleGenerate = async () => {
     if (!generationSettings.image && !imagePreview && !textureSettings.referenceImage) {
-      toast.error('Please upload an image first');
+      toast.error('Please upload a reference image first');
+      return;
+    }
+    if (!currentAsset) {
+      toast.error('Please select a 3D mesh to texture');
+      return;
+    }
+    if (!runTextureGeneration) {
+      toast.error('Texture generation is not available');
       return;
     }
     try {
-      if (runTextureGeneration && currentAsset) {
-        await runTextureGeneration();
-      } else {
-        await generate3DModel();
-      }
+      await runTextureGeneration();
     } catch (err: any) {
       toast.error(`Texture generation failed: ${err.message || 'Unknown error'}`);
     }
