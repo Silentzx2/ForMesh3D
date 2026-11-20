@@ -194,10 +194,16 @@ async def segment_mesh(
         if request.mesh_file_id:
             # Handle file ID (uses Redis in multi-worker mode)
             mesh_file_path = await resolve_file_id_async(request.mesh_file_id, file_store)
-            if not mesh_file_path:
-                raise HTTPException(
-                    status_code=404, detail="Mesh file not found or expired"
-                )
+            if not mesh_file_path and input_asset and input_asset.relative_path:
+                storage_base = get_storage_base_dir().resolve()
+                if getattr(input_asset, "workspace_id", None):
+                    cand = (storage_base / input_asset.workspace_id / input_asset.relative_path).resolve()
+                    if cand.is_file() and cand.is_relative_to(storage_base):
+                        mesh_file_path = str(cand)
+                if not mesh_file_path:
+                    cand = (storage_base / input_asset.relative_path).resolve()
+                    if cand.is_file() and cand.is_relative_to(storage_base):
+                        mesh_file_path = str(cand)
         elif request.mesh_base64:
             valid, content_type, mesh_data = validate_base64_data(
                 request.mesh_base64, MAX_MESH_BASE64_BYTES

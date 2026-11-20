@@ -207,10 +207,16 @@ async def unwrap_mesh(
         if request.mesh_file_id:
             # Handle file ID (uses Redis in multi-worker mode)
             mesh_file_path = await resolve_file_id_async(request.mesh_file_id, file_store)
-            if not mesh_file_path:
-                raise HTTPException(
-                    status_code=404, detail="Mesh file not found or expired"
-                )
+            if not mesh_file_path and input_asset and input_asset.relative_path:
+                storage_base = get_storage_base_dir().resolve()
+                if getattr(input_asset, "workspace_id", None):
+                    cand = (storage_base / input_asset.workspace_id / input_asset.relative_path).resolve()
+                    if cand.is_file() and cand.is_relative_to(storage_base):
+                        mesh_file_path = str(cand)
+                if not mesh_file_path:
+                    cand = (storage_base / input_asset.relative_path).resolve()
+                    if cand.is_file() and cand.is_relative_to(storage_base):
+                        mesh_file_path = str(cand)
         elif request.mesh_path:
             # mesh_path may be a download URL or bare /{file_id} path from an upstream job
             mesh_file_path = await resolve_input_reference_async(
@@ -224,11 +230,8 @@ async def unwrap_mesh(
             try:
                 mesh_file_path = resolve_server_file_path(mesh_file_path)
             except FileUploadError:
-                # Unresolvable URL/path (asset deleted or never registered on disk)
-                raise HTTPException(
-                    status_code=404,
-                    detail="Mesh file not found on the server. Re-import or regenerate the model, then retry.",
-                )
+                # If mesh_file_path was a URL or non-direct path, fall back to target workspace
+                mesh_file_path = None
 
         if target_ws_id and not mesh_file_path:
             ws = db.get_workspace(target_ws_id)
@@ -244,7 +247,7 @@ async def unwrap_mesh(
         # Validate tool prerequisites
         if not mesh_file_path:
             raise HTTPException(
-                status_code=400, detail="Mesh path or file ID must be provided"
+                status_code=400, detail="Mesh path or file ID must be provided and resolvable"
             )
 
         if not Path(mesh_file_path).exists():

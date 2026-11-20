@@ -453,14 +453,63 @@ async def get_file_path_impl(
     try:
         from core.scheduler.database_manager import DatabaseManager
         db = DatabaseManager()
+        storage_base = get_storage_base_dir().resolve()
+
         asset = db.get_asset(clean_id)
         if asset and asset.relative_path:
             candidate = Path(asset.relative_path)
             if not candidate.is_absolute():
-                candidate = get_storage_base_dir().resolve() / candidate
-            candidate = candidate.resolve(strict=False)
-            if candidate.is_file() and candidate.is_relative_to(get_storage_base_dir().resolve()):
+                if getattr(asset, "workspace_id", None):
+                    ws_cand = (storage_base / asset.workspace_id / candidate).resolve()
+                    if ws_cand.is_file() and ws_cand.is_relative_to(storage_base):
+                        return str(ws_cand)
+                candidate = (storage_base / candidate).resolve()
+            else:
+                candidate = candidate.resolve(strict=False)
+            if candidate.is_file() and candidate.is_relative_to(storage_base):
                 return str(candidate)
+
+        op = db.get_operation(clean_id)
+        if op:
+            if op.result_json:
+                try:
+                    op_res = json.loads(op.result_json)
+                    if isinstance(op_res, dict):
+                        out_p = op_res.get("output_path")
+                        if out_p:
+                            cand = Path(out_p).resolve()
+                            if cand.is_file() and cand.is_relative_to(storage_base):
+                                return str(cand)
+                        rel_p = op_res.get("relative_mesh_path")
+                        if rel_p and op.workspace_id:
+                            cand = (storage_base / op.workspace_id / rel_p).resolve()
+                            if cand.is_file() and cand.is_relative_to(storage_base):
+                                return str(cand)
+                        op_ast_id = op_res.get("asset_id")
+                        if op_ast_id:
+                            op_ast = db.get_asset(op_ast_id)
+                            if op_ast and op_ast.relative_path and op_ast.workspace_id:
+                                cand = (storage_base / op_ast.workspace_id / op_ast.relative_path).resolve()
+                                if cand.is_file() and cand.is_relative_to(storage_base):
+                                    return str(cand)
+                except Exception:
+                    pass
+            if op.workspace_id:
+                ws = db.get_workspace(op.workspace_id)
+                if ws and ws.active_mesh_asset_id:
+                    act_ast = db.get_asset(ws.active_mesh_asset_id)
+                    if act_ast and act_ast.relative_path:
+                        cand = (storage_base / ws.workspace_id / act_ast.relative_path).resolve()
+                        if cand.is_file() and cand.is_relative_to(storage_base):
+                            return str(cand)
+
+        ws = db.get_workspace(clean_id)
+        if ws and ws.active_mesh_asset_id:
+            act_ast = db.get_asset(ws.active_mesh_asset_id)
+            if act_ast and act_ast.relative_path:
+                cand = (storage_base / ws.workspace_id / act_ast.relative_path).resolve()
+                if cand.is_file() and cand.is_relative_to(storage_base):
+                    return str(cand)
     except Exception:
         pass
 

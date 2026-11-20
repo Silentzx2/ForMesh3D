@@ -370,6 +370,7 @@ def model_worker_process(
     device_label = "CPU" if cpu_only else f"GPU {gpu_id}"
     # Clear stale __pycache__ so worker always loads latest adapter code
     # (prevents old .pyc from being used after a code update without full restart)
+    import os
     import shutil as _shutil
     from pathlib import Path as _Path
     _repo_root = _Path(__file__).resolve().parents[3]
@@ -398,7 +399,6 @@ def model_worker_process(
         # Set up process environment
         logger.info(f"Starting worker process {worker_id} on {device_label}")
         # At the very beginning we try to login huggingface for the download of some special models
-        import os
         from huggingface_hub import InferenceClient, login
 
         hf_token = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HF_TOKEN")

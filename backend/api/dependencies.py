@@ -84,18 +84,20 @@ class SchedulerAdapter:
         """Get job status (compatible with both modes)"""
         if self._scheduler:
             return await self._scheduler.get_job_status(job_id)
-        else:
+        elif self._job_queue:
             return await self._job_queue.get_job(job_id)
+        return None
     
     async def cancel_job(self, job_id: str) -> bool:
         """Cancel a job (compatible with both modes)"""
         if self._scheduler:
             return await self._scheduler.cancel_job(job_id)
-        else:
+        elif self._job_queue:
             request_cancel = getattr(self._job_queue, "request_cancel", None)
             if callable(request_cancel):
                 return await request_cancel(job_id)
             return await self._job_queue.cancel_job(job_id)
+        return False
     
     async def get_system_status(self) -> Dict[str, Any]:
         """Get system status"""
