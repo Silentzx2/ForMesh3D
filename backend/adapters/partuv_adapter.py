@@ -68,6 +68,28 @@ class PartUVUnwrappingAdapter(BaseModel):
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading PartUV from %s", weights_dir)
 
+        # Resolve checkpoint and expose via env var so thirdparty code can find it
+        ckpt_path = weights_dir / "model_objaverse.ckpt"
+        if not ckpt_path.is_file():
+            # Try auto-download via huggingface_hub if available
+            try:
+                from huggingface_hub import hf_hub_download
+                logger.info("model_objaverse.ckpt not found locally; downloading from HuggingFace...")
+                hf_hub_download(
+                    repo_id="mikaelaangel/partfield-ckpt",
+                    filename="model_objaverse.ckpt",
+                    local_dir=str(weights_dir),
+                )
+                logger.info("model_objaverse.ckpt downloaded to %s", ckpt_path)
+            except Exception as exc:
+                logger.warning(
+                    "model_objaverse.ckpt not found at %s and auto-download failed: %s. "
+                    "Run: ./manager.sh -> Models -> [12] PartUV",
+                    ckpt_path, exc,
+                )
+        import os as _os
+        _os.environ["PARTUV_CHECKPOINT_PATH"] = str(ckpt_path)
+
         # Ensure Trimesh 4/5 compatibility for legacy PartUV operations in worker
         try:
             import trimesh
