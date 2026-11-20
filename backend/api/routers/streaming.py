@@ -204,8 +204,18 @@ async def handle_sdp_offer(session_id: str, req: SDPOfferRequest) -> Dict[str, A
             await session.close()
 
     offer = RTCSessionDescription(sdp=req.sdp, type=req.type)
+    await pc.setRemoteDescription(offer)
+
+    # Root cause: aiortc crashes with "None is not in list" in
+    # createAnswer()/setLocalDescription() when a locally-added track (our
+    # video track) has no matching remote media line, leaving the
+    # transceiver's _offerDirection unset (None). Guard every transceiver so
+    # WebRTC negotiation can proceed instead of failing the stream.
+    for t in pc.getTransceivers():
+        if t._offerDirection is None:
+            t._offerDirection = t.direction or "sendrecv"
+
     try:
-        await pc.setRemoteDescription(offer)
         answer = await pc.createAnswer()
         await pc.setLocalDescription(answer)
     except Exception as exc:
