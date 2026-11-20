@@ -28,7 +28,7 @@ from starlette.background import BackgroundTask
 from api.dependencies import get_current_settings, get_scheduler, sanitize_error_message, verify_api_key
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
 from core.utils.artifact_utils import first_result_path, resolve_declared_artifact, resolve_manifest_path
-from core.utils.file_utils import encode_file_to_base64, get_file_size_mb, get_storage_base_dir
+from core.utils.file_utils import encode_file_to_base64, get_file_size_mb, get_storage_base_dir, get_workspace_storage_manager
 
 DEFAULT_MESH_THUMBNAIL_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">'
@@ -1764,6 +1764,42 @@ async def download_job_result(
                     )
             op = db.get_operation(job_id)
             if op:
+                storage_base = get_storage_base_dir().resolve()
+                if op.result_json:
+                    try:
+                        op_res = json.loads(op.result_json)
+                        if isinstance(op_res, dict):
+                            out_p = op_res.get("output_path")
+                            if out_p:
+                                out_p_path = Path(out_p).resolve()
+                                if out_p_path.is_file() and out_p_path.is_relative_to(storage_base):
+                                    return FileResponse(
+                                        path=str(out_p_path),
+                                        filename=filename or out_p_path.name,
+                                        media_type=get_content_type_for_file(str(out_p_path)),
+                                    )
+                            rel_p = op_res.get("relative_mesh_path")
+                            if rel_p and op.workspace_id:
+                                rel_path = (storage_base / op.workspace_id / rel_p).resolve()
+                                if rel_path.is_file() and rel_path.is_relative_to(storage_base):
+                                    return FileResponse(
+                                        path=str(rel_path),
+                                        filename=filename or rel_path.name,
+                                        media_type=get_content_type_for_file(str(rel_path)),
+                                    )
+                            op_asset_id = op_res.get("asset_id")
+                            if op_asset_id:
+                                op_ast = db.get_asset(op_asset_id)
+                                if op_ast:
+                                    ast_file = (storage_base / op_ast.workspace_id / op_ast.relative_path).resolve()
+                                    if ast_file.is_file() and ast_file.is_relative_to(storage_base):
+                                        return FileResponse(
+                                            path=str(ast_file),
+                                            filename=filename or op_ast.original_filename,
+                                            media_type=get_content_type_for_file(str(ast_file)),
+                                        )
+                    except Exception:
+                        pass
                 mgr = get_workspace_storage_manager()
                 temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / job_id)
                 temp_dir = temp_dir.resolve()
@@ -2176,15 +2212,35 @@ async def download_job_thumbnail(
                             media_type="image/png",
                         )
             asset = db.get_asset(job_id)
-            if asset and asset.thumbnail_path:
+            if asset:
                 storage_base = get_storage_base_dir().resolve()
-                thumb_path = (storage_base / asset.workspace_id / asset.thumbnail_path).resolve()
-                if thumb_path.is_file() and thumb_path.is_relative_to(storage_base):
+                if asset.thumbnail_path:
+                    thumb_path = (storage_base / asset.workspace_id / asset.thumbnail_path).resolve()
+                    if thumb_path.is_file() and thumb_path.is_relative_to(storage_base):
+                        return FileResponse(
+                            path=str(thumb_path),
+                            filename=filename or f"{job_id}_thumb.png",
+                            media_type="image/png",
+                        )
+                # If asset has no thumbnail, check workspace active mesh or thumbnail dir
+                cand_thumb = (storage_base / asset.workspace_id / "mesh" / "thumbnail.png").resolve()
+                if cand_thumb.is_file() and cand_thumb.is_relative_to(storage_base):
                     return FileResponse(
-                        path=str(thumb_path),
+                        path=str(cand_thumb),
                         filename=filename or f"{job_id}_thumb.png",
                         media_type="image/png",
                     )
+                # Fallback to default SVG placeholder
+                svg_bytes = DEFAULT_MESH_THUMBNAIL_SVG.encode("utf-8")
+                return Response(
+                    content=svg_bytes,
+                    media_type="image/svg+xml",
+                    headers={
+                        "X-Job-ID": job_id,
+                        "X-Thumbnail-Generated": "placeholder",
+                        "Cache-Control": "public, max-age=3600",
+                    },
+                )
             raise HTTPException(status_code=404, detail="Job not found")
 
         if job_status.get("status") != "completed":

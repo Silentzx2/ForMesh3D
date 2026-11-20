@@ -109,6 +109,10 @@ def _execute_script_operation_task(
             is_retained=1,
         )
         db.update_workspace_active_mesh(operation.workspace_id, asset.asset_id)
+        try:
+            db.update_operation_persistence_status(operation_id, PersistenceStatus.SAVING)
+        except Exception:
+            pass
         db.update_operation_persistence_status(operation_id, PersistenceStatus.SAVED)
 
         if raw_path != final_mesh_path:

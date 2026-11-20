@@ -6,7 +6,7 @@ Provides endpoints for generating optimized UV coordinates for 3D meshes.
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -106,7 +106,23 @@ class MeshUVUnwrappingRequest(BaseModel):
     workspace_id: Optional[str] = Field(None, description="Target workspace ID")
     engine: str = Field("ai", description="Execution engine: ai or script")
     parent_operation_id: Optional[str] = Field(None, description="Parent operation for retry/regeneration")
-    atlas_resolution: int = Field(2048, ge=256, le=8192)
+    atlas_resolution: Union[int, str] = Field(2048, description="Atlas resolution (int e.g. 2048 or str e.g. '2K')")
+
+    @field_validator("atlas_resolution", mode="before")
+    @classmethod
+    def parse_atlas_resolution(cls, v):
+        if isinstance(v, str):
+            clean = v.strip().upper()
+            if clean.endswith("K"):
+                try:
+                    return int(clean[:-1]) * 1024
+                except ValueError:
+                    pass
+            try:
+                return int(clean)
+            except ValueError:
+                pass
+        return v
     island_margin: int = Field(4, ge=0, le=64)
     unwrap_strategy: str = "hybrid"
     max_cone_deg: float = Field(66.0, ge=1.0, le=180.0)

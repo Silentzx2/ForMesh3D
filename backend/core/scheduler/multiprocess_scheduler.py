@@ -2360,6 +2360,10 @@ class MultiprocessModelScheduler:
                                         "format": _dst.suffix.lower().lstrip("."),
                                     },
                                 )
+                                try:
+                                    _db.update_operation_persistence_status(_op_id, PersistenceStatus.SAVING)
+                                except Exception:
+                                    pass
                                 _db.update_operation_persistence_status(_op_id, PersistenceStatus.SAVED)
                         else:
                             # Generation jobs: copy to canonical workspace {workspace_id}/mesh/mesh.glb
@@ -2416,6 +2420,10 @@ class MultiprocessModelScheduler:
                                             "format": "glb",
                                         },
                                     )
+                                    try:
+                                        _db.update_operation_persistence_status(_gen_op_id, PersistenceStatus.SAVING)
+                                    except Exception:
+                                        pass
                                     _db.update_operation_persistence_status(_gen_op_id, PersistenceStatus.SAVED)
                             except Exception as _db_error:
                                 logger.warning(f"Failed to sync generated mesh asset to workspace DB: {_db_error}")
