@@ -2876,7 +2876,12 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
         num_parts: numParts,
         output_format: outputFormat,
-        model_preference: pref,
+        model_preference: pref || 'partfield_segmentation',
+        method: settingsObj.method || 'semantic',
+        hierarchical: Boolean(settingsObj.hierarchical),
+        min_face_island_threshold: Number(settingsObj.minFaceIslandThreshold ?? settingsObj.modelParameters?.min_face_island_threshold ?? 50),
+        colorize_preview: settingsObj.colorizePreview ?? settingsObj.modelParameters?.colorize_preview ?? true,
+        save_individual_parts: settingsObj.saveIndividualParts ?? settingsObj.modelParameters?.save_individual_parts ?? false,
         ...meshRef,
       };
       if (settingsObj.modelParameters) {

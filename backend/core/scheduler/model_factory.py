@@ -145,6 +145,11 @@ class ModelFactory:
             "module": "adapters.partuv_adapter",
             "class": "PartUVUnwrappingAdapter",
         },
+        # PartField segmentation adapters
+        "partfield_segmentation": {
+            "module": "adapters.partfield_adapter",
+            "class": "PartFieldSegmentationAdapter",
+        },
         # TripoSG adapter
         "triposg_image_to_raw_mesh": {
             "module": "adapters.triposg_adapter",

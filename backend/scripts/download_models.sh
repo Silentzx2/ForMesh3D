@@ -119,7 +119,7 @@ VERIFY_ONLY=false
 FORCE_DOWNLOAD=false
 
 # Available models
-AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "stable_fast_3d" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "fastmesh" "triflow" "triposg" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
+AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "stable_fast_3d" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "fastmesh" "triflow" "partfield" "triposg" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
 
 show_help() {
     cat << EOF
@@ -738,6 +738,26 @@ download_triflow() {
     fi
 }
 
+# Function to download PartField models (NVIDIA 3D Part Segmentation)
+download_partfield() {
+    print_info "========================================"
+    print_info "Downloading PartField Model (NVIDIA Mesh Part Segmentation)"
+    print_info "========================================"
+
+    local partfield_checkpoint_path="$PRETRAINED_DIR/PartField/model_objaverse.ckpt"
+    if [ "$FORCE_DOWNLOAD" = false ] && verify_file "$partfield_checkpoint_path" 50000000; then
+        print_info "PartField checkpoint already exists and verified"
+        return 0
+    else
+        mkdir -p "$PRETRAINED_DIR/PartField"
+        download_with_verify \
+            "https://huggingface.co/mikaelaangel/partfield-ckpt/resolve/main/model_objaverse.ckpt" \
+            "$partfield_checkpoint_path" \
+            "PartField checkpoint"
+        print_success "PartField checkpoint downloaded successfully"
+    fi
+}
+
 # Function to download TripoSG and RMBG models
 download_triposg() {
     print_info "========================================"
@@ -1293,6 +1313,9 @@ for model in "${MODELS_ARRAY[@]}"; do
         "triflow")
             download_triflow
             ;;
+        "partfield")
+            download_partfield
+            ;;
         "triposg")
             download_triposg
             ;;
@@ -1322,6 +1345,8 @@ for model in "${MODELS_ARRAY[@]}"; do
             download_trellis2
             download_skintokens
             download_partuv
+            download_partfield
+            download_triflow
             download_fastmesh
             download_triposg
             download_ardy

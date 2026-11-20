@@ -474,7 +474,7 @@ export const SegmentationPanel: React.FC = () => {
               isDragOver
                 ? 'border-[#F9CF00] bg-[#1c1d2c] ring-1 ring-[#F9CF00]/40'
                 : 'border-white/[0.12] hover:border-white/25 bg-[#0f1019]'
-            } [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:16px_16px] [background-position:0_0,0_8px,8px_-8px,-8px_0px]`}
+            }`}
           >
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-transform mb-2 ${
@@ -541,13 +541,11 @@ export const SegmentationPanel: React.FC = () => {
           </div>
         )}
 
-        {/* Dual-Engine Mode Switcher: AI Model vs Fast Script */}
+        {/* Dual-Engine Mode Switcher: AI Model (PartField) vs Fast Script */}
         <EngineModeSelector
           mode={engineMode}
           onChange={setEngineMode}
           tool="segment"
-          aiDisabled={true}
-          aiDisabledReason="No AI model registered on server"
         />
 
         {/* 3. Target Parts (Single-Row Preset Pills) */}

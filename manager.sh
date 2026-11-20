@@ -235,6 +235,7 @@ cmd_models() {
         printf "  ${CYAN}[17]${NC} Pixal3D             - High-quality pixel-aligned (Not Tested)\n"
         printf "  ${CYAN}[18]${NC} TaoFlowForge        - Progressive native mesh generation (Alibaba)\n"
         printf "  ${CYAN}[19]${NC} TriFlow             - Neural Quad-Dominant Retopology (TUM/Audi)\n"
+        printf "  ${CYAN}[20]${NC} PartField           - 3D Feature Fields for Part Segmentation (NVIDIA)\n"
         printf "\n"
         printf "  ${CYAN}[a]${NC}  Download ALL models\n"
         printf "  ${CYAN}[v]${NC}  Verify existing models only\n"
@@ -288,6 +289,7 @@ cmd_models() {
                         17) models_csv="${models_csv}pixal3d," ;;
                         18) models_csv="${models_csv}taoflowforge," ;;
                         19) models_csv="${models_csv}triflow," ;;
+                        20) models_csv="${models_csv}partfield," ;;
                          *)
                             echo -e "${RED}[✗]${NC} Invalid selection: $num"
                             sleep 1

@@ -163,6 +163,8 @@ async def segment_mesh(
     try:
         user_id = None
         if request.engine != "script":
+            if not request.model_preference:
+                request.model_preference = "partfield_segmentation"
             scheduler = await get_scheduler(http_request)
             validate_model_preference(request.model_preference, "mesh_segmentation", scheduler)
 
@@ -325,6 +327,11 @@ async def segment_mesh(
                 parent_operation_id=request.parent_operation_id,
                 settings={
                     "num_parts": request.num_parts,
+                    "method": request.method,
+                    "hierarchical": request.hierarchical,
+                    "min_face_island_threshold": request.min_face_island_threshold,
+                    "colorize_preview": request.colorize_preview,
+                    "save_individual_parts": request.save_individual_parts,
                     "output_format": request.output_format,
                     **(request.model_parameters or {}),
                 },
@@ -337,6 +344,11 @@ async def segment_mesh(
             inputs={
                 "mesh_path": mesh_file_path,
                 "num_parts": request.num_parts,
+                "method": request.method,
+                "hierarchical": request.hierarchical,
+                "min_face_island_threshold": request.min_face_island_threshold,
+                "colorize_preview": request.colorize_preview,
+                "save_individual_parts": request.save_individual_parts,
                 "output_format": request.output_format,
                 "workspace_id": target_ws_id,
                 "operation_id": operation_id,

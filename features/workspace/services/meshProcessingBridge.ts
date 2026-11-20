@@ -277,6 +277,13 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
         ? '/api/v1/unwrap'
         : '/api/v1/segment';
 
+    const defaultModelPref =
+      tool === 'segment'
+        ? 'partfield_segmentation'
+        : tool === 'uv'
+        ? 'partuv_uv_unwrapping'
+        : 'triflow_retopology';
+
     const body: Record<string, any> = {
       output_format: params.outputFormat || 'glb',
       target_polycount: Number(params.targetPolycount ?? params.target_faces ?? 50000),
@@ -285,7 +292,15 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
       feature_angle: Number(params.featureAngle ?? params.feature_angle ?? 45),
       adaptive: params.adaptiveDensity ?? params.adaptive ?? true,
       watertight: params.watertightHealing ?? params.watertight ?? false,
-      model_preference: params.model_preference || 'triflow_retopology',
+      model_preference: params.model_preference || defaultModelPref,
+      ...(tool === 'segment' ? {
+        num_parts: Number(params.numParts ?? params.num_parts ?? 8),
+        method: params.method || 'semantic',
+        hierarchical: Boolean(params.hierarchical),
+        min_face_island_threshold: Number(params.minFaceIslandThreshold ?? params.min_face_island_threshold ?? 50),
+        colorize_preview: params.colorizePreview !== false,
+        save_individual_parts: Boolean(params.saveIndividualParts),
+      } : {}),
       ...(workspaceId ? { workspace_id: workspaceId } : {}),
       ...(parentOperationId ? { parent_operation_id: parentOperationId } : {}),
       ...meshRef,

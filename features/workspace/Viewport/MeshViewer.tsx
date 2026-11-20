@@ -1183,7 +1183,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     // Parse part index from id like "p1" -> 0, "p2" -> 1, etc.
     const match = hoveredPartId.match(/^p(\d+)$/);
     if (!match) return;
-    const meshIndex = parseInt(match[1], 1) - 1;
+    const meshIndex = parseInt(match[1], 10) - 1;
 
     let meshCount = 0;
     group.traverse((child) => {

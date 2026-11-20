@@ -650,6 +650,11 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
         $UV_PIP install -e backend/thirdparty/triflow/third_party/pyfqmr-triflow || echo "[WARN] pyfqmr-triflow install failed"
     fi
 
+    # PartField — NVIDIA 3D Feature Fields for Part Segmentation (backend/thirdparty/PartField)
+    if [ -d "backend/thirdparty/PartField" ]; then
+        echo "[INFO] PartField source present at backend/thirdparty/PartField."
+    fi
+
     echo "[SUCCESS] Model dependencies installed."
 else
     echo "[INFO] Skipping model dependencies (no GPU detected)."

@@ -37,15 +37,11 @@ export const EngineModeSelector: React.FC<EngineModeSelectorProps> = ({
   const isAiDisabled =
     aiDisabled !== undefined
       ? aiDisabled
-      : tool === 'segment'
-      ? true
       : !hasGpu;
 
   const disabledReason =
     aiDisabledReason ||
-    (tool === 'segment'
-      ? 'No AI model registered on server'
-      : !hasGpu
+    (!hasGpu
       ? 'No GPU available'
       : 'AI mode unavailable');
 
@@ -57,7 +53,9 @@ export const EngineModeSelector: React.FC<EngineModeSelectorProps> = ({
         : tool === 'uv'
         ? (hasGpu ? 'GPU (PartUV)' : 'GPU Offline')
         : tool === 'remesh'
-        ? (hasGpu ? 'GPU (FastMesh)' : 'GPU Offline')
+        ? (hasGpu ? 'GPU (TriFlow)' : 'GPU Offline')
+        : tool === 'segment'
+        ? (hasGpu ? 'GPU (PartField)' : 'GPU Offline')
         : (hasGpu ? 'GPU Neural' : 'GPU Offline'))
     : 'CPU Script';
 

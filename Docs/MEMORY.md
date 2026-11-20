@@ -19,6 +19,7 @@
 - **Direct Workspace Persistence**: Tool operations write directly to `storage/<workspace_id>/<tool_type>/<ws_id>_<tool>_v00X.glb` via `publish_derived_mesh`.
 - **Durable Versioning & Promotion**: Every run creates a durable `AssetModel` row in SQLite with `settings_snapshot` and automatically updates `active_mesh_asset_id`.
 - **AI Neural Engines**:
+  - **Segmentation**: Powered by **PartField** (`partfield_segmentation`, 8GB VRAM, continuous 3D feature fields + Agglomerative face clustering) via `POST /api/v1/segment` (`engine: "ai"`). Checkpoint `backend/pretrained/PartField/model_objaverse.ckpt`.
   - **Retopology**: Powered by **TriFlow** (`triflow_retopology`, 10GB VRAM, Latent Flow Matching with Nearest-Vertex Vector Fields and constrained QEM decimation for dynamic 5k to 200k face budgets and quad-dominant topology) via `POST /api/v1/retopo` (`engine: "ai"`).
   - **Auto-Rigging**: Powered by **SkinTokens** (14GB VRAM, TokenRig autoregressive discrete skin tokens) via `POST /api/v1/rig`.
   - **Smart UV Unwrapping**: Powered by **PartUV** (8GB VRAM) via `POST /api/v1/unwrap` (`engine: "ai"`). Absolute checkpoint path resolution via `PARTUV_CHECKPOINT_PATH` and auto-download from HuggingFace (`mikaelaangel/partfield-ckpt`).
@@ -40,7 +41,8 @@
 
 ### 6. Verification Status
 - **Verification (`2026-11-20`)**:
+  - `backend/tests/test_partfield_adapter.py`: 6/6 unit tests passed.
   - `backend/tests/test_triflow_adapter.py`: 5/5 unit tests passed.
   - `python3 -m py_compile`: Zero syntax or import errors.
   - `npx tsc --noEmit`: Exited `0` (zero TypeScript errors).
-  - Submodules synced under `backend/thirdparty/triflow/third_party/`.
+  - Submodules and vendored directories cleaned of nested `.git` folders.

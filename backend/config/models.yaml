@@ -415,7 +415,26 @@ image_mesh_painting:
       texture_generation: true
       texture_refine: true
     model_type: texture
-mesh_segmentation: {}
+mesh_segmentation:
+  partfield_segmentation:
+    model_name: "PartField — 3D Feature Fields for Part Segmentation"
+    ui_label: PartField AI Segmentation
+    ui_tag: Segmentation
+    ui_note: Neural feature field clustering (Agglomerative)
+    ui_badge: 8GB VRAM
+    enabled: true
+    upstream_repository: https://github.com/nv-tlabs/PartField
+    upstream_ref: null
+    checkpoint_license: Research / Open-source
+    vram_requirement: 8192
+    max_workers: 1
+    supported_inputs:
+    - obj
+    - glb
+    - ply
+    supported_outputs:
+    - glb
+    - obj
 auto_rig:
   skintokens_auto_rigging:
     model_name: "SkinTokens \u2014 Unified Autoregressive Rigging"

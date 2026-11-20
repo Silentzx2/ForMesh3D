@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
@@ -172,6 +172,16 @@ export const DynamicSegmentationInspector: React.FC = () => {
   const totalFaces = useMemo(() => parts.reduce((acc, p) => acc + p.faces, 0), [parts]);
   const visibleCount = useMemo(() => parts.filter((p) => p.visible).length, [parts]);
 
+  const handleSelectId = useCallback((id: string) => {
+    setSelectedPartId(id);
+    const p = parts.find((x) => x.id === id);
+    if (p) toast.info(`Selected Part: ${p.name}`);
+  }, [parts]);
+
+  const handleHoverId = useCallback((id: string | null) => {
+    setHoveredPartId(id);
+  }, [setHoveredPartId]);
+
   // Toggle visibility of individual part and update activeModelObject mesh in Three.js scene
   const togglePartVisibility = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -311,12 +321,8 @@ export const DynamicSegmentationInspector: React.FC = () => {
       <RealModelPreviewCanvas
         mode="segmentation"
         selectedId={selectedPartId}
-        onSelectId={(id) => {
-          setSelectedPartId(id);
-          const p = parts.find((x) => x.id === id);
-          if (p) toast.info(`Selected Part: ${p.name}`);
-        }}
-        onHoverId={(id) => setHoveredPartId(id)}
+        onSelectId={handleSelectId}
+        onHoverId={handleHoverId}
         parts={parts}
         highlightBoundaries={highlightBoundaries}
         colorizeViewport={colorizeViewport}
