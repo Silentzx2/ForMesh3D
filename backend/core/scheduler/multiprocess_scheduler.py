@@ -2758,7 +2758,14 @@ class MultiprocessModelScheduler:
                     try:
                         from core.scheduler.database_manager import DatabaseManager
                         from core.scheduler.database_models import ExecutionStatus
-                        DatabaseManager().update_operation_execution_status(
+                        _db = DatabaseManager()
+                        _curr_op = _db.get_operation(_op_id)
+                        if _curr_op and _curr_op.execution_status == ExecutionStatus.QUEUED:
+                            try:
+                                _db.update_operation_execution_status(_op_id, ExecutionStatus.PROCESSING)
+                            except Exception:
+                                pass
+                        _db.update_operation_execution_status(
                             _op_id, ExecutionStatus.FAILED, error=err_msg
                         )
                     except Exception as _op_err:

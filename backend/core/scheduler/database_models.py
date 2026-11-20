@@ -44,7 +44,7 @@ class ExecutionStatus(str, Enum):
 
 
 ExecutionStatus.ALLOWED_TRANSITIONS = {
-    ExecutionStatus.QUEUED: {ExecutionStatus.PROCESSING, ExecutionStatus.CANCELLED},
+    ExecutionStatus.QUEUED: {ExecutionStatus.PROCESSING, ExecutionStatus.FAILED, ExecutionStatus.CANCELLED},
     ExecutionStatus.PROCESSING: {
         ExecutionStatus.COMPLETED,
         ExecutionStatus.FAILED,

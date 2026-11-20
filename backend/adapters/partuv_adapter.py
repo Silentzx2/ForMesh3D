@@ -67,6 +67,23 @@ class PartUVUnwrappingAdapter(BaseModel):
     def _load_model(self) -> Any:
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading PartUV from %s", weights_dir)
+
+        # Ensure Trimesh 4/5 compatibility for legacy PartUV operations in worker
+        try:
+            import trimesh
+            if not hasattr(trimesh.Trimesh, "remove_duplicate_faces"):
+                def _remove_duplicate_faces(mesh_self):
+                    if hasattr(mesh_self, "update_faces") and hasattr(mesh_self, "unique_faces"):
+                        mesh_self.update_faces(mesh_self.unique_faces())
+                trimesh.Trimesh.remove_duplicate_faces = _remove_duplicate_faces
+            if not hasattr(trimesh.Trimesh, "remove_degenerate_faces"):
+                def _remove_degenerate_faces(mesh_self):
+                    if hasattr(mesh_self, "update_faces") and hasattr(mesh_self, "nondegenerate_faces"):
+                        mesh_self.update_faces(mesh_self.nondegenerate_faces())
+                trimesh.Trimesh.remove_degenerate_faces = _remove_degenerate_faces
+        except Exception:
+            pass
+
         # Make the vendored PartUV source importable in the worker process,
         # which only has backend/ on sys.path. Model-specific source path setup
         # per TASKS.md §3.3 — not a global patch, not in loader.py.
