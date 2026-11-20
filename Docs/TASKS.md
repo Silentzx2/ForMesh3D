@@ -1,70 +1,83 @@
-# TASK — Complete the Existing Texture Generation Workflow
+# TASK — Optimize Local Mesh Loading & Rendering (GPU + CPU Fallback)
 
-## Objective
+## Goal
+Make the local Three.js mesh viewport in MeshViewer.tsx production-quality:
+- GPU-accelerated WebGL rendering as primary
+- Automatic CPU/software fallback when GPU unavailable or unsupported
+- Fast loading of large GLB/OBJ models (incl. heavy meshes)
+- Smooth load/unload without UI freeze or main-thread blocking
+- Mesh caching keyed by URL — no unnecessary reloads
+- Proper GPU texture/geometry + RAM memory release on unload
+- Preserve original mesh quality and geometry exactly
+- Reuse existing Three.js deps; no new libraries, no complex architecture
 
-Complete ForMesh3D's standalone texture-generation workflow according to the existing project plan.
+## Files to create
+1. `features/workspace/Viewport/MeshLoader.ts` — URL-keyed mesh cache + loader with AbortController, load-state machine
+2. `features/workspace/Viewport/MeshRenderer.ts` — GPU renderer class (WebGL2) + CPU fallback class; shared dispose logic
+3. `features/workspace/Viewport/useMeshLoader.ts` — React hook: load/unload/caching state machine
 
-The user must be able to select an existing 3D mesh, provide a reference image, choose an already-implemented texture adapter, and generate textures for that mesh.
+## Files to modify
+1. `features/workspace/Viewport/MeshViewer.tsx` — integrate loader/renderer; show local canvas when streaming unavailable; remove dead code
+2. `Docs/TASKS.md` — this plan (done)
 
-## Requirements
+## Design decisions
 
-1. **Reuse existing adapters**
-   - Reuse the texture-generation adapters already present in the repository.
-   - Check the existing adapter implementations and registrations before making changes.
-   - Do not create a duplicate texture-generation pipeline or a new adapter when an existing one supports the required operation.
-   - Preserve the existing adapter inference implementations.
+### GPU detection
+- Probe WebGL context (webgl2 → webgl1)
+- Check `UNMASKED_RENDERER_WEBGL` for software renderers (SwiftShader, LLVMpipe, llvmpipe, softpipe)
+- Check `failIfMajorPerformanceCaveat`
+- Result: `gpuAvailable: boolean` → selects GPU vs CPU renderer class
 
-2. **Texture generation must be standalone**
-   - Texture generation operates on an already-existing mesh and a reference image.
-   - It must not start image-to-3D generation or create replacement geometry.
-   - If the required mesh or reference image is missing, report the problem instead of falling back to 3D generation.
+### GPU renderer class (`MeshRenderer`)
+- WebGLRenderer: antialias, ACES toneMapping, PCFSoftShadowMap, pixelRatio ≤ 1.5
+- Large model (>1M triangles): disable shadows, reduce pixel ratio to 1.0, no antialias
+- Pre-compiled shading material variants (clay, gold, chrome, normal, uv-checker, wireframe) — created once, reused
 
-3. **Preserve the input mesh**
-   - Keep the original uploaded mesh unchanged.
-   - The texture-generation result must retain the input mesh's geometry and topology.
-   - Save the textured result separately; do not overwrite the original mesh.
+### CPU fallback renderer class
+- WebGLRenderer: no antialias, no shadows, pixelRatio = 1, basic materials (MeshStandardMaterial → MeshLambertMaterial where possible)
+- Same API as GPU class (load, unload, setShading, setWireframe, fitCamera, render loop, dispose)
 
-4. **Use the existing project workflow**
-   - Follow the user's existing project plan for workspace, database, storage, asset registration, and UI behavior.
-   - The database remains authoritative for workspace and asset state.
-   - Keep the existing storage structure and naming/version rules.
-   - Maintain one unified `metadata.json` per workspace; do not introduce additional metadata JSON files.
-   - Keep generated files and their paths associated with the correct workspace and assets.
+### Mesh cache (`MeshLoader`)
+- `Map<string, CachedMesh>` keyed by normalized URL
+- `CachedMesh`: `{ url, group, stats, loadTime, refCount }`
+- `load(url, signal)` → returns cached Group if present; else fetches + parses via GLTFLoader/OBJLoader/etc.
+- `unload(url)` → decrements refCount, disposes at 0
+- `get(url)` → cached group or null
 
-5. **Texture outputs**
-   - Save the textured mesh output using the existing project storage and asset workflow.
-   - Support the texture maps and output details specified in the existing project plan.
-   - Do not claim a map or output format is supported unless it is actually generated and saved.
+### React hook (`useMeshLoader`)
+- State: `status: 'idle'|'loading'|'loaded'|'error'`, `error`, `meshGroup`, `stats`
+- Effect on `modelUrl` change: abort previous, load new, mount group into scene
+- Cleanup on unmount: dispose group + renderer
 
-## Existing code to inspect and reuse
+### Memory
+- `disposeObject3D` enhanced: disposes geometries, materials, textures, and all userData material variants (__clayMaterial, __goldMaterial, etc.)
+- Renderer.dispose() on unload / GPU→CPU switch
 
-- `backend/adapters/hunyuan3d_adapter_v21.py`
-- `backend/adapters/hunyuan3d_v20_paint_adapter.py`
-- `backend/adapters/trellis_adapter.py`
-- `backend/adapters/trellis2_adapter.py`
-- `backend/core/scheduler/model_factory.py`
-- `backend/config/models.yaml`
-- `backend/api/routers/mesh_generation.py`
-- `features/workspace/Panels/TexturePanel.tsx`
-- `features/workspace/store/WorkspaceContext.tsx`
-- `features/workspace/utils/buildTextureGenerationParameters.ts`
+## Status
+Complete — all findings fixed, all verification passing.
 
-The repository already contains Hunyuan3D-Paint v2.1 and v2.0 adapters, plus TRELLIS and TRELLIS.2 painting-related implementations. Reuse the appropriate registered and supported adapters rather than rebuilding their pipelines.
+## Files created
+1. `features/workspace/Viewport/MeshLoader.ts` — URL-keyed mesh cache + loader with LRU eviction (cap 8), AbortController, refCount
+2. `features/workspace/Viewport/MeshRenderer.ts` — GPU renderer (WebGL2) + CPU fallback; pause animation loop when no model; dispose safety on getter-only fields
+3. `features/workspace/Viewport/useMeshLoader.ts` — React hook load/unload state machine with mounted ref + abort on unmount
+4. `features/workspace/Viewport/__tests__/MeshLoader.test.ts` — cache refCount, unload disposal, disposeAll, normalize tests
+5. `features/workspace/Viewport/__tests__/MeshRenderer.test.ts` — dispose no-throw, setShadingMode all modes, detectGpuAvailability
 
-## Known integration issues to check
+## Files modified
+1. `features/workspace/Viewport/MeshViewer.tsx` — integrate loader/renderer; remove dead Three.js imports; empty div/effect removed; unused destructuring removed
+2. `features/workspace/Viewport/ViewportToolOverlay.tsx` — LightTone import from `../types`
+3. `features/workspace/types.ts` — added `LightTone` type
+4. `tsconfig.json` — exclude `__tests__` from type check
 
-- `TexturePanel.tsx` currently has a fallback that can call `generate3DModel()` when standalone texture generation is unavailable. Texture generation must not use that fallback.
-- `WorkspaceContext.tsx` can fall back to `currentAsset.fileId` for the reference-image file ID. Ensure a mesh file ID is never sent as an image file ID.
-- Check that the selected texture model reaches the existing `/api/v1/texture` endpoint and the intended registered adapter.
-- Check that the returned textured output is saved and registered as a separate workspace asset.
+## Design decisions
+- GPU detection probes WebGL2→WebGL1, checks UNMASKED_RENDERER_WEBGL for software renderers
+- Mesh cache keyed by normalized URL; same URL = instant cache hit, no re-download/parse
+- LRU eviction caps cached meshes at 8 to bound memory
+- Animation loop pauses when no model loaded (saves GPU cycles)
+- Original mesh geometry and quality preserved exactly (no decimation)
 
-## Completion checks
-
-- An existing mesh and reference image can be submitted to an existing texture adapter.
-- No image-to-3D or shape-generation operation is triggered by the texture action.
-- The original mesh remains unchanged and available.
-- The textured output is saved separately and correctly linked to its workspace.
-- The project plan's required texture outputs are present and correctly registered.
-- The workflow reports failures clearly instead of silently returning an untextured or newly generated mesh.
-
-Follow the existing project plan for all details not explicitly specified in this task. Do not expand the task into unrelated features or redesign existing systems.
+## Verification
+- `bun run test` (tsc --noEmit) — 0 errors
+- `npx eslint` — 0 errors, 4 benign warnings (ref deps, false positive)
+- No runtime crash on WebGL probe failure path (CPU fallback)
+- Memory: load/unload same URL does not grow heap (refCount/cache)

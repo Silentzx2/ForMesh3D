@@ -16,7 +16,7 @@ import {
   RotateCw,
   SettingsIcon,
 } from '@hugeicons/core-free-icons';
-import type { LightTone } from './MeshViewer';
+import type { LightTone } from '../types';
 import type { ShadingMode } from '../types';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
 

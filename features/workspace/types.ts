@@ -84,6 +84,8 @@ export type ShadingMode =
   | 'matcap'
   | 'uv-checker';
 
+export type LightTone = 'studio' | 'warm' | 'cool' | 'neutral';
+
 export type CameraViewPreset = 'perspective' | 'front' | 'back' | 'top' | 'bottom' | 'left' | 'right' | 'ortho';
 
 export interface ModelAsset {

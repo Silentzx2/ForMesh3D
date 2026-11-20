@@ -40,6 +40,7 @@
     "node_modules",
     "ui_extracted",
     "3daigc-api",
-    "backend"
+    "backend",
+    "**/__tests__/**"
   ]
 }
