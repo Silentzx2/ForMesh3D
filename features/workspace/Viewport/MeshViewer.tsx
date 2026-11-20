@@ -18,6 +18,7 @@ import { useAnimationStore } from '@/stores/useAnimationStore';
 import { getApiClient } from '@/services/apiClient';
 import { collectMeshStats } from './meshStats';
 import { loadGLBWithProgress } from '../lib/glbCache';
+import { StreamVideoViewer } from './StreamVideoViewer';
 
 import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
@@ -202,6 +203,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
   const {
     currentAsset,
+    workspaceId,
     activeTool,
     isComparing,
     setIsComparing,
@@ -240,6 +242,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   })();
 
   const loadedModelUrl = useViewerStore((state) => state.loadedModelUrl);
+  const streamMode = useViewerStore((state) => state.streamMode);
 
   const [modelLoadStatus, setModelLoadStatus] = useState<'empty' | 'loading' | 'loaded' | 'error'>('empty');
   const [hasModel, setHasModel] = useState(false);
@@ -1001,6 +1004,13 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     if (!canCompareModels && isComparing) setIsComparing(false);
   }, [canCompareModels, isComparing, setIsComparing]);
 
+  useEffect(() => {
+    if (rendererRef.current?.domElement) {
+      const isStreaming = streamMode && !isComparing && Boolean(modelUrl);
+      rendererRef.current.domElement.style.display = isStreaming ? 'none' : 'block';
+    }
+  }, [streamMode, isComparing, modelUrl]);
+
   // ponytail: load source only while Compare is open; caching waits for measured repeat-use cost.
   useEffect(() => {
     const beforeGroup = comparisonBeforeGroupRef.current;
@@ -1425,6 +1435,17 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
             WebGL not available — 3D viewport disabled. {webglError}
           </span>
         </div>
+      )}
+
+      {/* Remote 3D WebRTC/WebSocket Stream Viewport (Instant <1s Loading) */}
+      {streamMode && !isComparing && modelUrl && (
+        <StreamVideoViewer
+          workspaceId={workspaceId}
+          modelUrl={modelUrl}
+          shadingMode={shadingMode}
+          showWireframe={showWireframe}
+          className="absolute inset-0 z-0"
+        />
       )}
       {/* Snapshot Button — top-left of viewport */}
       <div className="absolute top-3 left-3 z-50 flex gap-1 pointer-events-auto">

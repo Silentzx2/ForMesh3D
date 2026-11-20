@@ -109,6 +109,8 @@ interface ViewerState {
   failAssetLoad: (requestId: number, error: string) => void;
   activeModelObject: THREE.Object3D | null;
   setActiveModelObject: (obj: THREE.Object3D | null) => void;
+  streamMode: boolean;
+  setStreamMode: (enabled: boolean) => void;
 }
 
 export const useViewerStore = create<ViewerState>((set, get) => ({
@@ -134,6 +136,8 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   selectionRequestId: 0,
   activeModelObject: null,
   setActiveModelObject: (obj) => set({ activeModelObject: obj }),
+  streamMode: true,
+  setStreamMode: (streamMode) => set({ streamMode }),
   setWorkspaceId: (workspaceId) => set({ workspaceId }),
   setActiveMeshAssetId: (activeMeshAssetId) => set({ activeMeshAssetId }),
   setExecutionState: (executionState) => set({ executionState }),

@@ -27,28 +27,28 @@
   - `LOCAL_MODE (Fallback)`: Traditional Three.js WebGL canvas loading cached GLB buffer.
 
 ## 4. Phase 1: Backend Headless Rendering Engine
-- [ ] **EGL Offscreen Render Worker (`backend/streaming/renderer.py`)**:
+- [x] **EGL Offscreen Render Worker (`backend/streaming/renderer.py`)**:
   - Initialize headless OpenGL/EGL context bound to server GPU (no X11 / virtual display required).
   - Load target workspace mesh (`storage/<workspace_id>/mesh/mesh.glb` or active derived asset).
   - Implement dynamic camera controller (orbit, pan, zoom, field-of-view, wireframe, and shading modes).
   - Render offscreen color buffers (RGB numpy arrays / PyTorch tensors) at 720p/1080p target resolution.
-- [ ] **Adaptive FPS & Power-Save Mechanism**:
+- [x] **Adaptive FPS & Power-Save Mechanism**:
   - Active user interaction: Render at 30–60 FPS for fluid manipulation.
   - Idle state (>2s without input): Pause rendering loop, hold last frame to consume 0% GPU compute.
 
 ## 5. Phase 2: WebRTC Video Pipeline & Signaling Server
-- [ ] **WebRTC Media Streamer (`backend/streaming/webrtc_streamer.py`)**:
+- [x] **WebRTC Media Streamer (`backend/streaming/webrtc_streamer.py`)**:
   - Integrate `aiortc` (Python asynchronous WebRTC engine) with PyAV/H.264 hardware/software encoder.
   - Implement custom `VideoStreamTrack` that pulls rendered frames from the offscreen renderer.
   - Handle adaptive bitrate, dynamic frame dropping, and packet-loss recovery.
-- [ ] **FastAPI Signaling Endpoints (`backend/api/routers/streaming.py`)**:
+- [x] **FastAPI Signaling Endpoints (`backend/api/routers/streaming.py`)**:
   - `POST /api/v1/stream/session/start`: Initialize stream session for target model/workspace, return session ID.
   - `POST /api/v1/stream/session/{session_id}/offer`: Accept client SDP offer, return server SDP answer.
   - `POST /api/v1/stream/session/{session_id}/ice`: Handle trickle ICE candidate exchange.
   - `POST /api/v1/stream/session/{session_id}/stop`: Explicit teardown and GPU memory reclamation.
 
 ## 6. Phase 3: Bi-Directional Input & Control Channel
-- [ ] **DataChannel Input Protocol**:
+- [x] **DataChannel Input Protocol**:
   - Define binary/JSON input payload schema:
     - Orbit/Rotate: `{ action: "rotate", dx: float, dy: float }`
     - Zoom/Dolly: `{ action: "zoom", delta: float }`
@@ -59,20 +59,20 @@
   - Server input handler consumes events and updates camera matrices with sub-frame latency.
 
 ## 7. Phase 4: Frontend Streaming Viewport Integration
-- [ ] **WebRTC Stream Hook (`features/workspace/hooks/useWebRTCStream.ts`)**:
+- [x] **WebRTC Stream Hook (`features/workspace/hooks/useWebRTCStream.ts`)**:
   - Manage `RTCPeerConnection`, DataChannel setup, SDP exchange, and auto-reconnection.
   - Capture mouse drag, scroll wheel, and touch gestures from the canvas/video overlay and dispatch to DataChannel.
   - Monitor stream health, latency stats (RTT, dropped frames), and connection state.
-- [ ] **Stream Video Viewport (`features/workspace/Viewport/StreamVideoViewer.tsx`)**:
+- [x] **Stream Video Viewport (`features/workspace/Viewport/StreamVideoViewer.tsx`)**:
   - Embed low-latency `<video playsinline autoPlay muted>` receiving remote WebRTC media stream.
   - Add transparent interaction overlay for seamless orbit controls matching Three.js OrbitControls feel.
   - Display non-intrusive stream telemetry badge (FPS, Ping, Bitrate).
-- [ ] **Viewport Dual-Mode Switcher (`features/workspace/Viewport/ViewportToolOverlay.tsx`)**:
+- [x] **Viewport Dual-Mode Switcher (`features/workspace/Viewport/ViewportToolOverlay.tsx`)**:
   - Add "Stream Mode (Cloud GPU)" vs "Local Mode (Download)" segmented toggle.
   - Seamless fallback to local Three.js loader if WebRTC connection fails or user explicitly downloads model.
 
 ## 8. Phase 5: Resource Management & Multi-Tenant Concurrency
-- [ ] **Session Lifecycle & Cleanup**:
+- [x] **Session Lifecycle & Cleanup**:
   - Heartbeat monitor: terminate sessions inactive for >5 minutes to release GPU render buffers.
   - Process isolation: Offscreen render sessions run in dedicated worker threads/subprocesses.
   - Multi-user port allocation and STUN/TURN fallback configuration.

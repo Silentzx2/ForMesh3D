@@ -10,6 +10,7 @@ __all__ = [
     "mesh_segmentation",
     "mesh_uv_unwrapping",
     "motion_generation",
+    "streaming",
     "system",
 ]
 

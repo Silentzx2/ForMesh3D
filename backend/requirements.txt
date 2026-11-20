@@ -47,6 +47,7 @@ python-jose[cryptography]==3.5.0
 
 gunicorn==22.0.0
 redis==5.0.1
+aiortc>=1.9.0
 
 tb-nightly
 pydantic[email]
