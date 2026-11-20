@@ -15,8 +15,12 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from backend.streaming import get_stream_manager
-from backend.streaming.webrtc_streamer import AIORTC_AVAILABLE
+try:
+    from streaming import get_stream_manager
+    from streaming.webrtc_streamer import AIORTC_AVAILABLE
+except ImportError:
+    from backend.streaming import get_stream_manager
+    from backend.streaming.webrtc_streamer import AIORTC_AVAILABLE
 
 if AIORTC_AVAILABLE:
     from aiortc import (
@@ -24,7 +28,10 @@ if AIORTC_AVAILABLE:
         RTCPeerConnection,
         RTCSessionDescription,
     )
-    from backend.streaming.webrtc_streamer import RTCStreamVideoTrack
+    try:
+        from streaming.webrtc_streamer import RTCStreamVideoTrack
+    except ImportError:
+        from backend.streaming.webrtc_streamer import RTCStreamVideoTrack
 
 logger = logging.getLogger(__name__)
 
