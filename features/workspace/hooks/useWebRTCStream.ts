@@ -257,8 +257,8 @@ export function useWebRTCStream({
       };
     };
 
-    // If WebRTC is supported by server, try WebRTC first
-    if (webrtc_supported && typeof RTCPeerConnection !== 'undefined') {
+    // Only attempt WebRTC if the server explicitly supports it (aiortc installed)
+    if (webrtc_supported === true && typeof RTCPeerConnection !== 'undefined') {
       try {
         const pc = new RTCPeerConnection({
           iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
