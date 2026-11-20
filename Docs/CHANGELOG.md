@@ -1,5 +1,11 @@
 # ForMesh3D Changelog
 
+## 2026-11-20 — TriFlow Neural Quad-Dominant Retopology Model Integration
+- **TriFlow Model Adapter (`backend/adapters/triflow_adapter.py`)**: Subclassed `BaseModel` (`triflow_retopology`) with 10GB VRAM profile. Encodes mesh Signed Distance Field (SDF) to voxel latents, samples Nearest-Vertex Vector Fields via Latent Flow Matching, and executes constrained QEM edge collapse simplification via `pyfqmr_triflow`.
+- **Dynamic Face Budget & Quad Control**: Added full support for target polygon counts (5,000 to 200,000 faces, including 700k -> 50k decimation), quad ratio (`0.0` to `1.0`), feature edge retention (`qem_threshold`), and watertight SDF hole-filling.
+- **Model Registry & Download Automation**: Registered `triflow_retopology` in `backend/config/models.yaml` and `model_factory.py`. Added `download_triflow()` to `backend/scripts/download_models.sh` (fetching from HuggingFace `lihcxr/TriFlow`) and added Option `[19]` to `manager.sh`.
+- **Frontend Studio Integration (`RemeshPanel.tsx`)**: Unlocked Target Face Budget slider and presets (`5K Mob`, `20K Low`, `50K Game`, `100K Cine`) in AI mode, wired `features/workspace/services/meshProcessingBridge.ts` and `WorkspaceContext.tsx` to dispatch `triflow_retopology`.
+
 ## 2026-11-20 — 100% Server-Side Remote 3D Streaming Engine & PartUV Checkpoint Resolution
 - **100% Server-Side 3D Streaming Engine**: Implemented offscreen rendering engine (`backend/streaming/renderer.py`) and WebRTC / WebSocket streaming server (`backend/streaming/webrtc_streamer.py`, `backend/api/routers/streaming.py`) with dynamic camera controls (orbit, pan, zoom, presets, shading modes, wireframe, idle power-saving).
 - **Client Mesh Loader Removal**: Completely removed client-side mesh download loop (`loadGLBWithProgress`, `sharedGLTFLoader.parse`) and dual-mode toggle from `MeshViewer.tsx` and `ViewportToolOverlay.tsx`. Viewport runs 100% on Cloud Streaming, dropping network bandwidth from 100MB download to lightweight ~22KB frames (<200KB/s) and achieving instant (<1s) inspection.
@@ -10,9 +16,3 @@
 - **Retopo & UV Endpoint 404 Resolution**: Fixed input mesh lookup in `mesh_retopology.py`, `mesh_uv_unwrapping.py`, and `mesh_segmentation.py`. In `file_upload.py`, added workspace directory awareness (`storage/<workspace_id>/<relative_path>`) and operation/workspace fallbacks to `get_file_path_impl`, preventing premature 404s when dispatching fast script operations from UI.
 - **Worker Process Scoping Fix**: Removed nested `import os` inside `model_worker_process` in `multiprocess_scheduler.py` that caused `UnboundLocalError: local variable 'os' referenced before assignment` at line 383 when launching CPU workers (e.g. motion generation).
 - **SchedulerAdapter Resilience**: Added `if self._job_queue:` null guard before querying job status in `api/dependencies.py` to avoid 500 errors on polling.
-
-## 2026-11-19 — Auto-Retry Elimination, Canonical Mesh Routing, Trellis utils3d Shim, & UI Retry Switch
-- **Backend Auto-Retry Elimination**: Removed automatic job requeue loop in `job_queue.py`, `redis_job_queue.py`, and `database_models.py` (`max_retries = 0`). Jobs now immediately terminate cleanly in `FAILED` state on error instead of resetting to 0% and looping.
-- **Canonical Mesh Routing & Tool Dir Removal**: Fixed `multiprocess_scheduler.py` where `bool(_op_id)` was misclassifying generation jobs as tools and writing to `storage/<workspace_id>/tool/`. Restored direct canonical output to `storage/<workspace_id>/mesh/mesh.glb` and eliminated invalid `operation_type` argument in `DatabaseManager.add_asset()`.
-- **TRELLIS utils3d Compatibility Shim**: Added compatibility shim in `trellis_adapter.py` mapping `utils3d.torch.perspective_from_fov_xy` to `perspective_from_fov` (`utils3d >= 0.3.0`), resolving paint pipeline failure during hole filling.
-- **UI Generate/Retry Button Toggle**: Updated `GeneratePanel.tsx` to display "Retry Generation" upon execution failure and reset cleanly back to "Generate 3D Model" when the user changes or uploads an image or switches AI models.

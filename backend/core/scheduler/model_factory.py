@@ -130,6 +130,11 @@ class ModelFactory:
             "module": "adapters.skintokens_adapter",
             "class": "SkinTokensAdapter",
         },
+        # Retopology adapters
+        "triflow_retopology": {
+            "module": "adapters.triflow_adapter",
+            "class": "TriFlowRetopologyAdapter",
+        },
         # FastMesh adapters
         "fastmesh_v1k_retopology": {
             "module": "adapters.fastmesh_adapter",

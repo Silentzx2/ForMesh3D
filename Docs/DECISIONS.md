@@ -1,8 +1,22 @@
 # Architecture Decisions — ForMesh 3D
 
-> **Version**: 0.6.0
+> **Version**: 0.7.0
 > **Last Updated**: November 20, 2026
 > **Retention Policy**: Keep only the last 3 active Architectural Decision Records (ADRs) to preserve lean context.
+
+---
+
+## ADR-108: TriFlow Neural Quad-Dominant Retopology Integration & Dynamic Face Budget Conditioning (2026-11-20)
+
+**Context:** The existing neural retopology option (FastMesh V1K) had a fixed ~1K output resolution, disabling target polygon budget selection and quad/tri control in AI mode. Users required dynamic retopology supporting large reduction ratios (e.g. 700k poly input to 50k faces) with artist-like quad flow loops, crease preservation, and watertight healing.
+
+**Decision:**
+1. **TriFlow Model Adapter (`backend/adapters/triflow_adapter.py`)**: Subclassed `BaseModel` under model ID `triflow_retopology` (10GB VRAM profile). It encodes input mesh SDFs to sparse voxel latents, samples Nearest-Vertex Vector Fields (NVF) with Latent Flow Matching conditioned on target face count, and extracts final meshes via watershed clustering and constrained QEM decimation (`pyfqmr_triflow`).
+2. **Model Registry & Routing**: Registered in `backend/config/models.yaml`, `model_factory.py`, and updated `backend/api/routers/mesh_retopology.py` to route dynamic parameters (`target_polycount`, `quad_ratio`, `preserve_features`, `watertight`).
+3. **Weight Automation**: Added `download_triflow()` to `backend/scripts/download_models.sh` (fetching from HuggingFace `lihcxr/TriFlow`) and added Option `[19]` to `manager.sh`.
+4. **Studio UI Unlock (`RemeshPanel.tsx`)**: Unlocked Target Face Budget slider (5,000 to 200,000) and presets (`5K Mob`, `20K Low`, `50K Game`, `100K Cine`) in AI mode, enabling seamless switching between neural quad flow and script-based QuadriFlow/Trimesh.
+
+**Consequences:** Full end-to-end support for custom polygon budgets on AI retopology, zero regressions on modern GPUs (`sm >= 80`), clean process-level adapter isolation, and immediate visual feedback in the studio.
 
 ---
 
@@ -32,19 +46,3 @@
 5. **PartUV Neural UV Integration**: Wired `UVPanel.tsx` in AI mode to PartUV with Blender UV packing and runtime import shims.
 
 **Consequences:** Eliminates modal preview blocking, guarantees atomic versioned persistence on disk, preserves complete parameter history across iterations, and enables seamless switching between historical asset versions in the UI.
-
----
-
-## ADR-105: Script Engine End-to-End Execution for Retopo, Smart UV, and Segment (2026-11-16)
-
-**Context:** The UI studio supported switching between Neural AI and Script engines, but mesh-tools endpoints returned placeholder service rebuilding events. Furthermore, in-memory object URLs bypassed durable SQLite operation identity.
-
-**Decision:**
-1. **Flat Backend Pipeline Architecture**: Added `backend/pipelines/retopo.py`, `smart_uv.py`, `segment.py`, and cohesive `mesh_utils.py` with density safety capping through `mesh_guard.py`.
-2. **Deterministic Algorithm Execution**:
-   - Retopo uses headless Blender QuadriFlow for quad topology and Trimesh quadric decimation for fast isotropic remeshing.
-   - Smart UV uses Blender Smart Project for dihedral angle-based unwrapping and XAtlas / Trimesh for chart packing.
-   - Segment uses Trimesh connected-component decomposition and spatial PCA clustering with vivid viewport colorization.
-3. **Durable Script Operation Lifecycle**: Every script operation registers in SQLite FIFO queue (`enqueue_operation`, `update_operation_execution_status`) with real-time progress and cancellation support.
-
-**Consequences:** Complete end-to-end integration with truthful geometric statistics, zero regressions on modern GPU flows, and lightweight CPU script fallbacks.

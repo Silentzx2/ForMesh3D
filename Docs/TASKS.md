@@ -1,77 +1,52 @@
-# Comprehensive Architecture & Implementation Plan: 100% Server-Side Remote 3D Streaming
+# Implementation Plan: TriFlow Neural Retopology Integration
 
 ## 1. Governance & Strict Scope Boundaries
-- **Zero Regression on Existing Pipelines**: Image-to-3D, Retopology, UV Unwrapping, Auto-Rigging, and Segmentation logic remain 100% UNTOUCHED.
-- **Large GPU Parity (`sm >= 80`)**: Hardware video encoding and EGL headless rendering run natively on modern GPUs (A100, RTX 3090/4090, H100) with zero CUDA degradation.
-- **100% Pure Cloud Viewport**: No heavy meshes (80–150MB+) are EVER downloaded by the client browser for inspection. All rendering runs server-side on GPU/headless workers.
-- **Context Budget Rule**: This document strictly adheres to the <= 150 lines limit.
+- **Large GPU Parity (`sm >= 80`)**: Upstream FlashAttention, FP16/BF16, and CUDA flows remain native; pre-Ampere isolated.
+- **Model Adapter Direct Patching**: All TriFlow logic contained in `backend/adapters/triflow_adapter.py`; zero global monkeypatches.
+- **Context Budget Rule**: Keep this document <= 150 lines strictly adhering to `AGENTS.md`.
+- **No Git Commit / Push**: Verification only, changes kept local as requested.
+- **Skills Activated**: `ponytail` (simplest working implementation), `verification-loop` (build, types, logic verification), `agent-self-evaluation`.
 
-## 2. Core Problem & Streaming Architecture
-- **Problem**: Large 80MB–100MB GLB files take 15–30 minutes to download over slow client internet before Three.js can render, choking user bandwidth.
-- **Solution (WebRTC & WebSocket Pixel Streaming)**:
-  - Server GPU renders the 3D mesh offscreen into an interactive framebuffer.
-  - Video frames are streamed to client via WebRTC (or high-speed multiplexed WebSocket fallback).
-  - Client sends orbit/zoom/pan mouse inputs over low-latency channel (<30ms round-trip latency).
-  - Network footprint drops from a 100MB upfront download to a lightweight stream (<200 KB/s), achieving instant (<1s) inspection.
-  - Mesh metadata (vertices, triangles, dimensions) is computed on the server and sent as lightweight JSON, completely eliminating client-side GLB parsing.
+## 2. Phase 1: Project Docs, Architecture Understanding & Dependency Audit
+- [x] Understand existing adapter lifecycle (`BaseModel`, worker execution, `models.yaml`, `model_factory.py`).
+- [x] Audit TriFlow dependencies against `backend/requirements-models.txt` and `backend/scripts/install.sh`:
+  - Identified unique required packages (`meshlib`, `pyfqmr_triflow`, `meshiki`, `PyMCubes`, `fbxloader`, `hydra-core`).
+  - Deduplicated against already-installed packages in environment to prevent conflicts.
 
-## 3. Explicit State Machines
-- **Stream Session State Machine**:
-  - `IDLE`: No active stream. Viewport displays placeholder awaiting model URL/workspace.
-  - `CONNECTING`: WebRTC peer connection or WebSocket handshake in progress.
-  - `STREAMING`: Video frames rendering and streaming at 30–60 FPS during user interaction.
-  - `IDLE_PAUSED`: Zero-input power-save mode (drops to 1 FPS / keyframe hold after 2s of inactivity).
-  - `TERMINATING`: Client disconnects or tab closes; offscreen renderer resources freed immediately.
+## 3. Phase 2: Backend Architecture & Adapter Implementation
+- [x] **Weights & Manager Script (`backend/scripts/download_models.sh`, `manager.sh`)**:
+  - Added `download_triflow()` to fetch `flow_model.safetensors`, `sdf_vae.safetensors`, `nvv_vae.safetensors` from `lihcxr/TriFlow` into `backend/pretrained/TriFlow/`.
+  - Added Option `[19] TriFlow (Neural Retopology)` to `manager.sh` model menu.
+- [x] **Model Adapter (`backend/adapters/triflow_adapter.py`)**:
+  - Subclassed `BaseModel` (`backend/core/models/base.py`) with Model ID `triflow_retopology`.
+  - Input parameters: `target_face_count` (5k-200k), `quad_ratio` (0.0-1.0), `qem_threshold` (12.0), `watertight` (bool).
+  - Pipeline: Mesh load -> SDF voxelization (`mrmesh`/sparse voxel) -> FlowEulerSampler -> QEM decimation (`pyfqmr_triflow`) -> GLB/OBJ export.
+- [x] **Model Registry & Scheduling (`backend/config/models.yaml`, `backend/core/scheduler/model_factory.py`)**:
+  - Registered `triflow_retopology` under category `mesh_retopology` with 10GB VRAM allocation.
+  - Added factory constructor mapping for `triflow_retopology`.
+- [x] **API Endpoint & Pipeline Integration (`backend/api/routers/mesh_retopology.py`, `backend/pipelines/retopo.py`)**:
+  - Set default preference to `triflow_retopology` in `/api/v1/retopo`.
+  - Forwarded `target_polycount`, `quad_ratio`, `preserve_features`, and `watertight` in job request schema.
 
-## 4. Phase 1: Backend Headless Rendering Engine & Server-Side Stats
-- [x] **Headless Offscreen Render Engine (`backend/streaming/renderer.py`)**:
-  - Initialize offscreen rendering bound to server GPU / software fallback.
-  - Load target workspace mesh (`storage/<workspace_id>/mesh/mesh.glb` or active derived asset).
-  - Compute mesh metadata (vertex count, face count, dimensions, bounds) directly on server.
-  - Implement dynamic camera controller (orbit, pan, zoom, presets, wireframe, shading modes).
-  - Render offscreen color buffers at target resolution with adaptive FPS & power-save hold.
+## 4. Phase 3: Frontend UI/UX Integration (`RemeshPanel.tsx`)
+- [x] **Unlock AI Target Face Budget**:
+  - Removed fixed ~1K limitation for AI mode.
+  - Enabled Target Face Budget slider (5,000 to 200,000) and presets (`5K Mob`, `20K Low`, `50K Game`, `100K Cine`) in AI mode.
+- [x] **Topology Flow & Edge Controls**:
+  - Wired `polyType` (`quad` sets `quad_ratio=0.95`, `tri` sets `quad_ratio=0.0`).
+  - Wired Advanced Flyout controls: `preserveEdges` (`qem_threshold`), `watertightHealing` (SDF hole fill), `adaptiveDensity`, and `outputFormat`.
+- [x] **Workspace & Service Bridge (`meshProcessingBridge.ts`, `WorkspaceContext.tsx`)**:
+  - Passed all remesh parameters to backend API and handled response asset publication.
 
-## 5. Phase 2: WebRTC Video Pipeline & Signaling Server
-- [x] **WebRTC & WebSocket Media Streamer (`backend/streaming/webrtc_streamer.py`)**:
-  - WebRTC `VideoStreamTrack` & `RTCDataChannel` support for low-latency video streaming.
-  - Built-in multiplexed WebSocket fallback channel (binary frame push + JSON input) for universal compatibility.
-- [x] **FastAPI Signaling Endpoints (`backend/api/routers/streaming.py`)**:
-  - `POST /api/v1/stream/session/start`: Init stream session, return session ID, server-side mesh stats, and stream URLs.
-  - `POST /api/v1/stream/session/{session_id}/offer` & `/ice`: WebRTC SDP/ICE negotiation.
-  - `WEBSOCKET /api/v1/stream/session/{session_id}/ws`: Ultra-fast multiplexed binary frame + input stream.
-  - `POST /api/v1/stream/session/{session_id}/stop`: Explicit teardown and GPU memory reclamation.
-
-## 6. Phase 3: Bi-Directional Input & Control Channel
-- [x] **DataChannel / WebSocket Input Protocol**:
-  - Define binary/JSON input payload schema:
-    - Orbit/Rotate: `{ action: "rotate", dx: float, dy: float }`
-    - Zoom/Dolly: `{ action: "zoom", delta: float }`
-    - Pan: `{ action: "pan", dx: float, dy: float }`
-    - View Presets: `{ action: "set_view", preset: "front" | "top" | "side" | "iso" }`
-    - Shading Toggle: `{ action: "shading", mode: "textured" | "clay" | "wireframe" }`
-    - Resize: `{ action: "resize", width: int, height: int }`
-  - Server input handler consumes events and updates camera matrices with sub-frame latency.
-
-## 7. Phase 4: Pure Cloud Frontend Viewport (Local Loaders Removed)
-- [x] **WebRTC Stream Hook (`features/workspace/hooks/useWebRTCStream.ts`)**:
-  - Multiplexed connection management (WebRTC primary, WebSocket universal fallback).
-  - Accurate backend WebSocket host resolution (supports custom backend ports and proxies).
-  - Dispatches pointer orbit, pan, zoom gestures directly to stream.
-- [x] **Stream Video Viewport (`features/workspace/Viewport/StreamVideoViewer.tsx`)**:
-  - Pure cloud streaming viewport rendering interactive video/canvas.
-  - Displays non-intrusive stream telemetry badge (FPS, Ping, Bitrate).
-- [x] **Removal of Local Viewport Loaders (`features/workspace/Viewport/MeshViewer.tsx`)**:
-  - Eliminate background `loadGLBWithProgress` and `sharedGLTFLoader.parse` from viewport.
-  - Remove dual-mode toggle from `ViewportToolOverlay.tsx`; viewport is 100% Cloud Stream.
-  - Populate Inspector statistics from server-side metadata returned by `/session/start`.
-
-## 8. Phase 5: Resource Management & Multi-Tenant Concurrency
-- [x] **Session Lifecycle & Cleanup**:
-  - Heartbeat monitor: terminate sessions inactive for >5 minutes to release GPU render buffers.
-  - Process isolation: Offscreen render sessions run in dedicated worker threads/subprocesses.
-  - Multi-user port allocation and STUN/TURN fallback configuration.
-
-## 9. Verification & Quality Gates
-- **Bandwidth Benchmark**: Client data consumption <200 KB/s during streaming (vs 80–100MB download).
-- **Zero Local Download**: No heavy mesh files downloaded by client during viewport preview.
-- **Resource Recovery**: Closing browser tab drops server GPU VRAM for that session immediately.
+## 5. Phase 4: Deep End-to-End Testing, Bug Fixing & Verification
+- [x] **Backend Static & Unit Verification**:
+  - Ran `python3 -m py_compile` across all modified Python files (0 errors).
+  - Created `backend/tests/test_triflow_adapter.py` (5/5 unit tests passed).
+- [x] **Frontend Type & Build Verification**:
+  - Ran `npx tsc --noEmit` to ensure zero TypeScript errors in `RemeshPanel.tsx` and bridge (Exit code 0).
+- [x] **Cross-Layer Logic Audit**:
+  - Fixed abstract method implementations (`get_parameter_schema`, `get_supported_formats`).
+  - Fixed fallback decimation path when checkpoints are pending.
+- [x] **Documentation Update**:
+  - Updated `Docs/CHANGELOG.md`, `Docs/DECISIONS.md` (ADR-108), `Docs/MEMORY.md`, and `Docs/TASKS.md` within strict line budgets.
+  - Zero git commit or push as instructed.

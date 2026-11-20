@@ -19,9 +19,9 @@
 - **Direct Workspace Persistence**: Tool operations write directly to `storage/<workspace_id>/<tool_type>/<ws_id>_<tool>_v00X.glb` via `publish_derived_mesh`.
 - **Durable Versioning & Promotion**: Every run creates a durable `AssetModel` row in SQLite with `settings_snapshot` and automatically updates `active_mesh_asset_id`.
 - **AI Neural Engines**:
+  - **Retopology**: Powered by **TriFlow** (`triflow_retopology`, 10GB VRAM, Latent Flow Matching with Nearest-Vertex Vector Fields and constrained QEM decimation for dynamic 5k to 200k face budgets and quad-dominant topology) via `POST /api/v1/retopo` (`engine: "ai"`).
   - **Auto-Rigging**: Powered by **SkinTokens** (14GB VRAM, TokenRig autoregressive discrete skin tokens) via `POST /api/v1/rig`.
   - **Smart UV Unwrapping**: Powered by **PartUV** (8GB VRAM) via `POST /api/v1/unwrap` (`engine: "ai"`). Absolute checkpoint path resolution via `PARTUV_CHECKPOINT_PATH` and auto-download from HuggingFace (`mikaelaangel/partfield-ckpt`).
-  - **Retopology**: Powered by **FastMesh V1K** (neural pure quad topology) via `POST /api/v1/retopo` (`engine: "ai"`).
 - **Fast Script Pipelines (`backend/pipelines/`)**:
   - `retopo.py`: Headless Blender QuadriFlow for quad topology and Trimesh quadric decimation for fast isotropic remeshing.
   - `smart_uv.py`: Blender Smart Project and XAtlas / Trimesh for non-overlapping UV chart packing.
@@ -29,11 +29,9 @@
   - `mesh_utils.py`: Safe format conversion, Truthful geometric stats, and bounded subprocess execution with density safety capping via `mesh_guard.py`.
 
 ### 4. Native Generation & Mesh Density Governance
-- **Mesh Guard Pipeline (`backend/pipelines/mesh_guard.py`)**:
-  - `guard_mesh_density`: Enforces 1,000k (1M faces) safety cap on AI generation outputs. Below 1M faces, raw mesh is preserved 100% untouched.
-  - Mesh Upload Limit: 2,000k (2M faces) hard ceiling in `backend/core/utils/file_utils.py` and `file_upload.py`.
-  - All adapters run in pure native mode with zero internal artificial decimation/subdivision.
-  - TripoSG routes directly via canonical workspace storage (`storage/<workspace_id>/mesh/mesh.glb`).
+- **Mesh Guard Pipeline (`backend/pipelines/mesh_guard.py`)**: Enforces 1,000k (1M faces) safety cap on AI generation outputs. Below 1M faces, raw mesh is preserved 100% untouched.
+- Mesh Upload Limit: 2,000k (2M faces) hard ceiling in `backend/core/utils/file_utils.py` and `file_upload.py`.
+- All adapters run in pure native mode with zero internal artificial decimation/subdivision.
 
 ### 5. Hardware Isolation & Priority Rules
 - **Modern GPUs (`sm >= 80`)**: 100% native upstream execution preserved. No `_is_pre_ampere` / FlashAttention / BF16 modifications.
@@ -42,7 +40,7 @@
 
 ### 6. Verification Status
 - **Verification (`2026-11-20`)**:
+  - `backend/tests/test_triflow_adapter.py`: 5/5 unit tests passed.
   - `python3 -m py_compile`: Zero syntax or import errors.
   - `npx tsc --noEmit`: Exited `0` (zero TypeScript errors).
-  - Streaming end-to-end integration tests: 100% PASS (Session start, frames, camera controls, stats, stop).
-  - Submodules synced with remote (`ForMesh3D-ThirdParty` up to date).
+  - Submodules synced under `backend/thirdparty/triflow/third_party/`.

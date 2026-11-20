@@ -119,7 +119,7 @@ VERIFY_ONLY=false
 FORCE_DOWNLOAD=false
 
 # Available models
-AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "stable_fast_3d" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "triposg" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
+AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "stable_fast_3d" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "fastmesh" "triflow" "triposg" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
 
 show_help() {
     cat << EOF
@@ -146,6 +146,7 @@ Available models:
     skintokens         - SkinTokens model for unified auto-rigging (alias: unirig)
     partuv             - PartUV model
     fastmesh           - FastMesh model
+    triflow            - TriFlow neural quad-dominant retopology model
     triposg            - TripoSG and RMBG models
     ardy               - ARDY motion generation models
     unique3d           - Unique3D high-fidelity single-image to 3D model
@@ -711,6 +712,32 @@ download_partuv() {
     fi
 }
 
+# Function to download TriFlow models
+download_triflow() {
+    print_info "========================================"
+    print_info "Downloading TriFlow Model (Neural Retopology)"
+    print_info "========================================"
+
+    local triflow_dir="$PRETRAINED_DIR/TriFlow"
+    mkdir -p "$triflow_dir"
+
+    local f1="$triflow_dir/flow_model.safetensors"
+    local f2="$triflow_dir/sdf_vae.safetensors"
+    local f3="$triflow_dir/nvv_vae.safetensors"
+
+    if [ "$FORCE_DOWNLOAD" = false ] && verify_file "$f1" 500000000 && verify_file "$f2" 50000000 && verify_file "$f3" 50000000; then
+        print_info "TriFlow checkpoints already exist and verified"
+        return 0
+    else
+        print_info "Downloading TriFlow checkpoints from HuggingFace (lihcxr/TriFlow)..."
+        if ! hf_download lihcxr/TriFlow flow_model.safetensors sdf_vae.safetensors nvv_vae.safetensors --local-dir "$triflow_dir" || ! verify_file "$f1" 500000000; then
+            print_error "Failed to download TriFlow checkpoints"
+            return 1
+        fi
+        print_success "TriFlow checkpoints downloaded successfully"
+    fi
+}
+
 # Function to download TripoSG and RMBG models
 download_triposg() {
     print_info "========================================"
@@ -1133,10 +1160,8 @@ verify_all_models() {
     
     print_info "Checking PartUV..."
     verify_directory "$PRETRAINED_DIR/PartUV" 1 || all_verified=false
-    print_info "Checking FastMesh v1k..."
-    verify_fastmesh_model "$PRETRAINED_DIR/FastMesh-V1K" || all_verified=false
-    print_info "Checking FastMesh v4k..."
-    verify_fastmesh_model "$PRETRAINED_DIR/FastMesh-V4K" || all_verified=false
+    print_info "Checking TriFlow..."
+    verify_file "$PRETRAINED_DIR/TriFlow/flow_model.safetensors" 500000000 || print_warning "TriFlow checkpoints not found"
     
     print_info "Checking TRELLIS.2-4B..."
     verify_directory "$PRETRAINED_DIR/TRELLIS.2/TRELLIS.2-4B" 5 || all_verified=false
@@ -1264,6 +1289,9 @@ for model in "${MODELS_ARRAY[@]}"; do
             ;;
         "fastmesh")
             print_warning "FastMesh removed from main repo (thirdparty/FastMesh deleted). Skipping."
+            ;;
+        "triflow")
+            download_triflow
             ;;
         "triposg")
             download_triposg

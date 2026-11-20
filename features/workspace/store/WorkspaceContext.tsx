@@ -2388,9 +2388,9 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     const engine = customSettings?.engineMode || 'ai';
     const localTaskId = startTask(
       'remesh',
-      engine === 'script' ? 'Algorithmic Remesh (Python)' : 'Neural Remesh (FastMesh)',
+      engine === 'script' ? 'Algorithmic Remesh (Python)' : 'Neural Remesh (TriFlow)',
       undefined,
-      engine === 'script' ? 'trimesh_autoretopo' : 'fastmesh_v1k_retopology',
+      engine === 'script' ? 'trimesh_autoretopo' : 'triflow_retopology',
       undefined,
       undefined,
       comparisonGroupId ?? undefined,
@@ -2496,8 +2496,15 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       // AI Mode Execution
       const body: Record<string, unknown> = {
         output_format: customSettings?.outputFormat || 'glb',
-        model_preference: 'fastmesh_v1k_retopology',
+        model_preference: 'triflow_retopology',
         target_polycount: targetPoly,
+        face_count: targetPoly,
+        poly_type: polyType,
+        quad_ratio: polyType === 'quad' ? 0.95 : 0.0,
+        preserve_features: customSettings?.preserveEdges ?? true,
+        feature_angle: customSettings?.featureAngle ?? 45,
+        adaptive: customSettings?.adaptiveDensity ?? true,
+        watertight: customSettings?.watertightHealing ?? false,
         workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
         ...meshRef,
       };

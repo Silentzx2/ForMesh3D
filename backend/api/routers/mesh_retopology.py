@@ -69,16 +69,16 @@ class MeshRetopologyRequest(BaseModel):
         None, description="Deprecated compatibility field; the V1K checkpoint fixes output resolution and ignores this value", ge=100, le=20000
     )
     target_polycount: Optional[int] = Field(
-        50000, description="Final production triangle budget applied after FastMesh retopology", ge=5000, le=200000
+        50000, description="Target polygon/face budget for retopology", ge=500, le=300000
     )
     poly_type: Optional[str] = Field(
-        "tri", description="Specification of the polygon type"
+        "quad", description="Specification of the polygon type (quad or tri)"
     )
-    output_format: str = Field("obj", description="Output format for retopologized mesh")
+    output_format: str = Field("glb", description="Output format for retopologized mesh")
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")
     model_preference: str = Field(
-        "fastmesh_v1k_retopology",
-        description="Retopology model preference; currently only fastmesh_v1k_retopology is registered",
+        "triflow_retopology",
+        description="Retopology model preference: triflow_retopology or fastmesh_v1k_retopology",
     )
     model_parameters: Optional[dict] = Field(
         None, 
@@ -296,7 +296,13 @@ async def retopologize_mesh(
             inputs={
                 "mesh_path": mesh_file_path,
                 "target_polycount": request.target_polycount,
+                "face_count": request.target_polycount,
                 "poly_type": request.poly_type,
+                "quad_ratio": 0.95 if request.poly_type == "quad" else 0.0,
+                "preserve_features": request.preserve_features,
+                "feature_angle": request.feature_angle,
+                "adaptive": request.adaptive,
+                "watertight": request.watertight,
                 "output_format": request.output_format,
                 "seed": request.seed,
                 "workspace_id": target_ws_id,

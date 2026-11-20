@@ -644,6 +644,12 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
         $UV_PIP install "git+https://github.com/EasternJournalist/utils3d.git" || { echo "[ERROR] utils3d install failed"; exit 1; }
     fi
 
+    # pyfqmr-triflow — custom constrained QEM simplification for TriFlow neural retopology
+    if [ -d "backend/thirdparty/triflow/third_party/pyfqmr-triflow" ]; then
+        echo "[INFO] Installing pyfqmr-triflow..."
+        $UV_PIP install -e backend/thirdparty/triflow/third_party/pyfqmr-triflow || echo "[WARN] pyfqmr-triflow install failed"
+    fi
+
     echo "[SUCCESS] Model dependencies installed."
 else
     echo "[INFO] Skipping model dependencies (no GPU detected)."

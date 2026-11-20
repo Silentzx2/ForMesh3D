@@ -32,14 +32,24 @@ const SCRIPT_REGISTRY: Map<string, ScriptDefinition> = new Map();
 export const DEFAULT_SCRIPTS: ScriptDefinition[] = [
   // --- RETOPOLOGY ---
   {
-    id: 'fastmesh_neural',
-    name: 'FastMesh Neural Retopology (V1K)',
+    id: 'triflow_neural',
+    name: 'TriFlow Neural Retopology',
     tool: 'remesh',
     engine: 'ai',
-    description: 'FastMesh V1K checkpoint with fixed output of approximately 1K vertices.',
+    description: 'Artist-like quad-dominant neural retopology with dynamic target face budget conditioning.',
     requiresGpu: true,
     endpoint: '/api/v1/retopo',
-    defaultParams: { variant: 'V1K' },
+    defaultParams: {
+      model_preference: 'triflow_retopology',
+      target_polycount: 50000,
+      poly_type: 'quad',
+      quad_ratio: 0.95,
+      preserve_features: true,
+      feature_angle: 45,
+      adaptive: true,
+      watertight: false,
+      output_format: 'glb',
+    },
   },
   {
     id: 'trimesh_autoretopo',
@@ -268,7 +278,14 @@ export async function executeMeshOperation(options: ExecutionOptions): Promise<E
         : '/api/v1/segment';
 
     const body: Record<string, any> = {
-      output_format: 'glb',
+      output_format: params.outputFormat || 'glb',
+      target_polycount: Number(params.targetPolycount ?? params.target_faces ?? 50000),
+      poly_type: params.polyType === 'quad' || params.quads === true ? 'quad' : 'tri',
+      preserve_features: params.preserveEdges !== false,
+      feature_angle: Number(params.featureAngle ?? params.feature_angle ?? 45),
+      adaptive: params.adaptiveDensity ?? params.adaptive ?? true,
+      watertight: params.watertightHealing ?? params.watertight ?? false,
+      model_preference: params.model_preference || 'triflow_retopology',
       ...(workspaceId ? { workspace_id: workspaceId } : {}),
       ...(parentOperationId ? { parent_operation_id: parentOperationId } : {}),
       ...meshRef,

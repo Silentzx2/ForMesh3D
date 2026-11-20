@@ -470,9 +470,8 @@ export const RemeshPanel: React.FC = () => {
       if (runRemeshGeneration) {
         await runRemeshGeneration({
           engineMode,
-
           polyType,
-          targetPolycount,
+          targetPolycount: localPolycount,
           preserveEdges,
           featureAngle,
           adaptiveDensity,
@@ -691,8 +690,6 @@ export const RemeshPanel: React.FC = () => {
             tool="remesh"
           />
 
-          {engineMode === 'script' && (
-            <>
           {/* 3. Topology Type: Pure Quads vs Triangles */}
           <div className="space-y-1.5">
             <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider block">
@@ -724,11 +721,6 @@ export const RemeshPanel: React.FC = () => {
             </div>
           </div>
 
-            </>
-          )}
-
-          {engineMode === 'script' ? (
-            <>
           {/* 4. Target Polycount: Tripo-Style Smooth Gradient Slider + Quick Presets */}
           <div className="space-y-2.5 p-3 rounded-2xl bg-[#12131d] border border-white/[0.08]">
             <div className="flex items-center justify-between">
@@ -792,62 +784,66 @@ export const RemeshPanel: React.FC = () => {
             </div>
           </div>
 
-            </>
-          ) : (
-            <div className="space-y-2 p-3 rounded-2xl bg-[#12131d] border border-white/[0.08]">
-              <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
-                FastMesh Output
-              </span>
-              <p className="text-sm font-bold text-white">Approximately 1K vertices</p>
+          {/* Engine indicator */}
+          {engineMode === 'ai' ? (
+            <div className="p-2.5 rounded-xl bg-[#12131d] border border-white/[0.06] space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-white flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-[#F9CF00]" />
+                  <span>TriFlow Neural Engine</span>
+                </span>
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#F9CF00]/15 text-[#F9CF00] font-semibold border border-[#F9CF00]/30">
+                  Latent Flow Matching
+                </span>
+              </div>
               <p className="text-[10px] text-zinc-400">
-                V1K is a fixed-output checkpoint. Target face budget and topology selection are available only in Script mode.
+                Neural vector fields predict artist-like quad edge loops conditioned on your exact face budget.
+              </p>
+            </div>
+          ) : (
+            <div className="p-2.5 rounded-xl bg-[#12131d] border border-white/[0.06] space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-white flex items-center gap-1.5">
+                  <Cpu className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Algorithmic Engine (Python)</span>
+                </span>
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300 font-semibold border border-indigo-500/30">
+                  QuadriFlow / Trimesh
+                </span>
+              </div>
+              <p className="text-[10px] text-zinc-400">
+                Deterministic geometric remesher using QuadriFlow for quads or Taubin curvature smoothing for triangles.
               </p>
             </div>
           )}
 
-          {engineMode === 'script' && (
-            <div className="pt-0.5">
-              <button
-                ref={advancedTriggerRef}
-                type="button"
-                aria-expanded={isAdvancedOpen}
-                onClick={() => setIsAdvancedOpen((prev) => !prev)}
-                className={`w-full h-8.5 px-3 rounded-xl border flex items-center justify-between text-left transition-all cursor-pointer shadow-sm ${
-                  isAdvancedOpen
-                    ? 'bg-[#1b1b2f] border-[#F9CF00] text-white ring-1 ring-[#F9CF00]/50'
-                    : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-[hsl(var(--foreground))]'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <SlidersHorizontal className="w-3.5 h-3.5 text-[#F9CF00]" />
-                  <span className="text-xs font-medium text-zinc-200">Advanced Settings</span>
-                </div>
-                <ChevronRight
-                  className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${
-                    isAdvancedOpen ? 'rotate-90 text-[#F9CF00]' : ''
-                  }`}
-                />
-              </button>
-            </div>
-          )}
-
-          {engineMode === 'ai' && (
-            <div className="space-y-1.5 pt-1.5 border-t border-[hsl(var(--border))]">
-              <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider block">
-                Retopo Engine
-              </label>
-              <div className="rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] px-3 py-2">
-                <p className="text-xs font-bold text-[hsl(var(--foreground))]">FastMesh V1K</p>
-                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-1">
-                  Checkpoint-fixed output · approximately 1K vertices
-                </p>
+          <div className="pt-0.5">
+            <button
+              ref={advancedTriggerRef}
+              type="button"
+              aria-expanded={isAdvancedOpen}
+              onClick={() => setIsAdvancedOpen((prev) => !prev)}
+              className={`w-full h-8.5 px-3 rounded-xl border flex items-center justify-between text-left transition-all cursor-pointer shadow-sm ${
+                isAdvancedOpen
+                  ? 'bg-[#1b1b2f] border-[#F9CF00] text-white ring-1 ring-[#F9CF00]/50'
+                  : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-[hsl(var(--foreground))]'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-3.5 h-3.5 text-[#F9CF00]" />
+                <span className="text-xs font-medium text-zinc-200">Advanced Settings</span>
               </div>
-            </div>
-          )}
+              <ChevronRight
+                className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${
+                  isAdvancedOpen ? 'rotate-90 text-[#F9CF00]' : ''
+                }`}
+              />
+            </button>
+          </div>
         </div>
 
         {/* Dynamic Flying Side Advanced Retopo Settings Panel (Portal) */}
-        {engineMode === 'script' && mounted && isAdvancedOpen && typeof document !== 'undefined' && createPortal(
+        {mounted && isAdvancedOpen && typeof document !== 'undefined' && createPortal(
           <div
             ref={advancedFlyoutRef}
             id="retopo-advanced-flyout"
@@ -1046,14 +1042,14 @@ export const RemeshPanel: React.FC = () => {
               <RefreshCw className="w-3.5 h-3.5 text-black" />
               <span>
                 {engineMode === 'ai'
-                  ? 'Run Retopology (FastMesh V1K)'
+                  ? 'Run Neural Retopology (TriFlow)'
                   : polyType === 'quad'
                   ? 'Run Quad Retopology (Script)'
                   : 'Run Isotropic Remesh (Trimesh)'}
               </span>
             </button>
             <div className="flex items-center justify-between text-[10px] text-zinc-400 px-1 font-mono">
-              <span>Target: {localPolycount.toLocaleString()} {polyType === 'quad' ? 'Quads' : 'Target Triangles (Isotropic)'}</span>
+              <span>Target: {localPolycount.toLocaleString()} {polyType === 'quad' ? 'Quads' : 'Triangles'}</span>
               <span>Clean Flow</span>
             </div>
           </div>

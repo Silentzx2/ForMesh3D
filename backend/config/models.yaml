@@ -442,6 +442,36 @@ auto_rig:
       character_output: true
     model_type: rigging
 mesh_retopology:
+  triflow_retopology:
+    model_name: "TriFlow — Neural Quad-Dominant Retopology"
+    ui_label: TriFlow
+    ui_tag: Retopology
+    ui_note: Dynamic target face budget with artist-like quad flow
+    ui_badge: 10GB VRAM
+    enabled: true
+    upstream_repository: "https://github.com/DerKleineLi/triflow"
+    upstream_ref: main
+    checkpoint_license: non-commercial
+    vram_requirement: 10240
+    max_workers: 1
+    supported_inputs:
+    - obj
+    - glb
+    - ply
+    - stl
+    supported_outputs:
+    - obj
+    - glb
+    model_path: backend/pretrained/TriFlow
+    capabilities:
+      retopology: true
+      target_polycount: true
+      quad_ratio: true
+      preserve_features: true
+      watertight: true
+      multi_gpu: true
+      multi_gpu_strategy: accelerate_auto_device_map
+    model_type: retopology
   fastmesh_v1k_retopology:
     model_name: "FastMesh \u2014 Retopology"
     ui_label: FastMesh V1K
