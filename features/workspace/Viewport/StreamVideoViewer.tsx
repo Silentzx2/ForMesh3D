@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { useWebRTCStream } from '../hooks/useWebRTCStream';
+import { useWebSocketStream } from '../hooks/useWebSocketStream';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { SparklesIcon, RefreshCw, AlertCircle } from '@hugeicons/core-free-icons';
 
@@ -21,7 +21,6 @@ export const StreamVideoViewer: React.FC<StreamVideoViewerProps> = ({
   className = '',
 }) => {
   const {
-    videoRef,
     canvasRef,
     connectionState,
     streamTransport,
@@ -33,7 +32,7 @@ export const StreamVideoViewer: React.FC<StreamVideoViewerProps> = ({
     handlePointerUp,
     handleWheel,
     retry,
-  } = useWebRTCStream({
+  } = useWebSocketStream({
     workspaceId,
     modelUrl,
     enabled: true,
@@ -52,18 +51,7 @@ export const StreamVideoViewer: React.FC<StreamVideoViewerProps> = ({
       onWheel={handleWheel}
       style={{ touchAction: 'none' }}
     >
-      {/* WebRTC Video Element */}
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        className={`absolute inset-0 w-full h-full object-contain pointer-events-none transition-opacity duration-300 ${
-          streamTransport === 'webrtc' && connectionState === 'streaming' ? 'opacity-100' : 'opacity-0'
-        }`}
-      />
-
-      {/* WebSocket Canvas Element (Universal fallback / high-speed channel) */}
+      {/* WebSocket Canvas (universal streaming channel) */}
       <canvas
         ref={canvasRef}
         className={`absolute inset-0 w-full h-full object-contain pointer-events-none transition-opacity duration-300 ${

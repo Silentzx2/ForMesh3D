@@ -17,7 +17,6 @@ import { useViewerStore } from '@/stores/useViewerStore';
 import { useAnimationStore } from '@/stores/useAnimationStore';
 import { getApiClient } from '@/services/apiClient';
 import { collectMeshStats } from './meshStats';
-import { loadGLBWithProgress } from '../lib/glbCache';
 import { StreamVideoViewer } from './StreamVideoViewer';
 
 import { toast } from 'sonner';
@@ -1307,7 +1306,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         </div>
       )}
 
-      {/* 100% Server-Side Cloud 3D WebRTC/WebSocket Stream Viewport (Zero Client Download) */}
+      {/* 100% Server-Side Cloud 3D WebSocket Stream Viewport (Zero Client Download) */}
       {modelUrl && (
         <StreamVideoViewer
           workspaceId={workspaceId}

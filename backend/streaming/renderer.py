@@ -70,6 +70,10 @@ class HeadlessRenderer:
         self.last_rendered_image: Optional[Image.Image] = None
         self.last_rendered_jpeg: Optional[bytes] = None
 
+        # Point cloud placeholder mode: renders vertices as points (fast)
+        # instead of faces (slow PIL face-by-face). Used for instant first frame.
+        self.use_point_cloud = False
+
         if mesh_path:
             self.load_mesh(mesh_path)
 
@@ -144,6 +148,7 @@ class HeadlessRenderer:
 
             self.dirty = True
             self.last_activity = time.time()
+            self.use_point_cloud = True  # instant point cloud first frame
             logger.info("Loaded mesh: %d vertices, %d faces", len(v), len(f))
             return True
         except Exception as exc:
@@ -254,9 +259,27 @@ class HeadlessRenderer:
         # Draw subtle studio floor grid
         self._draw_floor_grid(draw, w, h)
 
-        if len(self.vertices) == 0 or len(self.faces) == 0:
+        if len(self.vertices) == 0:
             # Draw placeholder watermark
             draw.text((w // 2 - 60, h // 2 - 10), "No 3D Model Loaded", fill=(160, 160, 170, 200))
+            self.last_rendered_image = img
+            self.dirty = False
+            return img
+
+        # Point cloud mode: render vertices as points (fast, instant first frame)
+        if self.use_point_cloud:
+            v = self.vertices
+            center = (v.min(axis=0) + v.max(axis=0)) * 0.5
+            v = v - center
+            max_ext = float(np.max(np.linalg.norm(v, axis=1)))
+            scale = 0.35 * min(w, h) / max(max_ext, 1e-6)
+            v = v * scale
+            cx, cy = w // 2, h // 2
+            for x, y, _ in v:
+                px = int(cx + x)
+                py = int(cy - y)
+                if 0 <= px < w and 0 <= py < h:
+                    draw.point((px, py), fill=(249, 207, 0, 255))  # Studio Gold
             self.last_rendered_image = img
             self.dirty = False
             return img

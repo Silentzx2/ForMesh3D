@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { getApiClient } from '@/services/apiClient';
 import { useViewerStore } from '@/stores/useViewerStore';
 
-export interface UseWebRTCStreamOptions {
+export interface UseWebSocketStreamOptions {
   workspaceId?: string | null;
   modelUrl?: string | null;
   enabled?: boolean;
@@ -13,15 +13,15 @@ export interface UseWebRTCStreamOptions {
 }
 
 export type StreamConnectionState = 'idle' | 'connecting' | 'streaming' | 'error';
-export type StreamTransport = 'webrtc' | 'websocket' | 'none';
+export type StreamTransport = 'websocket' | 'none';
 
-export function useWebRTCStream({
+export function useWebSocketStream({
   workspaceId,
   modelUrl,
   enabled = true,
   shadingMode = 'clay',
   showWireframe = false,
-}: UseWebRTCStreamOptions) {
+}: UseWebSocketStreamOptions) {
   const [connectionState, setConnectionState] = useState<StreamConnectionState>('idle');
   const [streamTransport, setStreamTransport] = useState<StreamTransport>('none');
   const [fps, setFps] = useState<number>(0);
@@ -32,52 +32,32 @@ export function useWebRTCStream({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const isConnectingRef = useRef(false);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
-  // Keep live refs for visual props so connect does not need to rebuild
   const shadingModeRef = useRef(shadingMode);
   shadingModeRef.current = shadingMode;
   const showWireframeRef = useRef(showWireframe);
   showWireframeRef.current = showWireframe;
 
-  // Gesture state
   const isPointerDownRef = useRef(false);
   const lastPointerRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const isRightClickRef = useRef(false);
 
-  // FPS calculation
   const frameCountRef = useRef(0);
   const lastFpsCalcRef = useRef(Date.now());
   const lastPingSentRef = useRef<number>(0);
 
-  /**
-   * Dispatch interaction command across whichever transport is active.
-   */
   const sendCommand = useCallback((payload: Record<string, unknown>) => {
     const jsonStr = JSON.stringify(payload);
-    // 1. Try WebRTC DataChannel
-    if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
-      try {
-        dataChannelRef.current.send(jsonStr);
-        return;
-      } catch (e) {
-        console.debug('[WebRTCStream] DataChannel send failed, falling back:', e);
-      }
-    }
-
-    // 2. Try WebSocket
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
         wsRef.current.send(jsonStr);
         return;
       } catch (e) {
-        console.debug('[WebRTCStream] WebSocket send failed:', e);
+        console.debug('[WebSocketStream] WebSocket send failed:', e);
       }
     }
 
-    // 3. Fallback to direct HTTP POST input
     if (sessionIdRef.current) {
       const api = getApiClient();
       api.post(`/api/v1/stream/session/${sessionIdRef.current}/input`, payload).catch(() => {});
@@ -96,7 +76,6 @@ export function useWebRTCStream({
     sendCommand({ action: 'wireframe', enabled: wireframeEnabled });
   }, [sendCommand]);
 
-  // Sync shading & wireframe changes with server renderer
   useEffect(() => {
     if (connectionState === 'streaming') {
       sendShading(shadingMode);
@@ -109,9 +88,6 @@ export function useWebRTCStream({
     }
   }, [showWireframe, connectionState, sendWireframe]);
 
-  /**
-   * Pointer gesture handlers for fluid OrbitControls feel.
-   */
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     isPointerDownRef.current = true;
     lastPointerRef.current = { x: e.clientX, y: e.clientY };
@@ -148,9 +124,6 @@ export function useWebRTCStream({
     sendCommand({ action: 'zoom', delta: e.deltaY });
   }, [sendCommand]);
 
-  /**
-   * Setup stream session and connect via WebRTC or WebSocket.
-   */
   const connect = useCallback(async () => {
     if (!enabled || (!workspaceId && !modelUrl)) return;
     if (isConnectingRef.current) return;
@@ -180,19 +153,17 @@ export function useWebRTCStream({
         useViewerStore.getState().setModelStats(sessionData.stats);
       }
     } catch (err: any) {
-      console.warn('[WebRTCStream] Session start failed:', err);
+      console.warn('[WebSocketStream] Session start failed:', err);
       setConnectionState('error');
       setErrorMessage(err?.message || 'Failed to start 3D streaming session');
       isConnectingRef.current = false;
       return;
     }
 
-    const { session_id, ws_url, webrtc_supported } = sessionData;
+    const { session_id, ws_url } = sessionData;
 
-    // Helper to connect over multiplexed WebSocket
     const connectWebSocket = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      // If client runs on Next.js dev port 3000, direct WebSocket to FastAPI port 7842
       const host = typeof window !== 'undefined' && window.location.port === '3000'
         ? `${window.location.hostname}:7842`
         : window.location.host;
@@ -206,14 +177,12 @@ export function useWebRTCStream({
         isConnectingRef.current = false;
         setConnectionState('streaming');
         setStreamTransport('websocket');
-        // Initial sync of shading and wireframe using live refs
         sendCommand({ action: 'shading', mode: shadingModeRef.current });
         sendCommand({ action: 'wireframe', enabled: showWireframeRef.current });
       };
 
       ws.onmessage = async (event) => {
         if (event.data instanceof ArrayBuffer) {
-          // Render binary JPEG frame onto canvas
           const blob = new Blob([event.data], { type: 'image/jpeg' });
           try {
             const bitmap = await createImageBitmap(blob);
@@ -230,7 +199,6 @@ export function useWebRTCStream({
             }
             bitmap.close();
 
-            // Live FPS & Latency stats
             frameCountRef.current += 1;
             const now = Date.now();
             if (now - lastFpsCalcRef.current >= 1000) {
@@ -242,13 +210,13 @@ export function useWebRTCStream({
               setLatencyMs(Date.now() - lastPingSentRef.current);
             }
           } catch (decodeErr) {
-            console.debug('[WebRTCStream] Frame decode error:', decodeErr);
+            console.debug('[WebSocketStream] Frame decode error:', decodeErr);
           }
         }
       };
 
       ws.onerror = (err) => {
-        console.warn('[WebRTCStream] WebSocket error:', err);
+        console.warn('[WebSocketStream] WebSocket error:', err);
       };
 
       ws.onclose = () => {
@@ -257,60 +225,9 @@ export function useWebRTCStream({
       };
     };
 
-    // Only attempt WebRTC if the server explicitly supports it (aiortc installed)
-    if (webrtc_supported === true && typeof RTCPeerConnection !== 'undefined') {
-      try {
-        const pc = new RTCPeerConnection({
-          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-        });
-        pcRef.current = pc;
-
-        // Create data channel for client input
-        const dc = pc.createDataChannel('control');
-        dataChannelRef.current = dc;
-
-        pc.ontrack = (event) => {
-          if (videoRef.current && event.streams[0]) {
-            videoRef.current.srcObject = event.streams[0];
-            isConnectingRef.current = false;
-            setConnectionState('streaming');
-            setStreamTransport('webrtc');
-          }
-        };
-
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-
-        const answerRes: any = await api.post(`/api/v1/stream/session/${session_id}/offer`, {
-          sdp: pc.localDescription?.sdp,
-          type: pc.localDescription?.type,
-        });
-
-        const answerData = (answerRes && typeof answerRes === 'object' && 'sdp' in answerRes) ? answerRes : answerRes?.data;
-        if (answerData && answerData.sdp) {
-          await pc.setRemoteDescription(new RTCSessionDescription(answerData));
-          return;
-        }
-      } catch (webrtcErr) {
-        console.warn('[WebRTCStream] WebRTC handshake failed, falling back to WebSocket:', webrtcErr);
-        if (pcRef.current) {
-          pcRef.current.close();
-          pcRef.current = null;
-        }
-        if (dataChannelRef.current) {
-          try { dataChannelRef.current.close(); } catch {}
-          dataChannelRef.current = null;
-        }
-      }
-    }
-
-    // Connect via WebSocket
     connectWebSocket();
   }, [enabled, workspaceId, modelUrl, sendCommand]);
 
-  /**
-   * Clean up active connections on unmount or session stop.
-   */
   const disconnect = useCallback(() => {
     isConnectingRef.current = false;
     if (sessionIdRef.current) {
@@ -322,16 +239,6 @@ export function useWebRTCStream({
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
-    }
-
-    if (pcRef.current) {
-      pcRef.current.close();
-      pcRef.current = null;
-    }
-
-    if (dataChannelRef.current) {
-      dataChannelRef.current.close();
-      dataChannelRef.current = null;
     }
 
     setConnectionState('idle');
@@ -367,4 +274,4 @@ export function useWebRTCStream({
     handleWheel,
     retry: connect,
   };
-}
+};

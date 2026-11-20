@@ -1,14 +1,13 @@
-"""WebRTC and Multiplexed Streaming Engine for Remote 3D Mesh Inspection.
+"""Multiplexed WebSocket Streaming Engine for Remote 3D Mesh Inspection.
 
-Manages peer connections, video tracks, and bidirectional input data channels.
-Provides graceful fallback to high-speed WebSocket streaming when WebRTC/aiortc
-is unavailable or blocked by network NAT.
+Manages WebSocket sessions, video frame broadcasting, and bidirectional input.
+Graceful, dependency-light alternative to WebRTC — no aiortc/av, no SDP/ICE,
+no NAT traversal. Just binary JPEG frames pushed to the client and JSON input
+received back over the same socket.
 """
-
 from __future__ import annotations
 
 import asyncio
-import fractions
 import json
 import logging
 import time
@@ -18,23 +17,6 @@ from typing import Any, Dict, Optional, Set
 from .renderer import HeadlessRenderer
 
 logger = logging.getLogger(__name__)
-
-# Optional WebRTC (aiortc + av) support
-AIORTC_AVAILABLE = False
-try:
-    import av
-    from aiortc import (
-        MediaStreamTrack,
-        RTCConfiguration,
-        RTCDataChannel,
-        RTCIceServer,
-        RTCPeerConnection,
-        RTCSessionDescription,
-        VideoStreamTrack,
-    )
-    AIORTC_AVAILABLE = True
-except ImportError:
-    pass
 
 
 class StreamSession:
@@ -51,15 +33,10 @@ class StreamSession:
         self.mesh_path = mesh_path
         self.renderer = HeadlessRenderer(mesh_path=mesh_path, width=width, height=height)
 
-        # State: "idle" | "signaling" | "connecting" | "streaming" | "idle_paused" | "terminating"
+        # State: "idle" | "streaming" | "idle_paused" | "terminating"
         self.state = "idle"
         self.created_at = time.time()
         self.last_activity = time.time()
-
-        # WebRTC resources (if aiortc available)
-        self.pc: Optional[Any] = None
-        self.video_track: Optional[Any] = None
-        self.data_channel: Optional[Any] = None
 
         # WebSocket active connections
         self.ws_clients: Set[Any] = set()
@@ -79,7 +56,7 @@ class StreamSession:
             self.state = "streaming"
 
     def handle_input(self, payload: Dict[str, Any]) -> None:
-        """Process client interaction commands from DataChannel or WebSocket."""
+        """Process client interaction commands from WebSocket."""
         self.touch()
         action = payload.get("action")
 
@@ -120,7 +97,6 @@ class StreamSession:
         jpeg_data = self.renderer.render_jpeg()
         self.frame_count += 1
 
-        # Calculate live FPS
         now = time.time()
         if now - self.last_fps_calc >= 1.0:
             self.current_fps = round(self.frame_count / (now - self.last_fps_calc), 1)
@@ -146,13 +122,11 @@ class StreamSession:
 
             if is_idle:
                 self.state = "idle_paused"
-                # Hold last frame, sleep longer (1 FPS keyframe keepalive)
                 await asyncio.sleep(1.0)
             else:
                 self.state = "streaming"
                 if self.renderer.dirty:
                     await self.broadcast_frame()
-                # 30-45 FPS interactive frame pacing
                 await asyncio.sleep(0.025)
 
     async def close(self) -> None:
@@ -167,32 +141,6 @@ class StreamSession:
             except Exception:
                 pass
         self.ws_clients.clear()
-
-        if self.pc:
-            try:
-                await self.pc.close()
-            except Exception:
-                pass
-            self.pc = None
-
-
-# WebRTC Video Track subclass if aiortc is installed
-if AIORTC_AVAILABLE:
-    class RTCStreamVideoTrack(VideoStreamTrack):
-        """Custom aiortc VideoStreamTrack sourcing frames from HeadlessRenderer."""
-
-        def __init__(self, session: StreamSession):
-            super().__init__()
-            self.session = session
-            self.time_base = fractions.Fraction(1, 30)
-
-        async def recv(self) -> av.VideoFrame:
-            pts, time_base = await self.next_timestamp()
-            rgb_arr = self.session.renderer.render_ndarray()
-            frame = av.VideoFrame.from_ndarray(rgb_arr, format="rgb24")
-            frame.pts = pts
-            frame.time_base = time_base
-            return frame
 
 
 class StreamManager:
@@ -221,10 +169,8 @@ class StreamManager:
         async with self._lock:
             self._sessions[session_id] = session
 
-        # Start stream loop
         session.stream_task = asyncio.create_task(session.start_streaming_loop())
 
-        # Ensure periodic sweeper is running
         if self._sweeper_task is None or self._sweeper_task.done():
             self._sweeper_task = asyncio.create_task(self._sweep_loop())
 
@@ -256,7 +202,7 @@ class StreamManager:
                 to_expire = []
                 async with self._lock:
                     for sid, s in self._sessions.items():
-                        if (now - s.last_activity) > 300.0:  # 5 minutes
+                        if (now - s.last_activity) > 300.0:
                             to_expire.append(sid)
 
                 for sid in to_expire:

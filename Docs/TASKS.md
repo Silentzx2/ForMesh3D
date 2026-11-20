@@ -1,50 +1,63 @@
-# Implementation Plan: NVIDIA PartField Neural Mesh Segmentation Integration
+# Stream Viewport Fix — Point Cloud Placeholder + Clean WebSocket Streaming
 
-## 1. Governance & Scope Boundaries
-- **Large GPU Parity (`sm >= 80`)**: Upstream FlashAttention, FP16/BF16, and CUDA flows remain native; pre-Ampere isolated.
-- **Model Adapter Direct Patching**: All PartField neural segmentation logic contained in `backend/adapters/partfield_adapter.py`; zero global monkeypatches.
-- **No Heavy Install Rule**: Wrote all dependencies into requirements/install/download scripts without running heavy installs during task.
-- **Context Budget Rule**: Keep this document <= 150 lines strictly adhering to `AGENTS.md`.
-- **Skills Activated**: `ponytail` (minimal clean change), `verification-loop` (build, types, logic verification), `agent-self-evaluation`.
+## Problem
+- Mesh loads server-side (523k vertices OK) but stream does not render instantly
+- WebRTC handshake crashes (`None is not in list` — aiortc transceiver `_offerDirection` None)
+- WebRTC needs `aiortc` + `av` deps, SDP/ICE complexity, crashes on complex meshes
+- PIL/ImageDraw face-by-face rendering is slow for large meshes → first frame delayed
+- `/input` spam when client connects but no frame returns
 
-## 2. Phase 1: Docs Setup, Dependency Audit & Weights Configuration
-- [x] Understand PartField architecture (PointNet++/PVCNN feature field extractor + Agglomerative clustering).
-- [x] Dependency Audit & Script Registration:
-  - Recorded PartField dependencies (`yacs`, `potpourri3d`, `open3d`, `plyfile`) in `backend/requirements-models.txt` and `backend/scripts/install.sh`.
-- [x] Weights Configuration (`backend/scripts/download_models.sh`, `manager.sh`):
-  - Configured `download_partfield()` to fetch `model_objaverse.ckpt` from `mikaelaangel/partfield-ckpt` into `backend/pretrained/PartField/`.
-  - Added Option `[20] PartField (NVIDIA 3D Mesh Part Segmentation)` to `manager.sh`.
+## Goal
+- Mesh visible in viewport within 10–15s of generation complete
+- Client downloads nothing (80MB mesh stays server-side)
+- Point cloud placeholder shows real mesh geometry shape during generation/connect
+- Real mesh replaces placeholder once stream connects
+- Old WebRTC completely removed — WebSocket-only streaming
+- Clean code, minimal deps, smart logic
 
-## 3. Phase 2: Eliminate Segmentation Page Device & UI Lag
-- [x] Root Cause Fix in `RealModelPreviewCanvas.tsx`:
-  - Stopped disposing and re-instantiating WebGLRenderer on every state change and hover event.
-  - Cached `EdgesGeometry` in WeakMap to prevent synchronous main-thread geometry recomputation on high-poly meshes.
-  - Mutated Three.js materials and visibility in-place without cloning the active model on every render.
-- [x] Optimization in `DynamicSegmentationInspector.tsx`:
-  - Memoized `onHoverId` and `onSelectId` callbacks with `useCallback` to prevent render loops.
-- [x] Viewport Hover Fix in `MeshViewer.tsx`:
-  - Fixed radix bug `parseInt(match[1], 1)` to `parseInt(match[1], 10)` in part highlighting.
+## Scope
 
-## 4. Phase 3: Backend Architecture & PartField Adapter Implementation
-- [x] **Model Adapter (`backend/adapters/partfield_adapter.py`)**:
-  - Subclassed `BaseModel` (`backend/core/models/base.py`) with Model ID `partfield_segmentation`.
-  - Input parameters: `num_parts` (2 to 32), `method` (`semantic`/`geometric`), `hierarchical` (bool), `min_face_island_threshold`, `save_individual_parts`, `output_format` (`glb` or `obj`).
-  - Feature extraction pipeline + Agglomerative face clustering with robust pure-NumPy fallback for CPU/missing weights.
-- [x] **Model Registry & Scheduling (`backend/config/models.yaml`, `backend/core/scheduler/model_factory.py`)**:
-  - Registered `partfield_segmentation` under `mesh_segmentation` (8GB VRAM allocation).
-  - Added factory constructor mapping in `model_factory.py`.
-- [x] **API Endpoint & Pipeline Integration (`backend/api/routers/mesh_segmentation.py`)**:
-  - Routed default `model_preference = "partfield_segmentation"` when `engine == "ai"`.
-  - Forwarded all parameters through `JobRequest`.
+### Remove (WebRTC — complete)
+- `backend/api/routers/streaming.py` — `/offer`, `/ice`, SDP/ice-candidate endpoints, aiortc imports
+- `backend/streaming/stream_manager.py` — REPLACED `webrtc_streamer.py`; StreamSession/StreamManager, WebSocket only, no WebRTC
+- `backend/requirements.txt` — remove `aiortc`, remove `av`
+- `features/workspace/hooks/useWebSocketStream.ts` — REPLACED `useWebRTCStream.ts`; WebSocket-only hook
+- `features/workspace/Viewport/StreamVideoViewer.tsx` — canvas only, no `<video>` WebRTC element
+- References to `webrtc_supported`, `RTCPeerConnection`, `AIORTC_AVAILABLE` across frontend
 
-## 5. Phase 4: Frontend UI Unlock & Deep Verification
-- [x] **Unlock AI Mode in `SegmentationPanel.tsx` & `EngineModeSelector.tsx`**:
-  - Removed `aiDisabled={true}` and enabled PartField AI engine selection (`GPU (PartField)`) alongside Fast Script.
-  - Wired target parts, decomposition mode, hierarchical assembly toggle, and export format.
-- [x] **Bridge & Context Verification (`meshProcessingBridge.ts`, `WorkspaceContext.tsx`)**:
-  - Ensured `runSegmentation` passes all parameters to `/api/v1/segment`.
-- [x] **Deep Verification & Docs Sync**:
-  - Python static compile check (`python3 -m py_compile`) passed.
-  - Adapter unit tests (`backend/tests/test_partfield_adapter.py`): 6/6 passed.
-  - Frontend TypeScript verification (`npx tsc --noEmit`): 0 errors.
-  - Updated `Docs/CHANGELOG.md`, `Docs/DECISIONS.md` (ADR-109), and `Docs/MEMORY.md`.
+### Keep (WebSocket streaming)
+- `backend/api/routers/streaming.py` — `/session/start`, `/session/{id}/ws`, `/session/{id}/input`, `/session/{id}/status`, `/session/{id}/stop`
+- `backend/streaming/renderer.py` — HeadlessRenderer (add point cloud mode)
+- `backend/streaming/stream_manager.py` — StreamManager, StreamSession (WebSocket only, no WebRTC fields)
+
+### Add
+- Point cloud placeholder rendering in `renderer.py` (draw vertices as points, fast)
+- Pre-rendered placeholder thumbnail on mesh generate/upload complete
+- Frontend: generation-progress placeholder overlay (spinner + point cloud preview)
+- Frontend: swap placeholder → real stream canvas when `connectionState === 'streaming'`
+
+## Dependencies (2 deps to remove)
+- `aiortc>=1.9.0` — REMOVE from `backend/requirements.txt`
+- `av>=13.0.0` — REMOVE from `backend/requirements.txt` (was added for WebRTC video track, no longer needed)
+
+## Verification
+- `bun run test` (tsc --noEmit) — 0 errors
+- `python3 -m py_compile backend/api/routers/streaming.py backend/streaming/*.py`
+- `git status` clean before commit
+
+## Old commits for reference
+- `e22cbd6` — feat(streaming): implement server-side remote 3D WebRTC/WebSocket streaming engine
+- `29e1345` — refactor(streaming): enforce 100% cloud streaming viewport and remove client-side mesh loaders
+- `adb6de0` — fix(stream): skip WebRTC offer when server reports webrtc_supported=false
+- `47cd3ae` — fix(stream): harden WebRTC offer handshake and pin av dep (reverting this whole approach)
+
+## Implementation Plan
+1. Backend: `stream_manager.py` — WebSocket-only StreamManager + StreamSession (done)
+2. Backend: `streaming.py` router — WebSocket-only endpoints (done)
+3. Backend: `renderer.py` — add point cloud placeholder mode for instant first frame (done)
+4. Backend: `placeholder.py` — standalone point cloud renderer (done)
+5. Frontend: `useWebSocketStream.ts` — WebSocket-only hook, replaced `useWebRTCStream.ts` (done)
+6. Frontend: `StreamVideoViewer.tsx` — canvas only, placeholder overlay during connect (done)
+7. Frontend: `MeshViewer.tsx` — removed unused `loadGLBWithProgress` import (done)
+8. Remove `aiortc` + `av` from requirements.txt (done)
+9. Verify: tsc + py_compile + git commit + push (pending)

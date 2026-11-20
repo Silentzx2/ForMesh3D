@@ -1,12 +1,14 @@
 """FastAPI Router for Server-Side 3D Remote Viewport Streaming.
 
-Provides WebRTC signaling (SDP offer/answer, ICE) and high-speed
-WebSocket video streaming for 3D meshes.
-"""
+WebSocket video streaming for 3D meshes. Server renders the mesh offscreen
+and pushes JPEG frames to the client over a multiplexed WebSocket channel;
+client sends JSON input events back over the same socket.
 
+No WebRTC, no aiortc, no SDP/ICE — dependency-light and works across all
+network topographies and proxy environments.
+"""
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from pathlib import Path
@@ -15,23 +17,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-try:
-    from streaming import get_stream_manager
-    from streaming.webrtc_streamer import AIORTC_AVAILABLE
-except ImportError:
-    from backend.streaming import get_stream_manager
-    from backend.streaming.webrtc_streamer import AIORTC_AVAILABLE
-
-if AIORTC_AVAILABLE:
-    from aiortc import (
-        RTCIceCandidate,
-        RTCPeerConnection,
-        RTCSessionDescription,
-    )
-    try:
-        from streaming.webrtc_streamer import RTCStreamVideoTrack
-    except ImportError:
-        from backend.streaming.webrtc_streamer import RTCStreamVideoTrack
+from backend.streaming import get_stream_manager
 
 logger = logging.getLogger(__name__)
 
@@ -45,19 +31,6 @@ class StartStreamRequest(BaseModel):
     model_url: Optional[str] = Field(None, description="URL or endpoint path of the model")
     width: int = Field(800, ge=128, le=1920)
     height: int = Field(600, ge=128, le=1080)
-
-
-class SDPOfferRequest(BaseModel):
-    """Client WebRTC SDP offer."""
-    sdp: str
-    type: str = "offer"
-
-
-class ICECandidateRequest(BaseModel):
-    """Client trickle ICE candidate."""
-    candidate: str
-    sdpMid: Optional[str] = None
-    sdpMLineIndex: Optional[int] = None
 
 
 class InputEventRequest(BaseModel):
@@ -76,15 +49,13 @@ class InputEventRequest(BaseModel):
 def _resolve_mesh_path(req: StartStreamRequest) -> str:
     """Resolve a valid filesystem path to the target 3D model."""
     repo_root = Path(__file__).resolve().parents[3]
-
     candidates = []
 
     if req.mesh_path:
         mp = Path(req.mesh_path)
         candidates.append(mp)
         if not mp.is_absolute():
-            candidates.append(repo_root / mp)
-            candidates.append(repo_root / "backend" / mp)
+            candidates.extend([repo_root / mp, repo_root / "backend" / mp])
 
     if req.workspace_id:
         ws_id = req.workspace_id.replace("local_", "")
@@ -101,7 +72,6 @@ def _resolve_mesh_path(req: StartStreamRequest) -> str:
                 s_root / ws_id / "mesh.glb",
                 s_root / ws_id / "mesh.obj",
             ])
-            # Check wildcard subdirectories for workspace_id
             if s_root.is_dir():
                 for match in s_root.glob(f"*{ws_id}*"):
                     if match.is_dir():
@@ -113,7 +83,6 @@ def _resolve_mesh_path(req: StartStreamRequest) -> str:
                         ])
 
     if req.model_url:
-        # Extract relative path from URL (e.g. /api/v1/storage/...)
         clean_url = req.model_url.split("?")[0].split("#")[0]
         if "/storage/" in clean_url:
             sub = clean_url.split("/storage/", 1)[1]
@@ -126,7 +95,6 @@ def _resolve_mesh_path(req: StartStreamRequest) -> str:
         if cand.is_file():
             return str(cand.resolve())
 
-    # Return empty placeholder path if mesh is pending or not yet generated
     return ""
 
 
@@ -146,7 +114,6 @@ async def start_stream_session(req: StartStreamRequest) -> Dict[str, Any]:
         "session_id": session.session_id,
         "mesh_path": resolved_path,
         "mesh_loaded": bool(resolved_path),
-        "webrtc_supported": AIORTC_AVAILABLE,
         "ws_url": f"/api/v1/stream/session/{session.session_id}/ws",
         "stats": {
             "vertices": int(len(session.renderer.vertices)),
@@ -160,109 +127,9 @@ async def start_stream_session(req: StartStreamRequest) -> Dict[str, Any]:
     }
 
 
-@router.post("/session/{session_id}/offer")
-async def handle_sdp_offer(session_id: str, req: SDPOfferRequest) -> Dict[str, Any]:
-    """Accept WebRTC SDP offer and return SDP answer."""
-    if not AIORTC_AVAILABLE:
-        raise HTTPException(
-            status_code=501,
-            detail="WebRTC (aiortc) is not installed on this server. Connect via the WebSocket channel at /api/v1/stream/session/{session_id}/ws",
-        )
-
-    manager = get_stream_manager()
-    session = await manager.get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session.state = "signaling"
-    session.touch()
-
-    pc = RTCPeerConnection()
-    session.pc = pc
-
-    # Add video track
-    video_track = RTCStreamVideoTrack(session)
-    session.video_track = video_track
-    pc.addTrack(video_track)
-
-    # Listen for DataChannel
-    @pc.on("datachannel")
-    def on_datachannel(channel):
-        session.data_channel = channel
-
-        @channel.on("message")
-        def on_message(message):
-            try:
-                data = json.loads(message) if isinstance(message, str) else json.loads(message.decode())
-                session.handle_input(data)
-            except Exception as exc:
-                logger.debug("DataChannel message decode error: %s", exc)
-
-    @pc.on("connectionstatechange")
-    async def on_connectionstatechange():
-        if pc.connectionState in ("failed", "closed"):
-            await session.close()
-
-    offer = RTCSessionDescription(sdp=req.sdp, type=req.type)
-    await pc.setRemoteDescription(offer)
-
-    # Root cause: aiortc crashes with "None is not in list" in
-    # createAnswer()/setLocalDescription() when a locally-added track (our
-    # video track) has no matching remote media line, leaving the
-    # transceiver's _offerDirection unset (None). Guard every transceiver so
-    # WebRTC negotiation can proceed instead of failing the stream.
-    for t in pc.getTransceivers():
-        if t._offerDirection is None:
-            t._offerDirection = t.direction or "sendrecv"
-
-    try:
-        answer = await pc.createAnswer()
-        await pc.setLocalDescription(answer)
-    except Exception as exc:
-        await pc.close()
-        session.pc = None
-        session.state = "idle"
-        logger.error("WebRTC offer/answer failed for session %s: %s", session_id, exc)
-        raise HTTPException(
-            status_code=500,
-            detail=f"WebRTC handshake failed: {exc}",
-        )
-
-    session.state = "connecting"
-    return {
-        "sdp": pc.localDescription.sdp,
-        "type": pc.localDescription.type,
-    }
-
-
-@router.post("/session/{session_id}/ice")
-async def handle_ice_candidate(session_id: str, req: ICECandidateRequest) -> Dict[str, Any]:
-    """Receive client ICE candidate."""
-    if not AIORTC_AVAILABLE:
-        return {"success": False, "detail": "aiortc not available"}
-
-    manager = get_stream_manager()
-    session = await manager.get_session(session_id)
-    if not session or not session.pc:
-        raise HTTPException(status_code=404, detail="Active WebRTC peer connection not found")
-
-    candidate_str = req.candidate.strip()
-    if candidate_str:
-        try:
-            from aiortc.sdp import candidate_from_sdp
-            cand = candidate_from_sdp(candidate_str)
-            cand.sdpMid = req.sdpMid
-            cand.sdpMLineIndex = req.sdpMLineIndex
-            await session.pc.addIceCandidate(cand)
-        except Exception as exc:
-            logger.debug("Failed to add ICE candidate: %s", exc)
-
-    return {"success": True}
-
-
 @router.post("/session/{session_id}/input")
-async def handle_direct_input(session_id: str, req: InputEventRequest) -> Dict[str, Any]:
-    """Direct HTTP input event fallback."""
+async def handle_direct_input(session_id: str, req: InputEventRequest):
+    """Direct WebSocket input event (received via WebSocket message)."""
     manager = get_stream_manager()
     session = await manager.get_session(session_id)
     if not session:
@@ -293,12 +160,11 @@ async def get_session_status(session_id: str) -> Dict[str, Any]:
         "elevation": session.renderer.elevation,
         "distance": session.renderer.distance,
         "connected_ws_clients": len(session.ws_clients),
-        "webrtc_connected": bool(session.pc and session.pc.connectionState == "connected"),
     }
 
 
 @router.post("/session/{session_id}/stop")
-async def stop_session(session_id: str) -> Dict[str, Any]:
+async def stop_session(session_id: str):
     """Explicitly tear down streaming session and release memory."""
     manager = get_stream_manager()
     closed = await manager.close_session(session_id)
@@ -324,21 +190,22 @@ async def websocket_stream_endpoint(websocket: WebSocket, session_id: str):
     session.touch()
     logger.info("WebSocket client connected to stream session %s", session_id)
 
-    # Immediately send initial frame
+    # Immediately send initial frame (point cloud for instant load)
     try:
         initial_frame = session.renderer.render_jpeg()
         await websocket.send_bytes(initial_frame)
+        # Switch to full mesh rendering after first point-cloud frame
+        session.renderer.use_point_cloud = False
+        session.renderer.dirty = True
     except Exception:
         pass
 
     try:
         while True:
-            # Receive client input events
             data = await websocket.receive_text()
             try:
                 msg = json.loads(data)
                 session.handle_input(msg)
-                # Immediately push rendered response frame for low input latency
                 frame = session.renderer.render_jpeg()
                 await websocket.send_bytes(frame)
             except json.JSONDecodeError:
@@ -349,5 +216,5 @@ async def websocket_stream_endpoint(websocket: WebSocket, session_id: str):
         logger.debug("WebSocket error in stream session %s: %s", session_id, exc)
     finally:
         session.ws_clients.discard(websocket)
-        if len(session.ws_clients) == 0 and not session.pc:
+        if len(session.ws_clients) == 0:
             session.state = "idle_paused"
