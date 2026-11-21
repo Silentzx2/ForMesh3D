@@ -49,11 +49,11 @@ export function useMeshLoader(): UseMeshLoaderResult {
     rendererRef.current?.unload();
     // Keep the renderer instance alive so a later loadModel() call finds a
     // valid renderer. Only the unmount effect disposes it (see cleanup below).
+    // Do NOT reset isGpu here — the renderer's GPU/CPU mode is fixed at init.
     setStatus('idle');
     setError(null);
     setStats({ vertices: 0, triangles: 0 });
     setLoadTime(0);
-    setIsGpu(false);
   }, []);
 
   const initRenderer = useCallback((container: HTMLDivElement) => {
@@ -85,9 +85,15 @@ export function useMeshLoader(): UseMeshLoaderResult {
     }
 
     if (!rendererRef.current) {
-      setError('Renderer not initialized. Call initRenderer(container) first.');
-      setStatus('error');
-      return;
+      // Defensive: initRenderer may not have run yet (e.g. container ref not
+      // ready on first mount). Initialize now so the load can proceed.
+      if (containerRef.current) {
+        initRenderer(containerRef.current);
+      } else {
+        setError('Renderer not initialized. Call initRenderer(container) first.');
+        setStatus('error');
+        return;
+      }
     }
 
     const abortController = new AbortController();
@@ -121,7 +127,7 @@ export function useMeshLoader(): UseMeshLoaderResult {
           child.material = child.material.clone();
         }
       });
-      rendererRef.current.load(group);
+      rendererRef.current!.load(group);
 
       setStatus('loaded');
       setStats(cached.stats);

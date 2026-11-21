@@ -38,13 +38,17 @@ function getUVCheckerTexture(): THREE.Texture {
 export function detectGpuAvailability(): boolean {
   if (typeof window === 'undefined' || !document) return false;
   const canvas = document.createElement('canvas');
-  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+  // failIfMajorPerformanceCaveat: false lets software fallbacks still create
+  // a context; we only use it to detect, not to block rendering.
+  const gl =
+    canvas.getContext('webgl2', { failIfMajorPerformanceCaveat: false }) ||
+    canvas.getContext('webgl', { failIfMajorPerformanceCaveat: false });
   if (!gl) return false;
   try {
     const ext = gl.getExtension('WEBGL_debug_renderer_info');
     if (ext) {
       const renderer = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) as string;
-      const software = /swiftshader|llvmpipe|llvm-pipe|softpipe|software|llvmpipe/i;
+      const software = /swiftshader|llvmpipe|llvm-pipe|softpipe/i;
       if (software.test(renderer)) return false;
     }
   } catch {
