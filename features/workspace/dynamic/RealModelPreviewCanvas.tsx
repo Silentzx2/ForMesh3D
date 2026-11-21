@@ -34,7 +34,7 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
   orbitYaw,
   bones = [],
   parts = [],
-  highlightBoundaries = true,
+  highlightBoundaries = false,
   colorizeViewport = true,
   viewAngle = 'ortho',
   highlightSeams = true,
@@ -176,25 +176,6 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
       if (node instanceof THREE.Mesh && node.geometry) {
         node.userData.__meshIndex = meshIdx;
 
-        // Caching edges geometry once to eliminate CPU freeze
-        let edgeGeo = edgeGeoCacheRef.current.get(node.geometry);
-        if (!edgeGeo) {
-          // Bounded calculation for performance
-          edgeGeo = new THREE.EdgesGeometry(node.geometry, 30);
-          edgeGeoCacheRef.current.set(node.geometry, edgeGeo);
-        }
-
-        const wire = new THREE.LineSegments(
-          edgeGeo,
-          new THREE.LineBasicMaterial({
-            color: mode === 'uv' ? 0xef4444 : 0xffffff,
-            opacity: 0.6,
-            transparent: true,
-          })
-        );
-        wire.name = '__wire_boundary';
-        node.add(wire);
-
         interactivesRef.current.push({ obj: node, id: `p${meshIdx + 1}` });
         meshIdx++;
       }
@@ -223,7 +204,56 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
     }
   }, [activeModel, mode, xrayBones]);
 
-  // 3. Fast In-Place Materials & Visibility Updates (Zero Context Rebuild, Zero Allocation)
+  // 3. Build expensive edge geometry only when the user enables seam/boundary highlighting.
+  // This keeps segmentation page mount lightweight for dense production meshes.
+  useEffect(() => {
+    const group = modelGroupRef.current;
+    if (!group) return;
+
+    const shouldShowEdges =
+      (mode === 'segmentation' && highlightBoundaries) ||
+      (mode === 'uv' && highlightSeams);
+
+    group.traverse((node) => {
+      if (!(node instanceof THREE.Mesh) || node.userData.__meshIndex === undefined || !node.geometry) {
+        return;
+      }
+
+      const existingWire = node.getObjectByName('__wire_boundary') as THREE.LineSegments | undefined;
+      if (!shouldShowEdges) {
+        if (existingWire) {
+          node.remove(existingWire);
+          existingWire.geometry = existingWire.geometry; // Geometry is shared by the cache; do not dispose it here.
+          (existingWire.material as THREE.Material).dispose();
+        }
+        return;
+      }
+
+      if (existingWire) {
+        existingWire.visible = true;
+        return;
+      }
+
+      let edgeGeo = edgeGeoCacheRef.current.get(node.geometry);
+      if (!edgeGeo) {
+        edgeGeo = new THREE.EdgesGeometry(node.geometry, 30);
+        edgeGeoCacheRef.current.set(node.geometry, edgeGeo);
+      }
+
+      const wire = new THREE.LineSegments(
+        edgeGeo,
+        new THREE.LineBasicMaterial({
+          color: mode === 'uv' ? 0xef4444 : 0xffffff,
+          opacity: 0.6,
+          transparent: true,
+        })
+      );
+      wire.name = '__wire_boundary';
+      node.add(wire);
+    });
+  }, [activeModel, mode, highlightBoundaries, highlightSeams]);
+
+  // 4. Fast In-Place Materials & Visibility Updates (Zero Context Rebuild, Zero Allocation)
   useEffect(() => {
     const group = modelGroupRef.current;
     if (!group) return;
