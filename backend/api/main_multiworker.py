@@ -43,7 +43,6 @@ from .routers import (
     mesh_segmentation,
     mesh_uv_unwrapping,
     motion_generation,
-    streaming,
     system,
 )
 
@@ -335,11 +334,6 @@ app.include_router(
 app.include_router(
     motion_generation.router, prefix="/api/v1", tags=["Motion Generation"]
 )
-
-app.include_router(
-    streaming.router, prefix="/api/v1", tags=["3D Streaming"]
-)
-
 
 # Canonical storage static files mount (models, uploads, textures, previews)
 try:

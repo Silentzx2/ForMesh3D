@@ -9,11 +9,10 @@
 - **Database Authority:** Authoritative SQLite database at `backend/storage/job_queue.db`, WAL journal mode, synchronous NORMAL, `busy_timeout=30000`. Dual state machines: `ExecutionStatus` (`queued` -> `processing` -> `completed` | `failed` | `interrupted` | `cancelled`) and `PersistenceStatus` (`saved` on direct publication).
 - **Queue & Worker Model:** Durable SQLite FIFO queue with background worker process, queue capacity cap of 10, atomic worker claiming with process locks, deduplication fingerprints.
 
-### 2. 100% Server-Side Remote 3D Streaming Viewport
-- **Pure Cloud Streaming Architecture**: Elimination of client-side mesh downloading (`loadGLBWithProgress`, `sharedGLTFLoader.parse`) and dual-mode toggle from viewport. Viewport runs 100% on Cloud Streaming (`StreamVideoViewer.tsx` via `useWebRTCStream.ts`).
-- **Offscreen Rendering Engine (`backend/streaming/renderer.py`)**: Headless rendering on server GPU / software fallback with dynamic orbit, pan, zoom, presets, shading modes, wireframe, and idle power-saving (pause rendering after 2s of inactivity).
-- **WebRTC & WebSocket Streaming (`backend/streaming/webrtc_streamer.py`, `backend/api/routers/streaming.py`)**: WebRTC VideoTrack (aiortc) with transparent multiplexed WebSocket fallback channel (binary frame push + JSON input) streaming lightweight ~22KB frames (<200 KB/s), achieving instant (<1s) inspection.
-- **Server-Side Geometry Stats**: Vertex count, triangle count, and dimensions are computed on server load and returned in `/api/v1/stream/session/start` to populate Inspector tabs with zero client-side GLB parsing.
+### 2. Local Mesh Viewport (Client-Side Rendering)
+- **Local GLTFLoader-based Rendering**: Mesh viewer downloads GLB via `fetch`/`glbCache`, parses with `GLTFLoader` (DRACO + meshopt), and renders inline in Three.js viewport (`MeshViewer.tsx`).
+- **No Server-Side Streaming**: WebRTC/WebSocket streaming engine (`backend/streaming/`, `backend/api/routers/streaming.py`) removed. All mesh loading is client-side.
+- **Cache**: URL-keyed fetch cache (`glbCache.ts`) with L1 RAM + L2 CacheStorage tiers. Mesh statistics collected via `meshStats.ts`.
 
 ### 3. Canonical Direct-Save Workspace Operations
 - **Direct Workspace Persistence**: Tool operations write directly to `storage/<workspace_id>/<tool_type>/<ws_id>_<tool>_v00X.glb` via `publish_derived_mesh`.

@@ -37,12 +37,16 @@
 
 ## ADR-107: 100% Server-Side Remote 3D WebRTC/WebSocket Streaming & Removal of Client Mesh Loaders (2026-11-20)
 
+> **Status: SUPERSEDED** — Streaming engine removed. Mesh viewer reverted to local GLTFLoader-based rendering (`MeshViewer.tsx`). `backend/streaming/` directory and `backend/api/routers/streaming.py` deleted.
+
 **Context:** Heavy 3D meshes (80MB–150MB GLB files) took 15–30 minutes to download over slow client internet before local Three.js could render them, choking client network bandwidth and crashing low-memory client devices. Furthermore, client-side Three.js parsing was running in the background even when previewing models.
 
-**Decision:**
+**Decision (original, now reversed):**
 1. **100% Pure Cloud Viewport**: Eliminate all client-side mesh download loops (`loadGLBWithProgress`, `sharedGLTFLoader.parse`) and remove dual-mode switching from `ViewportToolOverlay.tsx`. Viewport runs exclusively on Cloud Streaming.
 2. **Headless Offscreen Renderer (`backend/streaming/renderer.py`)**: Server GPU/worker loads the mesh offscreen, calculates geometry statistics (vertices, triangles, dimensions), and executes dynamic camera matrices (orbit, pan, zoom, presets, shading, wireframe) with adaptive FPS and idle power-saving.
 3. **WebRTC & WebSocket Streaming Architecture (`backend/streaming/webrtc_streamer.py`, `backend/api/routers/streaming.py`)**: Deliver real-time video via WebRTC VideoTrack (aiortc) with transparent, multiplexed WebSocket fallback channel (binary frame push + JSON input) ensuring 100% compatibility across all network topographies and proxy environments.
 4. **Server-Side Stats Delivery**: Mesh statistics are returned directly in the `/api/v1/stream/session/start` response, populating the Inspector tab instantly without downloading mesh geometry.
 
-**Consequences:** Network footprint drops from a 100MB upfront download to lightweight ~22KB frames (<200KB/s), achieving instant (<1s) viewport inspection on any device.
+**Consequences (original):** Network footprint drops from a 100MB upfront download to lightweight ~22KB frames (<200KB/s), achieving instant (<1s) viewport inspection on any device.
+
+**Current state:** Reverted to local client-side mesh loading. Mesh viewer downloads GLB via `fetch`/`glbCache`, parses with `GLTFLoader`, and renders inline in Three.js viewport. No server-side streaming.
