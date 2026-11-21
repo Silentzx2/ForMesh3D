@@ -142,6 +142,12 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       return;
     }
     void loadModel(modelUrl);
+
+    // Diagnostic: confirm the Three.js canvas is present in the DOM
+    setTimeout(() => {
+      const canvas = containerRef.current?.querySelector('canvas');
+      console.debug('[MeshViewer] canvas in DOM:', !!canvas, canvas?.width, 'x', canvas?.height, 'offsetParent:', !!canvas?.offsetParent);
+    }, 500);
   }, [modelUrl, loadModel, unload]);
 
   // --- Apply shading/wireframe when they change ---

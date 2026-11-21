@@ -272,6 +272,15 @@ export class MeshRenderer {
     this.fitCamera();
     this.applyShadingToAll(this.shadingMode, this.wireframe);
     this.hasModel = true;
+
+    console.debug('[MeshRenderer] load done:', {
+      sceneChildren: this.modelGroup.children.length,
+      cameraPos: this.camera.position.toArray().map((v) => Math.round(v * 100) / 100),
+      cameraTarget: this.controls.target.toArray().map((v) => Math.round(v * 100) / 100),
+      canvasSize: `${this.__renderer.domElement.width}x${this.__renderer.domElement.height}`,
+      hasModel: this.hasModel,
+      isGpu: this.isGpu,
+    });
   }
 
   /** Remove all meshes from scene and free their GPU/RAM memory. */
