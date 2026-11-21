@@ -223,7 +223,6 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
       if (!shouldShowEdges) {
         if (existingWire) {
           node.remove(existingWire);
-          existingWire.geometry = existingWire.geometry; // Geometry is shared by the cache; do not dispose it here.
           (existingWire.material as THREE.Material).dispose();
         }
         return;
