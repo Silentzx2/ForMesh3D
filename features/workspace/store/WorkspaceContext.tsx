@@ -389,9 +389,10 @@ export function routeShortId(source: string | undefined): string {
 
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const queryClient = useQueryClient();
-  const appStore = useAppStore();
+  const autoRotatePreference = useAppStore((state) => state.viewer?.autoRotate);
+  const hasRunningBatchJobs = useAppStore((state) => state.batchQueue.some((item) => item.status === 'running' && item.jobId));
   const updateBatchItem = useAppStore((state) => state.updateBatchItem);
-  const viewerStore = useViewerStore();
+  const setViewerShadingMode = useViewerStore((state) => state.setShadingMode);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -704,7 +705,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [showWireframe, setShowWireframeState] = useState(false);
   const [showGrid, setShowGridState] = useState(false);
   const [showBones, setShowBonesState] = useState(false);
-  const [isTurntable, setIsTurntableState] = useState(appStore.viewer?.autoRotate ?? false);
+  const [isTurntable, setIsTurntableState] = useState(autoRotatePreference ?? false);
   const [activeTransformTool, setActiveTransformTool] = useState<'select' | 'rotate' | 'pan' | 'frame'>('select');
   const [viewportResetTrigger, setViewportResetTrigger] = useState(0);
 
@@ -1211,8 +1212,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const setShadingMode = useCallback((mode: ShadingMode) => {
     setShadingModeState(mode);
-    viewerStore.setShadingMode(shadingModeToPreset(mode));
-  }, [viewerStore]);
+    setViewerShadingMode(shadingModeToPreset(mode));
+  }, [setViewerShadingMode]);
 
   const setShowWireframe = useCallback((show: boolean) => {
     setShowWireframeState(show);
@@ -1274,14 +1275,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
    }, []);
     // Poll batch job statuses periodically
     useEffect(() => {
-      const { batchQueue } = appStore;
-     
-     // Check if we have any batch jobs that need monitoring
-     const hasBatchJobs = batchQueue.some(item => 
-       item.status === 'running' && item.jobId
-     );
-     
-     if (!hasBatchJobs) {
+     // Start/stop the batch poller only when the queue transitions between
+     // having active jobs and having none. Read queue contents fresh per tick.
+     if (!hasRunningBatchJobs) {
        // Clean up any existing polling interval
        if (batchPollingIntervalRef.current) {
          clearInterval(batchPollingIntervalRef.current);
@@ -1294,6 +1290,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
      if (!batchPollingIntervalRef.current) {
        batchPollingIntervalRef.current = setInterval(async () => {
          try {
+           const batchQueue = useAppStore.getState().batchQueue;
            // Get all unique job IDs from batch queue items that are running
              const jobIds = Array.from(new Set(
                batchQueue
@@ -1381,7 +1378,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         // Clear the job ID map
         batchJobIdMap.current = {};
       };
-    }, [useAppStore]);
+    }, [hasRunningBatchJobs, updateBatchItem]);
 
 
 function dataURLtoFile(dataURL: string, filename: string): File {

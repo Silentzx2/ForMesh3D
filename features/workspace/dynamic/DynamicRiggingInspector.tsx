@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import * as THREE from 'three';
+import { invalidateViewportRender } from '../Viewport/viewportEvents';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { useViewerStore } from '@/stores/useViewerStore';
@@ -129,6 +130,7 @@ export const DynamicRiggingInspector: React.FC = () => {
         }
       }
     }
+    invalidateViewportRender();
   };
 
   const applyPosePreset = (pose: 't_pose' | 'a_pose' | 'combat' | 'sitting') => {
@@ -168,6 +170,7 @@ export const DynamicRiggingInspector: React.FC = () => {
         }
       });
     }
+    invalidateViewportRender();
     toast.info(`Applied pose: ${pose.replace('_', ' ').toUpperCase()}`);
   };
 

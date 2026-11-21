@@ -819,7 +819,8 @@ Telemetry is diagnostic evidence, not a model-quality verdict. The same-input, s
 
 The Next.js 16 Presentation Layer unifies all creation, editing, retopology, rigging, and animation workflows onto a single continuous WebGL canvas:
 
-- **Continuous 3D Viewport**: `MeshViewer` and `ViewportToolOverlay` remain continuously mounted in `#center-viewport-stage` across all workspace tool selections (`model`, `remesh`, `texture`, `uv`, `segment`, `edit`, `animation`, `rigging`). Canvas destructions and WebGL context recreation (200–500ms latency) are eliminated.
+- **Persistent 3D Viewport**: `MeshViewer` and `ViewportToolOverlay` remain mounted in `#center-viewport-stage` across all workspace tool selections (`model`, `remesh`, `texture`, `uv`, `segment`, `edit`, `animation`, `rigging`). Canvas destructions and WebGL context recreation (200–500ms latency) are eliminated.
+- **Demand-Driven Rendering**: Static scenes render after camera, model, material, lighting, comparison, or viewport changes. In-place edits from the UV/segmentation/rigging inspectors and property controls dispatch a shared invalidation event. A requestAnimationFrame continues only while OrbitControls damping, an imported model animation, or the turntable is active. The smaller inspector preview follows the same invalidation model.
 - **Rig-to-animation handoff**: SkinTokens produces a rigged GLB asset (with optional FBX export via Blender) for the shared viewport. ARDY motion JSON joint names, per-frame quaternions and root positions are mapped to the loaded skeleton; motion generation requires a real rig, and retarget playback options drive root-motion scaling and floor clamping.
 - **Dynamic Modular Panel Rail & Flush-Docked Cards**:
   - The sleek 40px top header (`TopHeader.tsx`, `bg-[hsl(var(--surface-0))]`) sets visual hierarchy above the workspace.

@@ -145,7 +145,7 @@ flowchart TD
 
     subgraph Client ["Studio Frontend (Next.js 16 : Port 3000)"]
         UI["Unified Studio UI<br/>React 19 + Radix UI + Motion"]:::gold
-        VIEWER["Continuous 3D WebGL Viewport<br/>Three.js Persistent Canvas Stage"]:::gold
+        VIEWER["Persistent 3D WebGL Viewport<br/>Three.js On-Demand Canvas Stage"]:::gold
         STORES["Reactive State Stores<br/>Zustand + TanStack Query"]:::gold
     end
 
@@ -300,7 +300,7 @@ flowchart TD
 The ForMesh3D Studio UI integrates neural generation and mesh finishing into a cohesive desktop-grade web application:
 
 ### 🎮 Viewport & Generation Controls:
-- **Interactive Three.js Viewport**: Smooth orbital camera controls, perspective/orthographic toggle, wireframe overlay, PBR matcap rendering, and continuous WebGL staging.
+- **Interactive Three.js Viewport**: Smooth orbital camera controls, perspective/orthographic toggle, wireframe overlay, PBR matcap rendering, and demand-driven WebGL rendering.
 - **Floating XYZ Orientation Gizmo**: Reference-matched image-backed camera control with interactive positive and negative X/Y/Z snaps, integrated into the existing viewport without a second renderer.
 - **Snapshot Capture**: Two separate capture buttons — Header Snapshot captures the entire workspace as-is (`<name>_<hash>-workspace.png`) at 1920×1080 PNG; Tool Rail Camera captures mesh only (grid/axes hidden) (`<name>_<hash>-mesh.png`) at 1080p 100% quality. Both save to current route identity.
 - **Real-Time Geometry Telemetry HUD**: Direct in-viewport telemetry tracking triangle count, vertex count, watertight manifold status, physical bounding box dimensions (W x H x D), and quality score — replaces the collapsible Mesh Details panel formerly in `ViewportToolOverlay`.

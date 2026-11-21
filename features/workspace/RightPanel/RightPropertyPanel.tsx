@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import * as THREE from 'three';
+import { invalidateViewportRender } from '../Viewport/viewportEvents';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { ShadingMode, ModelAsset } from '../types';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
@@ -32,10 +34,28 @@ import {
 import { useViewerStore } from '@/stores/useViewerStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
-import { DynamicUVInspector } from '../dynamic/DynamicUVInspector';
-import { DynamicSegmentationInspector } from '../dynamic/DynamicSegmentationInspector';
-import { DynamicAnimationInspector } from '../dynamic/DynamicAnimationInspector';
-import { DynamicRiggingInspector } from '../dynamic/DynamicRiggingInspector';
+const InspectorLoadingFallback = () => (
+  <div className="flex min-h-24 items-center justify-center text-[10px] text-[hsl(var(--muted-foreground))]">
+    Loading inspector…
+  </div>
+);
+
+const DynamicUVInspector = dynamic(
+  () => import('../dynamic/DynamicUVInspector').then((mod) => mod.DynamicUVInspector),
+  { ssr: false, loading: InspectorLoadingFallback }
+);
+const DynamicSegmentationInspector = dynamic(
+  () => import('../dynamic/DynamicSegmentationInspector').then((mod) => mod.DynamicSegmentationInspector),
+  { ssr: false, loading: InspectorLoadingFallback }
+);
+const DynamicAnimationInspector = dynamic(
+  () => import('../dynamic/DynamicAnimationInspector').then((mod) => mod.DynamicAnimationInspector),
+  { ssr: false, loading: InspectorLoadingFallback }
+);
+const DynamicRiggingInspector = dynamic(
+  () => import('../dynamic/DynamicRiggingInspector').then((mod) => mod.DynamicRiggingInspector),
+  { ssr: false, loading: InspectorLoadingFallback }
+);
 import { Grid3X3, Scissors, Film, Bone } from '@/components/icons/hugeicons-components';
 
 export const RightPropertyPanel: React.FC = () => {
@@ -141,6 +161,7 @@ export const RightPropertyPanel: React.FC = () => {
       (transform.rotZ * Math.PI) / 180
     );
     target.scale.set(transform.scaleX, transform.scaleY, transform.scaleZ);
+    invalidateViewportRender();
   }, [transform, activeModelObject]);
 
   // Reset transform state when switching assets
@@ -189,6 +210,7 @@ export const RightPropertyPanel: React.FC = () => {
         });
       }
     });
+    invalidateViewportRender();
   }, [materialSettings.roughness, materialSettings.metallic, materialSettings.normalStrength, activeModelObject]);
 
   const handleScaleChange = (val: number) => {
@@ -219,6 +241,7 @@ export const RightPropertyPanel: React.FC = () => {
       target.position.set(0, 0, 0);
       target.rotation.set(0, 0, 0);
       target.scale.set(1, 1, 1);
+      invalidateViewportRender();
     }
   };
 

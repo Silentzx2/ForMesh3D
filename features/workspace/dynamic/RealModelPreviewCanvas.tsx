@@ -49,6 +49,7 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
 
   // Persistent Three.js references (prevent WebGL context thrashing)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const invalidateRenderRef = useRef<() => void>(() => {});
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -121,24 +122,33 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
           cameraRef.current.aspect = nw / nh;
           cameraRef.current.updateProjectionMatrix();
           rendererRef.current.setSize(nw, nh);
+          invalidate();
         }
       }
     });
     resizeObserver.observe(el);
 
-    let rafId: number;
+    let rafId: number | null = null;
     let isDisposed = false;
-    const renderLoop = () => {
+    const renderFrame = () => {
+      rafId = null;
       if (isDisposed) return;
       controls.update();
       renderer.render(scene, camera);
-      rafId = requestAnimationFrame(renderLoop);
     };
-    rafId = requestAnimationFrame(renderLoop);
+    const invalidate = () => {
+      if (isDisposed || rafId !== null) return;
+      rafId = requestAnimationFrame(renderFrame);
+    };
+    invalidateRenderRef.current = invalidate;
+    controls.addEventListener('change', invalidate);
+    invalidate();
 
     return () => {
       isDisposed = true;
-      cancelAnimationFrame(rafId);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      invalidateRenderRef.current = () => {};
+      controls.removeEventListener('change', invalidate);
       resizeObserver.disconnect();
       controls.dispose();
       renderer.dispose();
@@ -202,6 +212,7 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
         group.add(skel);
       }
     }
+    invalidateRenderRef.current();
   }, [activeModel, mode, xrayBones]);
 
   // 3. Build expensive edge geometry only when the user enables seam/boundary highlighting.
@@ -250,6 +261,7 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
       wire.name = '__wire_boundary';
       node.add(wire);
     });
+    invalidateRenderRef.current();
   }, [activeModel, mode, highlightBoundaries, highlightSeams]);
 
   // 4. Fast In-Place Materials & Visibility Updates (Zero Context Rebuild, Zero Allocation)
@@ -287,6 +299,7 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
         }
       }
     });
+    invalidateRenderRef.current();
   }, [mode, parts, selectedId, colorizeViewport, highlightBoundaries, highlightSeams, viewportChecker]);
 
   // 4. View Angle Adjustment
@@ -306,6 +319,7 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
       camera.position.set(2.2, 1.4, 2.2);
     }
     controls.update();
+    invalidateRenderRef.current();
   }, [viewAngle, orbitYaw]);
 
   // 5. Throttled Pointer Handler
