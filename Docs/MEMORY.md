@@ -38,7 +38,14 @@
 - **Pre-Ampere (`sm < 80`)**: Mitigations strictly isolated behind `_is_pre_ampere` checks.
 - **Model Patcher Isolation**: Patchers reside strictly in `patcher/<model-name>/` with zero global monkeypatches.
 
-### 6. Verification Status
+### 6. Viewport Render Lifecycle & UI Loading
+- **Main viewport**: Persistent Three.js canvas uses invalidation-based rendering. It renders after scene/UI changes and only keeps requestAnimationFrame active while OrbitControls damping, imported model animation, or turntable rotation needs another frame. In-place model mutations from inspectors and property controls dispatch a shared viewport invalidation event.
+- **Inspector preview**: Uses the same on-demand render pattern; no idle RAF loop remains.
+- **Inspector bundles**: UV, segmentation, animation, and rigging inspector modules are dynamically imported only when the corresponding tool is active.
+- **Zustand**: WorkspaceProvider uses focused selectors for the viewer shading action, app-store batch queue, and auto-rotate preference instead of subscribing to the entire viewer or app store.
+- **Deferred**: Worker-based mesh analysis and adaptive DPR/shadow quality were not introduced without transfer-cost and GPU profiling evidence. Measure browser long tasks, idle CPU/GPU, and frame time before selecting those changes.
+
+### 7. Verification Status
 - **Verification (`2026-11-20`)**:
   - `backend/tests/test_partfield_adapter.py`: 6/6 unit tests passed.
   - `backend/tests/test_triflow_adapter.py`: 5/5 unit tests passed.

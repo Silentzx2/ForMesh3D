@@ -1,5 +1,13 @@
 # ForMesh3D Changelog
 
+## 2026-11-21 — Workspace Viewport Idle-Render & Bundle Optimization
+- **Main Three.js viewport**: Replaced the unconditional RAF loop with invalidation-based rendering. OrbitControls damping, animated model mixers, and the optional turntable continue scheduling frames only while active; model, camera, lighting, shading, grid, comparison, resize, and snapshot updates explicitly invalidate the frame.
+- **Inspector preview**: Removed its unconditional RAF loop; renders on interaction, damping, resize, model rebuild, or preview-setting changes.
+- **Viewport mutation invalidation**: Inspector and property-panel updates dispatch a shared invalidation event so in-place mesh visibility, UV/material, transform, and rig-pose changes still redraw the main viewport.
+- **Inspector code splitting**: UV, segmentation, animation, and rigging inspector modules now load only when their matching tool is selected.
+- **Zustand subscriptions**: Replaced whole viewer/app-store subscriptions with focused selectors for the shading action, batch queue, and auto-rotate preference.
+- **Validation**: GitHub Actions frontend install, type-check, ESLint, contract tests, and production build run on this commit. Browser/GPU profiling remains a manual follow-up; no FPS/CPU gain is claimed without measurement.
+
 ## 2026-11-21 — Streaming Engine Removed, Local-Only Mesh Viewer Restored
 - **Streaming engine deleted**: `backend/api/routers/streaming.py`, `backend/streaming/` directory (renderer, stream_manager, placeholder) removed entirely
 - **Router registration removed**: `streaming` import and `app.include_router()` removed from `backend/api/main_multiworker.py` and `backend/api/routers/__init__.py`
@@ -15,21 +23,3 @@
 - **MeshViewer.tsx**: Rewrote to integrate loader/renderer; removed 1000+ lines of dead Three.js imports/inline renderer code; local canvas shows when streaming unavailable; WebSocket stream viewer stays as fallback.
 - **ViewportToolOverlay.tsx / types.ts**: Fixed `LightTone` import path and added type definition.
 - Verification: `tsc --noEmit` 0 errors; eslint 0 errors.
-
-## 2026-11-20 — WebRTC Stream Infinite Reconnect Loop Fix & Backend Import Parity
-- **WebRTC Stream Hook Response Unwrapping & Loop Prevention (`features/workspace/hooks/useWebRTCStream.ts`)**: Fixed `sessionData` unwrapping from `api.post` (which already returns unwrapped response body), eliminating `Cannot read properties of undefined (reading 'session_id')`. Removed cyclic `connectionState`, `shadingMode`, and `showWireframe` dependencies from `connect` callback to stop infinite `POST /api/v1/stream/session/start` request loops, and added `isConnectingRef` concurrency mutex.
-- **Streaming Router Resilient Imports (`backend/api/routers/streaming.py`)**: Added fallback import logic for `streaming` vs `backend.streaming` to prevent `ModuleNotFoundError: No module named 'backend'` during uvicorn worker router resolution when `cwd` is `backend/`.
-- **Server Startup PYTHONPATH Parity (`backend/scripts/run_server.sh`)**: Exported both `PROJECT_ROOT` and `BACKEND_DIR` into `PYTHONPATH`, guaranteeing consistent resolution for all `from backend.` and `from api.` imports across uvicorn multi-workers and standalone schedulers.
-
-## 2026-11-20 — NVIDIA PartField Neural Mesh Segmentation & Viewport/Inspector Lag Elimination
-- **PartField Model Adapter (`backend/adapters/partfield_adapter.py`)**: Subclassed `BaseModel` (`partfield_segmentation`) with 8GB VRAM profile. Computes continuous 3D surface feature fields with PVCNN/PointNet++ backbone, constructs sparse face adjacency connectivity matrices, and executes hierarchical Agglomerative clustering (or KMeans) with topological fallback.
-- **Model Registry & Download Automation**: Registered `partfield_segmentation` under `mesh_segmentation` in `backend/config/models.yaml` and `model_factory.py`. Added `download_partfield()` to `backend/scripts/download_models.sh` (HuggingFace `mikaelaangel/partfield-ckpt`), added Option `[20]` to `manager.sh`, and recorded dependencies in `backend/requirements-models.txt` and `backend/scripts/install.sh`.
-- **Segmentation Page Lag Elimination**: Fixed extreme main-thread device and UI freezing when opening Segmentation:
-  - Eliminated continuous WebGLRenderer teardown/recreation and model cloning on every mouse move in `RealModelPreviewCanvas.tsx`.
-  - Added cached `EdgesGeometry` to prevent synchronous main-thread geometry recomputation on high-poly models.
-  - Memoized hover/select callbacks in `DynamicSegmentationInspector.tsx` with `useCallback` to prevent infinite render loops.
-  - Fixed radix bug `parseInt(match[1], 1)` to `parseInt(match[1], 10)` in `MeshViewer.tsx`.
-  - Unlocked AI Mode in `SegmentationPanel.tsx` and `EngineModeSelector.tsx` (`GPU (PartField)`).
-- **Verification**: `backend/tests/test_partfield_adapter.py` 6/6 unit tests passed, `python3 -m py_compile` clean, and `npx tsc --noEmit` clean (0 errors).
-
-## 2026-11-20 — NVIDIA PartField Neural Mesh Segmentation & Viewport/Inspector Lag Elimination

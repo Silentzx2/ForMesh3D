@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import * as THREE from 'three';
+import { invalidateViewportRender } from '../Viewport/viewportEvents';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
 import { useWorkspace } from '../store/WorkspaceContext';
@@ -185,26 +186,25 @@ export const DynamicSegmentationInspector: React.FC = () => {
   // Toggle visibility of individual part and update activeModelObject mesh in Three.js scene
   const togglePartVisibility = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setParts((prev) =>
-      prev.map((p, idx) => {
-        if (p.id === id) {
-          const nextVis = !p.visible;
-          if (activeModelObject) {
-            let meshIdx = 0;
-            activeModelObject.traverse((node) => {
-              if (node instanceof THREE.Mesh) {
-                if (meshIdx === idx || node.name === p.name) {
-                  node.visible = nextVis;
-                }
-                meshIdx++;
-              }
-            });
+    const partIndex = parts.findIndex((part) => part.id === id);
+    const part = parts[partIndex];
+    if (!part) return;
+    const nextVis = !part.visible;
+
+    if (activeModelObject) {
+      let meshIdx = 0;
+      activeModelObject.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          if (meshIdx === partIndex || node.name === part.name) {
+            node.visible = nextVis;
           }
-          return { ...p, visible: nextVis };
+          meshIdx++;
         }
-        return p;
-      })
-    );
+      });
+    }
+
+    setParts((prev) => prev.map((item) => item.id === id ? { ...item, visible: nextVis } : item));
+    invalidateViewportRender();
   };
 
   const toggleAllVisibility = () => {
@@ -217,6 +217,7 @@ export const DynamicSegmentationInspector: React.FC = () => {
           node.visible = nextVis;
         }
       });
+      invalidateViewportRender();
     }
     toast.info(allVisible ? 'Hidden all parts' : 'Showing all parts');
   };

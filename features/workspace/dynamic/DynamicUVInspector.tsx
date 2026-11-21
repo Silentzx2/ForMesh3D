@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as THREE from 'three';
+import { invalidateViewportRender } from '../Viewport/viewportEvents';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { useViewerStore } from '@/stores/useViewerStore';
 import { Download, RefreshCw, Wand2, AlertCircle } from '@/components/icons/hugeicons-components';
@@ -183,6 +184,7 @@ export const DynamicUVInspector: React.FC = () => {
     });
 
     if (generatedCount > 0) {
+      invalidateViewportRender();
       toast.success('Generated planar UVs for viewport preview!');
       setForceRefresh((p) => p + 1);
     } else {
@@ -215,6 +217,7 @@ export const DynamicUVInspector: React.FC = () => {
         }
       }
     });
+    invalidateViewportRender();
   };
 
   // Toggle Procedural UV Checkerboard on Active 3D Model
@@ -257,6 +260,7 @@ export const DynamicUVInspector: React.FC = () => {
         }
       }
     });
+    invalidateViewportRender();
   };
 
   // Export 2D UV Layout PNG

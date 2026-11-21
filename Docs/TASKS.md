@@ -68,6 +68,29 @@
 
 ---
 
+## Workspace UI Performance — Implemented (2026-11-21)
+
+| Area | Change | Verification target |
+|------|--------|---------------------|
+| Main viewport | On-demand RAF with invalidation for camera, scene, settings, comparison, resize, snapshots, and in-place inspector/property mutations | Confirm static scene is idle; damping, turntable, imported animations, and inspector edits remain visible |
+| Inspector preview | On-demand RAF with OrbitControls change and resize invalidation | Confirm orbit/resize/model/selection updates render without idle RAF |
+| Inspector modules | Dynamic imports for UV, segmentation, animation, and rigging inspectors | Confirm each tool loads its inspector and inactive tools do not fetch its chunk |
+| Zustand | Narrow selectors for viewer shading action, batch queue, and auto-rotate preference | Confirm shading action works and unrelated viewer/app-store changes do not rerender the provider |
+
+### Deferred Until Measured
+- Web Worker mesh statistics / UV analysis: Three.js object graphs are not transferable; a worker implementation must pass only owned typed-array data and prove that copy/transfer costs and peak memory are acceptable.
+- Adaptive device-pixel-ratio and shadow quality: retain current visual defaults until representative browser/GPU profiling justifies a quality threshold.
+- Large-list virtualization: add only if profiling shows measurable list-render cost.
+
+### Regression Checklist
+- Static model renders on initial load and after camera preset, resize, grid, shading, lighting, and material changes.
+- OrbitControls damping settles to a stopped RAF loop after pointer/wheel interaction.
+- Turntable and imported GLTF/FBX animation continue rendering while active and stop when no longer active.
+- Compare split view updates while dragging and restores the normal single-scene view when closed.
+- Snapshot and workspace capture still export the requested 1920×1080 image.
+- UV / segmentation preview updates on model, selection, visibility, view-angle, and seam/boundary toggles.
+- Run bun install --frozen-lockfile, bun run test, bun run lint, bun test, and bun run build through frontend CI.
+
 ## Notes for Future AI
 
 - **Do not re-add streaming engine** — user decided to remove it

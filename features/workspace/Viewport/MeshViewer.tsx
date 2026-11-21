@@ -280,6 +280,9 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
+  const invalidateRenderRef = useRef<() => void>(() => {});
+  const isTurntableRef = useRef(isTurntable);
+  isTurntableRef.current = isTurntable;
   const pendingViewportRestoreRef = useRef<{ cameraPosition: [number, number, number]; target: [number, number, number] } | null>(null);
   const modelGroupRef = useRef<THREE.Group | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
@@ -357,6 +360,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     };
     const handleContextRestored = () => {
       setWebglError(null);
+      invalidateRenderRef.current();
     };
     renderer.domElement.addEventListener('webglcontextlost', handleContextLost);
     renderer.domElement.addEventListener('webglcontextrestored', handleContextRestored);
@@ -414,25 +418,29 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     comparisonBeforeGroupRef.current = comparisonBeforeGroup;
     scene.add(comparisonBeforeGroup);
 
-    // Animation frame loop
-    let animId: number;
-    const animate = () => {
-      animId = requestAnimationFrame(animate);
+    // Render on demand. OrbitControls emits "change" while damping settles;
+    // imported model animations and the optional turntable keep their own RAF alive.
+    let animId: number | null = null;
+    let isDisposed = false;
+    const renderFrame = () => {
+      animId = null;
+      if (isDisposed) return;
+
       const delta = clockRef.current.getDelta();
+      controls.update();
 
-      if (controlsRef.current) {
-        controlsRef.current.update();
-      }
-
+      let keepAnimating = false;
       if (mixerRef.current) {
         mixerRef.current.update(delta);
+        keepAnimating = true;
       }
 
-      if (modelGroupRef.current && isTurntable) {
+      if (modelGroupRef.current && isTurntableRef.current) {
         modelGroupRef.current.rotation.y += 0.008;
         if (comparisonBeforeGroupRef.current) {
           comparisonBeforeGroupRef.current.rotation.y = modelGroupRef.current.rotation.y;
         }
+        keepAnimating = true;
       }
 
       const beforeGroup = comparisonBeforeGroupRef.current;
@@ -457,8 +465,18 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         renderer.setScissorTest(false);
         renderer.render(scene, camera);
       }
+
+      if (keepAnimating) scheduleRender();
     };
-    animate();
+    const scheduleRender = () => {
+      if (isDisposed || animId !== null) return;
+      animId = requestAnimationFrame(renderFrame);
+    };
+    invalidateRenderRef.current = scheduleRender;
+    controls.addEventListener('change', scheduleRender);
+    const handleViewportInvalidation = () => scheduleRender();
+    window.addEventListener('invalidateViewportRender', handleViewportInvalidation);
+    scheduleRender();
 
     // Resize observer
     const resizeObserver = new ResizeObserver((entries) => {
@@ -468,6 +486,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           camera.aspect = w / h;
           camera.updateProjectionMatrix();
           renderer.setSize(w, h);
+          invalidateRenderRef.current();
         }
       }
     });
@@ -475,7 +494,11 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
     // Cleanup on unmount
     return () => {
-      cancelAnimationFrame(animId);
+      isDisposed = true;
+      if (animId !== null) cancelAnimationFrame(animId);
+      invalidateRenderRef.current = () => {};
+      controls.removeEventListener('change', scheduleRender);
+      window.removeEventListener('invalidateViewportRender', handleViewportInvalidation);
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener('webglcontextlost', handleContextLost);
       renderer.domElement.removeEventListener('webglcontextrestored', handleContextRestored);
@@ -558,6 +581,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       }
       cam.lookAt(target);
       ctrl.update();
+      invalidateRenderRef.current();
     };
 
     window.addEventListener('setCameraPreset', handleCameraPreset as EventListener);
@@ -569,6 +593,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     const handleExposure = (e: CustomEvent<number>) => {
       if (rendererRef.current && typeof e.detail === 'number') {
         rendererRef.current.toneMappingExposure = e.detail;
+        invalidateRenderRef.current();
       }
     };
 
@@ -579,6 +604,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         if (keyLightRef.current) keyLightRef.current.color.setHex(t.key);
         if (fillLightRef.current) fillLightRef.current.color.setHex(t.fill);
         if (rimLightRef.current) rimLightRef.current.color.setHex(t.rim);
+        invalidateRenderRef.current();
       }
     };
 
@@ -633,6 +659,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           (blob) => {
             currentRenderer.setSize(origWidth, origHeight, false);
             currentRenderer.setPixelRatio(origPixelRatio);
+            invalidateRenderRef.current();
 
             if (!blob) {
               toast.error('Failed to create snapshot image');
@@ -803,12 +830,14 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     if (rendererRef.current && typeof environmentSettings.exposure === 'number') {
       rendererRef.current.toneMappingExposure = environmentSettings.exposure;
     }
+    invalidateRenderRef.current();
   }, [environmentSettings]);
 
   // 4. Grid, Wireframe & Shading Mode Toggle
   useEffect(() => {
     if (gridHelperRef.current) {
       gridHelperRef.current.visible = showGrid !== false;
+      invalidateRenderRef.current();
     }
   }, [showGrid]);
 
@@ -896,6 +925,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     if (keyLightRef.current) {
       keyLightRef.current.castShadow = !showWireframe;
     }
+    invalidateRenderRef.current();
   }, [showWireframe, effectiveShadingMode, applyShadingToMesh]);
 
   // 3. Reset Camera / Fit to screen helper
@@ -924,6 +954,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       controlsRef.current.update();
       pendingViewportRestoreRef.current = null;
     }
+    invalidateRenderRef.current();
   }, []);
 
   useEffect(() => {
@@ -949,6 +980,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         cameraRef.current.lookAt(controlsRef.current.target);
         controlsRef.current.update();
         pendingViewportRestoreRef.current = null;
+        invalidateRenderRef.current();
       }
     };
     window.addEventListener('capture-viewer-viewport', captureViewport);
@@ -995,11 +1027,16 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
   useEffect(() => {
     comparisonOpenRef.current = isComparing;
+    invalidateRenderRef.current();
   }, [isComparing]);
 
   useEffect(() => {
     if (!canCompareModels && isComparing) setIsComparing(false);
   }, [canCompareModels, isComparing, setIsComparing]);
+
+  useEffect(() => {
+    invalidateRenderRef.current();
+  }, [isTurntable]);
 
   // ponytail: load source only while Compare is open; caching waits for measured repeat-use cost.
   useEffect(() => {
@@ -1014,6 +1051,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         disposeObject3D(child);
       }
       setIsComparisonLoading(false);
+      invalidateRenderRef.current();
       return;
     }
 
@@ -1066,6 +1104,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         comparisonBeforeGroupRef.current.add(original);
         comparisonBeforeGroupRef.current.visible = true;
         setIsComparisonLoading(false);
+        invalidateRenderRef.current();
       },
       undefined,
       (error) => {
@@ -1102,6 +1141,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         mixerRef.current.stopAllAction();
         mixerRef.current = null;
       }
+      invalidateRenderRef.current();
       return;
     }
 
@@ -1123,6 +1163,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       mixerRef.current.stopAllAction();
       mixerRef.current = null;
     }
+    invalidateRenderRef.current();
 
     const detectedExt = modelUrl.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase();
     const knownFormats = ['glb', 'gltf', 'obj', 'fbx', 'stl', 'ply'];
@@ -1186,6 +1227,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       group.add(object);
       useViewerStore.getState().setActiveModelObject(object);
       fitCameraToModel(object);
+      invalidateRenderRef.current();
       setModelLoadStatus('loaded');
       setHasModel(true);
     };
@@ -1297,6 +1339,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           delete child.userData.__hoverOriginalMaterial;
         }
       });
+      invalidateRenderRef.current();
       return;
     }
 
@@ -1323,6 +1366,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         meshCount++;
       }
     });
+    invalidateRenderRef.current();
 
     return () => {
       group.traverse((child) => {
@@ -1379,6 +1423,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     if (!rect || rect.width <= 0) return;
     const next = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
     comparisonPositionRef.current = next;
+    invalidateRenderRef.current();
     if (comparisonDividerRef.current) comparisonDividerRef.current.style.left = `${next}%`;
     comparisonHandleRef.current?.setAttribute('aria-valuenow', String(Math.round(next)));
     comparisonHandleRef.current?.setAttribute('aria-valuetext', `${Math.round(next)} percent before`);
