@@ -2,41 +2,221 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
+import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
+
 import { useWorkspace } from '../store/WorkspaceContext';
-import type { ShadingMode } from './MeshRenderer';
+import type { ShadingMode } from '../types';
 import { useViewerStore } from '@/stores/useViewerStore';
+import { useAnimationStore } from '@/stores/useAnimationStore';
 import { getApiClient } from '@/services/apiClient';
-import { useMeshLoader, MeshLoadStatus } from './useMeshLoader';
-import { detectGpuAvailability } from './MeshRenderer';
-import { StreamVideoViewer } from './StreamVideoViewer';
+import { collectMeshStats } from './meshStats';
+import { loadGLBWithProgress } from '../lib/glbCache';
 
 import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { RefreshCw, SparklesIcon, AlertCircle } from '@hugeicons/core-free-icons';
 
+// Setup shared loaders with Draco and Meshopt decompression
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+
+const sharedGLTFLoader = new GLTFLoader();
+sharedGLTFLoader.setDRACOLoader(dracoLoader);
+sharedGLTFLoader.setMeshoptDecoder(MeshoptDecoder);
+
+const sharedOBJLoader = new OBJLoader();
+const sharedFBXLoader = new FBXLoader();
+const sharedSTLLoader = new STLLoader();
+const sharedPLYLoader = new PLYLoader();
+
+export type LightTone = 'studio' | 'warm' | 'cool' | 'neutral';
+
+export interface EnvironmentPreset {
+  id: string;
+  label: string;
+  settings: {
+    ambientIntensity: number;
+    keyLightIntensity: number;
+    fillLightIntensity: number;
+    rimLightIntensity: number;
+    exposure: number;
+    toneMapping?: 'neutral' | 'aces';
+    lightTone: LightTone;
+    backgroundColor: string;
+    gridVisible: boolean;
+    floorShadowOpacity: number;
+    autoRotate: boolean;
+  };
+}
+
+export const LIGHT_TONES: Record<LightTone, { label: string; key: number; fill: number; rim: number }> = {
+  studio: { label: 'Studio', key: 0xffffff, fill: 0xd4d4d4, rim: 0xfff1d4 },
+  warm: { label: 'Warm Gold', key: 0xffe8cc, fill: 0xfff5ea, rim: 0xffcc00 },
+  cool: { label: 'Cyber Cool', key: 0xffffff, fill: 0xd8e6ff, rim: 0xd0e0ff },
+  neutral: { label: 'Neutral', key: 0xffffff, fill: 0xe6e6e6, rim: 0xffffff },
+};
+
+export const BACKGROUND_OPTIONS = [
+  {
+    id: 'studio-vignette',
+    label: 'Studio Vignette',
+    value: 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
+    preview: 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
+  },
+  { id: 'transparent', label: 'Studio Dark', value: 'transparent', preview: 'radial-gradient(circle, #16181d 0%, #08090a 100%)' },
+  { id: 'dark-gray', label: 'Dark Charcoal', value: '#131519', preview: '#131519' },
+  { id: 'slate', label: 'Dark Slate', value: '#181b22', preview: '#181b22' },
+];
+
+export const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
+  {
+    id: 'studio',
+    label: 'Studio Gold',
+    settings: {
+      ambientIntensity: 0.65,
+      keyLightIntensity: 1.5,
+      fillLightIntensity: 0.7,
+      rimLightIntensity: 1.2,
+      exposure: 1.0,
+      toneMapping: 'neutral',
+      lightTone: 'studio',
+      backgroundColor: 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
+      gridVisible: true,
+      floorShadowOpacity: 0.2,
+      autoRotate: false,
+    },
+  },
+];
+
 interface MeshViewerProps {
   className?: string;
 }
 
-/**
- * MeshViewer — GPU-first local mesh viewport with WebSocket streaming fallback.
- *
- * - GPU-accelerated WebGL rendering (MeshRenderer) when a real GPU is present.
- * - Automatic CPU fallback when WebGL is unavailable or software-only.
- * - URL-keyed mesh cache — same URL never re-downloads or re-parses.
- * - Smooth load/unload with full GPU texture/geometry + RAM release.
- * - Original mesh geometry and quality preserved exactly.
- */
+let sharedUVCheckerTexture: THREE.CanvasTexture | null = null;
+function getUVCheckerTexture(): THREE.CanvasTexture {
+  if (!sharedUVCheckerTexture && typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const squares = 16;
+      const step = 512 / squares;
+      for (let i = 0; i < squares; i++) {
+        for (let j = 0; j < squares; j++) {
+          const isDark = (i + j) % 2 === 1;
+          ctx.fillStyle = isDark ? '#1a1c22' : '#e2e6ed';
+          ctx.fillRect(i * step, j * step, step, step);
+
+          // Grid coordinates indicator: accent corner dot for orientation
+          if (i === 0 && j === 0) {
+            ctx.fillStyle = '#ef4444'; // Red origin marker (0,0)
+            ctx.fillRect(i * step, j * step, step * 0.35, step * 0.35);
+          } else if ((i + j) % 4 === 0) {
+            ctx.fillStyle = isDark ? '#3b82f6' : '#60a5fa'; // Blue coordinate accent
+            ctx.fillRect(i * step + step * 0.35, j * step + step * 0.35, step * 0.3, step * 0.3);
+          }
+
+          // Subtle inner tile borders
+          ctx.strokeStyle = isDark ? '#2b2f38' : '#cbd2de';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(i * step, j * step, step, step);
+        }
+      }
+    }
+    sharedUVCheckerTexture = new THREE.CanvasTexture(canvas);
+    sharedUVCheckerTexture.wrapS = THREE.RepeatWrapping;
+    sharedUVCheckerTexture.wrapT = THREE.RepeatWrapping;
+    sharedUVCheckerTexture.repeat.set(4, 4);
+    sharedUVCheckerTexture.needsUpdate = true;
+  }
+  return sharedUVCheckerTexture!;
+}
+
+const disposeMaterialTextures = (m: any) => {
+  if (!m) return;
+  const textureKeys = [
+    'map', 'normalMap', 'roughnessMap', 'metalnessMap',
+    'aoMap', 'emissiveMap', 'lightMap', 'alphaMap',
+    'bumpMap', 'displacementMap'
+  ];
+  for (const k of textureKeys) {
+    if (m[k] && typeof m[k].dispose === 'function') {
+      m[k].dispose();
+    }
+  }
+};
+
+const disposeObject3D = (obj: THREE.Object3D) => {
+  obj.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.geometry?.dispose();
+      const orig = child.userData?.__originalMaterial;
+      if (orig) {
+        if (Array.isArray(orig)) {
+          orig.forEach((m) => {
+            disposeMaterialTextures(m);
+            m?.dispose?.();
+          });
+        } else {
+          disposeMaterialTextures(orig);
+          orig?.dispose?.();
+        }
+      }
+      const helperMats = [
+        child.userData?.__clayMaterial,
+        child.userData?.__normalMaterial,
+        child.userData?.__goldMaterial,
+        child.userData?.__chromeMaterial,
+        child.userData?.__wireMaterial,
+        child.userData?.__uvCheckerMaterial,
+      ];
+      helperMats.forEach((m) => {
+        disposeMaterialTextures(m);
+        m?.dispose?.();
+      });
+      if (child.material && child.material !== orig && !helperMats.includes(child.material)) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach((m) => {
+            disposeMaterialTextures(m);
+            m?.dispose?.();
+          });
+        } else {
+          disposeMaterialTextures(child.material);
+          child.material?.dispose?.();
+        }
+      }
+    }
+  });
+};
+
 export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const {
     currentAsset,
-    workspaceId,
     activeTool,
+    isComparing,
+    setIsComparing,
     shadingMode,
     showWireframe,
+    showGrid,
+    isTurntable,
+    viewportResetTrigger,
+    isExecuting,
+    executionProgress,
+    executionStep,
     environmentSettings,
     hoveredPartId,
     setHoveredPartId,
+    updateAssetProperties,
   } = useWorkspace();
 
   const emptyStateCopy = (() => {
@@ -59,29 +239,22 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     }
   })();
 
-  // --- MeshLoader hook (GPU-first, cached, smooth unload) ---
-  const {
-    status: loadStatus,
-    error: loadError,
-    isGpu,
-    renderer,
-    containerRef,
-    initRenderer,
-    loadModel,
-    unload,
-  } = useMeshLoader();
+  const loadedModelUrl = useViewerStore((state) => state.loadedModelUrl);
 
-  const [reducedMotion, setReducedMotion] = useState(false);
+  const [modelLoadStatus, setModelLoadStatus] = useState<'empty' | 'loading' | 'loaded' | 'error'>('empty');
+  const [hasModel, setHasModel] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const [isComparisonLoading, setIsComparisonLoading] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  const [webglError, setWebglError] = useState<string | null>(null);
+  const [webglInitKey, setWebglInitKey] = useState(0);
 
-  const shadingModeRef = useRef(shadingMode);
-  const showWireframeRef = useRef(showWireframe);
-  useEffect(() => {
-    shadingModeRef.current = shadingMode;
-    showWireframeRef.current = showWireframe;
-  }, [shadingMode, showWireframe]);
+  const handleRetryLoad = useCallback(() => {
+    setLoadError(null);
+    setRetryKey((prev) => prev + 1);
+  }, []);
 
-  // Reduced motion preference
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -90,13 +263,709 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, []);
+  const comparisonOpenRef = useRef(false);
+  const comparisonPositionRef = useRef(50);
+  const comparisonBeforeGroupRef = useRef<THREE.Group | null>(null);
+  const comparisonDividerRef = useRef<HTMLDivElement | null>(null);
+  const comparisonHandleRef = useRef<HTMLDivElement | null>(null);
+  const shadingModeRef = useRef(shadingMode);
+  const showWireframeRef = useRef(showWireframe);
+  useEffect(() => {
+    shadingModeRef.current = shadingMode;
+    showWireframeRef.current = showWireframe;
+  }, [shadingMode, showWireframe]);
 
-  // Handle retry
-  const handleRetryLoad = useCallback(() => {
-    setRetryKey((prev) => prev + 1);
+  // Three.js instances stored in refs to avoid React re-render overhead
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const controlsRef = useRef<OrbitControls | null>(null);
+  const pendingViewportRestoreRef = useRef<{ cameraPosition: [number, number, number]; target: [number, number, number] } | null>(null);
+  const modelGroupRef = useRef<THREE.Group | null>(null);
+  const gridHelperRef = useRef<THREE.GridHelper | null>(null);
+  const mixerRef = useRef<THREE.AnimationMixer | null>(null);
+  const clockRef = useRef<THREE.Clock>(new THREE.Clock());
+  const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
+  const keyLightRef = useRef<THREE.DirectionalLight | null>(null);
+  const fillLightRef = useRef<THREE.DirectionalLight | null>(null);
+  const rimLightRef = useRef<THREE.DirectionalLight | null>(null);
+
+  // 1. Initialize Scene, Camera, Renderer, Lights, Controls
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const width = container.clientWidth || window.innerWidth;
+    const height = container.clientHeight || window.innerHeight;
+
+    // Scene
+    const scene = new THREE.Scene();
+    sceneRef.current = scene;
+
+    // Camera
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+    camera.position.set(0, 1.2, 3.2);
+    cameraRef.current = camera;
+
+    // Renderer with preserveDrawingBuffer enabled for high-res snapshot capture.
+    // Pre-check WebGL availability with an offscreen canvas BEFORE constructing
+    // WebGLRenderer. getContext() returns null silently when WebGL is disabled,
+    // blacklisted, or sandboxed — no throw, no Three.js console spam. Only call
+    // the constructor when a context is actually available; keep try/catch as a
+    // safety net for any other constructor failure.
+    const webglProbe = document.createElement('canvas');
+    const webglContext =
+      webglProbe.getContext('webgl') || webglProbe.getContext('webgl2');
+    if (!webglContext) {
+      const msg = 'WebGL context is not available in this browser/environment.';
+      setWebglError(msg);
+      rendererRef.current = null;
+      console.warn('[MeshViewer] WebGL not available:', msg);
+      return;
+    }
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+        preserveDrawingBuffer: true,
+        failIfMajorPerformanceCaveat: false,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown WebGL error';
+      setWebglError(msg);
+      rendererRef.current = null;
+      console.error('[MeshViewer] WebGL context creation failed:', msg);
+      return;
+    }
+
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    rendererRef.current = renderer;
+
+    container.appendChild(renderer.domElement);
+
+    // WebGL context loss / restore handling
+    const handleContextLost = (event: Event) => {
+      event.preventDefault();
+      setWebglError('WebGL context was lost');
+    };
+    const handleContextRestored = () => {
+      setWebglError(null);
+    };
+    renderer.domElement.addEventListener('webglcontextlost', handleContextLost);
+    renderer.domElement.addEventListener('webglcontextrestored', handleContextRestored);
+
+    // OrbitControls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.target.set(0, 0, 0);
+    controls.maxDistance = 20;
+    controls.minDistance = 0.5;
+    controlsRef.current = controls;
+
+    // Lights - Natural Studio Lighting (balanced old + new for crisp details, no dark left side)
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+    ambientLightRef.current = ambientLight;
+    scene.add(ambientLight);
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    keyLight.position.set(3, 5, 4);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.width = 1024;
+    keyLight.shadow.mapSize.height = 1024;
+    keyLight.shadow.bias = -0.0005;
+    keyLight.shadow.normalBias = 0.02;
+    keyLightRef.current = keyLight;
+    scene.add(keyLight);
+
+    const fillLight = new THREE.DirectionalLight(0xd4d4d4, 0.7);
+    fillLight.position.set(-4, 2, -2);
+    fillLight.castShadow = false;
+    fillLightRef.current = fillLight;
+    scene.add(fillLight);
+
+    const rimLight = new THREE.DirectionalLight(0xfff1d4, 1.2);
+    rimLight.position.set(0, 4, -4);
+    rimLight.castShadow = false;
+    rimLightRef.current = rimLight;
+    scene.add(rimLight);
+
+    // Ground Grid - Soft Studio Grid with Clean Axes
+    const grid = new THREE.GridHelper(10, 20, 0x8c9099, 0x383b43);
+    grid.position.y = -0.001;
+    gridHelperRef.current = grid;
+    scene.add(grid);
+
+    // Model root group
+    const modelGroup = new THREE.Group();
+    modelGroupRef.current = modelGroup;
+    scene.add(modelGroup);
+
+    const comparisonBeforeGroup = new THREE.Group();
+    comparisonBeforeGroup.name = 'comparison-before';
+    comparisonBeforeGroup.visible = false;
+    comparisonBeforeGroupRef.current = comparisonBeforeGroup;
+    scene.add(comparisonBeforeGroup);
+
+    // Animation frame loop
+    let animId: number;
+    const animate = () => {
+      animId = requestAnimationFrame(animate);
+      const delta = clockRef.current.getDelta();
+
+      if (controlsRef.current) {
+        controlsRef.current.update();
+      }
+
+      if (mixerRef.current) {
+        mixerRef.current.update(delta);
+      }
+
+      if (modelGroupRef.current && isTurntable) {
+        modelGroupRef.current.rotation.y += 0.008;
+        if (comparisonBeforeGroupRef.current) {
+          comparisonBeforeGroupRef.current.rotation.y = modelGroupRef.current.rotation.y;
+        }
+      }
+
+      const beforeGroup = comparisonBeforeGroupRef.current;
+      const afterGroup = modelGroupRef.current;
+      if (comparisonOpenRef.current && beforeGroup?.children.length && afterGroup?.children.length) {
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        const split = Math.max(1, Math.min(width - 1, Math.round(width * comparisonPositionRef.current / 100)));
+        renderer.setScissorTest(true);
+        beforeGroup.visible = true;
+        afterGroup.visible = false;
+        renderer.setScissor(0, 0, split, height);
+        renderer.render(scene, camera);
+        beforeGroup.visible = false;
+        afterGroup.visible = true;
+        renderer.setScissor(split, 0, width - split, height);
+        renderer.render(scene, camera);
+        renderer.setScissorTest(false);
+      } else {
+        if (beforeGroup) beforeGroup.visible = false;
+        if (afterGroup) afterGroup.visible = true;
+        renderer.setScissorTest(false);
+        renderer.render(scene, camera);
+      }
+    };
+    animate();
+
+    // Resize observer
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width: w, height: h } = entry.contentRect;
+        if (w > 0 && h > 0) {
+          camera.aspect = w / h;
+          camera.updateProjectionMatrix();
+          renderer.setSize(w, h);
+        }
+      }
+    });
+    resizeObserver.observe(container);
+
+    // Cleanup on unmount
+    return () => {
+      cancelAnimationFrame(animId);
+      resizeObserver.disconnect();
+      renderer.domElement.removeEventListener('webglcontextlost', handleContextLost);
+      renderer.domElement.removeEventListener('webglcontextrestored', handleContextRestored);
+      if (renderer.domElement.parentElement) {
+        renderer.domElement.parentElement.removeChild(renderer.domElement);
+      }
+      disposeObject3D(scene);
+      renderer.dispose();
+      sceneRef.current = null;
+      cameraRef.current = null;
+      rendererRef.current = null;
+      controlsRef.current = null;
+      modelGroupRef.current = null;
+      comparisonBeforeGroupRef.current = null;
+    };
+  }, [webglInitKey]);
+
+  useEffect(() => {
+    if (!currentAsset || currentAsset.category !== 'generation' || currentAsset.fileSize) return;
+
+    const jobId = currentAsset.id.startsWith('local_')
+      ? currentAsset.id.slice('local_'.length)
+      : currentAsset.id;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId)) return;
+
+    let cancelled = false;
+    void getApiClient().getJobResultInfo(jobId).then((result) => {
+      const fileSizeMb = Number(result.file_info?.file_size_mb);
+      if (!cancelled && Number.isFinite(fileSizeMb) && fileSizeMb > 0) {
+        updateAssetProperties(currentAsset.id, { fileSize: `${fileSizeMb.toFixed(1)} MB` });
+      }
+    }).catch((error) => {
+      if (!cancelled) console.warn('[MeshViewer] Could not read generated mesh file size:', error);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentAsset?.id, currentAsset?.category, currentAsset?.fileSize, updateAssetProperties]);
+
+  // 2. Camera Preset Event Listener
+  useEffect(() => {
+    const handleCameraPreset = (e: CustomEvent<string>) => {
+      if (!cameraRef.current || !controlsRef.current) return;
+      const cam = cameraRef.current;
+      const ctrl = controlsRef.current;
+      const target = ctrl.target;
+      const dist = cam.position.distanceTo(target) || 3.0;
+
+      switch (e.detail) {
+        case 'front':
+          cam.up.set(0, 1, 0);
+          cam.position.set(target.x, target.y, target.z + dist);
+          break;
+        case 'back':
+          cam.up.set(0, 1, 0);
+          cam.position.set(target.x, target.y, target.z - dist);
+          break;
+        case 'top':
+          cam.up.set(0, 0, -1);
+          cam.position.set(target.x, target.y + dist, target.z + 0.0001);
+          break;
+        case 'bottom':
+          cam.up.set(0, 0, 1);
+          cam.position.set(target.x, target.y - dist, target.z - 0.0001);
+          break;
+        case 'side':
+        case 'left':
+          cam.up.set(0, 1, 0);
+          cam.position.set(target.x - dist, target.y, target.z);
+          break;
+        case 'right':
+          cam.up.set(0, 1, 0);
+          cam.position.set(target.x + dist, target.y, target.z);
+          break;
+        default:
+          cam.up.set(0, 1, 0);
+          cam.position.set(target.x + dist * 0.7, target.y + dist * 0.5, target.z + dist * 0.7);
+          break;
+      }
+      cam.lookAt(target);
+      ctrl.update();
+    };
+
+    window.addEventListener('setCameraPreset', handleCameraPreset as EventListener);
+    return () => window.removeEventListener('setCameraPreset', handleCameraPreset as EventListener);
   }, []);
 
-  // --- Resolve model URL ---
+  // 3. Viewport Lighting & Exposure Listeners
+  useEffect(() => {
+    const handleExposure = (e: CustomEvent<number>) => {
+      if (rendererRef.current && typeof e.detail === 'number') {
+        rendererRef.current.toneMappingExposure = e.detail;
+      }
+    };
+
+    const handleLighting = (e: CustomEvent<{ tone?: LightTone }>) => {
+      const tone = e.detail?.tone;
+      if (tone && LIGHT_TONES[tone]) {
+        const t = LIGHT_TONES[tone];
+        if (keyLightRef.current) keyLightRef.current.color.setHex(t.key);
+        if (fillLightRef.current) fillLightRef.current.color.setHex(t.fill);
+        if (rimLightRef.current) rimLightRef.current.color.setHex(t.rim);
+      }
+    };
+
+    window.addEventListener('setViewportExposure', handleExposure as EventListener);
+    window.addEventListener('setViewportLighting', handleLighting as EventListener);
+    return () => {
+      window.removeEventListener('setViewportExposure', handleExposure as EventListener);
+      window.removeEventListener('setViewportLighting', handleLighting as EventListener);
+    };
+  }, []);
+
+  // 4a. Camera Button — capture mesh only (hides grid/axes helpers)
+  const captureSnapshot = useCallback(() => {
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    if (!renderer || !scene || !camera) {
+      toast.error('3D Viewport is not ready for snapshot');
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      try {
+        const currentRenderer = rendererRef.current;
+        const currentScene = sceneRef.current;
+        const currentCamera = cameraRef.current;
+        if (!currentRenderer || !currentScene || !currentCamera) return;
+
+        const dom = currentRenderer.domElement;
+        const origWidth = dom.width;
+        const origHeight = dom.height;
+        const origPixelRatio = currentRenderer.getPixelRatio();
+        currentRenderer.setSize(1920, 1080, false);
+        currentRenderer.setPixelRatio(1);
+
+        const helpersToHide: THREE.Object3D[] = [];
+        currentScene.traverse((child) => {
+          if (
+            (child as any).isGridHelper ||
+            (child as any).isAxesHelper ||
+            (child as any).isHelper
+          ) {
+            child.visible = false;
+            helpersToHide.push(child);
+          }
+        });
+
+        currentRenderer.render(currentScene, currentCamera);
+        helpersToHide.forEach((h) => (h.visible = true));
+
+        currentRenderer.domElement.toBlob(
+          (blob) => {
+            currentRenderer.setSize(origWidth, origHeight, false);
+            currentRenderer.setPixelRatio(origPixelRatio);
+
+            if (!blob) {
+              toast.error('Failed to create snapshot image');
+              return;
+            }
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+
+            const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+            const parts = pathname.replace('/workspace/', '').split('/');
+            const routeName = parts.length > 1 && parts[parts.length - 1]
+              ? parts[parts.length - 1]
+              : 'mesh';
+            a.download = `${routeName}-mesh.png`;
+
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+            toast.success(`Snapshot saved as ${routeName}-mesh.png`);
+          },
+          'image/png',
+          1.0
+        );
+      } catch (err: any) {
+        console.error('Failed to capture snapshot:', err);
+        toast.error('Failed to capture snapshot');
+      }
+    });
+  }, [rendererRef, sceneRef, cameraRef, toast]);
+
+  // 4b. Listen for camera button click from tool rail — capture mesh only
+  useEffect(() => {
+    const handleSnapshotEvent = () => {
+      captureSnapshot();
+    };
+
+    window.addEventListener('takeViewportSnapshot', handleSnapshotEvent as EventListener);
+    return () => window.removeEventListener('takeViewportSnapshot', handleSnapshotEvent as EventListener);
+  }, [captureSnapshot]);
+
+  // 4c. Header Snapshot Button — capture entire workspace as-is (no hiding helpers)
+  const captureWorkspace = useCallback(() => {
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    if (!renderer || !scene || !camera) {
+      toast.error('3D Viewport is not ready for snapshot');
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      try {
+        const currentRenderer = rendererRef.current;
+        const currentScene = sceneRef.current;
+        const currentCamera = cameraRef.current;
+        if (!currentRenderer || !currentScene || !currentCamera) return;
+
+        const dom = currentRenderer.domElement;
+        const origWidth = dom.width;
+        const origHeight = dom.height;
+        const origPixelRatio = currentRenderer.getPixelRatio();
+        currentRenderer.setSize(1920, 1080, false);
+        currentRenderer.setPixelRatio(1);
+
+        currentRenderer.render(currentScene, currentCamera);
+
+        currentRenderer.domElement.toBlob(
+          (blob) => {
+            currentRenderer.setSize(origWidth, origHeight, false);
+            currentRenderer.setPixelRatio(origPixelRatio);
+
+            if (!blob) {
+              toast.error('Failed to create snapshot image');
+              return;
+            }
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+
+            const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+            const parts = pathname.replace('/workspace/', '').split('/');
+            const routeName = parts.length > 1 && parts[parts.length - 1]
+              ? parts[parts.length - 1]
+              : 'workspace';
+            a.download = `${routeName}-workspace.png`;
+
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+            toast.success(`Snapshot saved as ${routeName}-workspace.png`);
+          },
+          'image/png',
+          1.0
+        );
+      } catch (err: any) {
+        console.error('Failed to capture snapshot:', err);
+        toast.error('Failed to capture snapshot');
+      }
+    });
+  }, [rendererRef, sceneRef, cameraRef, toast]);
+
+  // 5. Preload all shading materials at model load time for butter-smooth switching
+  const preloadShadingMaterials = useCallback((meshes: THREE.Mesh[]) => {
+    meshes.forEach((mesh) => {
+      if (!mesh.userData.__originalMaterial && mesh.material) {
+        mesh.userData.__originalMaterial = mesh.material;
+      }
+      const orig = mesh.userData.__originalMaterial;
+      if (!orig) return;
+
+      // Pre-create ALL shading variants so switching is instant (no disappear/reappear)
+      mesh.userData.__normalMaterial = new THREE.MeshNormalMaterial({ wireframe: false });
+      mesh.userData.__clayMaterial = new THREE.MeshStandardMaterial({
+        color: 0xb0b3b8,
+        roughness: 0.85,
+        metalness: 0.05,
+      });
+      mesh.userData.__goldMaterial = new THREE.MeshStandardMaterial({
+        color: 0xffd700,
+        roughness: 0.25,
+        metalness: 0.85,
+      });
+      mesh.userData.__chromeMaterial = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.05,
+        metalness: 0.98,
+      });
+      mesh.userData.__uvCheckerMaterial = new THREE.MeshStandardMaterial({
+        map: getUVCheckerTexture(),
+        roughness: 0.4,
+        metalness: 0.05,
+      });
+      mesh.userData.__wireMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ffcc,
+        wireframe: true,
+      });
+    });
+  }, [getUVCheckerTexture]);
+
+  // Call preload right after model is loaded and added to group
+  useEffect(() => {
+    if (!modelGroupRef.current) return;
+    const meshes: THREE.Mesh[] = [];
+    modelGroupRef.current.traverse((child) => {
+      if (child instanceof THREE.Mesh) meshes.push(child);
+    });
+    if (meshes.length > 0) preloadShadingMaterials(meshes);
+  }, [modelGroupRef.current, preloadShadingMaterials]);
+
+  // Sync environment settings with Three.js scene lights & exposure
+  useEffect(() => {
+    if (!environmentSettings) return;
+    if (ambientLightRef.current && typeof environmentSettings.ambientIntensity === 'number') {
+      ambientLightRef.current.intensity = environmentSettings.ambientIntensity;
+    }
+    if (keyLightRef.current && typeof environmentSettings.keyLightIntensity === 'number') {
+      keyLightRef.current.intensity = environmentSettings.keyLightIntensity;
+    }
+    if (fillLightRef.current && typeof environmentSettings.fillLightIntensity === 'number') {
+      fillLightRef.current.intensity = environmentSettings.fillLightIntensity;
+    }
+    if (rimLightRef.current && typeof environmentSettings.rimLightIntensity === 'number') {
+      rimLightRef.current.intensity = environmentSettings.rimLightIntensity;
+    }
+    if (rendererRef.current && typeof environmentSettings.exposure === 'number') {
+      rendererRef.current.toneMappingExposure = environmentSettings.exposure;
+    }
+  }, [environmentSettings]);
+
+  // 4. Grid, Wireframe & Shading Mode Toggle
+  useEffect(() => {
+    if (gridHelperRef.current) {
+      gridHelperRef.current.visible = showGrid !== false;
+    }
+  }, [showGrid]);
+
+  // Helper to cleanly apply shading mode to a mesh without corrupting original materials
+  const applyShadingToMesh = useCallback((mesh: THREE.Mesh, mode: ShadingMode, wireframe: boolean) => {
+    if (!mesh.userData.__originalMaterial && mesh.material) {
+      mesh.userData.__originalMaterial = mesh.material;
+    }
+    const orig = mesh.userData.__originalMaterial;
+    if (!orig) return;
+
+    // Instant zero-lag wireframe: use pre-compiled unlit MeshBasicMaterial.
+    // Avoids re-compiling heavy PBR/Standard shaders at 1M faces (no main-thread freeze).
+    if (wireframe || mode === 'wireframe') {
+      if (!mesh.userData.__wireMaterial) {
+        mesh.userData.__wireMaterial = new THREE.MeshBasicMaterial({
+          color: 0x00ffcc,
+          wireframe: true,
+        });
+      }
+      mesh.material = mesh.userData.__wireMaterial;
+      return;
+    }
+
+    if (mode === 'normals' || mode === 'matcap-normal') {
+      if (!mesh.userData.__normalMaterial) {
+        mesh.userData.__normalMaterial = new THREE.MeshNormalMaterial({ wireframe: false });
+      }
+      mesh.material = mesh.userData.__normalMaterial;
+    } else if (mode === 'clay') {
+      if (!mesh.userData.__clayMaterial) {
+        mesh.userData.__clayMaterial = new THREE.MeshStandardMaterial({
+          color: 0xb0b3b8,
+          roughness: 0.85,
+          metalness: 0.05,
+        });
+      }
+      mesh.material = mesh.userData.__clayMaterial;
+    } else if (mode === 'matcap-gold') {
+      if (!mesh.userData.__goldMaterial) {
+        mesh.userData.__goldMaterial = new THREE.MeshStandardMaterial({
+          color: 0xffd700,
+          roughness: 0.25,
+          metalness: 0.85,
+        });
+      }
+      mesh.material = mesh.userData.__goldMaterial;
+    } else if (mode === 'matcap-chrome') {
+      if (!mesh.userData.__chromeMaterial) {
+        mesh.userData.__chromeMaterial = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.05,
+          metalness: 0.98,
+        });
+      }
+      mesh.material = mesh.userData.__chromeMaterial;
+    } else if (mode === 'uv-checker') {
+      if (!mesh.userData.__uvCheckerMaterial) {
+        mesh.userData.__uvCheckerMaterial = new THREE.MeshStandardMaterial({
+          map: getUVCheckerTexture(),
+          roughness: 0.4,
+          metalness: 0.05,
+        });
+      }
+      mesh.material = mesh.userData.__uvCheckerMaterial;
+    } else {
+      // 'textured' or default
+      mesh.material = orig;
+    }
+  }, [getUVCheckerTexture]);
+
+  const effectiveShadingMode: ShadingMode =
+    shadingMode === 'uv-checker' || (activeTool === 'uv' && (shadingMode === 'textured' || !shadingMode))
+      ? 'uv-checker'
+      : shadingMode;
+
+  useEffect(() => {
+    [modelGroupRef.current, comparisonBeforeGroupRef.current].forEach((group) => {
+      group?.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          applyShadingToMesh(child, effectiveShadingMode, Boolean(showWireframe));
+        }
+      });
+    });
+    if (keyLightRef.current) {
+      keyLightRef.current.castShadow = !showWireframe;
+    }
+  }, [showWireframe, effectiveShadingMode, applyShadingToMesh]);
+
+  // 3. Reset Camera / Fit to screen helper
+  const fitCameraToModel = useCallback((object: THREE.Object3D) => {
+    if (!cameraRef.current || !controlsRef.current) return;
+
+    const box = new THREE.Box3().setFromObject(object);
+    if (box.isEmpty()) return;
+
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const fov = cameraRef.current.fov * (Math.PI / 180);
+    let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 1.5;
+    cameraZ = Math.max(cameraZ, 2.0);
+
+    cameraRef.current.position.set(center.x, center.y + maxDim * 0.35, center.z + cameraZ);
+    cameraRef.current.lookAt(center);
+    controlsRef.current.target.copy(center);
+    controlsRef.current.update();
+    const pendingViewport = pendingViewportRestoreRef.current;
+    if (pendingViewport) {
+      cameraRef.current.position.set(...pendingViewport.cameraPosition);
+      controlsRef.current.target.set(...pendingViewport.target);
+      cameraRef.current.lookAt(controlsRef.current.target);
+      controlsRef.current.update();
+      pendingViewportRestoreRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    const captureViewport = () => {
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      if (!camera || !controls) return;
+      useViewerStore.getState().setViewport({
+        cameraPosition: [camera.position.x, camera.position.y, camera.position.z],
+        target: [controls.target.x, controls.target.y, controls.target.z],
+      });
+    };
+    const restoreViewport = (event: Event) => {
+      const viewport = (event as CustomEvent<{
+        cameraPosition: [number, number, number];
+        target: [number, number, number];
+      }>).detail;
+      if (!viewport) return;
+      pendingViewportRestoreRef.current = viewport;
+      if (!modelGroupRef.current?.children.length && cameraRef.current && controlsRef.current) {
+        cameraRef.current.position.set(...viewport.cameraPosition);
+        controlsRef.current.target.set(...viewport.target);
+        cameraRef.current.lookAt(controlsRef.current.target);
+        controlsRef.current.update();
+        pendingViewportRestoreRef.current = null;
+      }
+    };
+    window.addEventListener('capture-viewer-viewport', captureViewport);
+    window.addEventListener('restore-viewer-viewport', restoreViewport);
+    return () => {
+      window.removeEventListener('capture-viewer-viewport', captureViewport);
+      window.removeEventListener('restore-viewer-viewport', restoreViewport);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (modelGroupRef.current && modelGroupRef.current.children.length > 0) {
+      fitCameraToModel(modelGroupRef.current);
+    }
+  }, [viewportResetTrigger, fitCameraToModel]);
+
+  // 4. Load 3D Model when URL changes
   const assetFormat = currentAsset?.format?.toLowerCase();
   const assetFileId = currentAsset?.source?.fileId || currentAsset?.fileId;
   const assetFileUrl = assetFileId
@@ -109,6 +978,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     currentAsset?.artifacts?.gameReady ||
     currentAsset?.artifacts?.source ||
     currentAsset?.artifacts?.lods?.[0] ||
+    currentAsset?.artifacts?.rigged ||
     (assetFormat === 'fbx' ? currentAsset?.artifacts?.riggedFbx : null) ||
     currentAsset?.artifacts?.collision;
   const isMeshAsset = currentAsset && currentAsset.category !== 'texture' &&
@@ -117,66 +987,311 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     currentAsset?.source?.viewUrl ||
     currentAsset?.source?.localUrl ||
     (isMeshAsset ? artifactUrl || assetFileUrl : null) ||
+    (currentAsset ? null : loadedModelUrl) ||
     null;
+  const comparisonBeforeUrl = currentAsset?.artifacts?.source || null;
+  const comparisonAfterUrl = currentAsset?.source?.viewUrl || currentAsset?.source?.localUrl || currentAsset?.artifacts?.gameReady || null;
+  const canCompareModels = Boolean(comparisonBeforeUrl && comparisonAfterUrl && comparisonBeforeUrl !== comparisonAfterUrl);
 
-  console.debug('[MeshViewer] modelUrl resolved:', modelUrl, 'asset:', currentAsset?.id, 'format:', currentAsset?.format, 'category:', currentAsset?.category);
-
-  // --- GPU probe + renderer init on mount ---
   useEffect(() => {
-    if (containerRef.current) {
-      initRenderer(containerRef.current);
-    }
-  }, [initRenderer]);
+    comparisonOpenRef.current = isComparing;
+  }, [isComparing]);
 
-  // Re-init renderer if container changes (e.g. after unmount/remount)
   useEffect(() => {
-    if (containerRef.current && !renderer) {
-      initRenderer(containerRef.current);
-    }
-  }, [renderer, initRenderer]);
+    if (!canCompareModels && isComparing) setIsComparing(false);
+  }, [canCompareModels, isComparing, setIsComparing]);
 
-  // --- Load model when URL changes ---
+  // ponytail: load source only while Compare is open; caching waits for measured repeat-use cost.
   useEffect(() => {
-    if (!modelUrl) {
-      unload();
+    const beforeGroup = comparisonBeforeGroupRef.current;
+    if (!beforeGroup) return;
+
+    if (!isComparing || !canCompareModels || !comparisonBeforeUrl) {
+      beforeGroup.visible = false;
+      while (beforeGroup.children.length) {
+        const child = beforeGroup.children[0];
+        beforeGroup.remove(child);
+        disposeObject3D(child);
+      }
+      setIsComparisonLoading(false);
       return;
     }
-    void loadModel(modelUrl);
 
-    // Diagnostic: confirm the Three.js canvas is present in the DOM
-    setTimeout(() => {
-      const canvas = containerRef.current?.querySelector('canvas');
-      console.debug('[MeshViewer] canvas in DOM:', !!canvas, canvas?.width, 'x', canvas?.height, 'offsetParent:', !!canvas?.offsetParent);
-    }, 500);
-  }, [modelUrl, loadModel, unload]);
-
-  // --- Apply shading/wireframe when they change ---
-  useEffect(() => {
-    if (renderer) {
-      const resolveMode = (m: string): ShadingMode => {
-        const map: Record<string, ShadingMode> = {
-          textured: 'textured' as ShadingMode,
-          solid: 'textured' as ShadingMode,
-          clay: 'clay' as ShadingMode,
-          'matcap-gold': 'matcap-gold' as ShadingMode,
-          'matcap-chrome': 'matcap-chrome' as ShadingMode,
-          'uv-checker': 'uv-checker' as ShadingMode,
-          wireframe: 'wireframe' as ShadingMode,
-        };
-        return (map[m] || 'textured') as ShadingMode;
-      };
-      renderer.setShadingMode(resolveMode(shadingMode), Boolean(showWireframe));
+    const abortController = new AbortController();
+    let isCancelled = false;
+    setIsComparisonLoading(true);
+    beforeGroup.visible = false;
+    while (beforeGroup.children.length) {
+      const child = beforeGroup.children[0];
+      beforeGroup.remove(child);
+      disposeObject3D(child);
     }
-  }, [shadingMode, showWireframe, renderer]);
 
+    sharedGLTFLoader.load(
+      comparisonBeforeUrl,
+      (gltf) => {
+        const original = gltf.scene;
+        if (isCancelled || !comparisonBeforeGroupRef.current) {
+          disposeObject3D(original);
+          return;
+        }
+        const bounds = new THREE.Box3().setFromObject(original);
+        if (bounds.isEmpty()) {
+          disposeObject3D(original);
+          setIsComparisonLoading(false);
+          setIsComparing(false);
+          return;
+        }
+        const center = bounds.getCenter(new THREE.Vector3());
+        const size = bounds.getSize(new THREE.Vector3());
+        const maxDimension = Math.max(size.x, size.y, size.z);
+        const scale = maxDimension > 0 ? 2 / maxDimension : 1;
+        original.position.sub(center.clone().multiplyScalar(scale));
+        original.position.y += (size.y * scale) / 2;
+        original.scale.setScalar(scale);
+        original.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            const triCount = child.geometry?.index
+              ? child.geometry.index.count / 3
+              : (child.geometry?.attributes?.position?.count || 0) / 3;
+            // High-density meshes (>800k tris) bypass shadow-map rasterization to preserve 60 FPS
+            child.castShadow = triCount < 800_000;
+            child.receiveShadow = true;
+            child.frustumCulled = true;
+            child.matrixAutoUpdate = false;
+            child.updateMatrix();
+            applyShadingToMesh(child, shadingModeRef.current, Boolean(showWireframeRef.current));
+          }
+        });
+        comparisonBeforeGroupRef.current.add(original);
+        comparisonBeforeGroupRef.current.visible = true;
+        setIsComparisonLoading(false);
+      },
+      undefined,
+      (error) => {
+        if (!isCancelled) {
+          setIsComparisonLoading(false);
+          setIsComparing(false);
+          toast.error('Could not load the original mesh for comparison');
+          console.warn('Original mesh comparison load failed:', error);
+        }
+      }
+    );
 
+    return () => {
+      isCancelled = true;
+    };
+  }, [isComparing, canCompareModels, comparisonBeforeUrl, setIsComparing, applyShadingToMesh]);
 
-  // --- Highlight hovered part ---
   useEffect(() => {
-    const group = (renderer as any)?.modelGroup;
-    if (!group) return;
-    if (!hoveredPartId) {
-      group.traverse((child: any) => {
+    if (!modelUrl || !modelGroupRef.current) {
+      setModelLoadStatus('empty');
+      setHasModel(false);
+      setLoadError(null);
+      const group = modelGroupRef.current;
+      if (group) {
+        while (group.children.length > 0) {
+          const child = group.children[0];
+          group.remove(child);
+          disposeObject3D(child);
+        }
+      }
+      useViewerStore.getState().setActiveModelObject(null);
+      useViewerStore.getState().setModelStats(null);
+      if (mixerRef.current) {
+        mixerRef.current.stopAllAction();
+        mixerRef.current = null;
+      }
+      return;
+    }
+
+    const abortController = new AbortController();
+    let isCancelled = false;
+    setModelLoadStatus('loading');
+    setLoadError(null);
+
+    // Clear previous model from scene
+    const group = modelGroupRef.current;
+    while (group.children.length > 0) {
+      const child = group.children[0];
+      group.remove(child);
+      disposeObject3D(child);
+    }
+    useViewerStore.getState().setActiveModelObject(null);
+    useViewerStore.getState().setModelStats(null);
+    if (mixerRef.current) {
+      mixerRef.current.stopAllAction();
+      mixerRef.current = null;
+    }
+
+    const detectedExt = modelUrl.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase();
+    const knownFormats = ['glb', 'gltf', 'obj', 'fbx', 'stl', 'ply'];
+    const format = (assetFormat && knownFormats.includes(assetFormat))
+      ? assetFormat
+      : (detectedExt && knownFormats.includes(detectedExt))
+        ? detectedExt
+        : 'glb';
+    const handleObjectLoaded = (object: THREE.Object3D, animations?: THREE.AnimationClip[]) => {
+      if (isCancelled || !modelGroupRef.current) {
+        disposeObject3D(object);
+        return;
+      }
+
+      // Capture native geometry before viewport normalization changes its dimensions.
+      useViewerStore.getState().setModelStats(collectMeshStats(object));
+
+      // Center and normalize model dimensions to fit comfortably inside unit space
+      const box = new THREE.Box3().setFromObject(object);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale = maxDim > 0 ? 2.0 / maxDim : 1.0;
+
+      object.position.sub(center.clone().multiplyScalar(scale));
+      // Sit on ground
+      object.position.y += (size.y * scale) / 2;
+      object.scale.setScalar(scale);
+
+      const hasAnimations = Boolean(animations && animations.length > 0);
+      object.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          const triCount = child.geometry?.index
+            ? child.geometry.index.count / 3
+            : (child.geometry?.attributes?.position?.count || 0) / 3;
+          // Ultra-dense meshes (>800k tris) bypass shadow-map rasterization to preserve 60 FPS
+          child.castShadow = triCount < 800_000;
+          child.receiveShadow = true;
+          child.frustumCulled = true;
+          if (!hasAnimations) {
+            child.matrixAutoUpdate = false;
+            child.updateMatrix();
+          }
+          applyShadingToMesh(child, shadingModeRef.current, Boolean(showWireframeRef.current));
+        }
+      });
+
+      // Hook up animations if available
+      if (animations && animations.length > 0) {
+        try {
+          const mixer = new THREE.AnimationMixer(object);
+          mixerRef.current = mixer;
+          const action = mixer.clipAction(animations[0]);
+          action.play();
+          useAnimationStore.setState({ isPlaying: true, duration: animations[0].duration });
+        } catch {
+          // Skip if animation mixer cannot bind
+        }
+      }
+
+      group.add(object);
+      useViewerStore.getState().setActiveModelObject(object);
+      fitCameraToModel(object);
+      setModelLoadStatus('loaded');
+      setHasModel(true);
+    };
+
+    const handleLoadFailure = (msg: string) => {
+      if (!isCancelled) {
+        setModelLoadStatus('error');
+        setHasModel(false);
+        setLoadError(msg);
+      }
+    };
+
+    // Load by format
+    if (format === 'glb' || format === 'gltf') {
+      void loadGLBWithProgress(modelUrl, undefined, abortController.signal).then((buffer) => {
+        if (isCancelled || abortController.signal.aborted) return;
+        const basePath = modelUrl.startsWith('blob:') || modelUrl.startsWith('data:')
+          ? ''
+          : new URL('.', new URL(modelUrl, window.location.href)).href;
+        sharedGLTFLoader.parse(
+          buffer,
+          basePath,
+          (gltf) => {
+            if (isCancelled || abortController.signal.aborted) return;
+            handleObjectLoaded(gltf.scene, gltf.animations);
+          },
+          (err) => {
+            if (isCancelled || abortController.signal.aborted) return;
+            handleLoadFailure(`Failed to load 3D model: ${err instanceof Error ? err.message : 'Invalid model file'}`);
+          }
+        );
+      }).catch((err: unknown) => {
+        if (isCancelled || abortController.signal.aborted) return;
+        handleLoadFailure(`Failed to load 3D model: ${err instanceof Error ? err.message : 'Network error'}`);
+      });
+    } else if (format === 'obj') {
+      sharedOBJLoader.load(
+        modelUrl,
+        (obj) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          handleObjectLoaded(obj);
+        },
+        undefined,
+        (err: unknown) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          handleLoadFailure(`Failed to load OBJ: ${(err as any)?.message || 'Error'}`);
+        }
+      );
+    } else if (format === 'fbx') {
+      sharedFBXLoader.load(
+        modelUrl,
+        (fbx) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          handleObjectLoaded(fbx, fbx.animations);
+        },
+        undefined,
+        (err: unknown) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          handleLoadFailure(`Failed to load FBX: ${(err as any)?.message || 'Error'}`);
+        }
+      );
+    } else if (format === 'stl') {
+      sharedSTLLoader.load(
+        modelUrl,
+        (geom) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          geom.computeVertexNormals();
+          const mat = new THREE.MeshStandardMaterial({ color: 0xc8cdd5, roughness: 0.6 });
+          const mesh = new THREE.Mesh(geom, mat);
+          handleObjectLoaded(mesh);
+        },
+        undefined,
+        (err: unknown) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          handleLoadFailure(`Failed to load STL: ${(err as any)?.message || 'Error'}`);
+        }
+      );
+    } else if (format === 'ply') {
+      sharedPLYLoader.load(
+        modelUrl,
+        (geom) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          geom.computeVertexNormals();
+          const mat = new THREE.MeshStandardMaterial({ color: 0xc8cdd5, roughness: 0.6 });
+          const mesh = new THREE.Mesh(geom, mat);
+          handleObjectLoaded(mesh);
+        },
+        undefined,
+        (err: unknown) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          handleLoadFailure(`Failed to load PLY: ${(err as any)?.message || 'Error'}`);
+        }
+      );
+    }
+
+    return () => {
+      isCancelled = true;
+      abortController.abort();
+    };
+  }, [modelUrl, assetFormat, fitCameraToModel, applyShadingToMesh, retryKey]);
+
+  // 6. Highlight hovered part in main viewer (top-level hook — never nested inside another hook)
+  useEffect(() => {
+    const group = modelGroupRef.current;
+    if (!group || !hoveredPartId) {
+      group?.traverse((child) => {
         if (child instanceof THREE.Mesh && child.userData.__hoverOriginalMaterial) {
           child.material = child.userData.__hoverOriginalMaterial;
           delete child.userData.__hoverOriginalMaterial;
@@ -184,11 +1299,14 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       });
       return;
     }
+
+    // Parse part index from id like "p1" -> 0, "p2" -> 1, etc.
     const match = hoveredPartId.match(/^p(\d+)$/);
     if (!match) return;
-    const meshIndex = parseInt(match[1], 10) - 1;
+    const meshIndex = parseInt(match[1], 1) - 1;
+
     let meshCount = 0;
-    group.traverse((child: any) => {
+    group.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         if (meshCount === meshIndex) {
           if (!child.userData.__hoverOriginalMaterial) {
@@ -205,79 +1323,89 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         meshCount++;
       }
     });
+
     return () => {
-      group.traverse((child: any) => {
+      group.traverse((child) => {
         if (child instanceof THREE.Mesh && child.userData.__hoverOriginalMaterial) {
           child.material = child.userData.__hoverOriginalMaterial;
           delete child.userData.__hoverOriginalMaterial;
         }
       });
     };
-  }, [hoveredPartId, renderer]);
+  }, [hoveredPartId]);
 
-  // --- Broadcast camera rotation for external gizmo ---
+  // 7. Broadcast live camera rotation so an external XYZ gizmo can reflect the active axis
   useEffect(() => {
-    const controls = (renderer as any)?.controls;
-    const camera = (renderer as any)?.camera;
+    const controls = controlsRef.current;
+    const camera = cameraRef.current;
     if (!controls || !camera) return;
+
     const update = () => {
       if (!camera || !controls) return;
       const dir = new THREE.Vector3();
       camera.getWorldDirection(dir);
+      // Find which cardinal axis the camera is most aligned with
       const absX = Math.abs(dir.dot(new THREE.Vector3(1, 0, 0)));
       const absY = Math.abs(dir.dot(new THREE.Vector3(0, 1, 0)));
       const absZ = Math.abs(dir.dot(new THREE.Vector3(0, 0, 1)));
       const axis =
         absX >= absY && absX >= absZ
-          ? dir.x > 0 ? 'right' : 'left'
+          ? dir.x > 0
+            ? 'right'
+            : 'left'
           : absY >= absX && absY >= absZ
-          ? dir.y > 0 ? 'top' : 'bottom'
-          : dir.z > 0 ? 'front' : 'back';
+          ? dir.y > 0
+            ? 'top'
+            : 'bottom'
+          : dir.z > 0
+          ? 'front'
+          : 'back';
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('setCameraRotation', { detail: axis }));
       }
     };
+
+    // Initial broadcast so the gizmo reflects the starting view
     update();
     controls.addEventListener('change', update);
-    return () => controls.removeEventListener('change', update);
-  }, [renderer]);
 
-  // --- Viewport UI status ---
-  const viewportStatus: MeshLoadStatus = loadError ? 'error' : loadStatus;
+    return () => {
+      controls.removeEventListener('change', update);
+    };
+  }, []);
 
-  const handleSnapshot = useCallback(() => {
-    const r = renderer;
-    if (!r) {
-      toast.error('3D Viewport is not ready for snapshot');
-      return;
-    }
-    const dom = r.domElement;
-    const origWidth = dom.width;
-    const origHeight = dom.height;
-    const origPixelRatio = r.getPixelRatio();
-    r.setSize(1920, 1080);
-    r.setPixelRatio(1);
-    requestAnimationFrame(() => {
-      r.render();
-      r.domElement.toBlob((blob) => {
-        r.setSize(origWidth, origHeight);
-        r.setPixelRatio(origPixelRatio);
-        if (!blob) {
-          toast.error('Failed to create snapshot image');
-          return;
-        }
-        const blobUrl = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = 'mesh-snapshot.png';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
-        toast.success('Snapshot saved');
-      }, 'image/png', 1.0);
-    });
-  }, [renderer]);
+  const updateComparisonPosition = (clientX: number) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return;
+    const next = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+    comparisonPositionRef.current = next;
+    if (comparisonDividerRef.current) comparisonDividerRef.current.style.left = `${next}%`;
+    comparisonHandleRef.current?.setAttribute('aria-valuenow', String(Math.round(next)));
+    comparisonHandleRef.current?.setAttribute('aria-valuetext', `${Math.round(next)} percent before`);
+  };
+
+  const moveComparisonBy = (delta: number) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const next = Math.max(0, Math.min(100, comparisonPositionRef.current + delta));
+    updateComparisonPosition(rect.left + (rect.width * next) / 100);
+  };
+
+  // Single source of truth for the viewport UI shell: one mutually exclusive
+  // status replaces the previously overlapping JSX conditions (empty, loading,
+  // executing, comparing, or error).
+  type ViewportUIStatus = 'idle' | 'empty' | 'loading' | 'executing' | 'comparing' | 'error';
+  const viewportStatus: ViewportUIStatus = loadError
+    ? 'error'
+    : isExecuting
+      ? 'executing'
+      : modelLoadStatus === 'loading'
+        ? 'loading'
+        : !hasModel
+          ? 'empty'
+          : isComparing && canCompareModels
+            ? 'comparing'
+            : 'idle';
 
   return (
     <div
@@ -289,71 +1417,36 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           : 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
       }}
     >
-      {/* WebGL unavailable fallback */}
-      {!isGpu && renderer && (
+      {/* WebGL unavailable fallback — shown when the renderer cannot create a context */}
+      {webglError && (
         <div className="absolute top-0 left-0 right-0 z-50 flex flex-col items-center justify-center p-2 bg-black/90 text-white text-center border-b border-[#F9CF00]/40">
           <HugeiconsIcon icon={AlertCircle} size={20} className="text-[#F9CF00] mr-2" />
           <span className="text-xs text-zinc-200 font-medium">
-            WebGL not available — using CPU fallback renderer.
+            WebGL not available — 3D viewport disabled. {webglError}
           </span>
         </div>
       )}
-
-      {/* Local Three.js canvas (GPU/CPU mesh rendering) */}
-
-
-      {/* Cloud stream viewer (fallback when local load fails or no local mesh) */}
-      {modelUrl && viewportStatus === 'error' && (
-        <StreamVideoViewer
-          workspaceId={workspaceId}
-          modelUrl={modelUrl}
-          shadingMode={shadingMode}
-          showWireframe={showWireframe}
-          className="absolute inset-0 z-0"
-        />
-      )}
-
-      {/* Loading state */}
-      {viewportStatus === 'loading' && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center pointer-events-none bg-black/40 backdrop-blur-xs">
-          <div className="flex flex-col items-center gap-3 p-4 rounded-xl bg-black/70 border border-white/10 shadow-2xl">
-            <HugeiconsIcon icon={SparklesIcon} size={28} className="text-[#F9CF00] animate-pulse" />
-            <div className="flex flex-col items-center">
-              <span className="text-xs font-semibold text-white">Loading 3D model…</span>
-              <span className="text-[10px] text-zinc-400 mt-0.5">{isGpu ? 'GPU rendering' : 'CPU fallback'}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Error state */}
-      {viewportStatus === 'error' && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-4 bg-black/60">
-          <div className="max-w-sm flex flex-col items-center text-center p-4 rounded-xl bg-red-950/80 border border-red-500/40 text-red-200 shadow-xl">
-            <HugeiconsIcon icon={AlertCircle} size={24} className="text-red-400 mb-2" />
-            <span className="text-xs font-semibold">Mesh Load Failed</span>
-            <span className="text-[11px] text-red-300/80 mt-1">{loadError ?? 'Failed to load 3D model'}</span>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRetryLoad();
-              }}
-              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-black font-semibold text-xs hover:bg-zinc-200 transition-colors cursor-pointer"
-            >
-              <HugeiconsIcon icon={RefreshCw} size={14} />
-              <span>Retry</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!modelUrl && viewportStatus === 'idle' && (
+      {/* Snapshot Button — top-left of viewport */}
+      <div className="absolute top-3 left-3 z-50 flex gap-1 pointer-events-auto">
+        <button
+          onClick={() => {
+            captureWorkspace();
+          }}
+          className="px-3 py-1.5 rounded-lg bg-[#F9CF00] text-[#080808] font-bold shadow-[0_0_15px_rgba(249,207,0,0.4)] hover:scale-105 hover:bg-[#FFE04D] transition-all duration-200 cursor-pointer"
+          aria-label="Take snapshot"
+        >
+          📷 Snapshot
+        </button>
+      </div>
+      {/* Sleek Empty State Watermark matching Reference */}
+      {viewportStatus === 'empty' && (
         <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center z-10">
           <div className="flex flex-col items-center text-center px-4 max-w-sm select-none">
+            {/* ForMesh3D Electric Gold Brand Mark */}
             <div className="w-14 h-14 rounded-2xl bg-[hsl(var(--surface-1))] border border-[#F9CF00]/40 flex items-center justify-center shadow-[0_4px_24px_rgba(0,0,0,0.4),0_0_24px_rgba(249,207,0,0.25)] mb-4 ring-1 ring-white/10">
               <HugeiconsIcon icon={SparklesIcon} size={28} className="text-[#F9CF00] drop-shadow-[0_0_10px_rgba(249,207,0,0.6)]" />
             </div>
+
             <h2 className="text-xl font-bold tracking-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.6)] mb-1.5">
               {emptyStateCopy.title}
             </h2>
@@ -364,24 +1457,117 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         </div>
       )}
 
-      {/* Snapshot button */}
-      <div className="absolute top-3 left-3 z-50 flex gap-1 pointer-events-auto">
-        <button
-          onClick={() => renderer?.resetCamera()}
-          disabled={!renderer}
-          className="px-3 py-1.5 rounded-lg bg-[#F9CF00] text-[#080808] font-bold shadow-[0_0_15px_rgba(249,207,0,0.4)] hover:scale-105 hover:bg-[#FFE04D] transition-all duration-200 cursor-pointer disabled:opacity-50"
-          aria-label="Fit camera to mesh"
-        >
-          🎯 Fit Camera
-        </button>
-        <button
-          onClick={handleSnapshot}
-          className="px-3 py-1.5 rounded-lg bg-[#F9CF00] text-[#080808] font-bold shadow-[0_0_15px_rgba(249,207,0,0.4)] hover:scale-105 hover:bg-[#FFE04D] transition-all duration-200 cursor-pointer"
-          aria-label="Take snapshot"
-        >
-          📷 Snapshot
-        </button>
-      </div>
+      {viewportStatus === 'loading' && (
+        <div role="status" aria-live="polite" className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
+          <div className="w-full max-w-xs mx-auto rounded-lg border border-white/10 bg-black/60 p-4 shadow-[0_0_24px_rgba(0,0,0,0.6)]">
+            <div className="flex flex-col items-center gap-4 mb-3">
+              <HugeiconsIcon icon={SparklesIcon} size={26} className="text-[#F9CF00] drop-shadow-[0_0_10px_rgba(249,207,0,0.5)]" />
+              <span className={`text-xs font-mono text-zinc-200 ${reducedMotion ? '' : 'animate-pulse'}`}>Loading 3D model…</span>
+            </div>
+            <div className="flex flex-col gap-2">
+              <div className={`h-2 w-2/3 rounded-full bg-white/10 ${reducedMotion ? '' : 'animate-pulse'}`} />
+              <div className={`h-1.5 w-1/2 rounded-full bg-white/10 ${reducedMotion ? '' : 'animate-pulse'}`} />
+              <div className={`h-2 w-3/4 rounded-full bg-white/10 ${reducedMotion ? '' : 'animate-pulse'}`} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Execution Progress Bar — bottom center */}
+      {isExecuting && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <div className="w-64 h-1.5 rounded-full bg-white/10 border border-white/5">
+            <div
+              className="h-full rounded-full transition-all duration-300 bg-white"
+              style={{
+                width: `${Math.max(0, Math.min(100, Math.round(executionProgress)))}%`,
+              }}
+            />
+          </div>
+          <p className="text-[10px] text-white font-mono mt-1 text-center">
+            {Math.round(executionProgress)}%
+          </p>
+        </div>
+      )}
+
+      {viewportStatus === 'comparing' && (
+        <div className="absolute inset-0 z-10 pointer-events-none">
+          <div className="absolute top-3 left-3 px-2 py-1 rounded-md bg-black/65 border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white">
+            Before
+          </div>
+          <div className="absolute top-3 right-3 px-2 py-1 rounded-md bg-black/65 border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white">
+            After
+          </div>
+          <div ref={comparisonDividerRef} className="absolute top-0 bottom-0" style={{ left: '50%' }}>
+            <div className="absolute inset-y-0 left-0 w-px -translate-x-1/2 bg-[#F9CF00] shadow-[0_0_10px_rgba(249,207,0,0.7)]" />
+            <div
+              ref={comparisonHandleRef}
+              role="slider"
+              tabIndex={0}
+              aria-label="Before and after comparison split"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={50}
+              aria-valuetext="50 percent before"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                updateComparisonPosition(event.clientX);
+              }}
+              onPointerMove={(event) => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) updateComparisonPosition(event.clientX);
+              }}
+              onPointerUp={(event) => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  moveComparisonBy(-1);
+                } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  moveComparisonBy(1);
+                } else if (event.key === 'Home') {
+                  event.preventDefault();
+                  updateComparisonPosition(containerRef.current?.getBoundingClientRect().left ?? 0);
+                } else if (event.key === 'End') {
+                  event.preventDefault();
+                  updateComparisonPosition(containerRef.current?.getBoundingClientRect().right ?? 0);
+                }
+              }}
+              className="pointer-events-auto absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-10 rounded-full bg-[#171821] border border-[#F9CF00] shadow-lg flex items-center justify-center cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-[#F9CF00]"
+            >
+              <span className="flex items-center gap-0.5 text-[#F9CF00]">
+                <span className="w-0.5 h-3 rounded-full bg-current" />
+                <span className="w-0.5 h-3 rounded-full bg-current" />
+              </span>
+            </div>
+          </div>
+          {isComparisonLoading && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg bg-black/70 border border-white/10 text-[10px] text-zinc-200">
+              Loading original mesh…
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Error Card — retry button */}
+      {viewportStatus === 'error' && (
+        <div role="alert" className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 px-4 py-3 rounded-xl bg-red-950/90 border border-red-500/30 text-red-200 shadow-xl backdrop-blur-md text-xs leading-relaxed">
+          <div className="flex items-start gap-2">
+            <span>{loadError ?? 'Failed to load 3D model'}</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleRetryLoad}
+            aria-label="Retry loading model"
+            className="mt-2.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F8FAFC] text-[#080808] text-[10px] font-semibold cursor-pointer transition-colors duration-200 hover:bg-[#F8FAFC]/90 focus-visible:ring-2 focus-visible:ring-[#000]"
+          >
+            <HugeiconsIcon icon={RefreshCw} size={14} className="text-[#080808]" />
+            <span>Retry</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };
