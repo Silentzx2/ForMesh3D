@@ -152,14 +152,12 @@ class PartUVUnwrappingAdapter(BaseModel):
 
         mesh = trimesh.load(mesh_path, process=False)
 
+        import tempfile
+
+        preprocess_out = Path(tempfile.mkdtemp())
         ctx = contextlib.nullcontext()
         with ctx:
-            try:
-                result = self._preprocess(mesh_path)
-            except TypeError:
-                result = self._preprocess(mesh_path)
-
-        import tempfile
+            result = self._preprocess(mesh_path, output_path=str(preprocess_out))
 
         out = Path(tempfile.mkdtemp()) / f"partuv_{seed}.obj"
         # preprocess returns a 4-tuple: (mesh, binary_file_path, tree_dict, preprocess_times)
