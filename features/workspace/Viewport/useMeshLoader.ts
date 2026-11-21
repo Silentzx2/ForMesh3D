@@ -99,11 +99,29 @@ export function useMeshLoader(): UseMeshLoaderResult {
     const abortController = new AbortController();
     abortRef.current = abortController;
 
+    // Hard load budget: abort and surface an error if the mesh doesn't
+    // arrive within LOAD_TIMEOUT_MS so the UI never stays stuck on 'loading'.
+    const LOAD_TIMEOUT_MS = 10_000;
+
     setStatus('loading');
 
     try {
       const start = performance.now();
-      const cached = await meshLoader.load(url, abortController.signal);
+
+      // Race the mesh load against a hard timeout. GLTFLoader can hang on a
+      // stalled fetch (no abort response) — this guarantees a terminal state.
+      let timeoutId: ReturnType<typeof setTimeout>;
+      const timeout = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('Mesh load timed out')), LOAD_TIMEOUT_MS);
+        abortController.signal.addEventListener('abort', () => clearTimeout(timeoutId!), {
+          once: true,
+        });
+      });
+      const cached = await Promise.race([
+        meshLoader.load(url, abortController.signal),
+        timeout,
+      ]);
+      clearTimeout(timeoutId!);
 
       if (!mountedRef.current || abortController.signal.aborted) {
         meshLoader.unload(url);
@@ -133,7 +151,15 @@ export function useMeshLoader(): UseMeshLoaderResult {
       setStats(cached.stats);
       setLoadTime(performance.now() - start);
     } catch (err) {
-      if (!mountedRef.current || abortController.signal.aborted) return;
+      if (!mountedRef.current) return;
+      // If the hard timeout fired, abort the in-flight load so it doesn't
+      // keep holding the fetch/decoder in the background.
+      if (err instanceof Error && err.message === 'Mesh load timed out') {
+        abortController.abort();
+      }
+      if (abortController.signal.aborted && err instanceof Error && err.message !== 'Mesh load timed out') {
+        return;
+      }
       const message = err instanceof Error ? err.message : 'Failed to load mesh';
       setError(message);
       setStatus('error');
