@@ -108,7 +108,7 @@ function buildSimpleZip(files: { name: string; data: Uint8Array }[]): Blob {
 export const DynamicSegmentationInspector: React.FC = () => {
   const { currentAsset, setHoveredPartId } = useWorkspace();
   const activeModelObject = useViewerStore((s) => s.activeModelObject);
-  const [highlightBoundaries, setHighlightBoundaries] = useState(true);
+  const [highlightBoundaries, setHighlightBoundaries] = useState(false);
   const [colorizeViewport, setColorizeViewport] = useState(true);
   const [selectedPartId, setSelectedPartId] = useState<string | null>('p1');
   const [viewAngle, setViewAngle] = useState<'front' | 'ortho' | 'side'>('ortho');
