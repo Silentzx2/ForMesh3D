@@ -89,7 +89,7 @@
 - Compare split view updates while dragging and restores the normal single-scene view when closed.
 - Snapshot and workspace capture still export the requested 1920×1080 image.
 - UV / segmentation preview updates on model, selection, visibility, view-angle, and seam/boundary toggles.
-- Run bun install --frozen-lockfile, bun run test, bun test, and bun run build through frontend CI.
+- Run bun install --frozen-lockfile, bun run test, bun run lint, bun test, and bun run build through frontend CI.
 
 ## Notes for Future AI
 

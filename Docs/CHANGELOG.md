@@ -6,7 +6,7 @@
 - **Viewport mutation invalidation**: Inspector and property-panel updates dispatch a shared invalidation event so in-place mesh visibility, UV/material, transform, and rig-pose changes still redraw the main viewport.
 - **Inspector code splitting**: UV, segmentation, animation, and rigging inspector modules now load only when their matching tool is selected.
 - **Zustand subscriptions**: Replaced whole viewer/app-store subscriptions with focused selectors for the shading action, batch queue, and auto-rotate preference.
-- **Validation**: GitHub Actions frontend type-check, contract tests, and production build run on this commit. Browser/GPU profiling remains a manual follow-up; no FPS/CPU gain is claimed without measurement.
+- **Validation**: GitHub Actions frontend install, type-check, ESLint, contract tests, and production build run on this commit. Browser/GPU profiling remains a manual follow-up; no FPS/CPU gain is claimed without measurement.
 
 ## 2026-11-21 — Streaming Engine Removed, Local-Only Mesh Viewer Restored
 - **Streaming engine deleted**: `backend/api/routers/streaming.py`, `backend/streaming/` directory (renderer, stream_manager, placeholder) removed entirely

@@ -41,6 +41,9 @@ jobs:
       - name: TypeScript type-check
         run: bun run test
 
+      - name: Lint frontend
+        run: bun run lint
+
       - name: Run all frontend contract tests
         run: bun test
 
