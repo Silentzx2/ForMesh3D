@@ -34,6 +34,7 @@ import {
 import { useViewerStore } from '@/stores/useViewerStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { Grid3X3, Scissors, Film, Bone } from '@/components/icons/hugeicons-components';
 const InspectorLoadingFallback = () => (
   <div className="flex min-h-24 items-center justify-center text-[10px] text-[hsl(var(--muted-foreground))]">
     Loading inspector…
@@ -56,7 +57,6 @@ const DynamicRiggingInspector = dynamic(
   () => import('../dynamic/DynamicRiggingInspector').then((mod) => mod.DynamicRiggingInspector),
   { ssr: false, loading: InspectorLoadingFallback }
 );
-import { Grid3X3, Scissors, Film, Bone } from '@/components/icons/hugeicons-components';
 
 export const RightPropertyPanel: React.FC = () => {
   const {
