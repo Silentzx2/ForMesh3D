@@ -119,6 +119,8 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     (isMeshAsset ? artifactUrl || assetFileUrl : null) ||
     null;
 
+  console.debug('[MeshViewer] modelUrl resolved:', modelUrl, 'asset:', currentAsset?.id, 'format:', currentAsset?.format, 'category:', currentAsset?.category);
+
   // --- GPU probe + renderer init on mount ---
   useEffect(() => {
     if (containerRef.current) {

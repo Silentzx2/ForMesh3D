@@ -108,6 +108,8 @@ export function useMeshLoader(): UseMeshLoaderResult {
     try {
       const start = performance.now();
 
+      console.debug('[MeshLoader] load start:', url);
+
       // Race the mesh load against a hard timeout. GLTFLoader can hang on a
       // stalled fetch (no abort response) — this guarantees a terminal state.
       let timeoutId: ReturnType<typeof setTimeout>;
@@ -130,14 +132,11 @@ export function useMeshLoader(): UseMeshLoaderResult {
 
       cachedUrlRef.current = url;
 
-      // Clone the cached group so each viewer instance has its own scene node.
-      // Deep-clone geometries and materials: a plain Group.clone() shares them
-      // by reference with the cache, and renderer.unload() disposes them on
-      // unload — which would poison the shared cache entry and break the next
-      // load of the same URL.
       const group = cached.group.clone();
+      let meshCount = 0;
       group.traverse((child) => {
         if (!(child instanceof THREE.Mesh)) return;
+        meshCount++;
         if (child.geometry) child.geometry = child.geometry.clone();
         if (Array.isArray(child.material)) {
           child.material = child.material.map((m) => m.clone());
@@ -145,6 +144,12 @@ export function useMeshLoader(): UseMeshLoaderResult {
           child.material = child.material.clone();
         }
       });
+
+      if (meshCount === 0) {
+        throw new Error('Loaded mesh contains no drawable meshes');
+      }
+
+      console.debug('[MeshLoader] load ok:', url, 'meshes:', meshCount, 'stats:', cached.stats);
       rendererRef.current!.load(group);
 
       setStatus('loaded');
