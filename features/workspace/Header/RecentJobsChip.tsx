@@ -64,7 +64,9 @@ export function RecentJobsChip() {
 
   useEffect(() => {
     loadJobs();
-    const iv = setInterval(loadJobs, 8000);
+    // 30s cadence keeps the recent-jobs chip current without hammering
+    // /api/v1/system/jobs/history on every render cycle.
+    const iv = setInterval(loadJobs, 30000);
     return () => clearInterval(iv);
   }, [loadJobs]);
 
