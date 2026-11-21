@@ -420,7 +420,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const stats = await apiClient.getSystemStats();
       return stats as unknown as SystemStats;
     },
-    refetchInterval: 5000, // Refresh resource telemetry every 5s
+    refetchInterval: 30000, // Refresh resource telemetry every 30s
     staleTime: 10000,
   });
 
@@ -524,8 +524,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         });
       }) as ModelAsset[];
     },
-    refetchInterval: 10000,
-    staleTime: 5000,
+    refetchInterval: 30000,
+    staleTime: 30000,
   });
 
   const [assets, setAssets] = useState<ModelAsset[]>([]);

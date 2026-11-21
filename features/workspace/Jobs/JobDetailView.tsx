@@ -96,7 +96,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
       if (document.visibilityState === 'visible') void fetchJobs();
     };
     void fetchJobs();
-    const interval = setInterval(refresh, hasRunningJobs ? 5000 : 30000);
+    const interval = setInterval(refresh, hasRunningJobs ? 15000 : 60000);
     document.addEventListener('visibilitychange', refresh);
     return () => {
       clearInterval(interval);

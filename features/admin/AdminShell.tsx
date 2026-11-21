@@ -94,7 +94,7 @@ export function AdminShell({ activeTab, onTabChange, children }: AdminShellProps
 
   useEffect(() => {
     loadRuntime();
-    const interval = setInterval(loadRuntime, 10000);
+    const interval = setInterval(loadRuntime, 30000);
     return () => clearInterval(interval);
   }, [loadRuntime]);
 

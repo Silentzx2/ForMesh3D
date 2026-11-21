@@ -101,7 +101,8 @@ export function useMeshLoader(): UseMeshLoaderResult {
 
     // Hard load budget: abort and surface an error if the mesh doesn't
     // arrive within LOAD_TIMEOUT_MS so the UI never stays stuck on 'loading'.
-    const LOAD_TIMEOUT_MS = 10_000;
+    // Large GLB files (1M+ faces) over HTTP can exceed 30s.
+    const LOAD_TIMEOUT_MS = 45_000;
 
     setStatus('loading');
 

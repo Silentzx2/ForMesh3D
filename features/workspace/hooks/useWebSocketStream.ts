@@ -163,11 +163,10 @@ export function useWebSocketStream({
     const { session_id, ws_url } = sessionData;
 
     const connectWebSocket = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = typeof window !== 'undefined' && window.location.port === '3000'
-        ? `${window.location.hostname}:7842`
-        : window.location.host;
-      const fullWsUrl = `${protocol}//${host}${ws_url}`;
+      // Always route WebSocket through the same-origin Next.js API proxy
+      // (/api/v1/stream/.../ws) so it works behind reverse proxies, tunnels,
+      // and Cloudflare where direct host:port WebSocket is not forwarded.
+      const fullWsUrl = `${window.location.origin}${ws_url}`;
 
       const ws = new WebSocket(fullWsUrl);
       ws.binaryType = 'arraybuffer';
