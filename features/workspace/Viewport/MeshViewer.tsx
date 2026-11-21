@@ -367,6 +367,14 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       {/* Snapshot button */}
       <div className="absolute top-3 left-3 z-50 flex gap-1 pointer-events-auto">
         <button
+          onClick={() => renderer?.resetCamera()}
+          disabled={!renderer}
+          className="px-3 py-1.5 rounded-lg bg-[#F9CF00] text-[#080808] font-bold shadow-[0_0_15px_rgba(249,207,0,0.4)] hover:scale-105 hover:bg-[#FFE04D] transition-all duration-200 cursor-pointer disabled:opacity-50"
+          aria-label="Fit camera to mesh"
+        >
+          🎯 Fit Camera
+        </button>
+        <button
           onClick={handleSnapshot}
           className="px-3 py-1.5 rounded-lg bg-[#F9CF00] text-[#080808] font-bold shadow-[0_0_15px_rgba(249,207,0,0.4)] hover:scale-105 hover:bg-[#FFE04D] transition-all duration-200 cursor-pointer"
           aria-label="Take snapshot"

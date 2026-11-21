@@ -360,6 +360,20 @@ export class MeshRenderer {
     this.camera.lookAt(center);
     this.controls.target.copy(center);
     this.controls.update();
+
+    console.debug('[MeshRenderer] fitCamera:', {
+      bboxMin: box.min.toArray().map((v) => Math.round(v * 100) / 100),
+      bboxMax: box.max.toArray().map((v) => Math.round(v * 100) / 100),
+      center: center.toArray().map((v) => Math.round(v * 100) / 100),
+      maxDim: Math.round(maxDim * 100) / 100,
+      cameraZ: Math.round(cameraZ * 100) / 100,
+      cameraPos: this.camera.position.toArray().map((v) => Math.round(v * 100) / 100),
+    });
+  }
+
+  /** Re-fit camera to the current model (useful if mesh is loaded but off-screen). */
+  resetCamera() {
+    this.fitCamera();
   }
 
   resize(w: number, h: number) {
