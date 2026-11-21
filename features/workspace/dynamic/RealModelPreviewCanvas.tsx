@@ -114,20 +114,6 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
     scene.add(modelGroup);
 
     // Responsive resize observer without context reconstruction
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const nw = entry.contentRect.width;
-        const nh = entry.contentRect.height;
-        if (nw > 0 && nh > 0 && cameraRef.current && rendererRef.current) {
-          cameraRef.current.aspect = nw / nh;
-          cameraRef.current.updateProjectionMatrix();
-          rendererRef.current.setSize(nw, nh);
-          invalidate();
-        }
-      }
-    });
-    resizeObserver.observe(el);
-
     let rafId: number | null = null;
     let isDisposed = false;
     const renderFrame = () => {
@@ -143,6 +129,20 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
     invalidateRenderRef.current = invalidate;
     controls.addEventListener('change', invalidate);
     invalidate();
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const nw = entry.contentRect.width;
+        const nh = entry.contentRect.height;
+        if (nw > 0 && nh > 0 && cameraRef.current && rendererRef.current) {
+          cameraRef.current.aspect = nw / nh;
+          cameraRef.current.updateProjectionMatrix();
+          rendererRef.current.setSize(nw, nh);
+          invalidate();
+        }
+      }
+    });
+    resizeObserver.observe(el);
 
     return () => {
       isDisposed = true;
