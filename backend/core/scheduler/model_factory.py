@@ -58,6 +58,10 @@ class ModelFactory:
             "module": "adapters.trellis_adapter",
             "class": "TrellisImageMeshPaintingAdapter",
         },
+        "trellis_text_mesh_painting": {
+            "module": "adapters.trellis_adapter",
+            "class": "TrellisTextMeshPaintingAdapter",
+        },
         # TRELLIS.2 adapters (image-only, no text support)
         "trellis2_image_to_textured_mesh": {
             "module": "adapters.trellis2_adapter",

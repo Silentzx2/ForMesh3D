@@ -1,5 +1,11 @@
 # ForMesh3D Changelog
 
+## 2026-11-22 — README, Model Manifest and Text-Paint Adapter Wiring
+
+- Restored the README banner, workspace screenshot and Mermaid architecture flow; rewrote the page as a project overview with verified features, setup, architecture and checks.
+- Removed unused model-manifest metadata, normalized YAML formatting, and registered TRELLIS text painting as an alias over its existing checkpoint/adapter.
+- Added regression coverage and strengthened the model contract verifier to check enabled IDs against both adapter registries.
+
 ## 2026-11-22 — Dead-Code Audit, Registry Wiring and Documentation Correction
 - Re-audited the `dev` branch against imports, dynamic references, router registration, tests, API contracts and the pinned third-party submodule.
 - Removed 11 unreferenced/broken first-party files, 14 unused API-client methods, five unused exports, and the deprecated synchronous `resolve_file_id()` stub.
@@ -16,8 +22,3 @@
 - Added shared invalidation for in-place inspector/property mutations.
 - UV, segmentation, animation and rigging inspectors load only when their matching tool is selected.
 - Replaced broad Zustand subscriptions with focused selectors. Browser/GPU performance gains require separate profiling; no unmeasured FPS claim is made.
-
-## 2026-11-21 — Server-Side Mesh Streaming Removed
-- Removed the WebSocket/WebRTC mesh-streaming engine and its router/viewer hooks.
-- Restored the local GLTFLoader + glbCache viewport flow.
-- Current mesh loading is download → browser parse → local Three.js render; large assets may take longer to download on slow connections.

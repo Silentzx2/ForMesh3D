@@ -142,3 +142,26 @@ def test_runtime_probe_inventory_includes_enabled_specialist_adapters():
     assert _ADAPTER_MAP["triflow_retopology"] == "backend.adapters.triflow_adapter"
     assert _ADAPTER_MAP["fastmesh_v1k_retopology"] == "backend.adapters.fastmesh_adapter"
     assert _ADAPTER_MAP["partfield_segmentation"] == "backend.adapters.partfield_adapter"
+
+
+def test_trellis_text_painting_manifest_alias_is_registered():
+    from backend.adapters import _ADAPTER_MAP
+    from backend.core.config import load_models_config
+    from core.scheduler.model_factory import get_model_configs_from_settings
+
+    manifest = load_models_config(str(ROOT / "backend" / "config" / "models.yaml"))
+    model = manifest["text_mesh_painting"]["trellis_text_mesh_painting"]
+
+    assert model.enabled is True
+    assert model.model_type == "texture"
+    assert model.vram_requirement == 11776
+    assert model.model_path == "backend/pretrained/TRELLIS"
+    assert model.capabilities["texture_generation"] is True
+
+    scheduler_config = get_model_configs_from_settings(manifest)["trellis_text_mesh_painting"]
+    assert scheduler_config["feature_type"] == "text_mesh_painting"
+    assert ModelFactory.ADAPTER_REGISTRY["trellis_text_mesh_painting"] == {
+        "module": "adapters.trellis_adapter",
+        "class": "TrellisTextMeshPaintingAdapter",
+    }
+    assert _ADAPTER_MAP["trellis_text_mesh_painting"] == "backend.adapters.trellis_adapter"

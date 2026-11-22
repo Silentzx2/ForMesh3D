@@ -98,6 +98,7 @@ def check_model_config():
         "image_to_textured_mesh",
         "text_mesh_painting",
         "image_mesh_painting",
+        "motion_generation",
         "mesh_segmentation",
         "auto_rig",
         "mesh_retopology",
@@ -112,7 +113,20 @@ def check_model_config():
             assert "supported_inputs" in m_cfg, f"Model {m_id} missing supported_inputs"
             assert "supported_outputs" in m_cfg, f"Model {m_id} missing supported_outputs"
 
-    print(f"  ✓ models.yaml validated with {len(expected_features)} features.")
+    from adapters import _ADAPTER_MAP
+    from core.scheduler.model_factory import ModelFactory
+
+    for feature, models in config.items():
+        for model_id, model_cfg in models.items():
+            if model_cfg.get("enabled", True):
+                assert model_id in ModelFactory.ADAPTER_REGISTRY, (
+                    f"Enabled model {model_id} has no ModelFactory registration"
+                )
+                assert model_id in _ADAPTER_MAP, (
+                    f"Enabled model {model_id} has no runtime adapter-map registration"
+                )
+
+    print(f"  ✓ models.yaml validated with {len(config)} features and registered enabled models.")
 
 def check_frontend_drift(openapi_paths):
     print("[3/5] Checking frontend files for dead endpoint calls...")

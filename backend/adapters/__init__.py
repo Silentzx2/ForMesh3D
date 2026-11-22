@@ -33,6 +33,7 @@ _ADAPTER_MAP: dict[str, str] = {
     "stable_fast_3d_image_to_textured_mesh": "backend.adapters.stable_fast_3d_adapter",
     # ── image-mesh-painting ────────────────────────────────────────────
     "trellis_image_mesh_painting": "backend.adapters.trellis_adapter",
+    "trellis_text_mesh_painting": "backend.adapters.trellis_adapter",
     "trellis2_image_mesh_painting": "backend.adapters.trellis2_adapter",
     "hunyuan3d_paint_v21_image_mesh_painting": "backend.adapters.hunyuan3d_adapter_v21",
     "hunyuan3d_v20_paint_image_mesh_painting": "backend.adapters.hunyuan3d_v20_paint_adapter",

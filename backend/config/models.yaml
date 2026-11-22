@@ -1,3 +1,6 @@
+# Canonical runtime model manifest.
+# Keep model IDs in sync with ModelFactory.ADAPTER_REGISTRY and backend.adapters._ADAPTER_MAP.
+# Only enabled entries are exposed to the scheduler; model weights must be installed separately.
 image_to_raw_mesh:
   hunyuan3d_shape_v21_image_to_raw_mesh:
     model_name: "Hunyuan3D-2.1 Shape \u2014 Image to Raw Mesh"
@@ -6,16 +9,13 @@ image_to_raw_mesh:
     ui_note: "10GB VRAM \xB7 50 steps \xB7 512 octree"
     ui_badge: 10GB VRAM
     enabled: true
-    upstream_repository: https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1
-    upstream_ref: null
-    checkpoint_license: unverified
     vram_requirement: 10240
     max_workers: 1
     supported_inputs:
-    - image
+      - image
     supported_outputs:
-    - glb
-    - obj
+      - glb
+      - obj
     model_path: backend/pretrained/tencent/Hunyuan3D-2.1
     capabilities:
       raw_mesh: true
@@ -25,7 +25,6 @@ image_to_raw_mesh:
       default_topology: Triangle
       min_polycount: 500
       max_polycount: 1000000
-      default_polycount: 50000
       polycount_step: 2500
       output_resolution: 512
       inference_steps:
@@ -39,9 +38,9 @@ image_to_raw_mesh:
         default: 7.5
         step: 0.5
       octree_resolutions:
-      - 256
-      - 384
-      - 512
+        - 256
+        - 384
+        - 512
       high_fidelity_geometry: true
       multi_gpu: true
       multi_gpu_strategy: accelerate_component_dispatch
@@ -53,18 +52,13 @@ image_to_raw_mesh:
     ui_note: "Fast Geometry \xB7 Official locked profile"
     ui_badge: 6GB VRAM
     enabled: true
-    status: stable
-    verified: true
-    upstream_repository: https://github.com/Tencent-Hunyuan/Hunyuan3D-2
-    upstream_ref: null
-    checkpoint_license: unverified
     vram_requirement: 6144
     max_workers: 1
     supported_inputs:
-    - image
+      - image
     supported_outputs:
-    - glb
-    - obj
+      - glb
+      - obj
     model_path: backend/pretrained/tencent/Hunyuan3D-2mini
     capabilities:
       raw_mesh: true
@@ -74,7 +68,6 @@ image_to_raw_mesh:
       default_topology: Triangle
       min_polycount: 500
       max_polycount: 1000000
-      default_polycount: 50000
       polycount_step: 2500
       output_resolution: 380
       high_fidelity_geometry: true
@@ -87,18 +80,13 @@ image_to_raw_mesh:
     ui_note: "Stable \xB7 1024 resolution"
     ui_badge: 8GB VRAM
     enabled: true
-    status: stable
-    verified: true
-    upstream_repository: https://github.com/VAST-AI-Research/TripoSG
-    upstream_ref: null
-    checkpoint_license: unverified
     vram_requirement: 8192
     max_workers: 1
     supported_inputs:
-    - image
+      - image
     supported_outputs:
-    - glb
-    - obj
+      - glb
+      - obj
     model_path: backend/pretrained/TripoSG
     capabilities:
       raw_mesh: true
@@ -108,7 +96,6 @@ image_to_raw_mesh:
       default_topology: Triangle
       min_polycount: 500
       max_polycount: 1000000
-      default_polycount: 50000
       polycount_step: 2500
       output_resolution: 1024
       high_fidelity_geometry: true
@@ -122,18 +109,13 @@ image_to_raw_mesh:
     ui_note: 50-step inference
     ui_badge: 12GB VRAM
     enabled: true
-    status: stable
-    verified: true
-    upstream_repository: https://github.com/microsoft/TRELLIS
-    upstream_ref: null
-    checkpoint_license: unverified
     vram_requirement: 11776
     max_workers: 1
     supported_inputs:
-    - image
+      - image
     supported_outputs:
-    - glb
-    - obj
+      - glb
+      - obj
     model_path: backend/pretrained/TRELLIS
     capabilities:
       raw_mesh: true
@@ -143,14 +125,13 @@ image_to_raw_mesh:
       default_topology: Triangle
       min_polycount: 500
       max_polycount: 1000000
-      default_polycount: 50000
       polycount_step: 2500
       output_resolution: null
       supported_texture_resolutions:
-      - '512'
-      - 1K
-      - 2K
-      - 4K
+        - '512'
+        - 1K
+        - 2K
+        - 4K
       default_texture_resolution: 2K
       multi_gpu: true
       multi_gpu_strategy: accelerate_component_dispatch
@@ -162,15 +143,13 @@ image_to_raw_mesh:
     ui_note: Deprecated model
     ui_badge: 10GB VRAM
     enabled: false
-    upstream_repository: https://github.com/AiuniAI/Unique3D
-    checkpoint_license: unverified
     vram_requirement: 10240
     max_workers: 1
     supported_inputs:
-    - image
+      - image
     supported_outputs:
-    - glb
-    - obj
+      - glb
+      - obj
     model_path: backend/pretrained/Unique3D
     capabilities:
       raw_mesh: true
@@ -185,15 +164,13 @@ image_to_raw_mesh:
     ui_note: Disabled per user direction
     ui_badge: 18GB VRAM
     enabled: false
-    upstream_repository: https://github.com/TencentARC/Pixal3D
-    checkpoint_license: unverified
     vram_requirement: 18432
     max_workers: 1
     supported_inputs:
-    - image
+      - image
     supported_outputs:
-    - glb
-    - obj
+      - glb
+      - obj
     model_path: backend/pretrained/Pixal3D
     capabilities:
       raw_mesh: true
@@ -207,15 +184,13 @@ image_to_raw_mesh:
     ui_note: Disabled per user direction
     ui_badge: 24GB VRAM
     enabled: false
-    upstream_repository: https://github.com/microsoft/TRELLIS.2
-    checkpoint_license: unverified
     vram_requirement: 23552
     max_workers: 1
     supported_inputs:
-    - image
+      - image
     supported_outputs:
-    - glb
-    - obj
+      - glb
+      - obj
     model_path: backend/pretrained/TRELLIS.2
     capabilities:
       raw_mesh: true
@@ -229,15 +204,13 @@ image_to_raw_mesh:
     ui_note: Disabled per user direction
     ui_badge: 20GB VRAM
     enabled: false
-    upstream_repository: https://github.com/alibaba/Taobao3D
-    checkpoint_license: apache-2.0
     vram_requirement: 20480
     max_workers: 1
     supported_inputs:
-    - image
+      - image
     supported_outputs:
-    - glb
-    - obj
+      - glb
+      - obj
     model_path: backend/pretrained/Taobao3D/TaoFlowForge
     capabilities:
       raw_mesh: true
@@ -252,16 +225,13 @@ image_to_textured_mesh:
     ui_note: "Fast 0.5s inference \xB7 Native Quad & PBR"
     ui_badge: 6GB VRAM
     enabled: true
-    upstream_repository: https://github.com/Stability-AI/stable-fast-3d
-    upstream_ref: null
-    checkpoint_license: stability_ai_community
     vram_requirement: 6144
     max_workers: 1
     supported_inputs:
-    - image
+      - image
     supported_outputs:
-    - glb
-    - obj
+      - glb
+      - obj
     model_path: backend/pretrained/stable-fast-3d
     capabilities:
       raw_mesh: false
@@ -271,12 +241,11 @@ image_to_textured_mesh:
       default_topology: Triangle
       min_polycount: 500
       max_polycount: 200000
-      default_polycount: 30000
       polycount_step: 1000
       supported_texture_resolutions:
-      - '512'
-      - 1K
-      - 2K
+        - '512'
+        - 1K
+        - 2K
       default_texture_resolution: 2K
       supports_pbr: true
       supports_delighting: true
@@ -291,18 +260,15 @@ image_mesh_painting:
     ui_note: Multi-view projection & full PBR maps
     ui_badge: 12GB VRAM
     enabled: true
-    upstream_repository: https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1
-    upstream_ref: null
-    checkpoint_license: unverified
     vram_requirement: 12000
     max_workers: 1
     supported_inputs:
-    - mesh
-    - text
-    - image
+      - mesh
+      - text
+      - image
     supported_outputs:
-    - glb
-    - obj
+      - glb
+      - obj
     model_path: backend/pretrained/tencent/Hunyuan3D-2.1
     capabilities:
       texture_generation: true
@@ -310,15 +276,15 @@ image_mesh_painting:
       supports_pbr: true
       supports_delighting: true
       supported_texture_resolutions:
-      - 1K
-      - 2K
-      - 4K
+        - 1K
+        - 2K
+        - 4K
       default_texture_resolution: 2K
       supported_material_styles:
-      - realistic
-      - game
-      - stylized
-      - anime
+        - realistic
+        - game
+        - stylized
+        - anime
       multi_gpu: true
       multi_gpu_strategy: accelerate_component_dispatch
       cpu_offload: true
@@ -330,18 +296,15 @@ image_mesh_painting:
     ui_note: Fast PBR texture painting, ~11GB VRAM
     ui_badge: 11GB VRAM
     enabled: true
-    upstream_repository: https://github.com/Tencent-Hunyuan/Hunyuan3D-2
-    upstream_ref: null
-    checkpoint_license: unverified
     vram_requirement: 11000
     max_workers: 1
     supported_inputs:
-    - mesh
-    - text
-    - image
+      - mesh
+      - text
+      - image
     supported_outputs:
-    - glb
-    - obj
+      - glb
+      - obj
     model_path: backend/pretrained/tencent/Hunyuan3D-2
     capabilities:
       texture_generation: true
@@ -349,15 +312,15 @@ image_mesh_painting:
       supports_pbr: true
       supports_delighting: true
       supported_texture_resolutions:
-      - 1K
-      - 2K
-      - 4K
+        - 1K
+        - 2K
+        - 4K
       default_texture_resolution: 2K
       supported_material_styles:
-      - realistic
-      - game
-      - stylized
-      - anime
+        - realistic
+        - game
+        - stylized
+        - anime
       multi_gpu: true
       multi_gpu_strategy: accelerate_component_dispatch
       cpu_offload: true
@@ -369,17 +332,14 @@ image_mesh_painting:
     ui_note: Structured 2048 texture atlas
     ui_badge: 11GB VRAM
     enabled: true
-    upstream_repository: https://github.com/microsoft/TRELLIS
-    upstream_ref: null
-    checkpoint_license: unverified
     vram_requirement: 11776
     max_workers: 1
     supported_inputs:
-    - mesh
-    - image
+      - mesh
+      - image
     supported_outputs:
-    - glb
-    - obj
+      - glb
+      - obj
     model_path: backend/pretrained/TRELLIS
     capabilities:
       texture_generation: true
@@ -387,8 +347,8 @@ image_mesh_painting:
       supports_pbr: false
       supports_delighting: false
       supported_texture_resolutions:
-      - 1K
-      - 2K
+        - 1K
+        - 2K
       default_texture_resolution: 2K
       multi_gpu: true
       multi_gpu_strategy: accelerate_component_dispatch
@@ -400,21 +360,29 @@ image_mesh_painting:
     ui_note: Disabled per user direction
     ui_badge: 24GB VRAM
     enabled: false
-    upstream_repository: https://github.com/microsoft/TRELLIS.2
-    checkpoint_license: unverified
     vram_requirement: 23552
     max_workers: 1
     supported_inputs:
-    - mesh
-    - image
+      - mesh
+      - image
     supported_outputs:
-    - glb
-    - obj
+      - glb
+      - obj
     model_path: backend/pretrained/TRELLIS.2
     capabilities:
       texture_generation: true
       texture_refine: true
     model_type: texture
+text_mesh_painting:
+  trellis_text_mesh_painting:
+    alias_of: trellis_image_mesh_painting
+    model_name: "TRELLIS — Text Mesh Painting"
+    ui_label: TRELLIS Text Paint
+    ui_tag: Text-guided Painting
+    ui_note: Prompt-guided material generation
+    ui_badge: 11GB VRAM
+    enabled: true
+
 mesh_segmentation:
   partfield_segmentation:
     model_name: "PartField — 3D Feature Fields for Part Segmentation"
@@ -423,18 +391,15 @@ mesh_segmentation:
     ui_note: Neural feature field clustering (Agglomerative)
     ui_badge: 8GB VRAM
     enabled: true
-    upstream_repository: https://github.com/nv-tlabs/PartField
-    upstream_ref: null
-    checkpoint_license: Research / Open-source
     vram_requirement: 8192
     max_workers: 1
     supported_inputs:
-    - obj
-    - glb
-    - ply
+      - obj
+      - glb
+      - ply
     supported_outputs:
-    - glb
-    - obj
+      - glb
+      - obj
 auto_rig:
   skintokens_auto_rigging:
     model_name: "SkinTokens \u2014 Unified Autoregressive Rigging"
@@ -443,18 +408,15 @@ auto_rig:
     ui_note: Discrete skin tokens & humanoid skeleton
     ui_badge: 14GB VRAM
     enabled: true
-    upstream_repository: https://github.com/VAST-AI-Research/SkinTokens
-    upstream_ref: null
-    checkpoint_license: MIT
     vram_requirement: 14336
     max_workers: 1
     supported_inputs:
-    - obj
-    - glb
-    - fbx
+      - obj
+      - glb
+      - fbx
     supported_outputs:
-    - glb
-    - fbx
+      - glb
+      - fbx
     model_path: backend/pretrained/SkinTokens
     capabilities:
       auto_rig: true
@@ -468,19 +430,16 @@ mesh_retopology:
     ui_note: Dynamic target face budget with artist-like quad flow
     ui_badge: 10GB VRAM
     enabled: true
-    upstream_repository: "https://github.com/DerKleineLi/triflow"
-    upstream_ref: main
-    checkpoint_license: non-commercial
     vram_requirement: 10240
     max_workers: 1
     supported_inputs:
-    - obj
-    - glb
-    - ply
-    - stl
+      - obj
+      - glb
+      - ply
+      - stl
     supported_outputs:
-    - obj
-    - glb
+      - obj
+      - glb
     model_path: backend/pretrained/TriFlow
     capabilities:
       retopology: true
@@ -498,20 +457,17 @@ mesh_retopology:
     ui_note: Clean quad-dominant retopology
     ui_badge: 16GB VRAM
     enabled: true
-    upstream_repository: null
-    upstream_ref: null
-    checkpoint_license: unverified
     vram_requirement: 16384
     max_workers: 1
     supported_inputs:
-    - obj
-    - glb
-    - ply
-    - stl
+      - obj
+      - glb
+      - ply
+      - stl
     supported_outputs:
-    - obj
-    - glb
-    - ply
+      - obj
+      - glb
+      - ply
     model_path: backend/pretrained/FastMesh-V1K
     capabilities:
       retopology: true
@@ -527,16 +483,13 @@ uv_unwrapping:
     ui_note: Low-distortion atlas packing
     ui_badge: 7GB VRAM
     enabled: true
-    upstream_repository: null
-    upstream_ref: null
-    checkpoint_license: unverified
     vram_requirement: 7168
     max_workers: 1
     supported_inputs:
-    - obj
-    - glb
+      - obj
+      - glb
     supported_outputs:
-    - obj
+      - obj
     model_path: backend/pretrained/PartUV
     capabilities:
       uv_unwrap: true
@@ -549,16 +502,13 @@ motion_generation:
     ui_note: Core-RP humanoid motion synthesis
     ui_badge: CPU Only
     enabled: true
-    upstream_repository: https://github.com/nv-tlabs/ardy
-    upstream_ref: null
-    checkpoint_license: unverified
     vram_requirement: 0
     max_workers: 1
     supported_inputs:
-    - text
+      - text
     supported_outputs:
-    - json
-    - npz
+      - json
+      - npz
     model_path: backend/pretrained/ardy
     capabilities:
       motion_generation: true
