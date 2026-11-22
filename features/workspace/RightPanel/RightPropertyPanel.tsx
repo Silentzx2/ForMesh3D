@@ -8,11 +8,9 @@ import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import { toast } from 'sonner';
 import { downloadArtifact } from '../lib/artifactDownload';
 import { triggerClientExport, type ClientSupportedExportFormat } from '../utils/clientExporters';
-import { ModelComparisonViewer } from '../Viewport/ModelComparisonViewer';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   Box,
-  Cancel,
   CheckIcon,
   ChevronDown,
   DownloadIcon,
@@ -22,14 +20,12 @@ import {
   Lock,
   MoveIcon,
   PaletteIcon,
-  Plus,
   RefreshCw,
   ShieldCheckIcon,
   SlidersHorizontalIcon,
   SparklesIcon,
   TriangleAlertIcon,
   Unlock,
-  ZapIcon,
 } from '@hugeicons/core-free-icons';
 import { useViewerStore } from '@/stores/useViewerStore';
 import { useUIStore } from '@/stores/useUIStore';
@@ -90,10 +86,6 @@ export const RightPropertyPanel: React.FC = () => {
   const toggleRightPanelSection = useUIStore((s) => s.toggleRightPanelSection);
 
   // Model comparison state
-  const [selectedCompareAssetId, setSelectedCompareAssetId] = useState<string | null>(null);
-  const [selectedLineageUrl, setSelectedLineageUrl] = useState<string | null>(null);
-  const [selectedLineageLabel, setSelectedLineageLabel] = useState<string | null>(null);
-  const [isComparePickerOpen, setIsComparePickerOpen] = useState(false);
 
   // Auto-expand section matching activeTool; manual toggle overrides auto behavior
   const manualOverridesRef = useRef<Set<string>>(new Set());
@@ -654,51 +646,6 @@ export const RightPropertyPanel: React.FC = () => {
         </div>
       </div>
     );
-  }
-
-  const activeCompareTarget = selectedLineageUrl || selectedCompareAssetId;
-  const currentQAReport = currentAsset.artifacts?.qaReport as Record<string, unknown> | undefined;
-  const currentQA = (currentQAReport?.qa as Record<string, unknown> | undefined) ?? currentQAReport;
-  const currentScore = typeof currentAsset.qaScore === 'number'
-    ? currentAsset.qaScore
-    : typeof currentQA?.score === 'number'
-    ? currentQA.score
-    : typeof currentQAReport?.score === 'number'
-    ? currentQAReport.score
-    : undefined;
-  const currentTopology = (currentQA as any)?.subscores?.geometry_topology ?? (currentQAReport as any)?.subscores?.geometry_topology;
-  const currentUV = (currentQA as any)?.subscores?.uv_material ?? (currentQAReport as any)?.subscores?.uv_material;
-  const currentBudget = (currentQA as any)?.subscores?.platform ?? (currentQAReport as any)?.subscores?.platform;
-
-  let compareScore: number | undefined;
-  let compareTopology: number | undefined;
-  let compareUV: number | undefined;
-  let compareBudget: number | undefined;
-
-  if (selectedCompareAssetId) {
-    const compareAsset = assets.find((a: ModelAsset) => a.id === selectedCompareAssetId);
-    if (compareAsset) {
-      const compReport = (compareAsset.artifacts?.qaReport as any);
-      const compQA = (compReport?.qa as any) || compReport;
-      compareScore = typeof compareAsset.qaScore === 'number'
-        ? compareAsset.qaScore
-        : typeof compQA?.score === 'number'
-        ? compQA.score
-        : typeof compReport?.score === 'number'
-        ? compReport.score
-        : undefined;
-      compareTopology = compQA?.subscores?.geometry_topology ?? compReport?.subscores?.geometry_topology;
-      compareUV = compQA?.subscores?.uv_material ?? compReport?.subscores?.uv_material;
-      compareBudget = compQA?.subscores?.platform ?? compReport?.subscores?.platform;
-    }
-  } else if (selectedLineageUrl) {
-    const beforeQA = ((currentQAReport as any)?.before_postprocess?.qa as any) || ((currentQAReport as any)?.before_postprocess as any) || ((currentQAReport as any)?.before as any);
-    if (beforeQA) {
-      compareScore = beforeQA.score;
-      compareTopology = beforeQA.subscores?.geometry_topology;
-      compareUV = beforeQA.subscores?.uv_material;
-      compareBudget = beforeQA.subscores?.platform;
-    }
   }
 
   // Group workspace assets into parent/base mesh + derived meshes by operation type.
@@ -1302,175 +1249,6 @@ export const RightPropertyPanel: React.FC = () => {
                   + Overlay
                 </button>
               </div>
-            </CollapsibleContent>
-          </Collapsible>
-        )}
-
-        {/* 5. Model Comparison Viewer (UX-02) */}
-        {currentAsset && isSectionExpanded('modelComparison') && (
-          <Collapsible
-            open={isSectionExpanded('modelComparison')}
-            onOpenChange={() => handleManualToggle('modelComparison')}
-            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden transition-all"
-          >
-            <div className="flex items-center justify-between p-2.5 hover:bg-[hsl(var(--surface-2))]/40 transition-colors">
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-1.5 flex-1 text-left select-none cursor-pointer group"
-                >
-                  <HugeiconsIcon icon={ZapIcon} size={16} className="w-3.5 h-3.5 text-primary shrink-0" />
-                  <span className="font-bold text-xs text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--foreground))] uppercase tracking-wider transition-colors">
-                    Model Comparison Viewer
-                  </span>
-                  <HugeiconsIcon
-                    icon={ChevronDown}
-                    size={14}
-                    className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
-                      isSectionExpanded('modelComparison') ? 'rotate-180 text-primary' : ''
-                    }`}
-                  />
-                </button>
-              </CollapsibleTrigger>
-            </div>
-
-            <CollapsibleContent className="px-2.5 pb-3 space-y-3 pt-1 border-t border-[hsl(var(--border))]/40">
-              {/* Target Picker Bar */}
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                {activeCompareTarget ? (
-                  <div className="flex items-center justify-between w-full p-2 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-xs font-mono truncate text-[hsl(var(--foreground))]">
-                      vs {selectedLineageLabel || assets.find((a: ModelAsset) => a.id === selectedCompareAssetId)?.name || 'Comparison Target'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedCompareAssetId(null);
-                        setSelectedLineageUrl(null);
-                        setSelectedLineageLabel(null);
-                      }}
-                      className="flex items-center gap-1 px-2 py-1 rounded bg-[hsl(var(--surface-3))] hover:bg-[hsl(var(--surface-4))] text-zinc-300 hover:text-white transition-all text-[11px]"
-                    >
-                      <span>Clear</span>
-                      <HugeiconsIcon icon={Cancel} size={12} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1.5 w-full">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setIsComparePickerOpen(true)}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg bg-[hsl(var(--surface-2))] hover:bg-[hsl(var(--surface-3))] border border-[hsl(var(--border))] text-zinc-200 hover:text-white transition-all font-mono text-xs cursor-pointer"
-                      >
-                        <HugeiconsIcon icon={Plus} size={14} className="text-primary" />
-                        <span>Select Mesh to Compare</span>
-                      </button>
-                    </div>
-
-                    {/* Quick Lineage Comparison Options (Master vs Game-Ready / LOD) */}
-                    {Boolean(currentAsset.artifacts?.source && currentAsset.artifacts?.source !== currentAsset.artifacts?.gameReady) && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedLineageUrl(currentAsset.artifacts!.source!);
-                          setSelectedCompareAssetId(null);
-                          setSelectedLineageLabel('Source Master (Raw)');
-                        }}
-                        className="w-full flex items-center justify-center gap-1.5 py-1 px-2 rounded-md bg-[hsl(var(--surface-0))] hover:bg-[hsl(var(--surface-2))] border border-white/[0.08] text-[11px] text-[hsl(var(--muted-foreground))] hover:text-white transition-colors"
-                      >
-                        <span>Compare with Source Master</span>
-                      </button>
-                    )}
-
-                    {Boolean(currentAsset.artifacts?.lods && currentAsset.artifacts.lods.length > 0) && (
-                      <div className="flex gap-1.5">
-                        {currentAsset.artifacts!.lods!.map((lodUrl, idx) => {
-                          const match = lodUrl.match(/lod(\d+)/i);
-                          const label = match ? `LOD ${match[1]}` : `LOD ${idx}`;
-                          return (
-                            <button
-                              key={lodUrl}
-                              type="button"
-                              onClick={() => {
-                                setSelectedLineageUrl(lodUrl);
-                                setSelectedCompareAssetId(null);
-                                setSelectedLineageLabel(label);
-                              }}
-                              className="flex-1 py-1 px-1.5 rounded-md bg-[hsl(var(--surface-0))] hover:bg-[hsl(var(--surface-2))] border border-white/[0.08] text-[10px] font-mono text-[hsl(var(--muted-foreground))] hover:text-white transition-colors"
-                            >
-                              {label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Surface Real QA Score Delta and Sub-scores (Topology/UV/Budget) */}
-              {activeCompareTarget && (
-                <div>
-                  {typeof currentScore === 'number' && typeof compareScore === 'number' ? (
-                    <div className="p-2.5 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-xs text-[hsl(var(--foreground))]">Objective QA Delta</span>
-                        {(() => {
-                          const delta = compareScore - currentScore;
-                          return (
-                            <span className={`font-mono text-xs font-bold px-2 py-0.5 rounded border ${
-                              delta > 0
-                                ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
-                                : delta < 0
-                                ? 'text-amber-400 bg-amber-500/10 border-amber-500/30'
-                                : 'text-sky-400 bg-sky-500/10 border-sky-500/30'
-                            }`}>
-                              {delta > 0 ? `+${delta}` : delta} pts ({currentScore} → {compareScore})
-                            </span>
-                          );
-                        })()}
-                      </div>
-                      <div className="grid grid-cols-3 gap-1.5 text-[10px] font-mono">
-                        <div className="p-1.5 rounded bg-[hsl(var(--surface-1))] border border-[hsl(var(--border))]">
-                          <span className="text-[hsl(var(--muted-foreground))] block">Topology</span>
-                          <span className="font-bold text-[hsl(var(--foreground))]">
-                            {typeof currentTopology === 'number' && typeof compareTopology === 'number'
-                              ? `${(compareTopology - currentTopology >= 0 ? '+' : '') + (compareTopology - currentTopology).toFixed(1)}`
-                              : '—'}
-                          </span>
-                        </div>
-                        <div className="p-1.5 rounded bg-[hsl(var(--surface-1))] border border-[hsl(var(--border))]">
-                          <span className="text-[hsl(var(--muted-foreground))] block">UV & Mat</span>
-                          <span className="font-bold text-[hsl(var(--foreground))]">
-                            {typeof currentUV === 'number' && typeof compareUV === 'number'
-                              ? `${(compareUV - currentUV >= 0 ? '+' : '') + (compareUV - currentUV).toFixed(1)}`
-                              : '—'}
-                          </span>
-                        </div>
-                        <div className="p-1.5 rounded bg-[hsl(var(--surface-1))] border border-[hsl(var(--border))]">
-                          <span className="text-[hsl(var(--muted-foreground))] block">Budget</span>
-                          <span className="font-bold text-[hsl(var(--foreground))]">
-                            {typeof currentBudget === 'number' && typeof compareBudget === 'number'
-                              ? `${(compareBudget - currentBudget >= 0 ? '+' : '') + (compareBudget - currentBudget).toFixed(1)}`
-                              : '—'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-[11px] text-[hsl(var(--muted-foreground))] italic px-1">
-                      Backend QA diagnostic data not available for comparison target.
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <ModelComparisonViewer 
-                className="w-full h-full min-h-[200px]" 
-                showControls={true} 
-                modelIds={activeCompareTarget ? [currentAsset.id, activeCompareTarget] : []} 
-              />
             </CollapsibleContent>
           </Collapsible>
         )}

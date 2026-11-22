@@ -2943,55 +2943,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         signal,
       });
 
-      if (!res.ok) {
-        if (res.status === 400 || res.status === 404 || res.status === 500) {
-          try {
-            setExecutionStep(`AI scheduler offline. Gracefully falling back to Trimesh (${numParts} parts)...`);
-            const fbResult = await executeMeshOperation({
-              tool: 'segment',
-              engine: 'script',
-              workspaceId: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
-              meshUrl,
-              meshRef,
-              params: { numParts },
-              onProgress: (step, pct, stage) => {
-                setExecutionStep(step);
-                setExecutionProgress(pct);
-                setActiveTask(prev => prev ? {
-                  ...prev,
-                  status: 'running',
-                  progress: pct,
-                  stage: stage || prev.stage,
-                  currentStep: step,
-                } : prev);
-              },
-              onLog: (message) => {
-                setActiveTask(prev => prev ? {
-                  ...prev,
-                  logs: [...(prev.logs || []), {
-                    stage: prev.stage || '',
-                    progress: prev.progress,
-                    message,
-                    level: 'info',
-                    timestamp: new Date().toISOString(),
-                  }],
-                } : prev);
-              },
-              signal,
-            });
-            setIsExecuting(false);
-            setExecutionProgress(100);
-            setExecutionStep('Segmentation complete');
-            setActiveTask((prev) => (prev ? { ...prev, status: 'completed', progress: 100, currentStep: 'Segmentation complete' } : null));
-            toast.success('Mesh segmented successfully (Script fallback)', { description: `Partitioned into ${numParts} parts` });
-            return;
-          } catch (fbErr) {
-            if (signal?.aborted) return;
-            console.warn('Fallback segmentation error:', fbErr);
-          }
-        }
-        throw await parseApiError(res);
-      }
+      if (!res.ok) throw await parseApiError(res);
       const data = await parseApiData<{ job_id?: string; id?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
       const jobId = data.job_id ?? data.id;
       if (!jobId) throw new Error('Backend did not return a segmentation job ID');

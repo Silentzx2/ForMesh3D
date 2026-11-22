@@ -1,40 +1,24 @@
 """
-=============================================================================
-MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
-=============================================================================
-Model ID          : partfield_segmentation
-Model Name        : PartField — 3D Feature Fields for Part Segmentation
-Feature Target    : mesh_segmentation
-Status            : ACTIVE / PRODUCTION
-Upstream Repo     : https://github.com/nv-tlabs/PartField
-Upstream Authors  : Minghua Liu, Mikaela Angelina Uy, Donglai Xiang, et al. [ICCV 2025]
-Checkpoint / Path : backend/pretrained/PartField/model_objaverse.ckpt
-Hardware / VRAM   : 8192 MB (8GB)
------------------------------------------------------------------------------
-AGENT GOVERNANCE RULES:
-1. Large GPU Parity (sm >= 80): Upstream FlashAttention and native FP16/BF16
-   remain native; pre-Ampere isolated.
-2. Direct Model Patching: All runtime adjustments isolated in this adapter.
-3. Fallback Resilience: If checkpoints are pending or GPU is unallocated,
-   provide deterministic topological face adjacency agglomerative clustering.
-=============================================================================
-"""
+PartField — NVIDIA learned 3D feature-field mesh segmentation.
 
+AI mode uses the vendored PartUV copy of the official PartField inference model.
+There is deliberately no geometric fallback here: a missing checkpoint, CUDA
+runtime, or model dependency is a load error, not a successful AI result.
+"""
 from __future__ import annotations
 
+import importlib
 import logging
-import os
 import sys
-import tempfile
+import types
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 import numpy as np
 
 try:
     import torch
-    import torch.nn.functional as F
-except ImportError:  # pragma: no cover
+except ImportError:  # pragma: no cover - CPU-only lightweight installs
     torch = None
 
 try:
@@ -42,13 +26,7 @@ try:
 except ImportError:  # pragma: no cover
     trimesh = None
 
-try:
-    from sklearn.cluster import AgglomerativeClustering, KMeans
-except ImportError:  # pragma: no cover
-    AgglomerativeClustering = None
-    KMeans = None
-
-from backend.core.models.base import BaseModel, ModelStatus
+from backend.core.models.base import BaseModel
 from backend.loader import get_model_weights_dir
 from pipelines.mesh_utils import (
     compute_mesh_stats,
@@ -56,33 +34,93 @@ from pipelines.mesh_utils import (
     load_mesh_safe,
     to_single_trimesh,
 )
-from pipelines.segment import (
-    _generate_palette,
-    _merge_small_islands,
-    _merge_to_part_limit,
-    _renumber_labels,
-)
+from pipelines.segment import _generate_palette
 
 logger = logging.getLogger(__name__)
 
 
-def _setup_partfield_sys_paths(repo_root: Path) -> Path:
-    """Setup sys.path for PartField vendored thirdparty source."""
-    partfield_root = (repo_root / "backend" / "thirdparty" / "PartField").resolve()
-    if not partfield_root.exists():
-        partfield_root = (repo_root / "thirdparty" / "PartField").resolve()
+def _partuv_root() -> Path:
+    repo_root = Path(__file__).resolve().parents[2]
+    return (repo_root / "backend" / "thirdparty" / "PartUV").resolve()
 
-    if str(partfield_root) not in sys.path and partfield_root.exists():
-        sys.path.insert(0, str(partfield_root))
 
-    return partfield_root
+def _labels_from_merge_tree(
+    tree: Dict[int, Dict[str, int]], face_count: int, target_parts: int
+) -> np.ndarray:
+    """Cut the official bottom-up PartField merge tree into a fixed part count."""
+    if face_count < 1:
+        raise ValueError("PartField returned no face features")
+    target_parts = max(1, min(int(target_parts), face_count))
+    # Keep only merge-parent links instead of copying face-index lists at each
+    # merge. The latter becomes quadratic in memory for large meshes.
+    active = set(range(face_count))
+    parent: Dict[int, int] = {}
+
+    for node_id in sorted(tree, key=int):
+        if len(active) <= target_parts:
+            break
+        node = tree[node_id]
+        left_id = int(node["left"])
+        right_id = int(node["right"])
+        if left_id not in active or right_id not in active:
+            raise ValueError(f"PartField merge tree is invalid at node {node_id}")
+        merged_id = int(node_id)
+        parent[merged_id] = merged_id
+        parent[left_id] = merged_id
+        parent[right_id] = merged_id
+        active.remove(left_id)
+        active.remove(right_id)
+        active.add(merged_id)
+
+    if len(active) != target_parts:
+        raise ValueError(
+            f"PartField merge tree could not produce {target_parts} parts "
+            f"from {face_count} faces (produced {len(active)})"
+        )
+
+    cluster_labels = {node_id: label for label, node_id in enumerate(sorted(active))}
+
+    def find_root(face_id: int) -> int:
+        node_id = face_id
+        while parent.get(node_id, node_id) != node_id:
+            node_id = parent[node_id]
+        root_id = node_id
+        node_id = face_id
+        while parent.get(node_id, node_id) != node_id:
+            next_id = parent[node_id]
+            parent[node_id] = root_id
+            node_id = next_id
+        return root_id
+
+    labels = np.fromiter(
+        (cluster_labels[find_root(face_id)] for face_id in range(face_count)),
+        dtype=np.int32,
+        count=face_count,
+    )
+    return labels
 
 
 class PartFieldSegmentationAdapter(BaseModel):
-    """PartField — Neural 3D Feature Fields for Part Segmentation Adapter."""
+    """Official learned PartField feature inference and agglomerative segmentation."""
 
     MODEL_KEY = "PartField"
     FEATURE_TYPE = "mesh_segmentation"
+    MIN_CHECKPOINT_BYTES = 50_000_000
+    REQUIRED_MODULES = (
+        "torch_scatter",
+        "lightning",
+        "yacs",
+        "sklearn",
+        "scipy",
+        "matplotlib",
+        "networkx",
+        "einops",
+        "h5py",
+        "plyfile",
+        "skimage",
+        "tqdm",
+        "joblib",
+    )
 
     def __init__(self, vram_requirement: int = 8192, **kwargs: Any):
         super().__init__(
@@ -91,306 +129,268 @@ class PartFieldSegmentationAdapter(BaseModel):
             model_path=kwargs.get("model_path"),
             feature_type=kwargs.get("feature_type", self.FEATURE_TYPE),
         )
-        self.device = "cuda" if (torch is not None and torch.cuda.is_available()) else "cpu"
-        self.dtype = torch.float16 if self.device == "cuda" else torch.float32
-        self.version = "1.0"
+        self.device = "cuda" if torch is not None and torch.cuda.is_available() else "cpu"
         self.model: Any = None
-        self.cfg: Any = None
 
-    def _resolve_checkpoint(self, auto_download: bool = False) -> Path:
-        """Resolve the PartField model checkpoint path."""
+    def _resolve_checkpoint(self) -> Path:
+        repo_root = Path(__file__).resolve().parents[2]
+        candidates: List[Path] = []
+        for model_key in (self.MODEL_KEY, "PartUV"):
+            try:
+                weights_dir = get_model_weights_dir(model_key)
+            except Exception:
+                weights_dir = repo_root / "backend" / "pretrained" / model_key
+            candidates.append(Path(weights_dir) / "model_objaverse.ckpt")
+
+        for checkpoint in candidates:
+            if checkpoint.is_file() and checkpoint.stat().st_size >= self.MIN_CHECKPOINT_BYTES:
+                return checkpoint
+        return candidates[0]
+
+    @classmethod
+    def get_readiness(cls) -> Dict[str, Any]:
+        """Cheap runtime probe used by the UI before enabling PartField AI mode."""
+        reasons: List[str] = []
+        has_cuda = bool(torch is not None and torch.cuda.is_available())
+        if not has_cuda:
+            reasons.append("PartField requires a CUDA-enabled NVIDIA GPU.")
+
         try:
-            weights_dir = get_model_weights_dir(self.MODEL_KEY)
-        except Exception:
-            repo_root = Path(__file__).resolve().parents[2]
-            weights_dir = repo_root / "backend" / "pretrained" / self.MODEL_KEY
-            weights_dir.mkdir(parents=True, exist_ok=True)
+            checkpoint = cls(vram_requirement=8192)._resolve_checkpoint()
+            checkpoint_ok = checkpoint.is_file() and checkpoint.stat().st_size >= cls.MIN_CHECKPOINT_BYTES
+        except Exception as exc:
+            checkpoint = None
+            checkpoint_ok = False
+            reasons.append(f"Could not resolve the PartField checkpoint: {exc}")
+        if not checkpoint_ok:
+            reasons.append(
+                "PartField checkpoint is missing or incomplete. Run manager.sh → Models → PartField."
+            )
 
-        ckpt_path = weights_dir / "model_objaverse.ckpt"
-        if not ckpt_path.is_file():
-            # Check if downloaded in PartUV as a fallback
-            repo_root = Path(__file__).resolve().parents[2]
-            partuv_ckpt = repo_root / "backend" / "pretrained" / "PartUV" / "model_objaverse.ckpt"
-            if partuv_ckpt.is_file():
-                return partuv_ckpt
+        root = _partuv_root()
+        inference_file = root / "preprocess_utils" / "partfield_official" / "run_PF.py"
+        config_file = root / "preprocess_utils" / "partfield_official" / "configs" / "final" / "demo.yaml"
+        if not inference_file.is_file() or not config_file.is_file():
+            reasons.append("Vendored PartField inference source is missing; initialize backend/thirdparty.")
 
-            # Attempt auto-download via huggingface_hub only if explicitly requested
-            if auto_download:
-                try:
-                    from huggingface_hub import hf_hub_download
-                    logger.info("PartField checkpoint not found locally; auto-downloading from HuggingFace...")
-                    hf_hub_download(
-                        repo_id="mikaelaangel/partfield-ckpt",
-                        filename="model_objaverse.ckpt",
-                        local_dir=str(weights_dir),
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "PartField checkpoint not found at %s: %s. Using topological agglomerative fallback.",
-                        ckpt_path, exc,
-                    )
-        return ckpt_path
+        missing_modules: List[str] = []
+        for module_name in cls.REQUIRED_MODULES:
+            try:
+                importlib.import_module(module_name)
+            except Exception as exc:
+                logger.debug("PartField dependency %s is not usable: %s", module_name, exc)
+                missing_modules.append(module_name)
+        if missing_modules:
+            reasons.append("Missing or unusable PartField runtime dependencies: " + ", ".join(missing_modules))
+
+        available = has_cuda and checkpoint_ok and inference_file.is_file() and config_file.is_file() and not missing_modules
+        return {
+            "available": available,
+            "model_id": "partfield_segmentation",
+            "device": "cuda" if has_cuda else "cpu",
+            "checkpoint_available": checkpoint_ok,
+            "missing_dependencies": missing_modules,
+            "reason": "PartField runtime ready" if available else " ".join(reasons),
+        }
 
     def _load_model(self) -> Any:
-        """Load PartField PVCNN / PointNet++ neural feature field backbone."""
-        repo_root = Path(__file__).resolve().parents[2]
-        partfield_root = _setup_partfield_sys_paths(repo_root)
+        readiness = self.get_readiness()
+        if not readiness["available"]:
+            raise RuntimeError(readiness["reason"])
+        if torch is None:
+            raise RuntimeError("PyTorch is not installed")
 
-        ckpt_path = self._resolve_checkpoint()
-        if not ckpt_path.is_file():
-            logger.warning(
-                "PartField checkpoint missing at %s; adapter running in resilient topological clustering mode.",
-                ckpt_path,
-            )
-            self.model = None
-            return None
+        root = _partuv_root()
+        root_string = str(root)
+        if root_string not in sys.path:
+            sys.path.insert(0, root_string)
+
+        # The PartUV package imports its optional compiled _core extension at
+        # package import time. PartField inference does not call that extension;
+        # mirror PartUV's existing worker-local import shim when it is absent.
+        try:
+            importlib.import_module("partuv._core")
+        except Exception:
+            sys.modules.setdefault("partuv._core", types.ModuleType("partuv._core"))
 
         try:
-            from yacs.config import CfgNode as CN
-            config_file = partfield_root / "configs" / "final" / "demo.yaml"
-            if config_file.is_file():
-                with open(config_file, "r") as f:
-                    self.cfg = CN.load_cfg(f)
-            else:
-                self.cfg = None
-
-            logger.info("PartField neural model loaded successfully from %s", ckpt_path)
-            self.model = {"ckpt_path": str(ckpt_path), "root": str(partfield_root)}
-            return self.model
+            # PartUV's package imports helper modules from its root-level
+            # preprocess_utils package. Keep this alias local to the model
+            # worker, matching backend/adapters/partuv_adapter.py.
+            preprocess_utils = importlib.import_module("preprocess_utils")
+            sys.modules["partuv.preprocess_utils"] = preprocess_utils
+            partuv_module = importlib.import_module("partuv.preprocess")
+            inference_class = getattr(partuv_module, "PFInferenceModel")
         except Exception as exc:
-            logger.warning("PartField model initialization exception: %s. Continuing with fallback.", exc)
-            self.model = None
-            return None
+            raise RuntimeError(f"Could not import vendored PartField inference: {exc}") from exc
+
+        checkpoint = self._resolve_checkpoint()
+        config_file = (
+            root
+            / "preprocess_utils"
+            / "partfield_official"
+            / "configs"
+            / "final"
+            / "demo.yaml"
+        )
+        device = torch.device("cuda", torch.cuda.current_device())
+        logger.info("Loading trained PartField checkpoint from %s on %s", checkpoint, device)
+        model = inference_class(
+            cfg_path=str(config_file),
+            checkpoint_path=str(checkpoint),
+            device=device,
+        )
+        self.device = str(device)
+        return model
 
     def _unload_model(self) -> None:
-        """Unload PartField model and free GPU VRAM."""
         self.model = None
-        self.cfg = None
         if torch is not None and torch.cuda.is_available():
             torch.cuda.empty_cache()
-        logger.info("PartField model unloaded.")
-
-    def _build_face_adjacency_matrix(self, mesh: trimesh.Trimesh) -> Any:
-        """
-        Construct sparse face adjacency connectivity matrix for Agglomerative clustering.
-        Two faces are adjacent if they share an edge or are within KNN proximity.
-        """
-        from scipy.sparse import coo_matrix, csr_matrix
-        from sklearn.neighbors import NearestNeighbors
-
-        faces = mesh.faces
-        num_faces = len(faces)
-        face_adjacency = mesh.face_adjacency
-
-        if len(face_adjacency) > 0:
-            row = np.concatenate([face_adjacency[:, 0], face_adjacency[:, 1]])
-            col = np.concatenate([face_adjacency[:, 1], face_adjacency[:, 0]])
-            data = np.ones(len(row), dtype=np.float32)
-            adj = coo_matrix((data, (row, col)), shape=(num_faces, num_faces)).tocsr()
-        else:
-            adj = csr_matrix((num_faces, num_faces), dtype=np.float32)
-
-        # Connect disconnected components with nearest neighbor centroids
-        from scipy.sparse.csgraph import connected_components
-        n_components, labels = connected_components(adj, directed=False)
-        if n_components > 1:
-            centroids = mesh.triangles_center
-            k = min(10, num_faces - 1)
-            if k > 0:
-                nn = NearestNeighbors(n_neighbors=k, algorithm="auto").fit(centroids)
-                knn_graph = nn.kneighbors_graph(centroids, mode="connectivity")
-                adj = adj + knn_graph
-
-        return adj
-
-    def _extract_face_features(self, mesh: trimesh.Trimesh) -> np.ndarray:
-        """
-        Extract per-face continuous feature representations.
-        Uses neural PartField backbone if loaded, or geodesic Laplacian coordinates.
-        """
-        num_faces = len(mesh.faces)
-        centroids = mesh.triangles_center
-        normals = mesh.face_normals
-
-        # Normalize bounding box into unit cube [-1, 1]
-        bbox_min = mesh.vertices.min(axis=0)
-        bbox_max = mesh.vertices.max(axis=0)
-        scale = np.max(bbox_max - bbox_min)
-        norm_centroids = (centroids - (bbox_min + bbox_max) / 2.0) / max(scale, 1e-6)
-
-        # Baseline rich geometric feature representation: [X, Y, Z, Nx, Ny, Nz, Area, RadialDist]
-        areas = mesh.area_faces[:, np.newaxis] / max(mesh.area, 1e-6)
-        radial = np.linalg.norm(norm_centroids, axis=1, keepdims=True)
-        geom_feat = np.hstack([norm_centroids, normals * 0.5, areas * 10.0, radial])
-
-        if self.model is not None and torch is not None:
-            # If neural checkpoint is active, project through neural feature field
-            try:
-                # PartField feature representation simulation with tensor projection
-                t_centroids = torch.from_numpy(norm_centroids).float()
-                if self.device == "cuda":
-                    t_centroids = t_centroids.cuda()
-                # Continuous positional encoding representation
-                freq_bands = torch.pow(2.0, torch.linspace(0.0, 4.0, 6, device=t_centroids.device))
-                sin_feat = torch.sin(t_centroids.unsqueeze(-1) * freq_bands * np.pi)
-                cos_feat = torch.cos(t_centroids.unsqueeze(-1) * freq_bands * np.pi)
-                pos_encoded = torch.cat([sin_feat.flatten(1), cos_feat.flatten(1)], dim=-1)
-                neural_features = torch.cat([t_centroids, pos_encoded], dim=-1).cpu().numpy()
-                return np.hstack([neural_features, geom_feat])
-            except Exception as exc:
-                logger.warning("Neural feature extraction fallback: %s", exc)
-
-        return geom_feat
+        self.device = "cuda" if torch is not None and torch.cuda.is_available() else "cpu"
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Execute PartField Neural 3D Part Segmentation on the input mesh.
+        if self.model is None:
+            raise RuntimeError("PartField is not loaded; AI segmentation cannot run")
 
-        Parameters:
-            mesh_path: Path to input 3D mesh
-            num_parts: Target parts count (2 to 32, default 8)
-            method: Decomposition method ("semantic", "geometric", "agglomerative", "kmeans")
-            hierarchical: Boolean flag to compute parent-child assembly tree
-            min_face_island_threshold: Minimum face count to retain independent island
-            colorize_preview: Boolean flag to assign distinctive colors per part
-            save_individual_parts: Boolean flag to export separate submesh files
-            output_format: "glb" or "obj"
-        """
-        request = inputs
         if trimesh is None:
-            raise RuntimeError("Trimesh dependency is required for PartField segmentation")
-
-        mesh_path = request.get("mesh_path")
+            raise RuntimeError("Trimesh is required for PartField segmentation")
+        mesh_path = inputs.get("mesh_path")
         if not mesh_path or not Path(mesh_path).is_file():
-            raise FileNotFoundError(f"Mesh file not found at: {mesh_path}")
+            raise FileNotFoundError(f"Mesh file not found: {mesh_path}")
 
-        in_file = Path(mesh_path).resolve()
-        num_parts = max(2, min(32, int(request.get("num_parts", 8))))
-        method = str(request.get("method", "semantic")).lower()
-        hierarchical = bool(request.get("hierarchical", False))
-        min_face_island = max(0, int(request.get("min_face_island_threshold", 50)))
-        colorize = bool(request.get("colorize_preview", True))
-        save_individual = bool(request.get("save_individual_parts", False))
-        output_format = str(request.get("output_format", "glb")).lower().lstrip(".")
+        output_format = str(inputs.get("output_format", "glb")).lower().lstrip(".")
         if output_format not in {"glb", "obj"}:
-            output_format = "glb"
+            raise ValueError("PartField output_format must be 'glb' or 'obj'")
 
-        # Determine output location (workspace or temp directory)
-        workspace_id = request.get("workspace_id")
-        out_dir = request.get("output_dir")
-        if out_dir:
-            out_path = Path(out_dir) / f"{in_file.stem}_segmented.{output_format}"
-        else:
-            out_path = in_file.parent / f"{in_file.stem}_segmented.{output_format}"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-
-        logger.info(
-            "Executing PartField segmentation on %s (target parts: %d, method: %s, hierarchical: %s)",
-            in_file.name, num_parts, method, hierarchical,
-        )
-
-        # 1. Load mesh cleanly
-        loaded = load_mesh_safe(in_file)
-        mesh = to_single_trimesh(loaded)
-        face_count = len(mesh.faces)
-        if face_count == 0:
-            raise ValueError("Input mesh has zero faces; cannot perform segmentation")
-
-        requested_parts = min(num_parts, face_count)
-
-        # 2. Extract feature fields
-        features = self._extract_face_features(mesh)
-
-        # 3. Cluster using Agglomerative Clustering with face adjacency connectivity
-        if AgglomerativeClustering is not None:
-            use_kmeans = method in {"kmeans", "geometric_kmeans"}
-            if use_kmeans and KMeans is not None:
-                clustering = KMeans(n_clusters=requested_parts, random_state=42, n_init=10).fit(features)
-                raw_labels = clustering.labels_
-            else:
-                adj_matrix = self._build_face_adjacency_matrix(mesh)
-                clustering = AgglomerativeClustering(
-                    n_clusters=requested_parts,
-                    connectivity=adj_matrix,
-                    metric="euclidean",
-                    linkage="ward",
-                ).fit(features)
-                raw_labels = clustering.labels_
-        else:
-            # Pure NumPy topological clustering fallback when scikit-learn is not present in light test environment
-            face_centers_init = mesh.triangles_center
-            centered_init = face_centers_init - face_centers_init.mean(axis=0)
-            cov = np.cov(centered_init, rowvar=False)
-            _, eigvecs = np.linalg.eigh(cov)
-            proj = centered_init @ eigvecs[:, -1]
-            order = np.argsort(proj, kind="stable")
-            raw_labels = np.empty(face_count, dtype=np.int32)
-            raw_labels[order] = np.minimum(
-                (np.arange(face_count, dtype=np.int64) * requested_parts) // face_count,
-                requested_parts - 1,
-            ).astype(np.int32)
-
-        # 4. Enforce face limit and filter tiny detached islands
-        face_centers = mesh.triangles_center
-        labels = _renumber_labels(raw_labels)
-        labels = _merge_to_part_limit(labels, face_centers, requested_parts)
-        if min_face_island > 0:
-            labels = _merge_small_islands(labels, face_centers, min_face_island)
-
-        actual_parts = int(len(np.unique(labels)))
-        segmented_mesh = mesh.copy()
-
-        # 5. Export individual parts if requested
-        individual_part_paths: List[str] = []
-        if save_individual:
-            parts_dir = out_path.parent / f"{out_path.stem}_parts"
-            parts_dir.mkdir(parents=True, exist_ok=True)
-            for part_id in range(actual_parts):
-                part_mask = labels == part_id
-                part_faces = segmented_mesh.faces[part_mask]
-                if not len(part_faces):
-                    continue
-                unique_vertices, new_faces = np.unique(part_faces, return_inverse=True)
-                submesh = trimesh.Trimesh(
-                    vertices=segmented_mesh.vertices[unique_vertices],
-                    faces=new_faces.reshape(-1, 3),
-                    process=False,
-                )
-                part_path = parts_dir / f"part_{part_id + 1:02d}.{output_format}"
-                export_mesh_safe(submesh, part_path, file_type=output_format)
-                individual_part_paths.append(str(part_path))
-
-        # 6. Vivid viewport palette colorization
-        palette = _generate_palette(actual_parts)
-        if colorize:
-            vertex_colors = np.full((len(segmented_mesh.vertices), 4), 220, dtype=np.uint8)
-            for cluster_id in range(actual_parts):
-                part_faces = segmented_mesh.faces[labels == cluster_id]
-                if len(part_faces):
-                    vertex_colors[np.unique(part_faces)] = palette[cluster_id % len(palette)]
-            segmented_mesh.visual = trimesh.visual.ColorVisuals(
-                mesh=segmented_mesh,
-                vertex_colors=vertex_colors,
+        method = str(inputs.get("method", "semantic")).lower()
+        if method not in {"semantic", "agglomerative"}:
+            raise ValueError(
+                "PartField AI uses learned semantic features with agglomerative clustering; "
+                "use Script mode for geometric or connected-component decomposition."
             )
 
-        # 7. Export combined segmented mesh
-        export_mesh_safe(segmented_mesh, out_path, file_type=output_format)
+        target_parts = max(2, min(32, int(inputs.get("num_parts", 8))))
+        min_face_island = max(0, int(inputs.get("min_face_island_threshold", 50)))
+        colorize = bool(inputs.get("colorize_preview", True))
+        save_individual = bool(inputs.get("save_individual_parts", False))
+        hierarchical = bool(inputs.get("hierarchical", False))
+        progress = inputs.get("progress_callback")
+        output_dir = Path(inputs.get("output_dir") or Path(mesh_path).resolve().parent)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        source_file = Path(mesh_path).resolve()
+        output_path = output_dir / f"{source_file.stem}_partfield_segmented.{output_format}"
 
-        # 8. Hierarchical tree assembly structure
+        if callable(progress):
+            progress("Loading source mesh", 5, "preprocess")
+        original_mesh = to_single_trimesh(load_mesh_safe(source_file))
+        face_count = len(original_mesh.faces)
+        if face_count < 2:
+            raise ValueError("PartField needs at least two mesh faces to segment")
+
+        # The upstream inference normalizes its mesh in-place. Give it a copy so
+        # exported geometry retains the source transform, coordinates and scale.
+        inference_mesh = original_mesh.copy()
+        if callable(progress):
+            progress("Extracting trained PartField feature fields", 15, "inference")
+        seed = int(inputs.get("seed", 42))
+        tree, _root_node, _normalized_mesh = self.model.process_face(
+            str(source_file),
+            mesh=inference_mesh,
+            output_path=None,
+            max_cluster=min(target_parts, face_count),
+            udf_mesh=False,
+            save_features=False,
+            save_segmentation=False,
+            seed=seed,
+            sample_on_faces=10,
+            sample_batch_size=8192,
+            pca_dim=None,
+        )
+
+        if callable(progress):
+            progress("Clustering learned PartField features", 75, "clustering")
+        labels = _labels_from_merge_tree(tree, face_count, min(target_parts, face_count))
+
+        # Drop very small face islands into their nearest segment using the
+        # existing mesh-processing helper; it does not invent semantic features.
+        if min_face_island > 0:
+            from pipelines.segment import _merge_small_islands
+
+            labels = _merge_small_islands(labels, original_mesh.triangles_center, min_face_island)
+            unique_labels = np.unique(labels)
+            remap = {int(old): new for new, old in enumerate(unique_labels)}
+            labels = np.asarray([remap[int(label)] for label in labels], dtype=np.int32)
+
+        actual_parts = int(len(np.unique(labels)))
+        segmented_mesh = original_mesh.copy()
+        palette = _generate_palette(actual_parts)
+
+        if colorize:
+            face_colors = np.full((face_count, 4), 220, dtype=np.uint8)
+            for part_id in range(actual_parts):
+                face_colors[labels == part_id] = (*palette[part_id % len(palette)], 255)
+            segmented_mesh.visual.face_colors = face_colors
+
+        individual_paths: List[str] = []
+        if save_individual:
+            parts_dir = output_dir / f"{output_path.stem}_parts"
+            parts_dir.mkdir(parents=True, exist_ok=True)
+            for part_id in range(actual_parts):
+                part_faces = segmented_mesh.faces[labels == part_id]
+                if len(part_faces) == 0:
+                    continue
+                vertex_ids, inverse = np.unique(part_faces, return_inverse=True)
+                part_mesh = trimesh.Trimesh(
+                    vertices=segmented_mesh.vertices[vertex_ids],
+                    faces=inverse.reshape(-1, 3),
+                    process=False,
+                )
+                if colorize:
+                    part_mesh.visual.face_colors = np.tile(
+                        np.asarray((*palette[part_id % len(palette)], 255), dtype=np.uint8),
+                        (len(part_mesh.faces), 1),
+                    )
+                part_path = parts_dir / f"part_{part_id + 1:02d}.{output_format}"
+                export_mesh_safe(part_mesh, part_path, file_type=output_format)
+                individual_paths.append(str(part_path))
+
+        if callable(progress):
+            progress("Writing segmented mesh", 90, "export")
+        export_mesh_safe(segmented_mesh, output_path, file_type=output_format)
+
+        parts = []
+        total_faces = max(1, len(segmented_mesh.faces))
+        for part_id in range(actual_parts):
+            face_total = int(np.count_nonzero(labels == part_id))
+            rgb = palette[part_id % len(palette)]
+            parts.append({
+                "id": f"p{part_id + 1}",
+                "name": f"Part {part_id + 1}",
+                "color": f"#{int(rgb[0]):02x}{int(rgb[1]):02x}{int(rgb[2]):02x}",
+                "faces": face_total,
+                "volumePercent": round(face_total / total_faces * 100.0, 1),
+                "visible": True,
+            })
+
         hierarchy = None
         if hierarchical:
-            part_centers = [
-                face_centers[labels == part_id].mean(axis=0).tolist()
-                for part_id in range(actual_parts)
-            ]
-            centered = face_centers - face_centers.mean(axis=0)
-            covariance = np.cov(centered, rowvar=False)
-            _, eigenvectors = np.linalg.eigh(covariance)
-            principal_axis = eigenvectors[:, -1]
-            center_values = np.asarray(part_centers) @ principal_axis
-            split_value = float(np.median(center_values))
-            left = [part_id for part_id, value in enumerate(center_values) if value <= split_value]
-            right = [part_id for part_id, value in enumerate(center_values) if value > split_value]
+            face_centers = original_mesh.triangles_center
+            if actual_parts > 1:
+                part_centers = [
+                    face_centers[labels == part_id].mean(axis=0).tolist()
+                    for part_id in range(actual_parts)
+                ]
+                centered = face_centers - face_centers.mean(axis=0)
+                covariance = np.cov(centered, rowvar=False)
+                _, eigenvectors = np.linalg.eigh(covariance)
+                principal_axis = eigenvectors[:, -1]
+                center_values = np.asarray(part_centers) @ principal_axis
+                split_value = float(np.median(center_values))
+                left = [part_id for part_id, value in enumerate(center_values) if value <= split_value]
+                right = [part_id for part_id, value in enumerate(center_values) if value > split_value]
+            else:
+                left, right = [0], []
             hierarchy = {
                 "id": "root",
                 "label": "Assembly",
@@ -400,45 +400,34 @@ class PartFieldSegmentationAdapter(BaseModel):
                 ],
             }
 
-        # 9. Format part details for Inspector
-        part_details = []
-        total_mesh_faces = max(1, len(segmented_mesh.faces))
-        for p_id in range(actual_parts):
-            p_faces = int(np.count_nonzero(labels == p_id))
-            vol_pct = round((p_faces / total_mesh_faces) * 100.0, 1)
-            color_hex = f"#{palette[p_id % len(palette)][0]:02x}{palette[p_id % len(palette)][1]:02x}{palette[p_id % len(palette)][2]:02x}"
-            part_details.append({
-                "id": f"p{p_id + 1}",
-                "name": f"Part {p_id + 1}",
-                "color": color_hex,
-                "faces": p_faces,
-                "volumePercent": vol_pct,
-                "visible": True,
-            })
-
         stats = compute_mesh_stats(segmented_mesh)
-        stats["requested_parts"] = requested_parts
-        stats["actual_parts"] = actual_parts
-        stats["method"] = method
-        stats["hierarchical"] = hierarchical
-        stats["hierarchy"] = hierarchy
-        stats["parts"] = part_details
-        stats["individual_part_files"] = individual_part_paths
+        stats.update({
+            "requested_parts": target_parts,
+            "actual_parts": actual_parts,
+            "method": "partfield_feature_agglomerative",
+            "hierarchical": hierarchical,
+            "hierarchy": hierarchy,
+            "parts": parts,
+            "individual_part_files": individual_paths,
+        })
 
+        if callable(progress):
+            progress("PartField segmentation complete", 100, "completed")
         logger.info(
-            "PartField segmentation completed successfully: %d parts written to %s",
-            actual_parts, out_path,
+            "PartField inference completed: faces=%d parts=%d output=%s",
+            face_count, actual_parts, output_path,
         )
-
         return {
+            "success": True,
             "status": "success",
-            "mesh_path": str(out_path),
-            "output_path": str(out_path),
+            "mesh_path": str(output_path),
+            "output_path": str(output_path),
             "format": output_format,
             "num_parts": actual_parts,
-            "parts": part_details,
+            "parts": parts,
             "stats": stats,
-            "individual_part_paths": individual_part_paths,
+            "hierarchy": hierarchy,
+            "individual_part_paths": individual_paths,
             "metrics": {
                 "vertices": len(segmented_mesh.vertices),
                 "triangles": len(segmented_mesh.faces),
@@ -449,7 +438,6 @@ class PartFieldSegmentationAdapter(BaseModel):
     execute = _process_request
 
     def get_parameter_schema(self) -> Dict[str, Any]:
-        """Return the JSON parameter schema for PartField segmentation."""
         return {
             "type": "object",
             "properties": {
@@ -462,49 +450,45 @@ class PartFieldSegmentationAdapter(BaseModel):
                 },
                 "method": {
                     "type": "string",
-                    "enum": ["semantic", "geometric", "agglomerative", "kmeans"],
+                    "enum": ["semantic"],
                     "default": "semantic",
-                    "description": "Clustering algorithm (agglomerative with adjacency or kmeans)",
+                    "description": "Official PartField learned-feature agglomerative clustering",
                 },
                 "hierarchical": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Organize parts into multi-level parent-child assembly tree",
+                    "description": "Return a part-level assembly hierarchy",
                 },
                 "min_face_island_threshold": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 500,
+                    "maximum": 5000,
                     "default": 50,
-                    "description": "Minimum face count threshold to retain isolated island",
+                    "description": "Merge tiny disconnected face islands into retained parts",
                 },
                 "colorize_preview": {
                     "type": "boolean",
                     "default": True,
-                    "description": "Assign distinctive high-contrast colors per part",
+                    "description": "Assign a distinct color to each predicted part",
                 },
                 "save_individual_parts": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Export isolated 3D files for each part",
+                    "description": "Export each predicted segment as a separate mesh",
                 },
                 "output_format": {
                     "type": "string",
                     "enum": ["glb", "obj"],
                     "default": "glb",
-                    "description": "Output 3D mesh format",
                 },
             },
         }
 
     def get_supported_formats(self) -> List[str]:
-        """Supported input mesh formats."""
-        return ["glb", "gltf", "obj", "ply", "stl"]
+        return ["glb", "obj"]
 
     def estimate_vram(self, **kwargs: Any) -> int:
-        """Estimate VRAM usage (8GB baseline)."""
         return self.vram_requirement
 
     def health_check(self) -> bool:
-        """Verify adapter readiness."""
-        return trimesh is not None
+        return bool(self.get_readiness()["available"])

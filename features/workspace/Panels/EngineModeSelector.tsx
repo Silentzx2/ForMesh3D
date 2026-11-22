@@ -49,14 +49,14 @@ export const EngineModeSelector: React.FC<EngineModeSelectorProps> = ({
     ? 'Script Only'
     : mode === 'ai'
     ? (tool === 'rig'
-        ? (hasGpu ? 'GPU (SkinTokens)' : 'GPU Offline')
+        ? (isAiDisabled ? 'GPU Offline' : 'GPU (SkinTokens)')
         : tool === 'uv'
-        ? (hasGpu ? 'GPU (PartUV)' : 'GPU Offline')
+        ? (isAiDisabled ? 'GPU Offline' : 'GPU (PartUV)')
         : tool === 'remesh'
-        ? (hasGpu ? 'GPU (TriFlow)' : 'GPU Offline')
+        ? (isAiDisabled ? 'GPU Offline' : 'GPU (TriFlow)')
         : tool === 'segment'
-        ? (hasGpu ? 'GPU (PartField)' : 'GPU Offline')
-        : (hasGpu ? 'GPU Neural' : 'GPU Offline'))
+        ? (isAiDisabled ? 'GPU Offline' : 'GPU (PartField)')
+        : (isAiDisabled ? 'GPU Offline' : 'GPU Neural'))
     : 'CPU Script';
 
   return (

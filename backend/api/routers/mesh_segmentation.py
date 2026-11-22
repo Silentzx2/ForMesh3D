@@ -91,7 +91,7 @@ class MeshSegmentationRequest(BaseModel):
     workspace_id: Optional[str] = Field(None, description="Target workspace ID")
     engine: str = Field("ai", description="Execution engine: ai or script")
     parent_operation_id: Optional[str] = Field(None, description="Parent operation for retry/regeneration")
-    method: str = Field("geometric", description="Script segmentation method")
+    method: str = Field("", description="Algorithm: semantic for AI; geometric or connected_components for Script")
     hierarchical: bool = False
     min_face_island_threshold: int = Field(50, ge=0, le=5000)
     colorize_preview: bool = True
@@ -111,6 +111,13 @@ class MeshSegmentationRequest(BaseModel):
             raise ValueError(
                 "Only one of mesh_path, mesh_base64, or mesh_file_id should be provided"
             )
+
+        if not self.method:
+            self.method = "geometric" if self.engine == "script" else "semantic"
+        if self.engine == "script" and self.method not in {"geometric", "connected_components"}:
+            raise ValueError("Script segmentation supports geometric or connected_components methods")
+        if self.engine == "ai" and self.method not in {"semantic", "agglomerative"}:
+            raise ValueError("PartField AI segmentation uses learned semantic features with agglomerative clustering")
         return self
 
     @field_validator("engine")
@@ -137,6 +144,14 @@ class MeshSegmentationResponse(BaseModel):
     asset_id: Optional[str] = None
     format: Optional[str] = None
     stats: Optional[dict] = None
+
+
+@router.get("/readiness")
+async def get_segmentation_readiness():
+    """Report whether the trained PartField inference runtime can be selected."""
+    from adapters.partfield_adapter import PartFieldSegmentationAdapter
+
+    return PartFieldSegmentationAdapter.get_readiness()
 
 
 @router.post("", response_model=MeshSegmentationResponse)

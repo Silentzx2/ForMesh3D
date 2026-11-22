@@ -108,6 +108,8 @@ fbxloader>=0.0.2            # [TRIFLOW] fbx ingestion support
 PyOpenGL>=3.1.0             # [TRIFLOW] pyrender OpenGL mesh renderer
 
 # ── PartField (Neural Mesh Segmentation) extra deps (backend/thirdparty/PartField) ──
+scikit-learn>=1.2          # [PARTFIELD] official learned-feature agglomerative clustering
+networkx>=3.0              # [PARTFIELD] adjacency and tree utilities imported by upstream clustering
 yacs>=0.1.8                 # [PARTFIELD] configs/final/demo.yaml
 potpourri3d>=0.0.9          # [PARTFIELD] geodesic distance & mesh geometry utilities
 open3d>=0.18.0              # [PARTFIELD] run_part_clustering.py

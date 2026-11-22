@@ -86,12 +86,14 @@ The metadata route is covered by the repository contract verification script. It
 | Tool | Main route | Metadata routes |
 |---|---|---|
 | Auto-rigging | `POST /api/v1/rig` | `GET /api/v1/rig/supported-formats`, `GET /api/v1/rig/available-models` |
-| Segmentation | `POST /api/v1/segment` | `GET /api/v1/segment/supported-formats`, `GET /api/v1/segment/available-models` |
+| Segmentation | `POST /api/v1/segment` | `GET /api/v1/segment/readiness`, `GET /api/v1/segment/supported-formats`, `GET /api/v1/segment/available-models` |
 | Retopology | `POST /api/v1/retopo` | `GET /api/v1/retopo/supported-formats`, `GET /api/v1/retopo/available-models` |
 | UV unwrapping | `POST /api/v1/unwrap` | `GET /api/v1/unwrap/supported-formats`, `GET /api/v1/unwrap/pack-methods`, `GET /api/v1/unwrap/available-models` |
 | Motion | `POST /api/v1/motion` | `GET /api/v1/motion/checkpoints`, `GET /api/v1/motion/available-models`, `GET /api/v1/motion/supported-formats` |
 
 Retopology, segmentation and UV routes support the request modes defined by their Pydantic models; consult the live OpenAPI schema for exact fields.
+
+`GET /api/v1/segment/readiness` reports whether PartField AI mode has a CUDA runtime, a complete Objaverse checkpoint, the vendored inference source, and its required Python modules. The Segmentation panel disables AI mode when this probe is unavailable. This is an installation/readiness probe, not a promise that every mesh will fit the GPU or produce a successful inference.
 
 ## Database administration
 

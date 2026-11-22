@@ -251,8 +251,9 @@ export const SegmentationPanel: React.FC = () => {
 
   // Core Segmentation parameter state
   const [engineMode, setEngineMode] = useState<EngineMode>('script');
+  const [partFieldReadiness, setPartFieldReadiness] = useState<{ status: 'checking' | 'ready' | 'unavailable'; reason: string }>({ status: 'checking', reason: 'Checking PartField runtime…' });
   const [numParts, setNumParts] = useState<number>(8);
-  const [decompositionMode, setDecompositionMode] = useState<'semantic' | 'geometric'>('semantic');
+  const [decompositionMode, setDecompositionMode] = useState<'geometric' | 'connected_components'>('geometric');
   const [hierarchical, setHierarchical] = useState<boolean>(false);
 
   // Advanced Segmentation Settings Flyout state
@@ -269,6 +270,34 @@ export const SegmentationPanel: React.FC = () => {
   useEffect(() => {
     setMounted(true);
   }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch('/api/v1/segment/readiness', { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Readiness check failed (${response.status})`);
+        return response.json();
+      })
+      .then((data: { available?: boolean; reason?: string }) => {
+        setPartFieldReadiness({
+          status: data.available ? 'ready' : 'unavailable',
+          reason: data.available ? 'PartField runtime ready' : (data.reason || 'PartField model runtime is not ready'),
+        });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setPartFieldReadiness({
+          status: 'unavailable',
+          reason: error instanceof Error ? error.message : 'Could not verify PartField runtime',
+        });
+      });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (partFieldReadiness.status === 'unavailable' && engineMode === 'ai') {
+      setEngineMode('script');
+    }
+  }, [partFieldReadiness.status, engineMode]);
 
   // Close flyout on outside click or Escape
   useEffect(() => {
@@ -387,11 +416,11 @@ export const SegmentationPanel: React.FC = () => {
         await runSegmentation({
           engineMode,
           numParts,
-          method: decompositionMode,
+          method: engineMode === 'ai' ? 'semantic' : decompositionMode,
           hierarchical,
           outputFormat,
           modelParameters: {
-            method: decompositionMode,
+            method: engineMode === 'ai' ? 'semantic' : decompositionMode,
             hierarchical,
             min_face_island_threshold: minFaceThreshold,
             save_individual_parts: saveIndividualParts,
@@ -546,6 +575,8 @@ export const SegmentationPanel: React.FC = () => {
           mode={engineMode}
           onChange={setEngineMode}
           tool="segment"
+          aiDisabled={partFieldReadiness.status !== 'ready'}
+          aiDisabledReason={partFieldReadiness.reason}
         />
 
         {/* 3. Target Parts (Single-Row Preset Pills) */}
@@ -627,36 +658,41 @@ export const SegmentationPanel: React.FC = () => {
               </button>
             </div>
 
-            {/* Parameter 1: Decomposition Mode (Semantic vs Geometric) */}
-            <div className="space-y-1">
-              <span className="text-[10.5px] text-zinc-300 font-medium block">
-                Decomposition Algorithm
-              </span>
-              <div className="grid grid-cols-2 gap-1 p-0.5 rounded-xl bg-black/30 border border-white/[0.04]">
-                <button
-                  type="button"
-                  onClick={() => setDecompositionMode('semantic')}
-                  className={`h-7 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                    decompositionMode === 'semantic'
-                      ? 'bg-white text-black shadow-sm font-bold'
-                      : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-                  }`}
-                >
-                  <span>Semantic</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDecompositionMode('geometric')}
-                  className={`h-7 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                    decompositionMode === 'geometric'
-                      ? 'bg-white text-black shadow-sm font-bold'
-                      : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-                  }`}
-                >
-                  <span>Geometric</span>
-                </button>
+            {/* AI uses learned PartField features; script mode exposes its supported algorithms. */}
+            {engineMode === 'ai' ? (
+              <div className="p-2 rounded-xl bg-black/30 border border-white/[0.06] space-y-1">
+                <span className="text-[10.5px] text-zinc-300 font-medium block">AI Decomposition</span>
+                <span className="text-[10px] text-zinc-400">PartField learned feature fields · Agglomerative clustering</span>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-1">
+                <span className="text-[10.5px] text-zinc-300 font-medium block">Script Algorithm</span>
+                <div className="grid grid-cols-2 gap-1 p-0.5 rounded-xl bg-black/30 border border-white/[0.04]">
+                  <button
+                    type="button"
+                    onClick={() => setDecompositionMode('geometric')}
+                    className={`h-7 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                      decompositionMode === 'geometric'
+                        ? 'bg-white text-black shadow-sm font-bold'
+                        : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    <span>Geometric</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDecompositionMode('connected_components')}
+                    className={`h-7 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                      decompositionMode === 'connected_components'
+                        ? 'bg-white text-black shadow-sm font-bold'
+                        : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    <span>Connected Components</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Parameter 2: Fine-Grain Target Parts Slider (2 to 32) */}
             <div className="space-y-1.5 p-2 rounded-xl bg-black/30 border border-white/[0.04]">
@@ -867,7 +903,7 @@ export const SegmentationPanel: React.FC = () => {
             </button>
             <div className="flex items-center justify-center text-[9.5px] text-zinc-400 px-1 font-mono">
               <span>
-                Target: {numParts} Parts · Mode: {decompositionMode === 'semantic' ? 'Semantic' : 'Geometric'} · Format: {outputFormat.toUpperCase()}
+                Target: {numParts} Parts · Mode: {engineMode === 'ai' ? 'PartField AI' : decompositionMode === 'connected_components' ? 'Connected Components' : 'Geometric'} · Format: {outputFormat.toUpperCase()}
               </span>
             </div>
           </div>

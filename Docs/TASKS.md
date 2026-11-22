@@ -78,3 +78,40 @@ No backend REST endpoint was deleted. Routes without a current frontend caller r
 ## 8. Verification baseline
 
 The checked-in CI commands are documented in [CONTRIBUTING.md](../CONTRIBUTING.md). Frontend CI runs frozen Bun install, TypeScript check, lint, tests and production build. Backend CI compiles first-party Python packages, patchers and project scripts while excluding the pinned upstream `backend/thirdparty` submodule; it then runs selected backend contract tests, downloader shell syntax and resolver tests. The full-tree `python -m compileall -q backend` command currently reports an existing `IndentationError` in the pinned TRELLIS source (`backend/thirdparty/TRELLIS/trellis/utils/postprocessing_utils.py:57-58`), so that upstream tree is intentionally not part of the first-party syntax gate. CI does not validate GPU inference or checkpoint installation.
+
+## 9. Viewport-only comparison and PartField AI segmentation
+
+### Execution plan
+
+1. **Remove the duplicate comparison workflow**
+   - Remove the model-comparison accordion, picker state, lineage picker controls, and QA-delta calculations from `RightPropertyPanel.tsx`.
+   - Remove the unreferenced `ModelComparisonViewer.tsx` renderer.
+   - Remove the `modelComparison` right-panel section default and scrub the legacy persisted key during store migration.
+   - Preserve the completed-workspace vertical before/after wipe in `MeshViewer.tsx` / `ViewportToolOverlay.tsx`. Do not change its lineage capture, route behavior, or camera synchronization.
+2. **Make Segmentation engine selection truthful**
+   - Probe PartField runtime readiness from the backend: CUDA, complete checkpoint, vendored inference source, and required packages.
+   - Disable the AI control with a specific reason when any prerequisite is missing; retain Script mode.
+   - Expose only the two algorithms accepted by the script endpoint in Script mode. AI mode uses the fixed learned-feature/agglomerative PartField flow.
+   - Do not silently replace a failed AI request with Script output.
+3. **Use trained PartField inference**
+   - Load the Objaverse checkpoint through the vendored PartUV copy of the official `PFInferenceModel` implementation.
+   - Extract learned face features on the selected CUDA device and use the official agglomerative merge tree.
+   - Cut that tree into the requested part count, preserve original source mesh coordinates, and export the combined mesh plus requested individual parts.
+   - Fail AI inference when model/checkpoint/dependency loading fails; never label geometry-only clustering as AI.
+4. **Protect behavior with tests and docs**
+   - Add deterministic merge-tree cut tests, invalid-tree coverage, readiness-contract coverage, and a no-fallback regression test.
+   - Document the readiness route and viewport-only comparison ownership.
+   - Run the frontend and backend CI checks; do not claim GPU inference verification unless a real checkpoint/GPU run is performed.
+
+### Implementation record — 2026-11-22
+
+- [x] Right-panel comparison UI and state removed; viewport wipe retained as the sole model-comparison experience.
+- [x] Deleted the orphaned side-by-side `ModelComparisonViewer.tsx`.
+- [x] Removed persisted `modelComparison` section state, including a migration filter for already-saved browser state.
+- [x] Added `GET /api/v1/segment/readiness`; AI control is gated by CUDA, checkpoint, source and dependency readiness.
+- [x] Segmentation Script mode now sends only `geometric` or `connected_components`; AI mode uses the learned PartField feature-field agglomerative path.
+- [x] Removed silent AI-to-script fallback.
+- [x] Replaced the synthetic feature approximation in the PartField adapter with the vendored official inference model and deterministic merge-tree cutting.
+- [x] Added adapter contracts and regression tests; updated model, API and UI design documentation.
+- [x] Frontend CI and Backend Runtime Contract CI passed on the final implementation commit.
+- [ ] GPU-backed PartField smoke test remains environment-dependent and requires an NVIDIA GPU, the Objaverse checkpoint, and the compatible CUDA dependencies.

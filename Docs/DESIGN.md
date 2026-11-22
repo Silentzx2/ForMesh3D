@@ -31,7 +31,7 @@ Additional `--studio-gray-*`, `--studio-yellow-1`, chart, and semantic tokens ar
 - Navigation and header: `features/workspace/Navigation/LeftNavigation.tsx`, `features/workspace/Header/TopHeader.tsx`.
 - Tool panels: `features/workspace/Panels/` (Generate, Texture, Remesh, UV, Segmentation, Rigging, Animation).
 - Asset and property surfaces: `features/workspace/RightPanel/`.
-- 3D viewport: `features/workspace/Viewport/MeshViewer.tsx`; comparison view: `ModelComparisonViewer.tsx`.
+- 3D viewport and before/after comparison: `features/workspace/Viewport/MeshViewer.tsx` with `ViewportToolOverlay.tsx`; the viewport wipe is the only model-comparison UI.
 - Shared workspace UI: `features/workspace/components/`.
 - Reusable primitives: `components/ui/` and `components/premium/`.
 
@@ -78,7 +78,7 @@ Use only the currently exported shared presets. Prefer local CSS transitions for
 - The source asset ID and resolvable source URL are captured when retopology, texture, UV, segmentation, or rigging is submitted. Completion attaches that exact lineage to the output; later asset selection cannot silently change the "Before" mesh. After reload, the frontend can reconstruct the pair from the completed SQLite operation's `input_asset_id` and the workspace asset record; image inputs are never treated as mesh predecessors.
 - The viewport keeps one camera and a straight vertical split. Drag the centered handle horizontally, or use the arrow keys; Home and End move to either edge. The split position stays aligned with the rendered scissor boundary when comparison is reopened.
 - Closing comparison, changing the active asset, or starting another operation removes the temporary source scene. The active output remains the selected mesh.
-- The property-panel `ModelComparisonViewer` remains the separate side-by-side asset/QA comparison workflow; it is not replaced by the viewport wipe.
+- There is no separate right-panel model picker, side-by-side renderer, or QA comparison section. All model before/after comparison uses the viewport wipe.
 
 ## 8. Change discipline
 
