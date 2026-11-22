@@ -1,66 +1,64 @@
-# Product Requirements Document — ForMesh 3D
+# Product Requirements — ForMesh3D
+
+> **Last reviewed:** 2026-11-22  
+> **Scope:** Current implementation on the `dev` branch. Model enablement is read from `backend/config/models.yaml`.
 
 ## Product
 
-> **Version**: 0.3.0
-> **Last Updated**: November 15, 2026
->
-**ForMesh3D** — An open-source, self-hosted generative 3D asset studio. Directly bridges modern research neural 3D models into a unified studio for local generation, inspection, and engine-ready delivery.
+ForMesh3D is a self-hosted 3D asset studio for generating, inspecting, and processing 3D assets through a browser workspace and a local FastAPI backend. It is a personal/single-user oriented project; the design goal is a maintainable, minimal deployment rather than a multi-tenant SaaS platform.
 
-## Problem & Product Position
+## Core user workflow
 
-Creating production 3D assets typically demands expensive commercial suites, manual modeling skills, and fragmented open-source model runtimes with fragile dependency chains.
+1. Upload an image or mesh through the workspace.
+2. Select a configured model or workspace tool and submit the operation.
+3. Track job/operation state through the API.
+4. Load the resulting mesh in the local Three.js viewport.
+5. Run additional workspace tools such as texture painting, retopology, UV unwrapping, segmentation, rigging, or motion generation where the selected tool/model is configured.
 
-**ForMesh3D addresses this by providing:**
-1. **Direct Model-Native High Fidelity**: Direct neural mesh synthesis without lossy intermediate decimation or destructive smoothing.
-2. **Private & Self-Hosted**: 100% local GPU execution on personal workstations or private VPS, with zero external cloud dependencies or telemetry.
-3. **Studio 3D Workspace**: Integrated interactive Three.js viewport with dynamic tool inspectors (Generate, Texture, Remesh, UV, Rigging, Animation).
-4. **Hardware Stability**: Standalone GPU Doctor (`patcher/doctor.py`) ensuring native BFloat16 FlashAttention on modern GPUs (`sm >= 80`) and chunked SDPA on pre-Ampere hardware (`sm < 80`).
+Workspace identity is stable and deep-linkable through `/workspace/generate/<workspace_id>`.
 
-## Target Users
+## Implemented product surfaces
 
-- **Game Developers & Technical Artists**: Prototyping and generating assets for Unreal Engine 5, Unity, and Godot 4.
-- **Researchers & Enthusiasts**: Exploring state-of-the-art neural shape, texturing, and rigging models locally.
-- **Studios with Data Sovereignty Requirements**: Requiring air-gapped or local-only generative asset pipelines.
+- **Generation:** FastAPI generation router plus model adapters selected through the model factory.
+- **Texture:** texture-generation/painting API and enabled texture-capable adapters.
+- **Retopology:** AI adapter and deterministic script pipeline exposed by the retopology router.
+- **UV unwrapping:** PartUV AI path and script pipeline.
+- **Segmentation:** PartField AI path and script pipeline.
+- **Rigging:** SkinTokens adapter.
+- **Motion:** ARDY adapter and motion API.
+- **Viewport:** local GLB download and parsing through Three.js `GLTFLoader` and `glbCache`.
+- **Operations and administration:** job status, workspace state, logs, file metadata, storage and database endpoints.
 
-## Core Capabilities
+The API documentation is a route guide. Generated OpenAPI at `/openapi.json` and Swagger UI at `/docs` are the schema authority.
 
-### 1. Direct Neural Shape Generation
-- **Image-to-3D**: Direct generation of detailed 3D meshes from single reference images using Hunyuan3D-2.1, TRELLIS, TRELLIS.2, Stable Fast 3D, and TripoSG.
-- **Source Preservation**: Master mesh is immutably stored in the workspace (`mesh/mesh.glb`).
-- **Dynamic Parameter Passthrough**: User-configured budgets (`native_target_polycount`, `texture_resolution`, `seed`) pass directly to model adapters without router-level interceptors.
+## Configured enabled model families
 
-### 2. Texture Generation & Painting
-- **Integrated Texture Generation**: Direct textured mesh synthesis via models supporting native texture outputs (e.g. Stable Fast 3D, Hunyuan3D-Paint).
-- **Independent Texture Resolution**: Dynamic UI controls matching adapter capabilities (512, 1K, 2K, 4K).
+| Feature | Model ID(s) |
+|---|---|
+| Image-to-raw-mesh | `hunyuan3d_shape_v21_image_to_raw_mesh`, `hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh`, `triposg_image_to_raw_mesh` |
+| Image-to-3D | `trellis_image_to_3d` |
+| Textured mesh | `stable_fast_3d_image_to_textured_mesh` |
+| Texture painting | `hunyuan3d_paint_v21_image_mesh_painting`, `hunyuan3d_v20_paint_image_mesh_painting`, `trellis_image_mesh_painting` |
+| Segmentation | `partfield_segmentation` |
+| Retopology | `triflow_retopology`, `fastmesh_v1k_retopology` |
+| UV | `partuv_uv_unwrapping` |
+| Rigging | `skintokens_auto_rigging` |
+| Motion | `ardy_motion_generation` |
 
-### 3. Studio 3D Tool Suite
-- **Remeshing & Retopology**: FastMesh AI mode plus deterministic Trimesh / headless Blender Script mode for direct CPU retopology.
-- **Smart UV Unwrapping**: PartUV AI mode plus direct Blender Smart UV / XAtlas Script mode.
-- **Auto-Rigging**: Armature generation powered by SkinTokens.
-- **Motion Generation**: Text-to-motion generation via ARDY, outputting playable Three.js JSON animations.
-- **Specialist Tools API**: The retired `/api/v1/mesh-tools` SSE router is not used. Retopo, UV, and segmentation use canonical JSON routes with `engine: "ai" | "script"`; AI remains the default, while Script mode directly invokes the existing Python pipelines without scheduler access.
+These are configuration states, not GPU-validation claims. Checkpoint presence and host compatibility are runtime concerns.
 
-### 4. Interactive 3D Viewport & Workspace
-- **Viewport Engine**: Three.js WebGL viewport with 7 shading modes (`textured`, `solid`, `clay`, `matcap-gold`, `matcap-chrome`, `uv-checker`, `wireframe`).
-- **Workspace Identity**: Persistent `/workspace/generate/<workspace_id>` deep linking with immutable parent-child versioning.
-- **Preview & Operation Action Bar**: Script outputs are staged under `storage/temp/<operation_id>/` and registered in SQLite; Keep commits an immutable workspace asset and Discard removes the preview.
+## Intentionally disabled models
 
----
+Unique3D, Pixal3D, TRELLIS.2, and TaoFlowForge are disabled in configuration and intentionally retained. No cleanup task may enable them or delete their adapter/support trees. A future model-enablement task must be explicit and separate.
 
-## Technical Constraints & Contracts
+## Data and execution constraints
 
-### 1. Hardware Isolation (Priority Rule 1)
-- Modern GPUs (`sm >= 80`): Must run 100% native upstream code with official FlashAttention and native BF16.
-- Pre-Ampere (`sm < 80`): Isolated query-chunked SDPA and FP16 guards under `_is_pre_ampere` checks.
-- Patcher Isolation: Model-specific runtime patches strictly contained in `patcher/<model-name>/`.
+- Preserve source uploads and generated assets; do not overwrite immutable versions.
+- Use the existing backend database/storage owners rather than creating parallel metadata stores.
+- Keep model-specific patches isolated under `patcher/<model-name>/`.
+- Preserve native upstream behavior on modern GPUs (`sm >= 80`); pre-Ampere workarounds remain model-scoped.
+- Do not claim successful inference from registry presence, syntax checks, or CPU-only CI.
 
-### 2. Database & Queue Authority
-- Authoritative SQLite database at `backend/storage/job_queue.db` with WAL mode and `busy_timeout=30000`.
-- Dual state machines:
-  - **Execution**: `queued` -> `processing` -> `completed` | `failed` | `interrupted` | `cancelled`
-  - **Persistence**: `not_saved` -> `saving` -> `saved` | `save_failed` | `discarded` | `cleanup_pending` | `preview_expired`
+## Explicit non-goals for this document
 
-### 3. Repository Scope & Lean Architecture
-- Single-user local runtime: no multi-tenant JWT auth or artificial quality gate rejections.
-- Pure upstream delivery: zero unmaintained external postprocess forks.
+Do not treat old README/API prose about LOD bundles, physics/collision packaging, arbitrary FBX conversion, V4K FastMesh, server-side mesh streaming, or multi-view endpoints as current product guarantees unless the implementation and tests are re-verified.

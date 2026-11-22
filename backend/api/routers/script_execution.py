@@ -6,7 +6,6 @@ it without touching the model scheduler.
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import logging
@@ -216,7 +215,7 @@ async def execute_script_operation(
             staged_output.unlink(missing_ok=True)
             raise HTTPException(status_code=409, detail="An identical operation is already queued or processing")
 
-        await asyncio.to_thread(
+        background_tasks.add_task(
             _execute_script_operation_task,
             db=db,
             storage=storage,

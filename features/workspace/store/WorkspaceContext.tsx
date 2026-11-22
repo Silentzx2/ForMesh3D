@@ -160,7 +160,6 @@ interface WorkspaceContextType {
   runModelGeneration: () => Promise<void>;
   runRemeshGeneration: (customSettings?: {
     engineMode?: EngineMode;
-    variant?: 'V1K';
     polyType?: string;
     targetPolycount?: number;
     preserveEdges?: boolean;
@@ -820,7 +819,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
    const [comparisonGroupId, setComparisonGroupId] = useState<string | null>(null);
  
    const [remeshSettings, setRemeshSettings] = useState<RemeshSettings>({
-    tab: 'auto', variant: 'V1K', polyType: 'quad', targetPolycount: 50000,
+    tab: 'auto', polyType: 'quad', targetPolycount: 50000,
   });
 
   const [textureSettings, setTextureSettings] = useState<TextureSettings>({
@@ -2373,7 +2372,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
   const runRemeshGeneration = useCallback(async (customSettings?: {
     engineMode?: EngineMode;
-    variant?: 'V1K';
     polyType?: string;
     targetPolycount?: number;
     preserveEdges?: boolean;

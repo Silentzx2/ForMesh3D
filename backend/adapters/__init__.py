@@ -37,7 +37,10 @@ _ADAPTER_MAP: dict[str, str] = {
     "hunyuan3d_paint_v21_image_mesh_painting": "backend.adapters.hunyuan3d_adapter_v21",
     "hunyuan3d_v20_paint_image_mesh_painting": "backend.adapters.hunyuan3d_v20_paint_adapter",
     # ── mesh-retopology ────────────────────────────────────────────────
-    # FastMesh removed from main repo (thirdparty/FastMesh deleted).
+    "triflow_retopology": "backend.adapters.triflow_adapter",
+    "fastmesh_v1k_retopology": "backend.adapters.fastmesh_adapter",
+    # ── mesh-segmentation ──────────────────────────────────────────────
+    "partfield_segmentation": "backend.adapters.partfield_adapter",
     # ── uv-unwrapping ──────────────────────────────────────────────────
     "partuv_uv_unwrapping": "backend.adapters.partuv_adapter",
     # ── auto-rigging ───────────────────────────────────────────────────

@@ -1,116 +1,56 @@
 # ForMesh3D — System Blueprint
 
-> **System Version**: 0.3.0 (FastAPI + Next.js 16, Python 3.10, GPU Doctor)
-> **Target Deployment**: Single Personal VPS / Workstation (Trusted Local Network)
-> **Last Audited**: November 15, 2026
-> **Context Policy**: Max 250 lines strictly enforced.
+> Audited on 2026-11-22 against `dev`. This is a code-wiring blueprint, not a GPU performance or inference certification.
 
----
+## Deployment
 
-## 1. Executive System Overview
+- Frontend: Next.js 16 / React 19 / TypeScript, Bun 1.4.2.
+- Backend: FastAPI / Python 3.10, normally exposed on port 7842.
+- Local Studio: Next.js on port 3000.
+- Single-worker entrypoint: `backend/api/main_singleworker.py`; scheduler is embedded.
+- Multi-worker entrypoint: `backend/api/main_multiworker.py`; API workers use Redis and a separate scheduler service.
+- Persistent workspace files and SQLite database live under `backend/storage/`.
 
-ForMesh3D is an open-source, self-hosted generative 3D asset creation platform. It converts concept images into high-fidelity 3D meshes using direct upstream neural inference without destructive downstream decimation or smoothing.
-
-### Core Stack
-- **Frontend Studio**: Next.js 16 (React 19, TypeScript, Three.js 0.186, Tailwind CSS) on Port 3000.
-- **API Gateway**: FastAPI (Python 3.10, Conda env `3daigc-api`, AsyncIO, Pydantic V2) on Port 7842.
-- **GPU Doctor & Attention Engine**: Standalone hardware planner (`patcher/doctor.py`), precision router (native BF16 for `sm >= 80`, chunked SDPA for `sm < 80`), and VRAM safety buffers.
-- **Model Execution**: Dedicated worker process managed by `MultiprocessModelScheduler` with GPU mutex locks and dynamic parameter passthrough (`native_target_polycount`, `texture_resolution`).
-- **Database & Queue**: Authoritative SQLite database (`backend/storage/job_queue.db`) running in WAL mode with FIFO priority queue (`JobQueue`) and capacity cap of 10.
-- **Storage & Artifacts**: Canonical storage under `backend/storage/<workspace_id>/` orchestrated by `WorkspaceStorageManager` and `backend/core/utils/artifact_utils.py`.
-
----
-
-## 2. System Architecture Topology
+## Topology
 
 ```mermaid
-graph TD
-    classDef gold fill:#1a1915,stroke:#ffcc00,stroke-width:2px,color:#ffcc00;
-    classDef cyan fill:#0f1d24,stroke:#06b6d4,stroke-width:2px,color:#67e8f9;
-    classDef purple fill:#191326,stroke:#a855f7,stroke-width:2px,color:#d8b4fe;
-    classDef slate fill:#14171f,stroke:#475569,stroke-width:1.5px,color:#e2e8f0;
-    classDef orange fill:#24160c,stroke:#f97316,stroke-width:2px,color:#fdba74;
-
-    subgraph Client["🌐 Studio Frontend — Next.js 16 (:3000)"]
-        direction TB
-        UI["React 19 + TypeScript + Three.js"]:::gold
-        PANELS["Tool Panels (Generate, Texture, Remesh, UV)"]:::gold
-        VIEWPORT["3D Viewport & Preview Action Bar"]:::gold
-    end
-
-    subgraph Gateway["⚡ FastAPI Gateway (:7842)"]
-        direction TB
-        ROUTER["Routers: mesh-generation, system, file-upload"]:::cyan
-        QUEUE["Authoritative SQLite JobQueue (WAL)"]:::cyan
-        SCHED["VRAM-Aware Model Scheduler"]:::cyan
-    end
-
-    subgraph Worker["🛡️ Dedicated Model Worker Process"]
-        direction TB
-        DOCTOR["GPU Doctor (Hardware Attention Router)"]:::orange
-        ADAPTERS["Model Adapters (Hunyuan3D-2.1, TRELLIS.2, SF3D, TripoSG)"]:::purple
-    end
-
-    subgraph Storage["📦 Canonical Workspace Storage"]
-        direction TB
-        WORKSPACE["backend/storage/<workspace_id>/"]:::slate
-        ARTIFACTS["artifact_utils (Base Mesh, Derived Preview, Manifest)"]:::slate
-    end
-
-    Client -- "REST / SSE" --> ROUTER
-    ROUTER --> QUEUE
-    QUEUE --> SCHED
-    SCHED --> Worker
-    Worker --> DOCTOR
-    DOCTOR --> ADAPTERS
-    ADAPTERS -->|Direct Model-Native Mesh| ARTIFACTS
-    ARTIFACTS --> WORKSPACE
-    WORKSPACE -- "Static Stream" --> Client
+flowchart LR
+  Browser[Next.js Studio] -->|REST| API[FastAPI]
+  API --> Routers[Feature and system routers]
+  Routers --> Queue[Queue / scheduler]
+  Queue --> Factory[ModelFactory]
+  Factory --> Adapter[Model-specific adapter]
+  Adapter --> Files[Workspace storage]
+  Files --> Browser
+  API --> DB[(SQLite workspace/job data)]
+  API -. multi-worker mode .-> Redis[(Redis queue)]
 ```
 
----
+## Model wiring
 
-## 3. End-to-End Generation & Workspace Lifecycle
+`backend/config/models.yaml` controls model enablement and capabilities. `ModelFactory.ADAPTER_REGISTRY` maps model IDs to adapter modules/classes. `backend/adapters/_ADAPTER_MAP` supplies the runtime probe's installed-adapter inventory.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant Frontend as Studio Frontend (:3000)
-    participant API as FastAPI Gateway (:7842)
-    participant Queue as SQLite JobQueue (WAL)
-    participant Scheduler as Model Scheduler
-    participant Worker as Dedicated Worker
-    participant Storage as Workspace Storage
+Enabled configured model families include Hunyuan3D Shape v2.1, Hunyuan3D DiT Mini Turbo, TripoSG, TRELLIS, Stable Fast 3D, Hunyuan3D Paint v2.0/v2.1, PartField, TriFlow, FastMesh V1K, PartUV, SkinTokens, and ARDY.
 
-    User->>Frontend: Submit Image + Parameters
-    Frontend->>API: POST /api/v1/generate
-    API->>Queue: Enqueue Job (queued, not_saved)
-    API-->>Frontend: Return job_id & workspace_id
-    Scheduler->>Queue: Claim Job (processing)
-    Scheduler->>Worker: Launch Model Adapter with user polycount/res
-    Worker-->>Scheduler: Model-native mesh output (.glb)
-    Scheduler->>Storage: Persist canonical mesh/mesh.glb via artifact_utils
-    Scheduler->>Queue: Transition status (completed)
-    Frontend->>API: Poll /api/v1/system/jobs/{job_id}
-    API-->>Frontend: Terminal success + mesh URL
-    Frontend->>User: Render 3D mesh in Three.js viewport
-```
+Disabled but retained: Unique3D, Pixal3D, TRELLIS.2, and TaoFlowForge. Keep their config and support code unchanged during cleanup. Configured enablement does not imply installed weights or verified inference.
 
----
+## Workspace and viewer
 
-## 4. Key Architectural Contracts
+- Stable workspace route: `/workspace/generate/<workspace_id>`.
+- Frontend uses `services/apiClient.ts` for shared API operations.
+- Mesh display is local: download GLB, parse with `GLTFLoader`, render in the Three.js viewport.
+- The removed WebSocket/WebRTC streaming engine is not part of the current architecture.
+- SQLite-backed job/workspace state and the on-disk workspace are owned by backend storage/database modules.
 
-### 4.1 Model-Native Source Fidelity
-- Generative models produce direct geometry; downstream lossy postprocessing is eliminated.
-- User parameter passthrough (`native_target_polycount`, `texture_resolution`, `seed`) routes directly from UI into adapters without router-level interceptors.
-- `mesh/mesh.glb` remains immutable once persisted in the workspace; derived tool operations write directly to `storage/<workspace_id>/<tool_type>/` under monotonic versions (`_v001`, `_v002`, ...), automatically updating `active_mesh_asset_id` with zero blocking modal staging.
+## API entrypoints
 
-### 4.2 Hardware Isolation & Safety (Priority Rule 1)
-- **Modern GPUs (`sm >= 80`)**: Zero regressions. Executes in 100% native upstream mode (official FlashAttention, native BF16, locked inference schedules).
-- **Pre-Ampere GPUs (`sm < 80`)**: Fallbacks isolated strictly behind `_is_pre_ampere` checks (query-chunked SDPA, FP16/FP32 guards).
-- **Patcher Isolation**: Runtime fixes live strictly in `patcher/<model-name>/` inside dedicated worker processes, preventing global monkeypatch leaks.
+Both FastAPI entrypoints mount the system router at `/api/v1/system` and at `/api/v1` for direct compatibility aliases. Feature routers are mounted under `/api/v1`; the database router is mounted under `/api/v1/system/database`. See [api-documentation.md](api-documentation.md) and the live `/docs` schema.
 
-### 4.3 Workspace Operation & Versioning State Machine
-- **Execution State Machine**: `queued` -> `processing` -> `completed` | `failed` | `interrupted` | `cancelled`.
-- **Direct Workspace Persistence**: Operations publish directly to the workspace directory. New derived assets are registered in SQLite `assets` with `settings_snapshot` and immediately promoted to `active_mesh_asset_id`. Version history allows instant switching without recomputation.
+## Engineering constraints
+
+1. Trace callers, dynamic imports, registrations, route mounts, tests and third-party imports before deleting code.
+2. Preserve all disabled model adapters and model-specific support code.
+3. Preserve third-party compatibility shims when upstream source imports them dynamically.
+4. Keep SQLite/storage ownership centralized; do not add parallel metadata files or stores.
+5. Compile first-party Python packages, patchers and scripts separately from the pinned third-party submodule; upstream syntax failures must be tracked independently.
+6. Treat static checks and CPU CI as contract checks only; GPU inference needs a suitable host and installed checkpoints.

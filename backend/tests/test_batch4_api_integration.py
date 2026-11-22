@@ -203,6 +203,7 @@ def test_b4_t1_image_to_raw_mesh_response_and_operation_registration(batch4_app_
             "image_file_id": asset_id,
             "workspace_id": ws_id,
             "quality_mode": "high",
+            "model_preference": "hunyuan3d_shape_v21_image_to_raw_mesh",
         },
     )
     assert gen_resp.status_code == 200, gen_resp.text
@@ -299,7 +300,7 @@ def test_b4_t1_texture_dispatches_prompt_only_painting(batch4_app_client):
     scheduler = batch4_app_client["scheduler"]
     mesh = client.post(
         "/api/v1/file-upload/mesh",
-        files={"file": ("paint_target.obj", b"v 0 0 0\\nv 1 0 0\\nv 0 1 0\\nf 1 2 3\\n", "application/octet-stream")},
+        files={"file": ("paint_target.obj", b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", "application/octet-stream")},
     )
     assert mesh.status_code == 200, mesh.text
 
@@ -323,7 +324,7 @@ def test_b4_t1_texture_dispatches_image_guided_painting(batch4_app_client):
     scheduler = batch4_app_client["scheduler"]
     mesh = client.post(
         "/api/v1/file-upload/mesh",
-        files={"file": ("paint_target.obj", b"v 0 0 0\\nv 1 0 0\\nv 0 1 0\\nf 1 2 3\\n", "application/octet-stream")},
+        files={"file": ("paint_target.obj", b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", "application/octet-stream")},
     )
     assert mesh.status_code == 200, mesh.text
     image = io.BytesIO()
@@ -349,7 +350,7 @@ def test_b4_t1_texture_dispatches_image_guided_painting(batch4_app_client):
 
 def test_b4_t1_legacy_workspace_routes_are_not_mounted(batch4_app_client):
     """No retired workspace API path remains registered as a redirect or alias."""
-    paths = {route.path for route in batch4_app_client["app"].routes}
+    paths = set(batch4_app_client["app"].openapi()["paths"])
     canonical = {
         "/api/v1/generate",
         "/api/v1/texture",
@@ -445,7 +446,7 @@ def test_b4_t1_regeneration_creates_new_operation_with_parent_lineage(batch4_app
 
 
 def test_b4_t1_image_to_textured_mesh_response_and_operation_registration(batch4_app_client):
-    """Verify /image-to-textured-mesh enqueues generate_textured_mesh operation."""
+    """An explicit textured-only model dispatches to the textured operation type."""
     client = batch4_app_client["client"]
     db = batch4_app_client["db"]
 
@@ -466,6 +467,7 @@ def test_b4_t1_image_to_textured_mesh_response_and_operation_registration(batch4
             "image_file_id": asset_id,
             "workspace_id": ws_id,
             "quality_mode": "high",
+            "model_preference": "stable_fast_3d_image_to_textured_mesh",
         },
     )
     assert gen_resp.status_code == 200, gen_resp.text

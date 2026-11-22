@@ -1599,20 +1599,3 @@ async def resolve_input_reference_async(
         if resolved:
             return resolved
     return None
-
-
-def resolve_file_id(file_id: str) -> Optional[str]:
-    """
-    Resolve a file ID to its actual file path (sync version, single-worker only).
-
-    This function uses the in-memory storage and should only be used
-    in single-worker mode. For multi-worker mode, use resolve_file_id_async.
-    
-    Args:
-        file_id: The unique file identifier
-       
-    Returns:
-        The file path if found and available, None otherwise
-    """
-    # This is now deprecated - file_store is always available via dependency injection
-    return None

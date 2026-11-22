@@ -1,54 +1,66 @@
-# ForMesh3D — Audited Project Memory & Current State
+# ForMesh3D — Current Project Memory
 
-## Audited Current State (2026-11-20)
+> **Last audited:** 2026-11-22  
+> **Branch:** `dev`  
+> **Cleanup baseline:** `27f48a76f302008fa0ab9d9b1d7788a8eb7d55a1`  
 
-### 1. Architectural Topology & Deployment
-- **Deployment Model:** Single personal workstation / VPS / Colab deployment (1 user, trusted network).
-- **Backend Runtime:** FastAPI (`backend/api/main_singleworker.py` and `backend/api/main_multiworker.py`), Uvicorn on port 7842.
-- **Frontend Studio:** Next.js 16 (App Router), React 19, Bun 1.4.2 on port 3000.
-- **Database Authority:** Authoritative SQLite database at `backend/storage/job_queue.db`, WAL journal mode, synchronous NORMAL, `busy_timeout=30000`. Dual state machines: `ExecutionStatus` (`queued` -> `processing` -> `completed` | `failed` | `interrupted` | `cancelled`) and `PersistenceStatus` (`saved` on direct publication).
-- **Queue & Worker Model:** Durable SQLite FIFO queue with background worker process, queue capacity cap of 10, atomic worker claiming with process locks, deduplication fingerprints.
+## 1. Runtime shape
 
-### 2. Local Mesh Viewport (Client-Side Rendering)
-- **Local GLTFLoader-based Rendering**: Mesh viewer downloads GLB via `fetch`/`glbCache`, parses with `GLTFLoader` (DRACO + meshopt), and renders inline in Three.js viewport (`MeshViewer.tsx`).
-- **No Server-Side Streaming**: WebRTC/WebSocket streaming engine (`backend/streaming/`, `backend/api/routers/streaming.py`) removed. All mesh loading is client-side.
-- **Cache**: URL-keyed fetch cache (`glbCache.ts`) with L1 RAM + L2 CacheStorage tiers. Mesh statistics collected via `meshStats.ts`.
+- Frontend: Next.js 16, React 19, TypeScript, Three.js; Bun 1.4.2.
+- Backend: FastAPI, Python 3.10.
+- Single-worker mode embeds the scheduler in `main_singleworker.py`.
+- Multi-worker mode uses Redis queueing and a separate scheduler through `main_multiworker.py`.
+- API port in local setup: 7842. Frontend port: 3000.
 
-### 3. Canonical Direct-Save Workspace Operations
-- **Direct Workspace Persistence**: Tool operations write directly to `storage/<workspace_id>/<tool_type>/<ws_id>_<tool>_v00X.glb` via `publish_derived_mesh`.
-- **Durable Versioning & Promotion**: Every run creates a durable `AssetModel` row in SQLite with `settings_snapshot` and automatically updates `active_mesh_asset_id`.
-- **AI Neural Engines**:
-  - **Segmentation**: Powered by **PartField** (`partfield_segmentation`, 8GB VRAM, continuous 3D feature fields + Agglomerative face clustering) via `POST /api/v1/segment` (`engine: "ai"`). Checkpoint `backend/pretrained/PartField/model_objaverse.ckpt`.
-  - **Retopology**: Powered by **TriFlow** (`triflow_retopology`, 10GB VRAM, Latent Flow Matching with Nearest-Vertex Vector Fields and constrained QEM decimation for dynamic 5k to 200k face budgets and quad-dominant topology) via `POST /api/v1/retopo` (`engine: "ai"`).
-  - **Auto-Rigging**: Powered by **SkinTokens** (14GB VRAM, TokenRig autoregressive discrete skin tokens) via `POST /api/v1/rig`.
-  - **Smart UV Unwrapping**: Powered by **PartUV** (8GB VRAM) via `POST /api/v1/unwrap` (`engine: "ai"`). Absolute checkpoint path resolution via `PARTUV_CHECKPOINT_PATH` and auto-download from HuggingFace (`mikaelaangel/partfield-ckpt`).
-- **Fast Script Pipelines (`backend/pipelines/`)**:
-  - `retopo.py`: Headless Blender QuadriFlow for quad topology and Trimesh quadric decimation for fast isotropic remeshing.
-  - `smart_uv.py`: Blender Smart Project and XAtlas / Trimesh for non-overlapping UV chart packing.
-  - `segment.py`: Connected-component decomposition and spatial PCA clustering with vivid viewport colorization (pure numpy).
-  - `mesh_utils.py`: Safe format conversion, Truthful geometric stats, and bounded subprocess execution with density safety capping via `mesh_guard.py`.
+## 2. Workspace and viewport
 
-### 4. Native Generation & Mesh Density Governance
-- **Mesh Guard Pipeline (`backend/pipelines/mesh_guard.py`)**: Enforces 1,000k (1M faces) safety cap on AI generation outputs. Below 1M faces, raw mesh is preserved 100% untouched.
-- Mesh Upload Limit: 2,000k (2M faces) hard ceiling in `backend/core/utils/file_utils.py` and `file_upload.py`.
-- All adapters run in pure native mode with zero internal artificial decimation/subdivision.
+- Workspace deep link: `/workspace/generate/<workspace_id>`.
+- Workspace assets and job data are owned by backend storage/database modules under `backend/storage/`.
+- Single-worker job database path: `backend/storage/job_queue.db`.
+- Current mesh viewer downloads GLB and parses locally with `GLTFLoader` and `glbCache`.
+- Server-side WebSocket/WebRTC mesh streaming has been removed. Do not restore it.
+- `meshStats.ts` is active; `meshTelemetry.ts` was unreferenced and removed in the cleanup.
 
-### 5. Hardware Isolation & Priority Rules
-- **Modern GPUs (`sm >= 80`)**: 100% native upstream execution preserved. No `_is_pre_ampere` / FlashAttention / BF16 modifications.
-- **Pre-Ampere (`sm < 80`)**: Mitigations strictly isolated behind `_is_pre_ampere` checks.
-- **Model Patcher Isolation**: Patchers reside strictly in `patcher/<model-name>/` with zero global monkeypatches.
+## 3. Model enablement
 
-### 6. Viewport Render Lifecycle & UI Loading
-- **Main viewport**: Persistent Three.js canvas uses invalidation-based rendering. It renders after scene/UI changes and only keeps requestAnimationFrame active while OrbitControls damping, imported model animation, or turntable rotation needs another frame. In-place model mutations from inspectors and property controls dispatch a shared viewport invalidation event.
-- **Inspector preview**: Uses the same on-demand render pattern; no idle RAF loop remains.
-- **Inspector bundles**: UV, segmentation, animation, and rigging inspector modules are dynamically imported only when the corresponding tool is active.
-- **Zustand**: WorkspaceProvider uses focused selectors for the viewer shading action, app-store batch queue, and auto-rotate preference instead of subscribing to the entire viewer or app store.
-- **Deferred**: Worker-based mesh analysis and adaptive DPR/shadow quality were not introduced without transfer-cost and GPU profiling evidence. Measure browser long tasks, idle CPU/GPU, and frame time before selecting those changes.
+The authoritative flags are in `backend/config/models.yaml`.
 
-### 7. Verification Status
-- **Verification (`2026-11-20`)**:
-  - `backend/tests/test_partfield_adapter.py`: 6/6 unit tests passed.
-  - `backend/tests/test_triflow_adapter.py`: 5/5 unit tests passed.
-  - `python3 -m py_compile`: Zero syntax or import errors.
-  - `npx tsc --noEmit`: Exited `0` (zero TypeScript errors).
-  - Submodules and vendored directories cleaned of nested `.git` folders.
+Configured enabled families: Hunyuan3D Shape v2.1, Hunyuan3D DiT Mini Turbo, TripoSG, TRELLIS, Stable Fast 3D, Hunyuan3D Paint v2.0/v2.1, PartField, TriFlow, FastMesh V1K, PartUV, SkinTokens, and ARDY.
+
+Intentionally disabled and retained: Unique3D, Pixal3D, TRELLIS.2, TaoFlowForge. Do not enable them or delete their adapter, patcher, validator, configuration, or model-support files during unrelated work.
+
+A config flag does not prove checkpoint availability or successful inference. GPU validation must be recorded separately.
+
+## 4. Model registry connections
+
+- `ModelFactory.ADAPTER_REGISTRY` resolves model IDs to adapter classes.
+- `backend/adapters/__init__.py::_ADAPTER_MAP` feeds `backend/core/runtime_probe.py`.
+- The audit found missing runtime-inventory entries for `triflow_retopology`, `fastmesh_v1k_retopology`, and `partfield_segmentation`; the cleanup commit adds them and a regression test.
+- Third-party source is pinned under `backend/thirdparty`; preserve upstream notices and compatibility imports.
+
+## 5. API and contracts
+
+- System router is mounted at both `/api/v1/system` and `/api/v1` in both app entrypoints. Direct aliases are retained for compatibility.
+- Feature routers cover generation/texture, upload, retopology, segmentation, UV, rigging and motion.
+- Database administration routes are mounted at `/api/v1/system/database`.
+- No REST endpoint was deleted in this cleanup: lack of a frontend caller is not proof that an externally addressable API contract is unused.
+- The deprecated synchronous `resolve_file_id()` returned `None` and had no callers; `resolve_file_id_async()` remains active.
+- Script-mode specialist routes persist the operation first, return its queued response, and execute the pipeline through FastAPI `BackgroundTasks`; the operation status is then read from SQLite.
+
+## 6. Cleanup status
+
+Removed unreferenced first-party files:
+- Frontend: `GenerationLoadingPreview.tsx`, `meshTelemetry.ts`, `presetIntent.ts`, `riggingProgress.ts`, `hugeicons-mapping.ts`.
+- Backend: `core/utils/validation.py`, `core/utils/format_utils.py`, `core/utils/mask_generator.py`, `utils/fastmesh_utils.py`, `utils/partuv_utils.py`.
+- Broken obsolete script: `scripts/verify_integration_loop.py`.
+
+Removed 14 unused internal API-client methods, five unused exports, the deprecated synchronous resolver, the unused remesh `variant` state, and its misleading inspector row. See [TASKS.md](TASKS.md) for the full item-by-item reason and preserved false positives.
+
+## 7. Verification
+
+CI workflows are the checked-in baseline:
+- Frontend: frozen Bun install, TypeScript check, ESLint, Bun tests, production build.
+- Backend: first-party Python compileall (backend packages, tests, patcher and project scripts; pinned third-party submodule excluded), selected regression/API/lifecycle tests, downloader shell syntax, compute-mode and environment-resolver tests.
+- Full `python -m compileall -q backend` currently encounters a pre-existing upstream TRELLIS `IndentationError` at `backend/thirdparty/TRELLIS/trellis/utils/postprocessing_utils.py:57-58`. CI now syntax-checks first-party code separately.
+
+CI does not download model weights or prove GPU inference. Report those checks only when run on an appropriate host.

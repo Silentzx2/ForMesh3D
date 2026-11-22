@@ -323,7 +323,6 @@ export const RemeshPanel: React.FC = () => {
       ...prev,
       polyType,
       targetPolycount,
-      variant: 'V1K',
     }));
 
     setGenerationSettings((prev) => ({

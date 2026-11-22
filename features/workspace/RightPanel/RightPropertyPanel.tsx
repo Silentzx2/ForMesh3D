@@ -446,10 +446,6 @@ export const RightPropertyPanel: React.FC = () => {
         </div>
         <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
           <div className="p-3 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-2.5">
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-[hsl(var(--muted-foreground))]">FastMesh Variant</span>
-              <span className="font-mono font-bold text-primary">{remeshSettings.variant}</span>
-            </div>
             <div className="flex justify-between items-center text-xs border-t border-[hsl(var(--border))]/50 pt-2">
               <span className="text-[hsl(var(--muted-foreground))]">Output Polygons</span>
               <span className="font-mono text-[hsl(var(--neon-blue))] uppercase font-bold">{remeshSettings.polyType}</span>

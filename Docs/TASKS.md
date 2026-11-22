@@ -1,100 +1,80 @@
-# TASK — Mesh Viewer: Local Three.js Renderer (Streaming Removed)
+# Current Tasks and Verified Cleanup Record
 
-## Current State (2026-11-21)
+> **Audit date:** 2026-11-22  
+> **Branch:** `dev`  
+> **Baseline:** `27f48a76f302008fa0ab9d9b1d7788a8eb7d55a1`  
+> **Rule:** This file records source-verified cleanup. A missing frontend caller alone does not make a REST endpoint safe to delete.
 
-### State
-- **Mesh viewer** restored to `a7b28a2a` state — local-only `MeshViewer.tsx` using `GLTFLoader` + `glbCache` + `meshStats`
-- **Streaming engine removed**: `backend/api/routers/streaming.py`, `backend/streaming/` directory deleted
-- **No server-side streaming** — all mesh loading is local (download → parse → render)
-- **MeshLoader.ts**, `useMeshLoader.ts`, `StreamVideoViewer.tsx`, `useWebSocketStream.ts` — all deleted (cache system removed)
+## 1. Removed orphaned first-party files
 
-### What Works
-| Component | Status |
-|-----------|--------|
-| Local `MeshViewer.tsx` with `GLTFLoader` + `glbCache` | ✅ Downloads GLB, parses, renders inline |
-| `glbCache.ts` | ✅ URL-keyed fetch cache with L1/L2 tiers |
-| `meshStats.ts` | ✅ Mesh statistics collection |
-| Mesh download endpoint (`/api/v1/system/jobs/{id}/download`) | ✅ Serves generated GLB files |
+| Path | Evidence / reason |
+|---|---|
+| `features/workspace/Viewport/GenerationLoadingPreview.tsx` | Component had no code importer, dynamic import, route registration, or runtime consumer. Its old mention in this file was documentation only. |
+| `features/workspace/lib/meshTelemetry.ts` | `analyzeGeometryTelemetry`, `countUVCharts`, and `prepareMeshTangentsAndNormals` had no consumers. Active viewer statistics use `meshStats.ts`. |
+| `features/workspace/lib/presetIntent.ts` | `getPresetIntentFromSearch`, `getPromptFromSearch`, and `getModelFromSearch` had no callers. |
+| `features/workspace/lib/riggingProgress.ts` | `computeRigProgress` and `computeRigStatusText` had no callers. |
+| `components/icons/hugeicons-mapping.ts` | Mapping export had no imports; active icon components use the actual Hugeicons component layer. |
+| `backend/core/utils/validation.py` | All validation helpers had zero first-party import/call sites; active request validation lives in router/Pydantic contracts. |
+| `backend/core/utils/format_utils.py` | `fbx_to_glb` and `fbx_to_glb_headless` had no callers or registered conversion flow. |
+| `backend/core/utils/mask_generator.py` | `MaskGenerator` and its convenience functions had no imports or runtime consumers. |
+| `backend/utils/fastmesh_utils.py` | `FastMeshRunner` had no callers; the active FastMesh adapter owns the current inference path. |
+| `backend/utils/partuv_utils.py` | `PartUVRunner` had no callers; the active PartUV adapter owns the current inference path. |
+| `scripts/verify_integration_loop.py` | Standalone script was unreferenced and stale: it imports missing `backend.core.animation.ardy_converter` and calls retired motion-generation paths. |
 
-### Known Limitation
-- Large meshes (80-100MB) must be downloaded to browser before rendering — slow on 1 Mbps connections
-- No server-side streaming fallback (removed intentionally per user decision)
+## 2. Removed unused API-client wrappers
 
----
+The following methods in `services/apiClient.ts` had no frontend callers. Only the client wrappers were removed; their backend endpoints were retained as API contracts.
 
-## Requirements (User's Mandate)
+- `getModelParameters()`
+- `downloadJobResult()` — workspace download code builds its current download URL directly.
+- `getFileMetadata()`
+- `getMeshGenerationSupportedFormats()`
+- `getMeshSegmentationSupportedFormats()`
+- `getAutoRiggingSupportedFormats()`
+- `getRetopologyAvailableModels()`
+- `getMeshRetopologySupportedFormats()`
+- `getUVUnwrappingAvailableModels()`
+- `getUVUnwrappingPackMethods()`
+- `getMeshUVUnwrappingSupportedFormats()`
+- `getMotionCheckpoints()`
+- `getMotionAvailableModels()`
+- `getMotionSupportedFormats()`
 
-1. **Local mesh download only** — no server-side streaming
-2. **Smooth 60fps** for meshes that download successfully
-3. **Simple code** — no complex caching, no refCount, no WebRTC, no streaming engine
-4. **Single viewport component** — local Three.js rendering only
+## 3. Removed unused exports and deprecated function
 
----
+- `features/config.js`: removed `API_BASE` and `resourceUrl()`; retained `SERVER_ORIGIN` and `assetUrl()`.
+- `lib/motion.ts`: removed `MOTION_BASE`, `MOTION_SLOW`, and `MOTION_SPRING_SNAPPY`; retained `MOTION_FAST` and `MOTION_SPRING`.
+- `backend/api/routers/file_upload.py`: removed synchronous `resolve_file_id()` (deprecated, always returned `None`, no callers). Retained `resolve_file_id_async()`, which is used by active routes.
+- `features/workspace/types.ts`, `RemeshPanel.tsx`, and `WorkspaceContext.tsx`: removed the unused `RemeshSettings.variant` field. The panel only wrote `V1K` and the inspector displayed it as `FastMesh Variant`, but the active workspace AI remesh request always submits TriFlow and does not consume that value. Removed the stale field and misleading inspector row; FastMesh V1K remains registered and available through the backend adapter/API.
 
-## Current File State (Mesh/Viewport)
+## 4. Runtime correction found during final verification
 
-### Files Present
-| File | Purpose |
-|------|---------|
-| `features/workspace/Viewport/MeshViewer.tsx` | ✅ Restored to `a7b28a2a` — local GLTFLoader + glbCache rendering |
-| `features/workspace/lib/glbCache.ts` | ✅ URL-keyed fetch cache (L1 RAM + L2 CacheStorage) |
-| `features/workspace/Viewport/meshStats.ts` | ✅ Mesh vertex/triangle stats |
-| `features/workspace/Viewport/meshStats.test.ts` | ✅ meshStats tests |
-| `features/workspace/Viewport/ViewportToolOverlay.tsx` | ✅ Tool overlay with LightTone from `../types` |
-| `features/workspace/Viewport/ModelComparisonViewer.tsx` | ✅ Model comparison viewer |
-| `features/workspace/Viewport/GenerationLoadingPreview.tsx` | ✅ Generation loading preview |
+`execute_script_operation()` accepted FastAPI `BackgroundTasks` but awaited the pipeline through `asyncio.to_thread()`. That blocked the response and returned a completed status instead of the documented queued response. It now registers the existing worker with `background_tasks.add_task()`, allowing the API to return the queued operation while the task runs after response delivery. Integration tests cover the queued response and persisted completion.
 
-### Files Deleted (Not Present)
-| File | Reason |
-|------|--------|
-| `features/workspace/Viewport/MeshRenderer.ts` | Did not exist at `a7b28a2a` — deleted |
-| `features/workspace/Viewport/useMeshLoader.ts` | Did not exist at `a7b28a2a` — deleted |
-| `features/workspace/Viewport/MeshLoader.ts` | Cache system removed |
-| `features/workspace/Viewport/StreamVideoViewer.tsx` | WebRTC viewer removed |
-| `features/workspace/hooks/useWebSocketStream.ts` | WS hook removed |
-| `backend/api/routers/streaming.py` | Streaming engine removed |
-| `backend/streaming/` | Entire directory removed |
+## 5. Wiring correction
 
----
+`backend/core/runtime_probe.py` reads `backend.adapters._ADAPTER_MAP`, while `ModelFactory.ADAPTER_REGISTRY` already registered the enabled specialist adapters. The runtime map omitted:
+- `triflow_retopology` → `backend.adapters.triflow_adapter`
+- `fastmesh_v1k_retopology` → `backend.adapters.fastmesh_adapter`
+- `partfield_segmentation` → `backend.adapters.partfield_adapter`
 
-## Verification Checklist
+The map now includes these IDs, and `test_batch1_regressions.py` protects the inventory.
 
-| Test | Expected |
-|------|----------|
-| Small mesh (<20 MB) | Downloads via glbCache, parses with GLTFLoader, renders inline |
-| Large mesh (>20 MB) | Downloads (may be slow on 1 Mbps), renders when complete |
-| `bun tsc --noEmit` | 0 errors |
-| `bun test` | All tests pass |
+## 6. Reviewed and deliberately retained
 
----
+These were false positives or unsafe deletion candidates:
 
-## Workspace UI Performance — Implemented (2026-11-21)
+- `backend/utils/trellis2_utils.py`, TRELLIS.2 adapters, patchers and validation code: retained because TRELLIS.2 is intentionally disabled, not retired. Do not remove disabled-model support.
+- `backend/utils/image_super_utils.py`, `pipeline_utils.py`, `simplify_mesh_utils.py`, `multiview_utils.py`, `uvwrap_utils.py`, `torchvision_fix.py`, and `dinov3_vit.py`: compatibility/model support paths; not safe to delete from first-party import counts alone.
+- `backend/adapters/trellis2_mesh_validation.py`: retained validation support.
+- `backend/api/routers/script_execution.py`: helper functions are imported by specialist routers; it is not an unused router.
+- `features/workspace/Viewport/meshStats.ts`, `glbCache.ts`, and `components/index.ts`: active callers exist.
+- Disabled models **Unique3D, Pixal3D, TRELLIS.2, TaoFlowForge**: configuration remains unchanged. No model was enabled or removed.
 
-| Area | Change | Verification target |
-|------|--------|---------------------|
-| Main viewport | On-demand RAF with invalidation for camera, scene, settings, comparison, resize, snapshots, and in-place inspector/property mutations | Confirm static scene is idle; damping, turntable, imported animations, and inspector edits remain visible |
-| Inspector preview | On-demand RAF with OrbitControls change and resize invalidation | Confirm orbit/resize/model/selection updates render without idle RAF |
-| Inspector modules | Dynamic imports for UV, segmentation, animation, and rigging inspectors | Confirm each tool loads its inspector and inactive tools do not fetch its chunk |
-| Zustand | Narrow selectors for viewer shading action, batch queue, and auto-rotate preference | Confirm shading action works and unrelated viewer/app-store changes do not rerender the provider |
+## 7. API endpoints deliberately preserved
 
-### Deferred Until Measured
-- Web Worker mesh statistics / UV analysis: Three.js object graphs are not transferable; a worker implementation must pass only owned typed-array data and prove that copy/transfer costs and peak memory are acceptable.
-- Adaptive device-pixel-ratio and shadow quality: retain current visual defaults until representative browser/GPU profiling justifies a quality threshold.
-- Large-list virtualization: add only if profiling shows measurable list-render cost.
+No backend REST endpoint was deleted. Routes without a current frontend caller remain externally addressable and/or documented/tested API contracts. Examples include model parameters, supported-format metadata, candidate download/select, shutdown, adapter inventory, logs configuration, file counts, and database verification. The system router's direct `/api/v1` aliases are also retained for compatibility. Removing these requires a separate explicit API-breaking decision and contract/doc updates.
 
-### Regression Checklist
-- Static model renders on initial load and after camera preset, resize, grid, shading, lighting, and material changes.
-- OrbitControls damping settles to a stopped RAF loop after pointer/wheel interaction.
-- Turntable and imported GLTF/FBX animation continue rendering while active and stop when no longer active.
-- Compare split view updates while dragging and restores the normal single-scene view when closed.
-- Snapshot and workspace capture still export the requested 1920×1080 image.
-- UV / segmentation preview updates on model, selection, visibility, view-angle, and seam/boundary toggles.
-- Run bun install --frozen-lockfile, bun run test, bun run lint, bun test, and bun run build through frontend CI.
+## 8. Verification baseline
 
-## Notes for Future AI
-
-- **Do not re-add streaming engine** — user decided to remove it
-- **Do not re-add MeshRenderer/cache system** — mesh loading is now inline in MeshViewer.tsx
-- **MeshViewer.tsx uses `GLTFLoader` directly** with shared loader instances (DRACO + meshopt)
-- **`glbCache.ts` handles caching** — L1 RAM + L2 CacheStorage with progress callbacks
-- **`lightTone` type** is exported from `MeshViewer.tsx` and imported by `ViewportToolOverlay.tsx`
+The checked-in CI commands are documented in [CONTRIBUTING.md](../CONTRIBUTING.md). Frontend CI runs frozen Bun install, TypeScript check, lint, tests and production build. Backend CI compiles first-party Python packages, patchers and project scripts while excluding the pinned upstream `backend/thirdparty` submodule; it then runs selected backend contract tests, downloader shell syntax and resolver tests. The full-tree `python -m compileall -q backend` command currently reports an existing `IndentationError` in the pinned TRELLIS source (`backend/thirdparty/TRELLIS/trellis/utils/postprocessing_utils.py:57-58`), so that upstream tree is intentionally not part of the first-party syntax gate. CI does not validate GPU inference or checkpoint installation.

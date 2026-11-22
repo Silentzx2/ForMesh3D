@@ -9,24 +9,8 @@ export const MOTION_FAST = {
   ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
 };
 
-export const MOTION_BASE = {
-  duration: 0.2,
-  ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
-};
-
-export const MOTION_SLOW = {
-  duration: 0.3,
-  ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
-};
-
 export const MOTION_SPRING = {
   type: 'spring' as const,
   stiffness: 300,
   damping: 30,
-};
-
-export const MOTION_SPRING_SNAPPY = {
-  type: 'spring' as const,
-  stiffness: 400,
-  damping: 25,
 };

@@ -71,40 +71,30 @@ The maintained Wheels release is used for compatible prebuilt Python wheels; the
 
 ## Verification
 
-Run checks relevant to your change:
+Run the checks used by the checked-in CI workflows when changing the corresponding area.
+
+### Frontend
 
 ```bash
-# Frontend type-check (same command as `bun run test` and the Frontend CI job)
-npx tsc --noEmit
-
-# Frontend unit tests (node:test files under features/workspace/lib/*.test.mjs
-# and app/api/v1/[...path]/route.test.mjs)
-bun test
-
-# Frontend lint and production build
+bun install --frozen-lockfile
+bun run test       # TypeScript: tsc --noEmit
 bun run lint
+bun test
 bun run build
-
-# Backend test suite (Pytest covering GPU Doctor hardware diagnostics, TRELLIS.2 validation, and mesh tool regressions)
-python -m pytest -v backend/tests/
-
-# Verify clean compilation across all Python modules
-python3 -m py_compile patcher/doctor.py patcher/__init__.py backend/tests/*.py
-
-# Verify shell script syntax
-bash -n manager.sh backend/scripts/*.sh scripts/*.sh
 ```
 
-The current backend test suite covers Python source compilation, shell syntax, GPU Doctor hardware diagnostics / query-chunked SDPA equality (`backend/tests/test_gpu_doctor.py`), and the checked-in TRELLIS.2 raw-mesh validation contract (`backend/tests/test_trellis2_mesh_validation.py`). Blender-stage validation and GPU/model inference require the full `3daigc-api` environment on an appropriate host.
+### Backend
 
-### Continuous integration
+```bash
+python -m compileall -q backend/adapters backend/api backend/core backend/pipelines backend/scripts backend/tests backend/utils backend/loader.py patcher scripts
+python -m pytest -q backend/tests/test_batch1_regressions.py
+python -m pytest -q backend/tests/test_batch3_queue_and_lifecycle.py backend/tests/test_workspace_regeneration.py backend/tests/test_batch4_api_integration.py
+bash -n backend/scripts/download_models.sh
+bash scripts/tests/compute_mode_test.sh
+bash scripts/test_env_resolution.sh
+```
 
-Two GitHub Actions workflows live under `.github/workflows/`:
-
-- **Backend Runtime Contract CI** (`.github/workflows/backend-runtime-ci.yml`): compiles Python sources, checks shell syntax, and runs `backend/tests/test_trellis2_mesh_validation.py` on Python 3.10. This covers raw-mesh array validation only; it does not load checkpoints or prove GPU inference.
-- **Frontend CI** (`.github/workflows/frontend-ci.yml`): installs dependencies with Bun, runs the TypeScript type-check (`bun run test`), all Bun contract tests (`bun test`), and the production build (`bun run build`).
-
-The backend workflow runs on pushes and pull requests targeting `main` and `dev`; the frontend workflow runs on pushes to `dev` and on pull requests targeting `dev` or `main`. Local verification should mirror the CI commands before opening a pull request.
+The backend compile check covers first-party Python packages and scripts. It deliberately excludes the pinned `backend/thirdparty` submodule; upstream syntax defects there are tracked separately and must not block validation of this repository's own Python sources. The backend CI suite is a selected contract suite, not a full GPU inference test. The frontend CI suite runs type-check, lint, tests and a production build. GPU/model validation requires the appropriate host, installed checkpoints and a separate recorded run. Do not report a model as verified from registry presence or CPU-only tests.
 
 ## Pull requests
 

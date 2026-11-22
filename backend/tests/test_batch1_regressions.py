@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import trimesh
+import yaml
 
 from backend.adapters.fastmesh_adapter import _prepare_fastmesh_point_cloud
 from core.scheduler.model_factory import ModelFactory
@@ -85,27 +86,59 @@ def test_model_factory_keeps_native_textured_model_on_textured_feature():
     assert legacy.feature_type == "image_to_raw_mesh"
 
 
-def test_fastmesh_ui_and_registry_expose_only_fixed_v1k_contract():
+def test_remesh_contract_keeps_triflow_default_and_fastmesh_fixed_v1k():
     panel = (ROOT / "features" / "workspace" / "Panels" / "RemeshPanel.tsx").read_text(encoding="utf-8")
     workspace = (ROOT / "features" / "workspace" / "store" / "WorkspaceContext.tsx").read_text(encoding="utf-8")
+    workspace_types = (ROOT / "features" / "workspace" / "types.ts").read_text(encoding="utf-8")
     registry = (ROOT / "constants" / "models.ts").read_text(encoding="utf-8")
     bridge = (ROOT / "features" / "workspace" / "services" / "meshProcessingBridge.ts").read_text(encoding="utf-8")
     api = (ROOT / "backend" / "api" / "routers" / "mesh_retopology.py").read_text(encoding="utf-8")
+    factory = (ROOT / "backend" / "core" / "scheduler" / "model_factory.py").read_text(encoding="utf-8")
     adapter = (ROOT / "backend" / "adapters" / "fastmesh_adapter.py").read_text(encoding="utf-8")
+    inspector = (ROOT / "features" / "workspace" / "RightPanel" / "RightPropertyPanel.tsx").read_text(encoding="utf-8")
 
-    assert "FastMesh V1K" in panel
-    assert "Checkpoint-fixed output" in panel
-    assert "FastMesh Output" in panel
-    assert "engineMode === 'script'" in panel
-    assert "V4K" not in panel
-    assert "fastmesh_v4k_retopology" not in registry
-    assert "fastmesh_v4k_retopology" not in workspace
-    assert "V4K" not in api
-    assert "target_vertex_count" not in adapter
+    # The workspace currently routes AI remeshing to TriFlow. FastMesh remains
+    # a separately registered API-selectable adapter with a fixed V1K checkpoint.
+    assert "model_preference: 'triflow_retopology'" in workspace
+    assert "triflow_retopology" in bridge
+    assert "fastmesh_v1k_retopology" in registry
+    assert '"fastmesh_v1k_retopology"' in factory
+    assert "FastMesh-V1K" in adapter
     assert "output_vertex_count" in adapter
-    assert "fastmesh_v1k_retopology" in workspace
-    assert "model_preference: 'fastmesh_v1k_retopology'" in workspace
-    assert "target_vertex_count" not in workspace
-    assert "preserve_edges:" not in workspace
-    assert "feature_angle:" not in workspace
-    assert "variant: 'V1K'" in bridge
+    assert "target_vertex_count" not in adapter
+    assert "fastmesh_v4k_retopology" not in registry
+    assert "V4K" not in api
+    assert "Deprecated compatibility field" in api
+
+    # The former V1K variant state was written by the panel but never read or
+    # forwarded to the API; the checkpoint identity belongs to the adapter.
+    assert "variant: 'V1K'" not in panel
+    assert "FastMesh Variant" not in inspector
+    assert "variant" not in workspace_types
+    assert "variant?: 'V1K'" not in workspace
+
+
+def test_runtime_probe_inventory_includes_enabled_specialist_adapters():
+    from backend.adapters import _ADAPTER_MAP
+    from backend.core.runtime_probe import _get_installed_adapters
+
+    installed = set(_get_installed_adapters())
+    model_config = yaml.safe_load(
+        (ROOT / "backend" / "config" / "models.yaml").read_text(encoding="utf-8")
+    )
+    enabled_model_ids = {
+        model_id
+        for section in model_config.values()
+        if isinstance(section, dict)
+        for model_id, config in section.items()
+        if isinstance(config, dict) and config.get("enabled") is True
+    }
+    assert enabled_model_ids <= installed
+    assert {
+        "triflow_retopology",
+        "fastmesh_v1k_retopology",
+        "partfield_segmentation",
+    } <= installed
+    assert _ADAPTER_MAP["triflow_retopology"] == "backend.adapters.triflow_adapter"
+    assert _ADAPTER_MAP["fastmesh_v1k_retopology"] == "backend.adapters.fastmesh_adapter"
+    assert _ADAPTER_MAP["partfield_segmentation"] == "backend.adapters.partfield_adapter"
