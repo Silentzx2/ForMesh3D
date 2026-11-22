@@ -19,6 +19,7 @@ import {
 import type { LightTone } from '../types';
 import type { ShadingMode } from '../types';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
+import { getAssetComparisonPair } from '../lib/assetComparison';
 
 interface ViewportToolOverlayProps {
   isRightPanelOpen?: boolean;
@@ -31,6 +32,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
     showWireframe,
     setShowWireframe,
     currentAsset,
+    isExecuting,
     isComparing,
     setIsComparing,
     showGrid,
@@ -78,9 +80,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
   }, [workspaceId, assets, currentAsset]);
 
   const isRightPanelOpen = propRightPanelOpen ?? contextRightPanelOpen ?? false;
-  const compareBeforeUrl = currentAsset?.artifacts?.source;
-  const compareAfterUrl = currentAsset?.source?.viewUrl || currentAsset?.source?.localUrl || currentAsset?.artifacts?.gameReady;
-  const canCompare = Boolean(compareBeforeUrl && compareAfterUrl && compareBeforeUrl !== compareAfterUrl);
+  const canCompare = Boolean(getAssetComparisonPair(currentAsset, isExecuting));
 
   const [activePreset, setActivePreset] = useState<'Front' | 'Top' | 'Side' | 'Iso'>('Iso');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -237,23 +237,24 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
             </button>
           </SimpleTooltip>
 
-          {/* 3. Before / After comparison */}
-          <SimpleTooltip label={canCompare ? (isComparing ? 'Exit Before / After Compare' : 'Compare Before / After') : 'Comparison appears when a processed source and result are available'} side="left">
-            <button
-              type="button"
-              disabled={!canCompare}
-              onClick={() => setIsComparing(!isComparing)}
-              aria-label={isComparing ? 'Exit model comparison' : 'Compare before and after'}
-              aria-pressed={isComparing}
-              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
-                isComparing
-                  ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
-                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
-              }`}
-            >
-              <HugeiconsIcon icon={FlipHorizontalIcon} size={16} />
-            </button>
-          </SimpleTooltip>
+          {/* 3. Before / After comparison — only shown for a completed asset pair */}
+          {canCompare && (
+            <SimpleTooltip label={isComparing ? 'Exit Before / After Compare' : 'Compare Before / After'} side="left">
+              <button
+                type="button"
+                onClick={() => setIsComparing(!isComparing)}
+                aria-label={isComparing ? 'Exit model comparison' : 'Compare before and after'}
+                aria-pressed={isComparing}
+                className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                  isComparing
+                    ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+                }`}
+              >
+                <HugeiconsIcon icon={FlipHorizontalIcon} size={16} />
+              </button>
+            </SimpleTooltip>
+          )}
 
           {/* 4. Wireframe toggle button */}
           <SimpleTooltip

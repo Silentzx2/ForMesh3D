@@ -1514,6 +1514,16 @@ async def get_job_status(job_id: str, request: Request):
                 job_status["operation_id"] = op.operation_id
                 job_status["execution_status"] = op.execution_status
                 job_status["persistence_status"] = op.persistence_status
+                existing_operation = job_status.get("operation")
+                job_status["operation"] = {
+                    **(existing_operation if isinstance(existing_operation, dict) else {}),
+                    "operation_id": op.operation_id,
+                    "input_asset_id": op.input_asset_id,
+                    "parent_operation_id": op.parent_operation_id,
+                    "operation_type": op.operation_type,
+                    "execution_status": op.execution_status,
+                    "persistence_status": op.persistence_status,
+                }
 
         return job_status
     except HTTPException:
@@ -1545,6 +1555,8 @@ async def get_workspace_operation_status(operation_id: str):
     return {
         "operation_id": operation.operation_id,
         "workspace_id": operation.workspace_id,
+        "input_asset_id": operation.input_asset_id,
+        "parent_operation_id": operation.parent_operation_id,
         "operation_type": operation.operation_type,
         "status": operation.execution_status,
         "execution_status": operation.execution_status,

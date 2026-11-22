@@ -25,6 +25,7 @@ import { apiClient } from '../lib/api';
 import { parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute, mintWorkspaceId } from '../lib/workspaceRouteContract';
 import { captureWorkspacePreviewBaseline, createWorkspacePreviewRestorePlan } from '../lib/workspacePreviewSnapshot';
 import { createWorkspaceRegenerationRequest } from '../lib/workspaceRegeneration';
+import { resolveComparisonSourceAssetId } from '../lib/assetComparison';
 import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
 import { useAppStore } from '@/stores/useAppStore';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
@@ -299,8 +300,17 @@ function preferredGenerationPreviewUrl(result?: Record<string, any>): string | u
 
 function comparisonSourceUrl(asset?: ModelAsset | null): string | undefined {
   const fileId = asset?.source?.fileId || asset?.fileId;
-  return asset?.source?.viewUrl || asset?.source?.localUrl ||
-    (fileId ? `/api/v1/file-upload/download/${encodeURIComponent(fileId)}` : undefined);
+  const viewUrl = asset?.source?.viewUrl;
+  if (viewUrl && !viewUrl.startsWith('blob:')) return viewUrl;
+  if (fileId) {
+    const artifactFormat = (asset?.format || 'GLB').toLowerCase();
+    return fileId.startsWith('job-')
+      ? `/api/v1/system/jobs/${encodeURIComponent(fileId.slice(4))}/download?artifact_format=${artifactFormat}`
+      : fileId.startsWith('ast_')
+        ? `/api/v1/system/jobs/${encodeURIComponent(fileId)}/download?artifact_format=${artifactFormat}`
+        : `/api/v1/file-upload/download/${encodeURIComponent(fileId)}`;
+  }
+  return viewUrl || asset?.source?.localUrl;
 }
 
 function preferredPreviewStats(result?: Record<string, any>): Record<string, any> {
@@ -1024,6 +1034,34 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=glb`;
       const previewStats = preferredPreviewStats(result);
       const cleanName = promptTitle && promptTitle !== 'generate' && promptTitle !== 'asset' ? promptTitle : `Model_${jobId.slice(0, 6)}`;
+      const resultArtifacts = result.artifacts && typeof result.artifacts === 'object' ? result.artifacts : {};
+      const artifactSource = typeof resultArtifacts.source === 'string'
+        ? resultArtifacts.source
+        : (typeof resultArtifacts.source?.url === 'string' ? resultArtifacts.source.url : undefined);
+      const candidateSourceAssetId = matchingTask?.sourceAssetId ||
+        rawData?.operation?.input_asset_id ||
+        rawData?.input_asset_id ||
+        result.source_asset_id ||
+        undefined;
+      const sourceAssetRecord = Array.isArray(rawData?.assets)
+        ? rawData.assets.find((asset: any) => asset.asset_id === candidateSourceAssetId)
+        : undefined;
+      // Generation input_asset_id can be an image. Only a retained mesh is a valid wipe predecessor.
+      const sourceAssetId = resolveComparisonSourceAssetId({
+        taskSourceAssetId: matchingTask?.sourceAssetId,
+        operationInputAssetId: candidateSourceAssetId,
+        operationInputFileType: sourceAssetRecord?.file_type,
+      });
+      const sourceFilename = [sourceAssetRecord?.original_filename, sourceAssetRecord?.relative_path]
+        .find((filename: string | undefined) => Boolean(filename && /\.[a-z0-9]+$/i.test(filename))) || '';
+      const sourceFormat = sourceFilename.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() || 'glb';
+      const sourceAssetUrl = sourceAssetId
+        ? `/api/v1/system/jobs/${encodeURIComponent(sourceAssetId)}/download?artifact_format=${sourceFormat}`
+        : undefined;
+      const comparisonSource = matchingTask?.sourceModelUrl || sourceAssetUrl || artifactSource || previewSourceUrl(result);
+      const outputArtifacts = comparisonSource
+        ? { ...resultArtifacts, source: comparisonSource }
+        : result.artifacts;
       void prefetchGLB(modelUrl);
       const finalAssetId = isRetainedResult && retainedAssetId
         ? retainedAssetId
@@ -1034,7 +1072,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         category: isRetainedResult ? 'mesh' : 'generation',
         workspace_id: resolvedWorkspaceId,
         operation_id: resolvedOperationId,
-       sourceAssetId: currentAsset?.id,
+       sourceAssetId,
        settingsSnapshot: matchingTask?.submissionSnapshot?.body || undefined,
         thumbnail: result.thumbnail_url || `/api/v1/system/jobs/${encodeURIComponent(retainedAssetLookupId)}/thumbnail`,
         source: {
@@ -1064,7 +1102,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         zip_url: result.zip_url,
         qa_report: result.qa_report,
         quality_trace: result.quality_trace,
-        artifacts: result.artifacts,
+        artifacts: outputArtifacts,
         candidates: result.candidates,
       });
       addAsset(outputAsset);
@@ -1869,6 +1907,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       inputImage,
       inputImageName,
       comparisonGroupId,
+      sourceAssetId: sourceModelUrl ? selectedAsset?.id : undefined,
       sourceModelUrl,
     };
     setIsExecuting(true);
@@ -2453,7 +2492,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
             name: `${cleanBaseName}_retopo_${polyType}`,
             category: 'edit',
             source: { filename: `${cleanBaseName}_retopo.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'retopology' },
-            artifacts: { source: meshUrl || comparisonSourceUrl(currentAsset) },
+            artifacts: { source: comparisonSourceUrl(currentAsset) || meshUrl },
             format: 'GLB',
             topology: polyType === 'quad' ? 'Quad' : 'Triangle',
             faces: result.stats?.face_count || targetPoly,
@@ -2615,7 +2654,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       engine === 'script' ? (customSettings?.scriptId || 'xatlas_fast') : 'partuv_uv_unwrapping',
       undefined,
       undefined,
-      comparisonGroupId ?? undefined
+      comparisonGroupId ?? undefined,
+      comparisonSourceUrl(currentAsset)
     );
     const signal = activeAbortControllerRef.current?.signal;
     try {
@@ -2676,6 +2716,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
             name: `${cleanBaseName}_uv_unwrapped`,
             category: 'edit',
             source: { filename: `${cleanBaseName}_uv.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'uv' },
+            artifacts: { source: comparisonSourceUrl(currentAsset) || meshUrl },
+            sourceAssetId: currentAsset?.id,
             format: 'GLB',
             topology: currentAsset?.topology || 'Triangle',
             faces: currentAsset?.faces || 0,
@@ -2842,7 +2884,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
             name: `${cleanBaseName}_segmented_${numParts}parts`,
             category: 'edit',
             source: { filename: `${cleanBaseName}_segmented.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'segmentation' },
-            artifacts: { source: meshUrl || comparisonSourceUrl(currentAsset) },
+            artifacts: { source: comparisonSourceUrl(currentAsset) || meshUrl },
             format: 'GLB',
             topology: currentAsset?.topology || 'Triangle',
             faces: result.stats?.face_count || currentAsset?.faces || 0,

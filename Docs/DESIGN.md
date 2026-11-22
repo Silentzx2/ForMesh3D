@@ -67,12 +67,20 @@ Use only the currently exported shared presets. Prefer local CSS transitions for
 
 ## 6. Workspace and viewport behavior
 
-- The viewport is a local Three.js viewer. It downloads GLB assets, parses them with `GLTFLoader`, and uses the browser-side cache in `features/workspace/lib/glbCache.ts`.
+- The viewport is a local Three.js viewer. It loads GLB/GLTF through `GLTFLoader` and supported OBJ, FBX, STL, and PLY meshes through their Three.js loaders; GLB downloads use the browser-side cache in `features/workspace/lib/glbCache.ts`.
 - The server-side WebSocket/WebRTC mesh-streaming design was removed. Do not implement new UI against the old streaming architecture.
 - Workspace panels use the existing constrained layout and `.workspace-tool-body` styles from `app/globals.css`; test narrow and short viewports before changing panel sizing.
 - Heavy inspectors should continue to load only when their corresponding tool is selected.
 
-## 7. Change discipline
+## 7. Before/after comparison
+
+- The viewport wipe is offered only when the active mesh is a completed output with a distinct source mesh and no workspace operation is currently executing.
+- The source asset ID and resolvable source URL are captured when retopology, texture, UV, segmentation, or rigging is submitted. Completion attaches that exact lineage to the output; later asset selection cannot silently change the "Before" mesh. After reload, the frontend can reconstruct the pair from the completed SQLite operation's `input_asset_id` and the workspace asset record; image inputs are never treated as mesh predecessors.
+- The viewport keeps one camera and a straight vertical split. Drag the centered handle horizontally, or use the arrow keys; Home and End move to either edge. The split position stays aligned with the rendered scissor boundary when comparison is reopened.
+- Closing comparison, changing the active asset, or starting another operation removes the temporary source scene. The active output remains the selected mesh.
+- The property-panel `ModelComparisonViewer` remains the separate side-by-side asset/QA comparison workflow; it is not replaced by the viewport wipe.
+
+## 8. Change discipline
 
 1. Inspect the current component and its callers before adding or replacing a UI pattern.
 2. Reuse existing CSS variables and component primitives.

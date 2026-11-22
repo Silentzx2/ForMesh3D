@@ -43,6 +43,8 @@ Canonical system routes include:
 
 The system router also exposes operational routes for queue statistics/reordering, storage reporting/cleanup, temporary cache cleanup, logs, result deletion, and candidate download/thumbnail/selection. Inspect `/docs` for their exact current schemas.
 
+Completed job status includes a compact `operation` object when the SQLite operation row is available. Its `input_asset_id` identifies the exact retained mesh consumed by a workspace operation; the ID can be resolved through the job-download route. The workspace operation status endpoint also exposes `input_asset_id` and `parent_operation_id` at the top level. This lineage is used by the viewport before/after comparison after a workspace is reloaded.
+
 ### Logs
 
 - `GET /api/v1/system/logs`

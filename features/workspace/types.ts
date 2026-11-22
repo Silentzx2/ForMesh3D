@@ -64,6 +64,8 @@ export interface ActiveTask {
   result?: Record<string, unknown>;
   logs?: { stage: string; progress: number; message: string; level: string; timestamp: string }[];
   comparisonGroupId?: string;
+  /** Asset identity captured with sourceModelUrl when this operation was submitted. */
+  sourceAssetId?: string;
   sourceModelUrl?: string;
 }
 
@@ -269,6 +271,7 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
     workspace_id: raw.workspace_id || raw.workspaceId,
     operation_id: raw.operation_id || raw.operationId,
     operation_type: raw.operation_type || raw.operationType || undefined,
+    sourceAssetId: raw.sourceAssetId || raw.source_asset_id || undefined,
     name: String(raw.name || '3D Model'),
     category: raw.category || 'mesh',
     thumbnail: raw.thumbnail || raw.thumbnail_url || '',

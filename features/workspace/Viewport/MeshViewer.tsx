@@ -18,6 +18,7 @@ import { useAnimationStore } from '@/stores/useAnimationStore';
 import { getApiClient } from '@/services/apiClient';
 import { collectMeshStats } from './meshStats';
 import { loadGLBWithProgress } from '../lib/glbCache';
+import { getAssetComparisonPair } from '../lib/assetComparison';
 
 import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
@@ -202,6 +203,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
   const {
     currentAsset,
+    assets,
     activeTool,
     isComparing,
     setIsComparing,
@@ -265,6 +267,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   }, []);
   const comparisonOpenRef = useRef(false);
   const comparisonPositionRef = useRef(50);
+  const comparisonAssetIdRef = useRef<string | null>(currentAsset?.id ?? null);
   const comparisonBeforeGroupRef = useRef<THREE.Group | null>(null);
   const comparisonDividerRef = useRef<HTMLDivElement | null>(null);
   const comparisonHandleRef = useRef<HTMLDivElement | null>(null);
@@ -1021,12 +1024,41 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     (isMeshAsset ? artifactUrl || assetFileUrl : null) ||
     (currentAsset ? null : loadedModelUrl) ||
     null;
-  const comparisonBeforeUrl = currentAsset?.artifacts?.source || null;
-  const comparisonAfterUrl = currentAsset?.source?.viewUrl || currentAsset?.source?.localUrl || currentAsset?.artifacts?.gameReady || null;
-  const canCompareModels = Boolean(comparisonBeforeUrl && comparisonAfterUrl && comparisonBeforeUrl !== comparisonAfterUrl);
+  const comparisonPair = getAssetComparisonPair(currentAsset, isExecuting);
+  const comparisonBeforeUrl = comparisonPair?.beforeUrl || null;
+  const comparisonSourceAsset = currentAsset?.sourceAssetId
+    ? assets.find((asset) =>
+        asset.id === currentAsset.sourceAssetId ||
+        asset.fileId === currentAsset.sourceAssetId ||
+        asset.source?.fileId === currentAsset.sourceAssetId ||
+        asset.id.replace(/^(local_|upload_|hist_)/, '') === currentAsset.sourceAssetId
+      )
+    : undefined;
+  const supportedComparisonFormats = ['glb', 'gltf', 'obj', 'fbx', 'stl', 'ply'];
+  const sourceFilenameExtension = comparisonSourceAsset?.source?.filename
+    ?.split(/[?#]/)[0].split('.').pop()?.toLowerCase();
+  const urlArtifactFormat = comparisonBeforeUrl?.match(/[?&]artifact_format=([^&]+)/i)?.[1]?.toLowerCase();
+  const urlPathExtension = comparisonBeforeUrl?.split(/[?#]/)[0].split('.').pop()?.toLowerCase();
+  const comparisonBeforeFormat = [
+    sourceFilenameExtension,
+    urlArtifactFormat,
+    comparisonSourceAsset?.format?.toLowerCase(),
+    urlPathExtension,
+  ].find((format) => format && supportedComparisonFormats.includes(format)) || 'glb';
+  const canCompareModels = Boolean(comparisonPair);
+
+  useEffect(() => {
+    if (comparisonAssetIdRef.current !== (currentAsset?.id ?? null)) {
+      comparisonAssetIdRef.current = currentAsset?.id ?? null;
+      setIsComparing(false);
+    }
+  }, [currentAsset?.id, setIsComparing]);
 
   useEffect(() => {
     comparisonOpenRef.current = isComparing;
+    if (isComparing && comparisonDividerRef.current) {
+      comparisonDividerRef.current.style.left = `${comparisonPositionRef.current}%`;
+    }
     invalidateRenderRef.current();
   }, [isComparing]);
 
@@ -1038,7 +1070,8 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     invalidateRenderRef.current();
   }, [isTurntable]);
 
-  // ponytail: load source only while Compare is open; caching waits for measured repeat-use cost.
+  // Load the captured predecessor only while comparison is open.
+  // Use the same formats as the primary viewport and dispose every stale result.
   useEffect(() => {
     const beforeGroup = comparisonBeforeGroupRef.current;
     if (!beforeGroup) return;
@@ -1065,62 +1098,107 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       disposeObject3D(child);
     }
 
-    sharedGLTFLoader.load(
-      comparisonBeforeUrl,
-      (gltf) => {
-        const original = gltf.scene;
-        if (isCancelled || !comparisonBeforeGroupRef.current) {
-          disposeObject3D(original);
-          return;
-        }
-        const bounds = new THREE.Box3().setFromObject(original);
-        if (bounds.isEmpty()) {
-          disposeObject3D(original);
-          setIsComparisonLoading(false);
-          setIsComparing(false);
-          return;
-        }
-        const center = bounds.getCenter(new THREE.Vector3());
-        const size = bounds.getSize(new THREE.Vector3());
-        const maxDimension = Math.max(size.x, size.y, size.z);
-        const scale = maxDimension > 0 ? 2 / maxDimension : 1;
-        original.position.sub(center.clone().multiplyScalar(scale));
-        original.position.y += (size.y * scale) / 2;
-        original.scale.setScalar(scale);
-        original.traverse((child) => {
-          if (child instanceof THREE.Mesh) {
-            const triCount = child.geometry?.index
-              ? child.geometry.index.count / 3
-              : (child.geometry?.attributes?.position?.count || 0) / 3;
-            // High-density meshes (>800k tris) bypass shadow-map rasterization to preserve 60 FPS
-            child.castShadow = triCount < 800_000;
-            child.receiveShadow = true;
-            child.frustumCulled = true;
-            child.matrixAutoUpdate = false;
-            child.updateMatrix();
-            applyShadingToMesh(child, shadingModeRef.current, Boolean(showWireframeRef.current));
-          }
-        });
-        comparisonBeforeGroupRef.current.add(original);
-        comparisonBeforeGroupRef.current.visible = true;
-        setIsComparisonLoading(false);
-        invalidateRenderRef.current();
-      },
-      undefined,
-      (error) => {
-        if (!isCancelled) {
-          setIsComparisonLoading(false);
-          setIsComparing(false);
-          toast.error('Could not load the original mesh for comparison');
-          console.warn('Original mesh comparison load failed:', error);
-        }
+    const failComparisonLoad = (error: unknown) => {
+      if (isCancelled) return;
+      setIsComparisonLoading(false);
+      setIsComparing(false);
+      toast.error('Could not load the original mesh for comparison');
+      console.warn('Original mesh comparison load failed:', error);
+    };
+
+    const handleComparisonLoaded = (original: THREE.Object3D) => {
+      if (isCancelled || !comparisonBeforeGroupRef.current) {
+        disposeObject3D(original);
+        return;
       }
-    );
+      const bounds = new THREE.Box3().setFromObject(original);
+      if (bounds.isEmpty()) {
+        disposeObject3D(original);
+        setIsComparisonLoading(false);
+        setIsComparing(false);
+        return;
+      }
+      const center = bounds.getCenter(new THREE.Vector3());
+      const size = bounds.getSize(new THREE.Vector3());
+      const maxDimension = Math.max(size.x, size.y, size.z);
+      const scale = maxDimension > 0 ? 2 / maxDimension : 1;
+      original.position.sub(center.clone().multiplyScalar(scale));
+      original.position.y += (size.y * scale) / 2;
+      original.scale.setScalar(scale);
+      original.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          const triCount = child.geometry?.index
+            ? child.geometry.index.count / 3
+            : (child.geometry?.attributes?.position?.count || 0) / 3;
+          // High-density meshes (>800k tris) bypass shadow-map rasterization to preserve 60 FPS
+          child.castShadow = triCount < 800_000;
+          child.receiveShadow = true;
+          child.frustumCulled = true;
+          child.matrixAutoUpdate = false;
+          child.updateMatrix();
+          applyShadingToMesh(child, shadingModeRef.current, Boolean(showWireframeRef.current));
+        }
+      });
+      comparisonBeforeGroupRef.current.add(original);
+      comparisonBeforeGroupRef.current.visible = true;
+      setIsComparisonLoading(false);
+      invalidateRenderRef.current();
+    };
+
+    if (comparisonBeforeFormat === 'glb' || comparisonBeforeFormat === 'gltf') {
+      void loadGLBWithProgress(comparisonBeforeUrl, undefined, abortController.signal)
+        .then((buffer) => {
+          if (isCancelled || abortController.signal.aborted) return;
+          const basePath = comparisonBeforeUrl.startsWith('blob:') || comparisonBeforeUrl.startsWith('data:')
+            ? ''
+            : new URL('.', new URL(comparisonBeforeUrl, window.location.href)).href;
+          sharedGLTFLoader.parse(
+            buffer,
+            basePath,
+            (gltf) => handleComparisonLoaded(gltf.scene || gltf.scenes?.[0] || new THREE.Group()),
+            failComparisonLoad,
+          );
+        })
+        .catch(failComparisonLoad);
+    } else if (comparisonBeforeFormat === 'obj') {
+      sharedOBJLoader.load(comparisonBeforeUrl, handleComparisonLoaded, undefined, failComparisonLoad);
+    } else if (comparisonBeforeFormat === 'fbx') {
+      sharedFBXLoader.load(comparisonBeforeUrl, handleComparisonLoaded, undefined, failComparisonLoad);
+    } else if (comparisonBeforeFormat === 'stl') {
+      sharedSTLLoader.load(
+        comparisonBeforeUrl,
+        (geometry) => {
+          geometry.computeVertexNormals();
+          handleComparisonLoaded(new THREE.Mesh(
+            geometry,
+            new THREE.MeshStandardMaterial({ color: 0xc8cdd5, roughness: 0.6 }),
+          ));
+        },
+        undefined,
+        failComparisonLoad,
+      );
+    } else if (comparisonBeforeFormat === 'ply') {
+      sharedPLYLoader.load(
+        comparisonBeforeUrl,
+        (geometry) => {
+          geometry.computeVertexNormals();
+          handleComparisonLoaded(new THREE.Mesh(
+            geometry,
+            new THREE.MeshStandardMaterial({ color: 0xc8cdd5, roughness: 0.6 }),
+          ));
+        },
+        undefined,
+        failComparisonLoad,
+      );
+    } else {
+      failComparisonLoad(new Error('Unsupported comparison format: ' + comparisonBeforeFormat));
+    }
 
     return () => {
       isCancelled = true;
+      abortController.abort();
     };
-  }, [isComparing, canCompareModels, comparisonBeforeUrl, setIsComparing, applyShadingToMesh]);
+  }, [isComparing, canCompareModels, comparisonBeforeUrl, comparisonBeforeFormat, setIsComparing, applyShadingToMesh]);
 
   useEffect(() => {
     if (!modelUrl || !modelGroupRef.current) {
@@ -1543,7 +1621,11 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           <div className="absolute top-3 right-3 px-2 py-1 rounded-md bg-black/65 border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white">
             After
           </div>
-          <div ref={comparisonDividerRef} className="absolute top-0 bottom-0" style={{ left: '50%' }}>
+          <div
+            ref={comparisonDividerRef}
+            className="absolute top-0 bottom-0"
+            style={{ left: `${comparisonPositionRef.current}%` }}
+          >
             <div className="absolute inset-y-0 left-0 w-px -translate-x-1/2 bg-[#F9CF00] shadow-[0_0_10px_rgba(249,207,0,0.7)]" />
             <div
               ref={comparisonHandleRef}
@@ -1552,8 +1634,8 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
               aria-label="Before and after comparison split"
               aria-valuemin={0}
               aria-valuemax={100}
-              aria-valuenow={50}
-              aria-valuetext="50 percent before"
+              aria-valuenow={Math.round(comparisonPositionRef.current)}
+              aria-valuetext={`${Math.round(comparisonPositionRef.current)} percent before`}
               onPointerDown={(event) => {
                 event.preventDefault();
                 event.currentTarget.setPointerCapture(event.pointerId);
@@ -1580,7 +1662,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
                   updateComparisonPosition(containerRef.current?.getBoundingClientRect().right ?? 0);
                 }
               }}
-              className="pointer-events-auto absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-10 rounded-full bg-[#171821] border border-[#F9CF00] shadow-lg flex items-center justify-center cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-[#F9CF00]"
+              className="pointer-events-auto absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-12 rounded-full bg-[#171821]/95 border border-[#F9CF00] shadow-lg flex items-center justify-center cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-[#F9CF00]"
             >
               <span className="flex items-center gap-0.5 text-[#F9CF00]">
                 <span className="w-0.5 h-3 rounded-full bg-current" />
