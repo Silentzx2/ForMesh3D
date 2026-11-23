@@ -1,3 +1,8 @@
+## 2026-11-23 — Model Artifact, Inference Telemetry & PartField Color Fixes
+- Fixed PartField RGBA face-color assignment for both the combined mesh and individual part exports.
+- Made PartUV export GLB by default while retaining OBJ as an explicit option; the scheduler now builds download URLs from the published artifact extension.
+- Added explicit sampling/decoding telemetry for PartField, PartUV and TriFlow inference stages.
+
 # ForMesh3D Changelog
 
 ## 2026-11-23 — Desktop Workspace Controls & Overlay Collision Fixes
@@ -12,11 +17,3 @@
 - Removed unused model-manifest metadata, normalized YAML formatting, and registered TRELLIS text painting as an alias over its existing checkpoint/adapter.
 - Added regression coverage and strengthened the model contract verifier to check enabled IDs against both adapter registries.
 
-## 2026-11-22 — Dead-Code Audit, Registry Wiring and Documentation Correction
-- Re-audited the `dev` branch against imports, dynamic references, router registration, tests, API contracts and the pinned third-party submodule.
-- Removed 11 unreferenced/broken first-party files, 14 unused API-client methods, five unused exports, and the deprecated synchronous `resolve_file_id()` stub.
-- Preserved REST endpoints with no current UI caller, disabled model support trees, third-party compatibility shims, and shared script-execution helpers.
-- Corrected runtime adapter inventory for TriFlow Retopology, FastMesh V1K and PartField Segmentation; added a regression test.
-- Rewrote current-state, architecture, product, blueprint, API, task and README docs to match checked-in wiring. No disabled model was enabled or removed.
-- Scoped backend syntax CI to first-party Python sources; the pinned TRELLIS submodule is excluded from first-party syntax checks.
-- Removed unused remesh `variant` state and misleading inspector row; corrected script-mode execution to schedule the pipeline as a FastAPI background task and refreshed integration tests.

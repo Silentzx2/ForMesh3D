@@ -24,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import sys
+import time
 import types
 from pathlib import Path
 from typing import Any, Dict
@@ -147,6 +148,9 @@ class PartUVUnwrappingAdapter(BaseModel):
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
         distortion_threshold = float(inputs.get("distortion_threshold", 1.25))
+        output_format = str(inputs.get("output_format", "glb")).lower().lstrip(".")
+        if output_format not in {"glb", "obj"}:
+            raise ValueError("PartUV output_format must be 'glb' or 'obj'")
 
         import trimesh
 
@@ -156,31 +160,47 @@ class PartUVUnwrappingAdapter(BaseModel):
 
         preprocess_out = Path(tempfile.mkdtemp())
         ctx = contextlib.nullcontext()
+        logger.info("[PARTUV] Sampling mesh surfaces and predicting part-aware UV features...")
+        preprocess_started = time.perf_counter()
         with ctx:
             result = self._preprocess(mesh_path, output_path=str(preprocess_out))
+        preprocess_elapsed = time.perf_counter() - preprocess_started
 
-        out = Path(tempfile.mkdtemp()) / f"partuv_{seed}.obj"
         # preprocess returns a 4-tuple: (mesh, binary_file_path, tree_dict, preprocess_times)
         mesh_result = result[0] if isinstance(result, tuple) else result
+        preprocess_times = result[3] if isinstance(result, tuple) and len(result) > 3 else None
+        logger.info(
+            "[PARTUV] Sampling/decoding pipeline completed elapsed=%.2fs",
+            preprocess_elapsed,
+        )
+        if isinstance(preprocess_times, dict):
+            for stage, elapsed in preprocess_times.items():
+                logger.info("[PARTUV] upstream_stage=%s elapsed=%s", stage, elapsed)
+
+        logger.info("[PARTUV] Decoding UV chart mesh and exporting %s artifact...", output_format.upper())
+        out = Path(tempfile.mkdtemp()) / f"partuv_{seed}.{output_format}"
         if hasattr(mesh_result, "export"):
-            mesh_result.export(str(out))
+            mesh_result.export(str(out), file_type=output_format)
         elif isinstance(mesh_result, trimesh.Trimesh):
             mesh_result.export(str(out))
         else:
             return {"success": False, "error": "PartUV produced no exportable mesh"}
 
+        logger.info("[PARTUV] Export completed: path=%s size_bytes=%d", out, out.stat().st_size)
         return {
             "success": True,
             "output_mesh_path": str(out),
             "mesh_path": str(out),
+            "format": output_format,
             "generation_info": {
                 "seed": seed,
                 "distortion_threshold": distortion_threshold,
+                "preprocess_elapsed_s": round(preprocess_elapsed, 3),
             },
         }
 
     def get_supported_formats(self) -> Dict[str, list[str]]:
-        return {"input": ["obj", "glb"], "output": ["obj"]}
+        return {"input": ["obj", "glb"], "output": ["obj", "glb"]}
 
     def get_parameter_schema(self) -> Dict[str, Any]:
         return {

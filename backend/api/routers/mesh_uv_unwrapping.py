@@ -76,7 +76,7 @@ class MeshUVUnwrappingRequest(BaseModel):
         True, description="Save individual part meshes"
     )
     save_visuals: bool = Field(False, description="Save visualization images")
-    output_format: str = Field("obj", description="Output format for UV unwrapped mesh")
+    output_format: str = Field("glb", description="Output format for UV unwrapped mesh")
     model_preference: str = Field(
         "partuv_uv_unwrapping",
         description="Name of the UV unwrapping model to use",

@@ -492,6 +492,7 @@ uv_unwrapping:
       - obj
       - glb
     supported_outputs:
+      - glb
       - obj
     model_path: backend/pretrained/PartUV
     capabilities:

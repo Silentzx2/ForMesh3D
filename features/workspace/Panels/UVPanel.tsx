@@ -286,7 +286,7 @@ export const UVPanel: React.FC = () => {
   const [distortionThreshold, setDistortionThreshold] = useState<number>(1.25);
   const [symmetryStacking, setSymmetryStacking] = useState<boolean>(true);
   const [saveIndividualParts, setSaveIndividualParts] = useState<boolean>(true);
-  const [outputFormat, setOutputFormat] = useState<'obj' | 'glb'>('obj');
+  const [outputFormat, setOutputFormat] = useState<'obj' | 'glb'>('glb');
   const [mounted, setMounted] = useState(false);
 
   const advancedTriggerRef = useRef<HTMLButtonElement>(null);

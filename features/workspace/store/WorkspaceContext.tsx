@@ -2757,7 +2757,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         pack_method: customSettings?.packMethod || 'blender',
         save_individual_parts: customSettings?.saveIndividualParts ?? true,
         save_visuals: false,
-        output_format: customSettings?.outputFormat || 'obj',
+        output_format: customSettings?.outputFormat || 'glb',
         model_preference: 'partuv_uv_unwrapping',
         boundary_packer: customSettings?.boundaryPacker ?? true,
         symmetry_stacking: customSettings?.symmetryStacking ?? false,

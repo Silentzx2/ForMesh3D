@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib
 import logging
 import sys
+import time
 import types
 from pathlib import Path
 from typing import Any, Dict, List
@@ -294,6 +295,11 @@ class PartFieldSegmentationAdapter(BaseModel):
         if callable(progress):
             progress("Extracting trained PartField feature fields", 15, "inference")
         seed = int(inputs.get("seed", 42))
+        sampling_started = time.perf_counter()
+        logger.info(
+            "[PARTFIELD] Sampling face features: samples_per_face=%d batch_size=%d seed=%d",
+            10, 8192, seed,
+        )
         tree, _root_node, _normalized_mesh = self.model.process_face(
             str(source_file),
             mesh=inference_mesh,
@@ -307,10 +313,19 @@ class PartFieldSegmentationAdapter(BaseModel):
             sample_batch_size=8192,
             pca_dim=None,
         )
+        logger.info(
+            "[PARTFIELD] Feature sampling/inference completed elapsed=%.2fs",
+            time.perf_counter() - sampling_started,
+        )
 
         if callable(progress):
             progress("Clustering learned PartField features", 75, "clustering")
+        logger.info("[PARTFIELD] Decoding merge tree into per-face segmentation labels...")
         labels = _labels_from_merge_tree(tree, face_count, min(target_parts, face_count))
+        logger.info(
+            "[PARTFIELD] Merge-tree decoding completed: faces=%d parts=%d",
+            face_count, len(np.unique(labels)),
+        )
 
         # Drop very small face islands into their nearest segment using the
         # existing mesh-processing helper; it does not invent semantic features.
@@ -329,7 +344,7 @@ class PartFieldSegmentationAdapter(BaseModel):
         if colorize:
             face_colors = np.full((face_count, 4), 220, dtype=np.uint8)
             for part_id in range(actual_parts):
-                face_colors[labels == part_id] = (*palette[part_id % len(palette)], 255)
+                face_colors[labels == part_id] = palette[part_id % len(palette)]
             segmented_mesh.visual.face_colors = face_colors
 
         individual_paths: List[str] = []
@@ -348,7 +363,7 @@ class PartFieldSegmentationAdapter(BaseModel):
                 )
                 if colorize:
                     part_mesh.visual.face_colors = np.tile(
-                        np.asarray((*palette[part_id % len(palette)], 255), dtype=np.uint8),
+                        np.asarray(palette[part_id % len(palette)], dtype=np.uint8),
                         (len(part_mesh.faces), 1),
                     )
                 part_path = parts_dir / f"part_{part_id + 1:02d}.{output_format}"

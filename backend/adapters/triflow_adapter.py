@@ -311,18 +311,33 @@ class TriFlowRetopologyAdapter(BaseModel):
             }
 
             logger.info("[TRIFLOW] Sampling Latent Flow Matching (50 steps)...")
+            sampling_started = time.perf_counter()
             with torch.no_grad():
                 with accelerator.autocast():
                     res = sampler.sample(model, noise=noise, cond=c, steps=50, verbose=False)
+            logger.info(
+                "[TRIFLOW] Latent sampling completed elapsed=%.2fs",
+                time.perf_counter() - sampling_started,
+            )
 
+            logger.info("[TRIFLOW] Decoding sampled latent into dense occupancy and NVV fields...")
+            decoding_started = time.perf_counter()
             recon = res.samples
             recon = post_process(batch_data, recon)
+            logger.info(
+                "[TRIFLOW] Latent decoding completed elapsed=%.2fs",
+                time.perf_counter() - decoding_started,
+            )
 
             coords = recon["occ_fine"][:, 1:].cpu().numpy()
             nvv = recon["nvv_fine"].cpu().numpy()
             resolution = int(recon["res_fine"])
 
-            logger.info("[TRIFLOW] Reconstructing mesh with constrained QEM (target=%d)...", target_faces)
+            logger.info(
+                "[TRIFLOW] Decoding dense fields into topology mesh with constrained QEM (target=%d)...",
+                target_faces,
+            )
+            mesh_decoding_started = time.perf_counter()
             mesh_qem = topology_flow2mesh_QEM(
                 remeshed_mesh,
                 coords,
@@ -335,6 +350,11 @@ class TriFlowRetopologyAdapter(BaseModel):
                 max_quadratic_error=qem_threshold,
                 target_position_weight=0.1,
                 verbose=False,
+            )
+            logger.info(
+                "[TRIFLOW] Topology mesh decoding completed elapsed=%.2fs faces=%d",
+                time.perf_counter() - mesh_decoding_started,
+                len(mesh_qem.faces),
             )
 
             if inputs.get("output_path"):

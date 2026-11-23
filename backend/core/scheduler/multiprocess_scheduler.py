@@ -78,6 +78,20 @@ from .resource_planner import ResourcePlan, ResourcePlanner, configure_cpu_runti
 
 logger = logging.getLogger(__name__)
 
+
+def _result_artifact_format(result: Dict[str, Any]) -> str:
+    """Return the actual mesh extension used by the published job artifact."""
+    output_path = (
+        result.get("output_mesh_path")
+        or result.get("mesh_path")
+        or result.get("output_path")
+        or result.get("file_path")
+    )
+    suffix = Path(str(output_path)).suffix.lower().lstrip(".") if output_path else ""
+    candidate = suffix or str(result.get("format") or "").lower().lstrip(".")
+    return candidate if candidate in {"glb", "gltf", "obj", "fbx", "stl", "ply"} else "glb"
+
+
 def parse_bool_env(env_var: str, default: bool = False) -> bool:
     """Parse environment variable as boolean, handling common string representations."""
     value = os.environ.get(env_var, str(default)).strip().lower()
@@ -2429,6 +2443,7 @@ class MultiprocessModelScheduler:
                                 logger.warning(f"Failed to sync generated mesh asset to workspace DB: {_db_error}")
                 # The adapter output has now been copied to durable storage.
                 # Remove its private temp directory before persisting the job result.
+                final_result["format"] = _result_artifact_format(final_result)
                 self._cleanup_adapter_temporary_output(final_result, nested=False)
                 # Persist durable paths (asset_root / output_mesh_path / mesh_path)
                 # so the download endpoint can resolve the job artifact even when
@@ -2734,10 +2749,16 @@ class MultiprocessModelScheduler:
                         final_result.setdefault("high_fidelity_url", master_url)
                         final_result.setdefault("download_url", derived_url)
                     elif out_mesh:
-                        final_result.setdefault("model_url", f"/api/v1/system/jobs/{job_id}/download?artifact_format=glb")
-                        final_result.setdefault("game_ready_url", f"/api/v1/system/jobs/{job_id}/download?artifact_format=glb")
-                        final_result.setdefault("source_model_url", f"/api/v1/system/jobs/{job_id}/download?artifact_format=glb")
-                        final_result.setdefault("download_url", f"/api/v1/system/jobs/{job_id}/download?artifact_format=glb")
+                        artifact_format = _result_artifact_format(final_result)
+                        artifact_url = (
+                            f"/api/v1/system/jobs/{job_id}/download"
+                            f"?artifact_format={artifact_format}"
+                        )
+                        final_result["format"] = artifact_format
+                        final_result.setdefault("model_url", artifact_url)
+                        final_result.setdefault("game_ready_url", artifact_url)
+                        final_result.setdefault("source_model_url", artifact_url)
+                        final_result.setdefault("download_url", artifact_url)
                     gen_info = final_result.get("generation_info") or {}
                     if "polygon_count" not in final_result:
                         final_result["polygon_count"] = gen_info.get("face_count") or gen_info.get("native_face_count") or 0
