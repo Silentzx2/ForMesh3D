@@ -630,10 +630,13 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     fi
 
     # torchsparse — CUDA sparse convolution backend for Direct3D-S2 / TRELLIS (TriFlow).
-    # Not on PyPI; installed from pinned git source per backend/thirdparty/triflow/setup.sh:11.
+    # Try wheel-house fast path first; fall back to pinned git source per backend/thirdparty/triflow/setup.sh:11.
     # Required by Direct3D-S2's default sparse backend (BACKEND='torchsparse').
     echo "[INFO] Installing torchsparse (TriFlow sparse conv backend)..."
-    $UV_PIP install --no-build-isolation "git+https://github.com/mit-han-lab/torchsparse.git@385f5ce8718fcae93540511b7f5832f4e71fd835" || echo "[ERROR] torchsparse install failed — TriFlow will fail to load its SparseSDFVAE."
+    if ! install_local_wheel "torchsparse-2.1.0-cp310-cp310-linux_x86_64.whl" "torchsparse"; then
+        echo "[WARN] torchsparse wheel not in $WHEEL_DIR; building from pinned git source..."
+        $UV_PIP install --no-build-isolation "git+https://github.com/mit-han-lab/torchsparse.git@385f5ce8718fcae93540511b7f5832f4e71fd835" || echo "[ERROR] torchsparse install failed — TriFlow will fail to load its SparseSDFVAE."
+    fi
 
     # natten — prebuilt wheel only, no source build (Pixal3D NAF upsample attention).
     # Try wheel-house fast path first; fall back to direct URL wheel if absent.
