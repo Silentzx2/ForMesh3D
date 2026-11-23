@@ -74,9 +74,10 @@ Use only the currently exported shared presets. Prefer local CSS transitions for
 
 ## 7. Before/after comparison
 
-- The viewport wipe is offered only when the active mesh is a completed output with a distinct source mesh and no workspace operation is currently executing.
+- Texture/PBR comparison is available for a loaded mesh: the before copy uses neutral clay shading while the active after copy retains PBR/textured materials. It loads the same mesh URL twice and does not create an asset.
+- Geometry comparison (Retopo, Remesh, UV mesh output, Segmentation) requires a completed output with a verified, distinct source mesh URL. UV atlas/metadata-only outputs are not comparable meshes.
 - The source asset ID and resolvable source URL are captured when retopology, texture, UV, segmentation, or rigging is submitted. Completion attaches that exact lineage to the output; later asset selection cannot silently change the "Before" mesh. After reload, the frontend can reconstruct the pair from the completed SQLite operation's `input_asset_id` and the workspace asset record; image inputs are never treated as mesh predecessors.
-- The viewport keeps one camera and a straight vertical split. Drag the centered handle horizontally, or use the arrow keys; Home and End move to either edge. The split position stays aligned with the rendered scissor boundary when comparison is reopened.
+- The viewport keeps one camera and a draggable, keyboard/touch-accessible vertical split. Both halves share the scene, lighting, renderer and render loop. Comparison renders both states into resize-aware render targets with the existing WebGLRenderer, then composites them through a shader using the same 14-degree diagonal as the draggable divider.
 - Closing comparison, changing the active asset, or starting another operation removes the temporary source scene. The active output remains the selected mesh.
 - There is no separate right-panel model picker, side-by-side renderer, or QA comparison section. All model before/after comparison uses the viewport wipe.
 

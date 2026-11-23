@@ -32,6 +32,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
     showWireframe,
     setShowWireframe,
     currentAsset,
+    activeTool,
     isExecuting,
     isComparing,
     setIsComparing,
@@ -80,7 +81,8 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
   }, [workspaceId, assets, currentAsset]);
 
   const isRightPanelOpen = propRightPanelOpen ?? contextRightPanelOpen ?? false;
-  const canCompare = Boolean(getAssetComparisonPair(currentAsset, isExecuting));
+  const hasRenderableMesh = Boolean(currentAsset && currentAsset.category !== 'texture' && currentAsset.format !== 'IMAGE' && currentAsset.format !== 'FILE' && (currentAsset.source?.viewUrl || currentAsset.source?.localUrl || currentAsset.artifacts?.gameReady || currentAsset.artifacts?.source));
+  const canCompare = Boolean(getAssetComparisonPair(currentAsset, isExecuting)) || (!isExecuting && hasRenderableMesh && (activeTool === 'texture' || activeTool === 'pbr'));
 
   const [activePreset, setActivePreset] = useState<'Front' | 'Top' | 'Side' | 'Iso'>('Iso');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -237,13 +239,13 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
             </button>
           </SimpleTooltip>
 
-          {/* 3. Before / After comparison — only shown for a completed asset pair */}
+          {/* 3. Unified viewport comparison — lineage pair or same-mesh texture shading */}
           {canCompare && (
-            <SimpleTooltip label={isComparing ? 'Exit Before / After Compare' : 'Compare Before / After'} side="left">
+            <SimpleTooltip label={isComparing ? 'Exit Viewport Comparison' : (activeTool === 'texture' || activeTool === 'pbr' ? 'Compare Clay vs Textured' : 'Compare Before / After')} side="left">
               <button
                 type="button"
                 onClick={() => setIsComparing(!isComparing)}
-                aria-label={isComparing ? 'Exit model comparison' : 'Compare before and after'}
+                aria-label={isComparing ? 'Exit viewport comparison' : (activeTool === 'texture' || activeTool === 'pbr' ? 'Compare clay and textured model' : 'Compare before and after')}
                 aria-pressed={isComparing}
                 className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
                   isComparing

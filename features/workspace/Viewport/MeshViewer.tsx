@@ -19,6 +19,7 @@ import { getApiClient } from '@/services/apiClient';
 import { collectMeshStats } from './meshStats';
 import { loadGLBWithProgress } from '../lib/glbCache';
 import { getAssetComparisonPair } from '../lib/assetComparison';
+import { getDiagonalComparisonSlope } from '../lib/comparisonGeometry';
 
 import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
@@ -421,6 +422,55 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     comparisonBeforeGroupRef.current = comparisonBeforeGroup;
     scene.add(comparisonBeforeGroup);
 
+    // Diagonal comparison is composited from two passes of this same renderer.
+    // Render targets keep the scene/camera/lights shared; only model visibility changes.
+    const comparisonTargetBefore = new THREE.WebGLRenderTarget(width, height, {
+      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat, depthBuffer: true, stencilBuffer: false,
+    });
+    const comparisonTargetAfter = new THREE.WebGLRenderTarget(width, height, {
+      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat, depthBuffer: true, stencilBuffer: false,
+    });
+    comparisonTargetBefore.texture.colorSpace = THREE.SRGBColorSpace;
+    comparisonTargetAfter.texture.colorSpace = THREE.SRGBColorSpace;
+    const comparisonCompositeScene = new THREE.Scene();
+    const comparisonCompositeCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const comparisonCompositeMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uBefore: { value: comparisonTargetBefore.texture },
+        uAfter: { value: comparisonTargetAfter.texture },
+        uPosition: { value: 0.5 },
+        uSlope: { value: getDiagonalComparisonSlope(width, height) },
+      },
+      vertexShader: `varying vec2 vUv;
+        void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+      fragmentShader: `uniform sampler2D uBefore;
+        uniform sampler2D uAfter;
+        uniform float uPosition;
+        uniform float uSlope;
+        varying vec2 vUv;
+        void main() {
+          float dividerX = uPosition + (0.5 - vUv.y) * uSlope;
+          vec4 color = vUv.x <= dividerX ? texture2D(uBefore, vUv) : texture2D(uAfter, vUv);
+          gl_FragColor = color;
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+      depthTest: false, depthWrite: false, toneMapped: false,
+    });
+    const comparisonCompositeQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), comparisonCompositeMaterial);
+    comparisonCompositeScene.add(comparisonCompositeQuad);
+    const resizeComparisonTargets = (w: number, h: number) => {
+      const pixelRatio = renderer.getPixelRatio();
+      const targetWidth = Math.max(1, Math.round(w * pixelRatio));
+      const targetHeight = Math.max(1, Math.round(h * pixelRatio));
+      comparisonTargetBefore.setSize(targetWidth, targetHeight);
+      comparisonTargetAfter.setSize(targetWidth, targetHeight);
+      comparisonCompositeMaterial.uniforms.uSlope.value = getDiagonalComparisonSlope(w, h);
+    };
+    resizeComparisonTargets(width, height);
+
     // Render on demand. OrbitControls emits "change" while damping settles;
     // imported model animations and the optional turntable keep their own RAF alive.
     let animId: number | null = null;
@@ -451,20 +501,32 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       if (comparisonOpenRef.current && beforeGroup?.children.length && afterGroup?.children.length) {
         const width = container.clientWidth;
         const height = container.clientHeight;
-        const split = Math.max(1, Math.min(width - 1, Math.round(width * comparisonPositionRef.current / 100)));
-        renderer.setScissorTest(true);
+        const drawingBufferSize = renderer.getDrawingBufferSize(new THREE.Vector2());
+        comparisonCompositeMaterial.uniforms.uPosition.value = comparisonPositionRef.current / 100;
+        comparisonCompositeMaterial.uniforms.uSlope.value = Math.tan(14 * Math.PI / 180) * height / Math.max(width, 1);
+        const previousClearColor = renderer.getClearColor(new THREE.Color());
+        const previousClearAlpha = renderer.getClearAlpha();
+        renderer.setClearColor(0x000000, 0);
+        renderer.setScissorTest(false);
         beforeGroup.visible = true;
         afterGroup.visible = false;
-        renderer.setScissor(0, 0, split, height);
+        renderer.setRenderTarget(comparisonTargetBefore);
+        renderer.clear(true, true, true);
         renderer.render(scene, camera);
         beforeGroup.visible = false;
         afterGroup.visible = true;
-        renderer.setScissor(split, 0, width - split, height);
+        renderer.setRenderTarget(comparisonTargetAfter);
+        renderer.clear(true, true, true);
         renderer.render(scene, camera);
-        renderer.setScissorTest(false);
+        renderer.setRenderTarget(null);
+        renderer.setViewport(0, 0, drawingBufferSize.x, drawingBufferSize.y);
+        renderer.clear(true, true, true);
+        renderer.render(comparisonCompositeScene, comparisonCompositeCamera);
+        renderer.setClearColor(previousClearColor, previousClearAlpha);
       } else {
         if (beforeGroup) beforeGroup.visible = false;
         if (afterGroup) afterGroup.visible = true;
+        renderer.setRenderTarget(null);
         renderer.setScissorTest(false);
         renderer.render(scene, camera);
       }
@@ -489,6 +551,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           camera.aspect = w / h;
           camera.updateProjectionMatrix();
           renderer.setSize(w, h);
+          resizeComparisonTargets(w, h);
           invalidateRenderRef.current();
         }
       }
@@ -509,6 +572,10 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         renderer.domElement.parentElement.removeChild(renderer.domElement);
       }
       disposeObject3D(scene);
+      comparisonTargetBefore.dispose();
+      comparisonTargetAfter.dispose();
+      comparisonCompositeQuad.geometry.dispose();
+      comparisonCompositeMaterial.dispose();
       renderer.dispose();
       sceneRef.current = null;
       cameraRef.current = null;
@@ -1024,8 +1091,10 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     (isMeshAsset ? artifactUrl || assetFileUrl : null) ||
     (currentAsset ? null : loadedModelUrl) ||
     null;
+  const isTextureShadingComparison = (activeTool === 'texture' || activeTool === 'pbr') && Boolean(modelUrl);
   const comparisonPair = getAssetComparisonPair(currentAsset, isExecuting);
-  const comparisonBeforeUrl = comparisonPair?.beforeUrl || null;
+  // Compare the same mesh twice for Texture/PBR: clay on the left, PBR on the right.
+  const comparisonBeforeUrl = isTextureShadingComparison ? modelUrl : comparisonPair?.beforeUrl || null;
   const comparisonSourceAsset = currentAsset?.sourceAssetId
     ? assets.find((asset) =>
         asset.id === currentAsset.sourceAssetId ||
@@ -1041,11 +1110,12 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const urlPathExtension = comparisonBeforeUrl?.split(/[?#]/)[0].split('.').pop()?.toLowerCase();
   const comparisonBeforeFormat = [
     sourceFilenameExtension,
+    currentAsset?.format?.toLowerCase(),
     urlArtifactFormat,
     comparisonSourceAsset?.format?.toLowerCase(),
     urlPathExtension,
   ].find((format) => format && supportedComparisonFormats.includes(format)) || 'glb';
-  const canCompareModels = Boolean(comparisonPair);
+  const canCompareModels = Boolean(comparisonPair) || isTextureShadingComparison;
 
   useEffect(() => {
     if (comparisonAssetIdRef.current !== (currentAsset?.id ?? null)) {
@@ -1136,7 +1206,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           child.frustumCulled = true;
           child.matrixAutoUpdate = false;
           child.updateMatrix();
-          applyShadingToMesh(child, shadingModeRef.current, Boolean(showWireframeRef.current));
+          applyShadingToMesh(child, isTextureShadingComparison ? 'clay' : shadingModeRef.current, isTextureShadingComparison ? false : Boolean(showWireframeRef.current));
         }
       });
       comparisonBeforeGroupRef.current.add(original);
@@ -1198,7 +1268,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       isCancelled = true;
       abortController.abort();
     };
-  }, [isComparing, canCompareModels, comparisonBeforeUrl, comparisonBeforeFormat, setIsComparing, applyShadingToMesh]);
+  }, [isComparing, canCompareModels, comparisonBeforeUrl, comparisonBeforeFormat, isTextureShadingComparison, setIsComparing, applyShadingToMesh]);
 
   useEffect(() => {
     if (!modelUrl || !modelGroupRef.current) {
@@ -1616,22 +1686,22 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       {viewportStatus === 'comparing' && (
         <div className="absolute inset-0 z-10 pointer-events-none">
           <div className="absolute top-3 left-3 px-2 py-1 rounded-md bg-black/65 border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white">
-            Before
+            {isTextureShadingComparison ? 'Clay / Untextured' : activeTool === 'remesh' ? 'Original Mesh' : activeTool === 'uv' ? 'Before UV' : activeTool === 'segment' ? 'Original' : 'Before'}
           </div>
           <div className="absolute top-3 right-3 px-2 py-1 rounded-md bg-black/65 border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white">
-            After
+            {isTextureShadingComparison ? 'PBR / Textured' : activeTool === 'remesh' ? 'Remeshed' : activeTool === 'uv' ? 'After UV' : activeTool === 'segment' ? 'Segmented' : 'After'}
           </div>
           <div
             ref={comparisonDividerRef}
             className="absolute top-0 bottom-0"
-            style={{ left: `${comparisonPositionRef.current}%` }}
+            style={{ left: `${comparisonPositionRef.current}%`, transform: 'translateX(-50%) rotate(-14deg)' }}
           >
             <div className="absolute inset-y-0 left-0 w-px -translate-x-1/2 bg-[#F9CF00] shadow-[0_0_10px_rgba(249,207,0,0.7)]" />
             <div
               ref={comparisonHandleRef}
               role="slider"
               tabIndex={0}
-              aria-label="Before and after comparison split"
+              aria-label={isTextureShadingComparison ? 'Clay and textured comparison split' : 'Before and after comparison split'}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={Math.round(comparisonPositionRef.current)}
@@ -1662,7 +1732,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
                   updateComparisonPosition(containerRef.current?.getBoundingClientRect().right ?? 0);
                 }
               }}
-              className="pointer-events-auto absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-12 rounded-full bg-[#171821]/95 border border-[#F9CF00] shadow-lg flex items-center justify-center cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-[#F9CF00]"
+              className="pointer-events-auto absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 rotate-[14deg] w-10 h-12 rounded-full bg-[#171821]/95 border border-[#F9CF00] shadow-lg flex items-center justify-center cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-[#F9CF00]"
             >
               <span className="flex items-center gap-0.5 text-[#F9CF00]">
                 <span className="w-0.5 h-3 rounded-full bg-current" />

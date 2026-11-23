@@ -81,37 +81,24 @@ The checked-in CI commands are documented in [CONTRIBUTING.md](../CONTRIBUTING.m
 
 ## 9. Viewport-only comparison and PartField AI segmentation
 
-### Execution plan
+- Right-panel comparison UI, orphan viewer, and persisted picker state removed; viewport wipe remains the only model comparison surface.
+- Segmentation AI readiness is gated by CUDA, checkpoint, vendored inference source and dependencies; Script algorithms and AI learned-feature inference are distinct, with no silent fallback.
+- Backend readiness/API contracts, PartField adapter tests and UI/API docs were updated. Frontend and backend runtime contract CI passed on the implementation commit; GPU inference smoke test remains environment-dependent.
 
-1. **Remove the duplicate comparison workflow**
-   - Remove the model-comparison accordion, picker state, lineage picker controls, and QA-delta calculations from `RightPropertyPanel.tsx`.
-   - Remove the unreferenced `ModelComparisonViewer.tsx` renderer.
-   - Remove the `modelComparison` right-panel section default and scrub the legacy persisted key during store migration.
-   - Preserve the completed-workspace vertical before/after wipe in `MeshViewer.tsx` / `ViewportToolOverlay.tsx`. Do not change its lineage capture, route behavior, or camera synchronization.
-2. **Make Segmentation engine selection truthful**
-   - Probe PartField runtime readiness from the backend: CUDA, complete checkpoint, vendored inference source, and required packages.
-   - Disable the AI control with a specific reason when any prerequisite is missing; retain Script mode.
-   - Expose only the two algorithms accepted by the script endpoint in Script mode. AI mode uses the fixed learned-feature/agglomerative PartField flow.
-   - Do not silently replace a failed AI request with Script output.
-3. **Use trained PartField inference**
-   - Load the Objaverse checkpoint through the vendored PartUV copy of the official `PFInferenceModel` implementation.
-   - Extract learned face features on the selected CUDA device and use the official agglomerative merge tree.
-   - Cut that tree into the requested part count, preserve original source mesh coordinates, and export the combined mesh plus requested individual parts.
-   - Fail AI inference when model/checkpoint/dependency loading fails; never label geometry-only clustering as AI.
-4. **Protect behavior with tests and docs**
-   - Add deterministic merge-tree cut tests, invalid-tree coverage, readiness-contract coverage, and a no-fallback regression test.
-   - Document the readiness route and viewport-only comparison ownership.
-   - Run the frontend and backend CI checks; do not claim GPU inference verification unless a real checkpoint/GPU run is performed.
+## 10. Unified viewport comparison — plan and implementation record (2026-11-23)
 
-### Implementation record — 2026-11-22
+**Reference:** uploaded `1903.jpg`: same dragon, textured/PBR on one side and neutral white clay on the other, with a draggable diagonal boundary. Use only `MeshViewer.tsx` and `ViewportToolOverlay.tsx`; never restore Right Panel comparison or add another renderer.
 
-- [x] Right-panel comparison UI and state removed; viewport wipe retained as the sole model-comparison experience.
-- [x] Deleted the orphaned side-by-side `ModelComparisonViewer.tsx`.
-- [x] Removed persisted `modelComparison` section state, including a migration filter for already-saved browser state.
-- [x] Added `GET /api/v1/segment/readiness`; AI control is gated by CUDA, checkpoint, source and dependency readiness.
-- [x] Segmentation Script mode now sends only `geometric` or `connected_components`; AI mode uses the learned PartField feature-field agglomerative path.
-- [x] Removed silent AI-to-script fallback.
-- [x] Replaced the synthetic feature approximation in the PartField adapter with the vendored official inference model and deterministic merge-tree cutting.
-- [x] Added adapter contracts and regression tests; updated model, API and UI design documentation.
-- [x] Frontend CI and Backend Runtime Contract CI passed on the final implementation commit.
-- [ ] GPU-backed PartField smoke test remains environment-dependent and requires an NVIDIA GPU, the Objaverse checkpoint, and the compatible CUDA dependencies.
+**Invariants:** reuse existing Three.js scene, camera, lights, render loop, `isComparing` state and comparison-before group. Comparison is read-only. Load the before copy only while enabled; cancel stale loads and dispose comparison-owned resources on close/error/unmount. Do not dispose active-model resources. Keep alignment, camera, turntable, lighting and exposure consistent. Enable only for a renderable mesh and valid source/result lineage; never infer a predecessor from a filename or unrelated asset.
+
+**Modes:** Texture/PBR = same mesh URL twice, clay override on before copy, textured active after copy. Retopo, Remesh and Segmentation = persisted source mesh versus completed processed mesh. UV = compare only when output is a distinct renderable mesh; atlas/metadata-only output is not comparable. Other tools use generic labels only with verified source/result URLs. Labels: Clay / Untextured ↔ PBR / Textured; Before Retopo ↔ After Retopo; Original Mesh ↔ Remeshed; Before UV ↔ After UV; Original ↔ Segmented.
+
+**Phase 1 — Core contract:** resolve mode, URLs, labels and availability from active tool + asset lineage. Texture uses same URL and clay override; geometry uses distinct verified URLs. Running/failed/missing pairs are unavailable. Cancel stale loads and safely dispose comparison-owned resources.
+
+**Phase 2 — Tool support:** trace existing persisted sourceAssetId/source artifact for Retopo, Remesh, UV and Segmentation. Use only actual mesh outputs; preserve alignment and never fabricate UV geometry.
+
+**Phase 3 — Rail and interaction:** one viewport toggle, mode-specific tooltip/labels, pointer/touch/keyboard drag, no orbit while dragging. Renderer currently uses rectangular WebGL scissor; retain truthful vertical wipe until real diagonal polygon/stencil clipping is implemented and tested. A decorative diagonal over a vertical split is not acceptable.
+
+**Phase 4 — Regression and delivery:** test texture URL availability, missing/equal geometry URLs, failed/running jobs, atlas-only UV, labels, asset/tool switch, stale-load cancellation and cleanup. Run TypeScript, lint, focused tests and production build; backend tests only if backend contracts change. Update design/task docs to shipped behavior.
+
+**Implementation record:** [x] Reference inspected. [x] Texture/PBR same-mesh clay-vs-textured path wired to existing source-group loader. [x] Tool rail enables compare for a loaded Texture/PBR mesh without a separate predecessor. [x] Retopo/Remesh/UV/Segmentation labels use active tool when verified lineage exists. [x] True diagonal wipe implemented with two render-target passes and a full-screen composite shader in the existing WebGLRenderer; divider angle and shader boundary share the same 14-degree geometry. [x] Render targets resize with the viewport and are disposed with the renderer. [x] Frontend CI passed: TypeScript, ESLint, all Bun tests, and production build. [x] Backend Runtime Contract CI passed: Python compile, regression, workspace/API integration, and resolver checks. The shader boundary and divider geometry have deterministic unit coverage; no manual interactive-browser/WebGL visual result is claimed because this session has no running browser.
