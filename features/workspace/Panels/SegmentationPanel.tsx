@@ -640,7 +640,7 @@ export const SegmentationPanel: React.FC = () => {
             id="segmentation-advanced-flyout"
             role="dialog"
             aria-label="Advanced Segmentation Settings"
-            className="fixed left-4 right-4 md:left-[290px] md:right-auto bottom-12 md:bottom-16 w-auto md:w-[300px] p-3.5 rounded-2xl bg-[#141421] border border-[#F9CF00]/50 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-3 animate-in fade-in zoom-in-95 duration-150 z-50 pointer-events-auto select-none"
+            className="workspace-advanced-flyout p-3.5 rounded-2xl bg-[#141421] border border-[#F9CF00]/50 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-3 animate-in fade-in zoom-in-95 duration-150 pointer-events-auto select-none" style={{ '--workspace-flyout-width': '300px' } as React.CSSProperties}
           >
             {/* Header with Title and Close Button */}
             <div className="flex items-start justify-between pb-1.5 border-b border-white/[0.08]">

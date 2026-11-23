@@ -271,7 +271,8 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
                   ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
                   : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
               }`}
-              aria-label="Toggle Wireframe"
+              aria-label="Toggle Wireframe Overlay"
+              aria-pressed={showWireframe}
             >
               <HugeiconsIcon icon={LayersIcon} size={16} />
             </button>
@@ -291,6 +292,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
                   : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
               }`}
               aria-label="Toggle Turntable"
+              aria-pressed={isTurntable}
             >
               <HugeiconsIcon
                 icon={RotateCw}
@@ -314,6 +316,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
                   : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
               }`}
               aria-label="Toggle Ground Grid"
+              aria-pressed={showGrid !== false}
             >
               <HugeiconsIcon icon={GridIcon} size={16} />
             </button>
@@ -324,13 +327,9 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
             label="Orbit: Left Drag · Pan: Right Drag · Zoom: Scroll"
             side="left"
           >
-            <button
-              type="button"
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer"
-              aria-label="Navigation Shortcuts"
-            >
-              <HugeiconsIcon icon={HelpCircleIcon} size={16} />
-            </button>
+            <span className="w-8 h-8 rounded-xl flex items-center justify-center text-zinc-400" aria-label="Navigation shortcuts">
+              <HugeiconsIcon icon={HelpCircleIcon} size={16} aria-hidden="true" />
+            </span>
           </SimpleTooltip>
 
           {/* Settings Popover */}
@@ -372,36 +371,6 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
                       title={`Snap to ${p} view`}
                     >
                       {p}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Shading Mode */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-                  Shading Mode
-                </label>
-                <div className="grid grid-cols-6 gap-1">
-                  {([
-                    { id: 'textured', label: 'PBR' },
-                    { id: 'clay', label: 'Clay' },
-                    { id: 'normals', label: 'Normal' },
-                    { id: 'wireframe', label: 'Wire' },
-                    { id: 'matcap-gold', label: 'Gold' },
-                    { id: 'uv-checker', label: 'UV' },
-                  ] as const).map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => handleShadingChange(m.id)}
-                      className={`py-1 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer text-center ${
-                        shadingMode === m.id || (m.id === 'normals' && shadingMode === 'matcap-normal')
-                          ? 'bg-[#F9CF00] text-black shadow-sm font-black'
-                          : 'bg-white/[0.04] text-zinc-400 hover:text-white hover:bg-white/[0.08]'
-                      }`}
-                    >
-                      {m.label}
                     </button>
                   ))}
                 </div>
@@ -456,44 +425,6 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
                 />
               </div>
 
-              {/* Quick Toggles in popup */}
-              <div className="space-y-2 pt-1 border-t border-white/[0.08]">
-                {/* Turntable */}
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300 text-[11px]">Auto Rotate</span>
-                  <button
-                    type="button"
-                    onClick={() => setIsTurntable(!isTurntable)}
-                    className={`w-7 h-4 rounded-full p-0.5 transition-all cursor-pointer ${
-                      isTurntable ? 'bg-[#F9CF00]' : 'bg-white/10'
-                    }`}
-                  >
-                    <div
-                      className={`w-3 h-3 rounded-full bg-black transition-all ${
-                        isTurntable ? 'translate-x-3' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {/* Ground Grid */}
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300 text-[11px]">Ground Grid</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowGrid(showGrid === false ? true : false)}
-                    className={`w-7 h-4 rounded-full p-0.5 transition-all cursor-pointer ${
-                      showGrid !== false ? 'bg-[#F9CF00]' : 'bg-white/10'
-                    }`}
-                  >
-                    <div
-                      className={`w-3 h-3 rounded-full bg-black transition-all ${
-                        showGrid !== false ? 'translate-x-3' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
             </div>
           )}
         </div>
@@ -613,21 +544,6 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
 
         <div className="h-4 w-[1px] bg-white/10 mx-0.5" />
 
-        {/* Wireframe Overlay Quick Toggle */}
-        <SimpleTooltip label={showWireframe ? 'Wireframe Overlay: ON' : 'Wireframe Overlay: OFF'} side="top">
-          <button
-            type="button"
-            onClick={() => setShowWireframe(!showWireframe)}
-            aria-label="Toggle Wireframe Overlay"
-            className={`w-7 h-7 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-              showWireframe
-                ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
-                : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
-            }`}
-          >
-            <HugeiconsIcon icon={LayersIcon} size={15} />
-          </button>
-        </SimpleTooltip>
       </div>
     </div>
   );

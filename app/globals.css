@@ -2623,3 +2623,23 @@ html.reduced-animations *::after {
     }
   }
 }
+
+/* Desktop workspace overlays: keep advanced tool flyouts above the viewport dock. */
+@media (min-width: 768px) {
+  .workspace-advanced-flyout {
+    position: fixed;
+    left: 300px;
+    right: auto;
+    bottom: 6.5rem;
+    width: min(var(--workspace-flyout-width, 300px), calc(100vw - 620px));
+    max-height: calc(100dvh - 8rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    z-index: 60;
+  }
+}
+@media (min-width: 768px) and (max-width: 1100px) {
+  .workspace-advanced-flyout { left: 280px; width: min(var(--workspace-flyout-width, 300px), calc(100vw - 580px)); }
+}

@@ -34,12 +34,23 @@ export const SnapshotMenu: React.FC = () => {
   };
 
   useEffect(() => {
+    const closeOther = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== 'snapshots') {
+        setIsOpen(false);
+        setIsCreating(false);
+      }
+    };
+    window.addEventListener('workspace-header-popover-open', closeOther);
+    return () => window.removeEventListener('workspace-header-popover-open', closeOther);
+  }, []);
+  useEffect(() => {
     loadList();
   }, []);
 
   // Listen for quick-save event from keyboard shortcut (Ctrl/Cmd + S)
   useEffect(() => {
     const handlePrompt = () => {
+      window.dispatchEvent(new CustomEvent('workspace-header-popover-open', { detail: 'snapshots' }));
       setIsOpen(true);
       setIsCreating(true);
       setSnapshotName(`Snapshot ${snapshots.length + 1}`);
@@ -142,7 +153,9 @@ export const SnapshotMenu: React.FC = () => {
         <button
           type="button"
           onClick={() => {
-            setIsOpen(!isOpen);
+            const nextOpen = !isOpen;
+            if (nextOpen) window.dispatchEvent(new CustomEvent('workspace-header-popover-open', { detail: 'snapshots' }));
+            setIsOpen(nextOpen);
             if (!isOpen) loadList();
           }}
           className={`flex items-center gap-1 h-6 px-2 rounded-full border text-[10px] font-semibold transition-all shadow-sm cursor-pointer ${
@@ -151,6 +164,7 @@ export const SnapshotMenu: React.FC = () => {
               : 'bg-[hsl(var(--surface-0))] border-white/[0.08] hover:bg-[hsl(var(--surface-2))] text-zinc-300 hover:text-white'
           }`}
           aria-label="Workspace snapshots"
+          aria-expanded={isOpen}
         >
           <HugeiconsIcon icon={Bookmark02Icon} size={12} className={`w-3 h-3 ${isOpen ? 'text-black' : 'text-primary'}`} />
           <span className="hidden md:inline">Snapshots</span>

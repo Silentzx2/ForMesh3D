@@ -81,7 +81,14 @@ Use only the currently exported shared presets. Prefer local CSS transitions for
 - Closing comparison, changing the active asset, or starting another operation removes the temporary source scene. The active output remains the selected mesh.
 - There is no separate right-panel model picker, side-by-side renderer, or QA comparison section. All model before/after comparison uses the viewport wipe.
 
-## 8. Change discipline
+## 8. Desktop floating controls and overlays
+
+- Header popovers (workspace mode, resource monitor, recent jobs, snapshots and notifications) are mutually exclusive; opening one closes the others.
+- Viewport shading modes are controlled from the bottom material dock. Camera, lighting and exposure remain in Viewport Settings; Wireframe Overlay, Auto Rotate and Ground Grid each have one primary viewport toggle.
+- Advanced tool settings use `.workspace-advanced-flyout` from `app/globals.css`. Desktop flyouts are height-bounded, internally scrollable and positioned clear of the bottom material dock. Keep each panel width in `--workspace-flyout-width` rather than adding one-off fixed positioning.
+- Toggle buttons expose state with `aria-pressed` or `role="switch"` plus `aria-checked`. Tooltip-only help indicators are not inert buttons.
+
+## 9. Change discipline
 
 1. Inspect the current component and its callers before adding or replacing a UI pattern.
 2. Reuse existing CSS variables and component primitives.

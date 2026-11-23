@@ -102,3 +102,10 @@ The checked-in CI commands are documented in [CONTRIBUTING.md](../CONTRIBUTING.m
 **Phase 4 — Regression and delivery:** test texture URL availability, missing/equal geometry URLs, failed/running jobs, atlas-only UV, labels, asset/tool switch, stale-load cancellation and cleanup. Run TypeScript, lint, focused tests and production build; backend tests only if backend contracts change. Update design/task docs to shipped behavior.
 
 **Implementation record:** [x] Reference inspected. [x] Texture/PBR same-mesh clay-vs-textured path wired to existing source-group loader. [x] Tool rail enables compare for a loaded Texture/PBR mesh without a separate predecessor. [x] Retopo/Remesh/UV/Segmentation labels use active tool when verified lineage exists. [x] True diagonal wipe implemented with two render-target passes and a full-screen composite shader in the existing WebGLRenderer; divider angle and shader boundary share the same 14-degree geometry. [x] Render targets resize with the viewport and are disposed with the renderer. [x] Frontend CI passed: TypeScript, ESLint, all Bun tests, and production build. [x] Backend Runtime Contract CI passed: Python compile, regression, workspace/API integration, and resolver checks. The shader boundary and divider geometry have deterministic unit coverage; no manual interactive-browser/WebGL visual result is claimed because this session has no running browser.
+
+
+## 11. Desktop workspace controls — 2026-11-23
+- Header popovers are mutually exclusive to prevent dropdown/resource-panel stacking.
+- Viewport shading modes have one owner (bottom material dock); wireframe, turntable and grid each have one primary toggle.
+- Advanced tool flyouts share the global desktop layout class in `app/globals.css`; height is bounded, overflow scrolls within the flyout, and placement clears the material dock.
+- Desktop toggle state is exposed to assistive technology. Mobile-specific layout was not changed.

@@ -63,6 +63,13 @@ export function RecentJobsChip() {
   }, []);
 
   useEffect(() => {
+    const closeOther = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== 'recent-jobs') setOpen(false);
+    };
+    window.addEventListener('workspace-header-popover-open', closeOther);
+    return () => window.removeEventListener('workspace-header-popover-open', closeOther);
+  }, []);
+  useEffect(() => {
     loadJobs();
     // 30s cadence keeps the recent-jobs chip current without hammering
     // /api/v1/system/jobs/history on every render cycle.
@@ -90,9 +97,10 @@ export function RecentJobsChip() {
     <div className="relative inline-block">
       {/* Chip button */}
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => { const nextOpen = !open; if (nextOpen) window.dispatchEvent(new CustomEvent('workspace-header-popover-open', { detail: 'recent-jobs' })); setOpen(nextOpen); }}
         className="group flex items-center gap-1.5 h-6 px-2 py-0.5 rounded-full border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/[0.12] transition-all duration-200"
         aria-label="Recent jobs"
+        aria-expanded={open}
       >
         <HugeiconsIcon icon={Clock} size={12} className="w-3 h-3 text-zinc-400 group-hover:text-primary" />
         <span className="text-[9px] font-semibold text-zinc-300 group-hover:text-white whitespace-nowrap">
