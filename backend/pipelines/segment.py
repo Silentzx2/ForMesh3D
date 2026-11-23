@@ -160,7 +160,7 @@ def execute_segment(
         ).astype(np.int32)
 
     if progress_callback:
-        progress_callback("Merging undersized face islands into nearest neighboring parts...", 0.58)
+        progress_callback("Merging undersized face islands into nearest neighboring parts...", 0.50)
     labels = _merge_small_islands(labels, face_centers, min_face_count)
     actual_parts = int(len(np.unique(labels)))
     logger.info("[SEGMENT] Face assignment complete: faces=%d parts=%d", face_count, actual_parts)
