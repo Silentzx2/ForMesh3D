@@ -409,6 +409,7 @@ auto_rig:
     ui_badge: 14GB VRAM
     enabled: true
     vram_requirement: 14336
+    low_vram_requirement: 8192
     max_workers: 1
     supported_inputs:
       - obj
@@ -421,6 +422,8 @@ auto_rig:
     capabilities:
       auto_rig: true
       character_output: true
+      low_vram_supported: true
+      cpu_offload: true
     model_type: rigging
 mesh_retopology:
   triflow_retopology:

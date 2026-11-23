@@ -76,6 +76,19 @@ class SkinTokensAdapter(BaseModel):
         if root_str not in sys.path:
             sys.path.insert(0, root_str)
 
+        # Warn when running in low-VRAM / CPU-offload mode so the operator
+        # knows inference may be slower or may fail if the model does not fit.
+        strategy = (self.resource_plan or {}).get("strategy")
+        if strategy == "single_gpu_low_vram":
+            logger.warning(
+                "SkinTokens running in low-VRAM/offload mode (strategy=%s, "
+                "reservation=%sMB); inference may be slower or fail on GPU OOM.",
+                strategy,
+                (self.resource_plan or {}).get("reservation_mb", {}).get(
+                    self.gpu_id, "unknown"
+                ),
+            )
+
         # Apply model-specific pre-Ampere (T4) hardware patcher and import shims
         apply_patch(gpu_id=self.gpu_id)
 
