@@ -232,42 +232,9 @@ class TriFlowRetopologyAdapter(BaseModel):
 
         if self.pipeline_components is None:
             # Fallback path if weights are absent: high-quality quadric simplification
-            logger.warning("[TRIFLOW FALLBACK] Weights absent, applying high-quality quadric decimation fallback.")
-            input_mesh = load_mesh_safe(mesh_path)
-            try:
-                if hasattr(input_mesh, "simplify_quadric_decimation"):
-                    simplified = input_mesh.simplify_quadric_decimation(face_count=target_faces)
-                else:
-                    simplified = input_mesh
-            except Exception as e:
-                logger.info("[TRIFLOW FALLBACK] Quadric decimation unavailable (%s), using input mesh", e)
-                simplified = input_mesh
-
-            if inputs.get("output_path"):
-                out_file = Path(inputs["output_path"]).resolve()
-            elif inputs.get("output_mesh_path"):
-                out_file = Path(inputs["output_mesh_path"]).resolve()
-            else:
-                out_dir = Path(inputs.get("output_dir") or tempfile.mkdtemp())
-                out_dir.mkdir(parents=True, exist_ok=True)
-                stem = Path(mesh_path).stem
-                out_file = out_dir / f"{stem}_retopo.{output_format}"
-            out_file.parent.mkdir(parents=True, exist_ok=True)
-            export_mesh_safe(simplified, out_file)
-            stats = compute_mesh_stats(simplified)
-
-            return {
-                "success": True,
-                "output_mesh_path": str(out_file),
-                "mesh_path": str(out_file),
-                "stats": stats,
-                "generation_info": {
-                    "engine": "triflow_fallback",
-                    "target_faces": target_faces,
-                    "quad_ratio": quad_ratio,
-                    "execution_time_s": round(time.time() - start_time, 2),
-                },
-            }
+            return self._triflow_fallback_mesh(
+                mesh_path, target_faces, quad_ratio, output_format, inputs, start_time
+            )
 
         # Real Neural Pipeline Execution
         try:
@@ -400,9 +367,68 @@ class TriFlowRetopologyAdapter(BaseModel):
                 },
             }
 
+        except ModuleNotFoundError as e:
+            if "pyfqmr_triflow" in str(e):
+                logger.warning(
+                    "[TRIFLOW FALLBACK] pyfqmr_triflow Cython extension not compiled (%s); "
+                    "using quadric decimation fallback.",
+                    e,
+                )
+                return self._triflow_fallback_mesh(
+                    mesh_path, target_faces, quad_ratio, output_format, inputs, start_time
+                )
+            raise
         except Exception as e:
             logger.error("[TRIFLOW ERROR] Inference failed: %s", str(e), exc_info=True)
             raise RuntimeError(f"TriFlow retopology failed: {e}") from e
+
+    def _triflow_fallback_mesh(
+        self,
+        mesh_path: str,
+        target_faces: int,
+        quad_ratio: float,
+        output_format: str,
+        inputs: Dict[str, Any],
+        start_time: float,
+    ) -> Dict[str, Any]:
+        """High-quality quadric decimation fallback when TriFlow neural pipeline is unavailable
+        (e.g. pyfqmr_triflow Cython extension not compiled)."""
+        logger.warning("[TRIFLOW FALLBACK] Applying high-quality quadric decimation fallback.")
+        input_mesh = load_mesh_safe(mesh_path)
+        try:
+            if hasattr(input_mesh, "simplify_quadric_decimation"):
+                simplified = input_mesh.simplify_quadric_decimation(face_count=target_faces)
+            else:
+                simplified = input_mesh
+        except Exception as e:
+            logger.info("[TRIFLOW FALLBACK] Quadric decimation unavailable (%s), using input mesh", e)
+            simplified = input_mesh
+
+        if inputs.get("output_path"):
+            out_file = Path(inputs["output_path"]).resolve()
+        elif inputs.get("output_mesh_path"):
+            out_file = Path(inputs["output_mesh_path"]).resolve()
+        else:
+            out_dir = Path(inputs.get("output_dir") or tempfile.mkdtemp())
+            out_dir.mkdir(parents=True, exist_ok=True)
+            stem = Path(mesh_path).stem
+            out_file = out_dir / f"{stem}_retopo.{output_format}"
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        export_mesh_safe(simplified, out_file)
+        stats = compute_mesh_stats(simplified)
+
+        return {
+            "success": True,
+            "output_mesh_path": str(out_file),
+            "mesh_path": str(out_file),
+            "stats": stats,
+            "generation_info": {
+                "engine": "triflow_fallback",
+                "target_faces": target_faces,
+                "quad_ratio": quad_ratio,
+                "execution_time_s": round(time.time() - start_time, 2),
+            },
+        }
 
     def get_supported_formats(self) -> Dict[str, list[str]]:
         """Return supported input and output mesh formats."""
