@@ -232,6 +232,7 @@ class DatabaseManager:
         with self.engine.begin() as conn:
             for column_def in (
                 "ALTER TABLE assets ADD COLUMN operation_type VARCHAR(32)",
+                "ALTER TABLE operations ADD COLUMN progress_logs_json TEXT",
             ):
                 try:
                     conn.execute(text(column_def))
@@ -1086,6 +1087,64 @@ class DatabaseManager:
             for op in ops:
                 session.expunge(op)
             return ops
+
+    def get_operations_page(
+        self,
+        status: Optional[str] = None,
+        operation_type: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Tuple[List[OperationModel], int]:
+        """Return a newest-first page of durable workspace operations."""
+        with self.get_session() as session:
+            query = session.query(OperationModel)
+            if status:
+                query = query.filter(OperationModel.execution_status == status)
+            if operation_type:
+                query = query.filter(OperationModel.operation_type == operation_type)
+            total = query.count()
+            rows = (
+                query.order_by(desc(OperationModel.created_at))
+                .offset(max(0, offset))
+                .limit(max(1, min(500, limit)))
+                .all()
+            )
+            for row in rows:
+                session.expunge(row)
+            return rows, total
+
+    def append_operation_log(
+        self,
+        operation_id: str,
+        message: str,
+        level: str = "INFO",
+        stage: Optional[str] = None,
+        progress: Optional[float] = None,
+        kind: str = "event",
+        elapsed_ms: Optional[int] = None,
+    ) -> bool:
+        """Append a bounded, structured execution event to the operation record."""
+        with self.get_session() as session:
+            op = session.query(OperationModel).filter_by(operation_id=operation_id).first()
+            if not op:
+                return False
+            try:
+                logs = json.loads(op.progress_logs_json or "[]")
+            except (TypeError, ValueError):
+                logs = []
+            event_data = {
+                "timestamp": datetime.utcnow().isoformat(timespec="milliseconds") + "Z",
+                "level": str(level or "INFO").upper(),
+                "stage": stage or op.operation_type,
+                "message": str(message)[:4000],
+                "progress": float(progress) if progress is not None else None,
+                "kind": kind,
+                "elapsed_ms": max(0, int(elapsed_ms)) if elapsed_ms is not None else None,
+            }
+            logs.append(event_data)
+            op.progress_logs_json = json.dumps(logs[-300:], ensure_ascii=False)
+            session.commit()
+            return True
 
     def claim_next_operation(self, worker_lease: str) -> Optional[OperationModel]:
         """

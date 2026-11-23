@@ -66,6 +66,15 @@ def execute_smart_uv(
 
     has_blender = bool(find_blender_binary())
     blender_used = False
+    logger.info(
+        "[SMART_UV] Input=%s resolution=%d padding=%d method=%s output=%s blender_available=%s",
+        in_file.name, resolution, padding, method, output_format, has_blender,
+    )
+    if progress_callback:
+        progress_callback(
+            f"UV engine selected: {'Blender' if has_blender and method in ('auto', 'blender') else 'XAtlas'}; atlas={resolution}px padding={padding}px",
+            0.3,
+        )
 
     if method == "blender" and not has_blender:
         raise RuntimeError("Blender Smart UV was selected but Blender is not available; set BLENDER_EXECUTABLE.")
@@ -79,6 +88,10 @@ def execute_smart_uv(
     if method in ("auto", "blender") and has_blender:
         if progress_callback:
             progress_callback(f"Running Blender Smart UV Project (angle: {angle_limit_deg}°, margin: {margin_uv:.4f})...", 0.4)
+            progress_callback(
+                "Blender Smart UV is running; Blender does not expose operator-level percentage.",
+                None,
+            )
 
         blender_script = f"""
 import bpy
@@ -86,6 +99,7 @@ import math
 import sys
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
+print("[SCRIPT] Blender scene initialized for Smart UV")
 in_path = r"{in_file}"
 out_path = r"{out_file}"
 angle_rad = math.radians({angle_limit_deg})
@@ -117,6 +131,7 @@ else:
     raise RuntimeError('Unsupported input mesh format: ' + ext)
 
 mesh_objs = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
+print(f"[SCRIPT] Imported {len(mesh_objs)} mesh object(s)")
 if not mesh_objs:
     sys.exit(1)
 
@@ -132,6 +147,7 @@ active_obj = bpy.context.view_layer.objects.active
 bpy.ops.object.mode_set(mode='EDIT')
 bpy.ops.mesh.select_all(action='SELECT')
 
+print("[SCRIPT] Smart UV chart generation started")
 try:
     bpy.ops.uv.smart_project(
         angle_limit=angle_rad,
@@ -144,6 +160,8 @@ except Exception as e:
     print(f"Smart UV project error: {{e}}", file=sys.stderr)
 
 bpy.ops.object.mode_set(mode='OBJECT')
+print("[SCRIPT] Smart UV chart generation finished")
+print(f"[SCRIPT] Exporting UV mesh as {output_format.upper()}")
 if "{output_format}" == 'glb':
     bpy.ops.export_scene.gltf(filepath=out_path, export_format='GLB')
 elif "{output_format}" == 'obj':
@@ -154,18 +172,29 @@ elif "{output_format}" == 'obj':
     else:
         raise RuntimeError('This Blender build has no OBJ exporter')
 """
-        success, log = run_blender_script(blender_script, timeout_sec=180)
+        def _blender_log(line: str) -> None:
+            lowered = line.lower()
+            if "[script]" in lowered or "error" in lowered or "warning" in lowered or "traceback" in lowered:
+                if progress_callback:
+                    progress_callback(f"Blender debug: {line}", None)
+
+        success, log = run_blender_script(blender_script, timeout_sec=180, on_output=_blender_log)
         if success and out_file.is_file() and out_file.stat().st_size > 0:
             blender_used = True
+            if progress_callback:
+                progress_callback("Blender Smart UV completed; validating UV mesh...", 0.84)
+        elif log:
+            logger.warning("[SMART_UV] Blender path failed; output tail: %s", log[-1800:])
 
     # 2. XAtlas chart generation and packing
     if not blender_used:
         if method == "blender":
             raise RuntimeError("Blender Smart UV Project failed; refusing to substitute a different UV algorithm.")
         if progress_callback:
-            progress_callback("Generating and packing XAtlas UV charts...", 0.5)
+            progress_callback("Loading geometry and preparing XAtlas chart generation...", 0.42)
 
         mesh = to_single_trimesh(load_mesh_safe(in_file))
+        logger.info("[SMART_UV] XAtlas input geometry: vertices=%d faces=%d", len(mesh.vertices), len(mesh.faces))
         try:
             import xatlas
         except ImportError as exc:
@@ -177,7 +206,16 @@ elif "{output_format}" == 'obj':
             pack_options = xatlas.PackOptions()
             pack_options.resolution = resolution
             pack_options.padding = padding
+            if progress_callback:
+                progress_callback(
+                    "XAtlas chart generation is running; the API does not expose per-chart percentage.",
+                    None,
+                )
+            logger.info("[SMART_UV] XAtlas chart generation started")
             atlas.generate(pack_options=pack_options)
+            logger.info("[SMART_UV] XAtlas chart generation finished: charts=%s", getattr(atlas, "chart_count", "unknown"))
+            if progress_callback:
+                progress_callback("Packing generated UV charts into the atlas...", 0.78)
             vmapping, indices, uvs = atlas[0]
         except Exception as exc:
             raise RuntimeError(f"XAtlas UV chart generation failed: {exc}") from exc
@@ -188,10 +226,12 @@ elif "{output_format}" == 'obj':
             visual=trimesh.visual.TextureVisuals(uv=uvs),
             process=False,
         )
+        if progress_callback:
+            progress_callback("Exporting packed UV atlas mesh...", 0.86)
         export_mesh_safe(new_mesh, out_file, file_type=output_format)
 
     if progress_callback:
-        progress_callback("Verifying UV atlas completeness...", 0.9)
+        progress_callback("Verifying UV atlas completeness and output geometry...", 0.94)
 
     final_mesh = to_single_trimesh(load_mesh_safe(out_file))
     stats = compute_mesh_stats(final_mesh)

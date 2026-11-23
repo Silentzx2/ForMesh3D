@@ -466,3 +466,48 @@ def test_b3_t5_error_classification_and_preview_ttl_cleanup(batch3_env, sample_g
     assert recent_temp.exists()
     op_rec = db.get_operation(recent_op_id)
     assert op_rec.persistence_status == PersistenceStatus.NOT_SAVED
+
+
+def test_script_operation_telemetry_is_persisted_and_pipeline_stages_are_reported(batch3_env, tmp_path):
+    db: DatabaseManager = batch3_env["db_manager"]
+    workspace_id = "test_script_telemetry_ws"
+    operation_id = "op_script_telemetry_01"
+    db.create_workspace(workspace_id=workspace_id, name="Script Telemetry")
+    db.enqueue_operation(
+        operation_id=operation_id,
+        workspace_id=workspace_id,
+        operation_type="segmentation",
+    )
+
+    assert db.append_operation_log(
+        operation_id,
+        "Sampling face positions",
+        level="INFO",
+        stage="sampling",
+        progress=0.42,
+        elapsed_ms=1250,
+    )
+    stored = db.get_operation(operation_id).to_dict()["logs"]
+    assert len(stored) == 1
+    assert stored[0]["stage"] == "sampling"
+    assert stored[0]["progress"] == 0.42
+    assert stored[0]["elapsed_ms"] == 1250
+
+    import trimesh
+    from pipelines.segment import execute_segment
+
+    source_path = tmp_path / "script_progress_input.glb"
+    output_path = tmp_path / "script_progress_output.glb"
+    trimesh.creation.icosphere(subdivisions=1).export(source_path)
+    events = []
+    result = execute_segment(
+        source_path,
+        output_path,
+        options={"num_parts": 4, "save_individual_parts": True},
+        progress_callback=lambda message, progress: events.append((message, progress)),
+    )
+    assert result["success"] is True
+    values = [value for _message, value in events if value is not None]
+    assert values == sorted(values)
+    assert any("individual part" in message.lower() for message, _value in events)
+    assert values[-1] >= 0.94

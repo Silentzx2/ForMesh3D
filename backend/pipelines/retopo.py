@@ -46,9 +46,15 @@ def execute_retopo(
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
     if progress_callback:
-        progress_callback("Analyzing mesh geometry...", 0.2)
-
+        progress_callback("Validating input mesh and retopology settings...", 0.25)
     blender_bin = find_blender_binary()
+    input_mesh = None
+    if not quads:
+        input_mesh = to_single_trimesh(load_mesh_safe(in_file))
+        logger.info(
+            "[RETOPO] Input mesh loaded: vertices=%d faces=%d topology=triangle target_faces=%d",
+            len(input_mesh.vertices), len(input_mesh.faces), target_faces,
+        )
     if quads:
         if not blender_bin:
             raise RuntimeError(
@@ -56,7 +62,11 @@ def execute_retopo(
                 "Install Blender or set BLENDER_EXECUTABLE, or choose Triangle topology."
             )
         if progress_callback:
-            progress_callback(f"Running Blender QuadriFlow ({target_faces:,} target quads)...", 0.4)
+            progress_callback(f"Starting Blender QuadriFlow ({target_faces:,} target quads)...", 0.4)
+            progress_callback(
+                "QuadriFlow is running; Blender does not expose operator-level percentage.",
+                None,
+            )
 
         blender_script = f"""
 import bpy
@@ -65,6 +75,7 @@ import math
 import sys
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
+print("[SCRIPT] Blender scene initialized")
 in_path = r"{in_file}"
 out_path = r"{out_file}"
 target_faces = {target_faces}
@@ -100,6 +111,7 @@ else:
     raise RuntimeError('Unsupported QuadriFlow input format: ' + ext)
 
 mesh_objs = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
+print(f"[SCRIPT] Imported {len(mesh_objs)} mesh object(s)")
 if not mesh_objs:
     raise RuntimeError('Input file did not contain a mesh')
 
@@ -112,6 +124,7 @@ if len(mesh_objs) > 1:
 active_obj = bpy.context.view_layer.objects.active
 
 if heal_mesh:
+    print("[SCRIPT] Repairing holes and normals")
     bpy.ops.object.mode_set(mode='EDIT')
     bpy.ops.mesh.select_all(action='SELECT')
     bpy.ops.mesh.fill_holes(sides=0)
@@ -119,6 +132,7 @@ if heal_mesh:
     bpy.ops.object.mode_set(mode='OBJECT')
 
 if preserve_sharp:
+    print("[SCRIPT] Preserving sharp feature edges")
     bm = bmesh.new()
     bm.from_mesh(active_obj.data)
     for edge in bm.edges:
@@ -146,10 +160,13 @@ quad_kwargs = dict(
 )
 if 'preserve_attributes' in quad_properties:
     quad_kwargs['preserve_attributes'] = True
+print("[SCRIPT] QuadriFlow remesh started; Blender does not expose operator-level percentage")
 result = quadflow(**quad_kwargs)
+print(f"[SCRIPT] QuadriFlow remesh finished: {len(active_obj.data.polygons)} faces")
 if 'CANCELLED' in result or not active_obj.data.polygons:
     raise RuntimeError('QuadriFlow cancelled or produced an empty mesh')
 
+print(f"[SCRIPT] Exporting retopology result as {output_format.upper()}")
 if output_format == 'glb':
     bpy.ops.export_scene.gltf(filepath=out_path, export_format='GLB')
 elif output_format == 'obj':
@@ -160,29 +177,45 @@ elif output_format == 'obj':
     else:
         raise RuntimeError('This Blender build has no OBJ exporter')
 """
-        success, log = run_blender_script(blender_script, timeout_sec=240)
+        def _blender_log(line: str) -> None:
+            lowered = line.lower()
+            if "[script]" in lowered or "error" in lowered or "warning" in lowered or "traceback" in lowered:
+                if progress_callback:
+                    progress_callback(f"Blender debug: {line}", None)
+
+        success, log = run_blender_script(blender_script, timeout_sec=240, on_output=_blender_log)
         if not success or not out_file.is_file() or out_file.stat().st_size <= 0:
             raise RuntimeError(
                 "QuadriFlow failed; no triangle fallback was produced. "
                 + (log[-1800:] if log else "Check the Blender executable and QuadriFlow support.")
             )
         blender_used = True
+        if progress_callback:
+            progress_callback("QuadriFlow completed; validating exported topology...", 0.86)
     else:
         if progress_callback:
-            progress_callback("Executing Trimesh triangle decimation...", 0.4)
-        mesh = to_single_trimesh(load_mesh_safe(in_file))
+            progress_callback("Loading geometry for Trimesh triangle decimation...", 0.35)
+        mesh = input_mesh or to_single_trimesh(load_mesh_safe(in_file))
+        original_faces = len(mesh.faces)
+        logger.info("[RETOPO] Triangle path loaded: vertices=%d faces=%d", len(mesh.vertices), original_faces)
 
         if watertight and hasattr(trimesh, "repair"):
+            if progress_callback:
+                progress_callback("Repairing mesh holes and face normals...", 0.48)
             trimesh.repair.fill_holes(mesh)
             trimesh.repair.fix_normals(mesh)
 
-        original_faces = len(mesh.faces)
         if original_faces > target_faces:
             if progress_callback:
                 progress_callback(
                     f"Reducing triangle count from {original_faces:,} to {target_faces:,}...",
                     0.6,
                 )
+                progress_callback(
+                    "Quadric decimation is running; Trimesh does not expose operator-level percentage.",
+                    None,
+                )
+            logger.info("[RETOPO] Quadric decimation starting: faces=%d target=%d", original_faces, target_faces)
             try:
                 mesh = mesh.simplify_quadric_decimation(face_count=target_faces)
             except TypeError:
@@ -191,21 +224,26 @@ elif output_format == 'obj':
                 raise RuntimeError(
                     f"Could not meet target face budget ({target_faces:,}): {decimation_error}"
                 ) from decimation_error
+            logger.info("[RETOPO] Quadric decimation finished: output_faces=%d", len(mesh.faces))
             if len(mesh.faces) > target_faces:
                 raise RuntimeError(
                     f"Decimator returned {len(mesh.faces):,} faces, above the requested budget of {target_faces:,}"
                 )
 
         if adaptive and hasattr(trimesh, "smoothing"):
+            if progress_callback:
+                progress_callback("Applying optional Taubin surface smoothing...", 0.78)
             try:
                 trimesh.smoothing.filter_taubin(mesh, iterations=10)
             except Exception as smoothing_error:
                 logger.warning("Optional Taubin smoothing was skipped: %s", smoothing_error)
 
+        if progress_callback:
+            progress_callback(f"Exporting triangle retopology as {output_format.upper()}...", 0.86)
         export_mesh_safe(mesh, out_file, file_type=output_format)
 
     if progress_callback:
-        progress_callback("Computing final geometry statistics...", 0.9)
+        progress_callback("Verifying output mesh and computing geometry statistics...", 0.94)
 
     final_mesh = to_single_trimesh(load_mesh_safe(out_file))
     stats = compute_mesh_stats(final_mesh)

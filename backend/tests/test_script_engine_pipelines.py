@@ -158,3 +158,33 @@ def test_execute_segment_honors_part_count_and_island_threshold(sample_mesh_path
         assert result["stats"]["hierarchy"]["id"] == "root"
     finally:
         out_path.unlink(missing_ok=True)
+
+
+def test_script_pipelines_emit_ordered_stage_progress(sample_mesh_path):
+    output_path = Path(tempfile.mktemp(suffix=".glb"))
+    events = []
+    try:
+        result = execute_segment(
+            sample_mesh_path,
+            output_path,
+            options={
+                "num_parts": 4,
+                "method": "geometric",
+                "colorize_preview": True,
+                "save_individual_parts": True,
+            },
+            progress_callback=lambda message, progress: events.append((message, progress)),
+        )
+        assert result["success"] is True
+        progress_values = [value for _message, value in events if value is not None]
+        assert progress_values == sorted(progress_values)
+        assert any("Loaded mesh" in message for message, _value in events)
+        assert any("individual part" in message.lower() for message, _value in events)
+        assert any("verifying segmentation" in message.lower() for message, _value in events)
+        assert progress_values[-1] >= 0.94
+    finally:
+        output_path.unlink(missing_ok=True)
+        parts_dir = output_path.parent / f"{output_path.stem}_parts"
+        if parts_dir.is_dir():
+            import shutil
+            shutil.rmtree(parts_dir, ignore_errors=True)

@@ -10,6 +10,8 @@ import hashlib
 import json
 import logging
 import shutil
+import time
+import traceback
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -48,29 +50,76 @@ def _execute_script_operation_task(
     if operation.execution_status != ExecutionStatus.QUEUED:
         return
 
+    started_at = time.perf_counter()
+    source_path = Path(input_path)
+    staged_path = Path(output_path)
+    safe_options = {
+        key: ("<redacted>" if any(token in key.lower() for token in ("token", "secret", "password", "api_key")) else value)
+        for key, value in options.items()
+    }
+    source_size = source_path.stat().st_size if source_path.is_file() else 0
+    db.append_operation_log(
+        operation_id,
+        f"▶ SCRIPT START | {operation.operation_type} | pipeline={getattr(pipeline, '__name__', type(pipeline).__name__)}",
+        stage="startup",
+        progress=0.01,
+        kind="banner",
+    )
+    db.append_operation_log(
+        operation_id,
+        f"Input={source_path.name} ({source_size:,} bytes) | Output={staged_path.name} | Settings={json.dumps(safe_options, default=str, ensure_ascii=True)}",
+        level="DEBUG",
+        stage="preflight",
+    )
+    logger.info(
+        "[SCRIPT] START operation=%s type=%s pipeline=%s input=%s input_bytes=%d output=%s",
+        operation_id, operation.operation_type, getattr(pipeline, "__name__", type(pipeline).__name__),
+        source_path.name, source_size, staged_path.name,
+    )
     try:
         db.update_operation_execution_status(
             operation_id, ExecutionStatus.PROCESSING, progress=0.01
         )
 
-        def report_progress(message: str, progress: float) -> None:
+        def report_progress(message: str, progress: Optional[float] = None) -> None:
             current = db.get_operation(operation_id)
             if not current or current.execution_status == ExecutionStatus.CANCELLED:
                 raise ScriptOperationCancelled("Operation cancelled by user")
             if current.execution_status != ExecutionStatus.PROCESSING:
                 raise ScriptOperationCancelled("Operation is no longer processing")
-            db.update_operation_execution_status(
+            normalized = None
+            if progress is not None:
+                normalized = max(0.01, min(0.95, float(progress)))
+                db.update_operation_execution_status(
+                    operation_id,
+                    ExecutionStatus.PROCESSING,
+                    progress=normalized,
+                )
+            db.append_operation_log(
                 operation_id,
-                ExecutionStatus.PROCESSING,
-                progress=max(0.01, min(0.95, float(progress))),
+                message,
+                level="INFO" if normalized is not None else "DEBUG",
+                stage=message[:80] or operation.operation_type,
+                progress=normalized,
+                elapsed_ms=int((time.perf_counter() - started_at) * 1000),
             )
-            logger.debug("Script operation %s: %s", operation_id, message)
+            logger.log(
+                logging.INFO if normalized is not None else logging.DEBUG,
+                "[SCRIPT][%s] %s",
+                operation_id,
+                message,
+            )
 
         result = pipeline(
             Path(input_path),
             Path(output_path),
             options,
             report_progress,
+        )
+        pipeline_elapsed = time.perf_counter() - started_at
+        report_progress(
+            f"Pipeline returned successfully in {pipeline_elapsed:.2f}s; validating output artifact...",
+            0.96,
         )
 
         current = db.get_operation(operation_id)
@@ -84,7 +133,19 @@ def _execute_script_operation_task(
         if not raw_path.is_file() or raw_path.stat().st_size <= 0:
             raise RuntimeError("Script pipeline completed without producing a valid mesh file")
 
+        db.append_operation_log(
+            operation_id,
+            f"Output validated: {raw_path.name} ({raw_path.stat().st_size:,} bytes)",
+            stage="validation",
+            progress=0.97,
+        )
+        logger.info(
+            "[SCRIPT] OUTPUT_VALIDATED operation=%s path=%s bytes=%d",
+            operation_id, raw_path.name, raw_path.stat().st_size,
+        )
+
         # Directly publish into the workspace directory using Section 21/22 layout
+        db.append_operation_log(operation_id, "Publishing immutable workspace mesh version...", stage="publish", progress=0.98)
         pub = storage.publish_derived_mesh(
             workspace_id=operation.workspace_id,
             operation_type=operation.operation_type,
@@ -93,6 +154,12 @@ def _execute_script_operation_task(
         final_mesh_path = Path(pub["mesh_path"])
         relative_mesh_path = pub["relative_mesh_path"]
 
+        db.append_operation_log(
+            operation_id,
+            f"Workspace artifact published: {relative_mesh_path}; computing SHA-256 and registering asset...",
+            stage="persistence",
+            progress=0.985,
+        )
         digest = hashlib.sha256()
         with final_mesh_path.open("rb") as f:
             for chunk in iter(lambda: f.read(1024 * 1024), b""):
@@ -133,7 +200,21 @@ def _execute_script_operation_task(
             progress=1.0,
             result=stored_result,
         )
+        elapsed = time.perf_counter() - started_at
+        db.append_operation_log(
+            operation_id,
+            f"✓ SCRIPT COMPLETE | {final_mesh_path.name} | {final_mesh_path.stat().st_size:,} bytes | elapsed={elapsed:.2f}s",
+            level="SUCCESS",
+            stage="complete",
+            progress=1.0,
+            kind="banner",
+        )
+        logger.info("[SCRIPT] COMPLETE operation=%s elapsed=%.2fs asset=%s", operation_id, elapsed, asset.asset_id)
     except ScriptOperationCancelled:
+        db.append_operation_log(
+            operation_id, "⚠ SCRIPT CANCELLED | cleanup started", level="WARNING",
+            stage="cancelled", kind="banner",
+        )
         logger.info("Script operation %s cancelled", operation_id)
         current = db.get_operation(operation_id)
         if current and current.execution_status != ExecutionStatus.CANCELLED:
@@ -147,6 +228,19 @@ def _execute_script_operation_task(
                 pass
         Path(output_path).unlink(missing_ok=True)
     except Exception as exc:
+        db.append_operation_log(
+            operation_id,
+            f"✖ SCRIPT FAILED | {type(exc).__name__}: {exc}",
+            level="ERROR",
+            stage="failed",
+            kind="banner",
+        )
+        db.append_operation_log(
+            operation_id,
+            traceback.format_exc()[-8000:],
+            level="DEBUG",
+            stage="traceback",
+        )
         logger.exception("Script operation %s failed", operation_id)
         current = db.get_operation(operation_id)
         if current and current.execution_status in {

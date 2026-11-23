@@ -112,6 +112,12 @@ def execute_segment(
 
     mesh = to_single_trimesh(load_mesh_safe(in_file))
     face_count = len(mesh.faces)
+    logger.info(
+        "[SEGMENT] Input geometry: vertices=%d faces=%d method=%s requested_parts=%d",
+        len(mesh.vertices), face_count, method, num_parts,
+    )
+    if progress_callback:
+        progress_callback(f"Loaded mesh: {len(mesh.vertices):,} vertices / {face_count:,} faces; computing segmentation features...", 0.32)
     if face_count == 0:
         raise ValueError("Input mesh has zero faces; cannot perform segmentation")
 
@@ -121,6 +127,9 @@ def execute_segment(
     covariance = np.cov(centered, rowvar=False)
     eigenvalues, eigenvectors = np.linalg.eigh(covariance)
     principal_axis = eigenvectors[:, int(np.argmax(eigenvalues))]
+    logger.debug("[SEGMENT] PCA eigenvalues=%s principal_axis=%s", eigenvalues.tolist(), principal_axis.tolist())
+    if progress_callback:
+        progress_callback("Principal-axis feature analysis complete; assigning faces to parts...", 0.42)
 
     if method == "connected_components":
         components = mesh.split(only_watertight=False)
@@ -150,8 +159,11 @@ def execute_segment(
             requested_parts - 1,
         ).astype(np.int32)
 
+    if progress_callback:
+        progress_callback("Merging undersized face islands into nearest neighboring parts...", 0.58)
     labels = _merge_small_islands(labels, face_centers, min_face_count)
     actual_parts = int(len(np.unique(labels)))
+    logger.info("[SEGMENT] Face assignment complete: faces=%d parts=%d", face_count, actual_parts)
     segmented_mesh = mesh.copy()
 
     if progress_callback:
@@ -164,6 +176,11 @@ def execute_segment(
         parts_dir = out_file.parent / f"{out_file.stem}_parts"
         parts_dir.mkdir(parents=True, exist_ok=True)
         for part_id in range(actual_parts):
+            if progress_callback:
+                progress_callback(
+                    f"Exporting individual part {part_id + 1}/{actual_parts}...",
+                    0.68 + (0.10 * part_id / max(1, actual_parts)),
+                )
             part_mask = labels == part_id
             part_faces = segmented_mesh.faces[part_mask]
             if not len(part_faces):
@@ -192,7 +209,10 @@ def execute_segment(
             vertex_colors=vertex_colors,
         )
 
+    if progress_callback:
+        progress_callback(f"Exporting combined segmented mesh as {output_format.upper()}...", 0.88)
     export_mesh_safe(segmented_mesh, out_file, file_type=output_format)
+    logger.info("[SEGMENT] Combined mesh export complete: %s (%d bytes)", out_file.name, out_file.stat().st_size)
 
     hierarchy = None
     if hierarchical:
@@ -217,6 +237,11 @@ def execute_segment(
         progress_callback("Verifying segmentation face coverage...", 0.95)
 
     stats = compute_mesh_stats(segmented_mesh)
+    logger.info(
+        "[SEGMENT] Verification: face_coverage=%d/%d parts=%d output_bytes=%d",
+        int(sum(np.count_nonzero(labels == part_id) for part_id in range(actual_parts))),
+        face_count, actual_parts, out_file.stat().st_size,
+    )
     stats["requested_parts"] = requested_parts
     stats["actual_parts"] = actual_parts
     stats["min_face_island_threshold"] = min_face_count

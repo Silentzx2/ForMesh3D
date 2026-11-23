@@ -1145,27 +1145,72 @@ async def get_jobs_history(
 
             page_status = status.lower() if status else None
 
+            page_limit = limit + offset
             page_jobs, total_jobs = await asyncio.to_thread(
                 db_manager.get_jobs_page,
                 status=page_status,
                 feature=feature,
                 start_date=parse_date(start_date),
                 end_date=parse_date(end_date),
-                limit=limit,
-                offset=offset,
+                limit=page_limit,
+                offset=0,
             )
-            if page_jobs or total_jobs:
+            operation_type_filter = {
+                "retopology": "retopology",
+                "mesh_retopology": "retopology",
+                "uv_unwrapping": "uv",
+                "mesh_uv_unwrapping": "uv",
+                "segmentation": "segmentation",
+                "mesh_segmentation": "segmentation",
+            }.get(feature or "")
+            if feature and not operation_type_filter:
+                page_operations, total_operations = [], 0
+            else:
+                page_operations, total_operations = await asyncio.to_thread(
+                    db_manager.get_operations_page,
+                    status=page_status,
+                    operation_type=operation_type_filter,
+                    limit=page_limit,
+                    offset=0,
+                )
+            if page_jobs or total_jobs or page_operations or total_operations:
                 jobs = [job.to_dict() for job in page_jobs]
                 for job_dict in jobs:
                     if job_dict.get("status") == "completed" and job_dict.get("result"):
                         _ensure_production_result_urls(job_dict.get("job_id") or job_dict.get("id"), job_dict["result"])
+
+                for operation in page_operations:
+                    op_data = operation.to_dict()
+                    logs = op_data.get("logs") or []
+                    latest = logs[-1] if logs else {}
+                    error_data = op_data.get("error")
+                    jobs.append({
+                        "job_id": operation.operation_id,
+                        "id": operation.operation_id,
+                        "operation_id": operation.operation_id,
+                        "workspace_id": operation.workspace_id,
+                        "operation_type": operation.operation_type,
+                        "feature": f"script_{operation.operation_type}",
+                        "engine": "script",
+                        "model_preference": "Script Engine",
+                        "status": operation.execution_status,
+                        "progress": float(operation.progress or 0.0),
+                        "stage": latest.get("message") or operation.execution_status,
+                        "error": error_data.get("message") if isinstance(error_data, dict) else error_data,
+                        "created_at": op_data.get("created_at"),
+                        "completed_at": op_data.get("completed_at"),
+                    })
+
+                jobs.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+                total = total_jobs + total_operations
+                page = jobs[offset:offset + limit]
                 return {
-                    "jobs": jobs,
+                    "jobs": page,
                     "pagination": {
                         "limit": limit,
                         "offset": offset,
-                        "total": total_jobs,
-                        "has_more": offset + len(jobs) < total_jobs,
+                        "total": total,
+                        "has_more": offset + len(page) < total,
                     },
                     "filters": {
                         "status": status,
@@ -1306,8 +1351,12 @@ async def get_job_status(job_id: str, request: Request):
                         "execution_status": op_row.execution_status,
                         "persistence_status": op_row.persistence_status,
                         "progress": op_row.progress,
+                        "stage": (op_row.to_dict().get("logs") or [{}])[-1].get("message"),
+                        "logs": op_row.to_dict().get("logs") or [],
+                        "engine": "script",
+                        "operation_type": op_row.operation_type,
                         "result": json.loads(op_row.result_json) if op_row.result_json else {},
-                        "error": json.loads(op_row.error_json) if op_row.error_json else None,
+                        "error": (json.loads(op_row.error_json).get("message") if isinstance(json.loads(op_row.error_json), dict) else json.loads(op_row.error_json)) if op_row.error_json else None,
                         "created_at": op_row.created_at.isoformat() if op_row.created_at else None,
                         "completed_at": op_row.completed_at.isoformat() if op_row.completed_at else None,
                         "api_version": "1",
@@ -1562,6 +1611,9 @@ async def get_workspace_operation_status(operation_id: str):
         "execution_status": operation.execution_status,
         "persistence_status": operation.persistence_status,
         "progress": float(operation.progress or 0.0),
+        "stage": (operation.to_dict().get("logs") or [{}])[-1].get("message"),
+        "logs": operation.to_dict().get("logs") or [],
+        "engine": "script",
         "result": {
             "format": format_ext,
             "stats": result.get("stats") or {},
