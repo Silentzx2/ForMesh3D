@@ -7,7 +7,6 @@ import dynamic from 'next/dynamic';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { LoaderCircleIcon } from '@hugeicons/core-free-icons';
 
-const OverviewTab = dynamic(() => import('@/features/admin/tabs/OverviewTab').then(m => m.OverviewTab), { ssr: false });
 const RuntimeTab = dynamic(() => import('@/features/admin/tabs/RuntimeTab').then(m => m.RuntimeTab), { ssr: false });
 const LogsTab = dynamic(() => import('@/features/admin/tabs/LogsTab').then(m => m.LogsTab), { ssr: false });
 const JobsTab = dynamic(() => import('@/features/admin/tabs/JobsTab').then(m => m.JobsTab), { ssr: false });
@@ -19,7 +18,6 @@ const SettingsTab = dynamic(() => import('@/features/admin/tabs/SettingsTab').th
 const ModelsTab = dynamic(() => import('@/features/admin/tabs/ModelsTab').then(m => m.ModelsTab), { ssr: false });
 
 const VALID_TABS = new Set([
-  'overview',
   'models',
   'runtime',
   'logs',
@@ -67,7 +65,7 @@ function AdminPageContent() {
     if (sectionParam && SECTION_TO_TAB[sectionParam]) {
       return SECTION_TO_TAB[sectionParam];
     }
-    return 'overview';
+    return 'models';
   };
 
   const [activeTab, setActiveTab] = useState<string>(resolveInitialTab);
@@ -75,10 +73,9 @@ function AdminPageContent() {
   // Sync tab state if URL parameters change externally
   useEffect(() => {
     const targetTab = resolveInitialTab();
-    if (targetTab !== activeTab) {
-      setActiveTab(targetTab);
-    }
-  }, [tabParam, sectionParam]);
+    if (targetTab !== activeTab) setActiveTab(targetTab);
+    if (tabParam && !VALID_TABS.has(tabParam)) router.replace(`/admin?tab=${targetTab}`, { scroll: false });
+  }, [tabParam, sectionParam, activeTab, router]);
 
   const handleTabChange = useCallback((newTab: string) => {
     setActiveTab(newTab);
@@ -87,7 +84,6 @@ function AdminPageContent() {
 
   const renderTab = () => {
     switch (activeTab) {
-      case 'overview': return <OverviewTab />;
       case 'models': return <ModelsTab />;
       case 'runtime': return <RuntimeTab />;
       case 'logs': return <LogsTab />;
@@ -97,7 +93,7 @@ function AdminPageContent() {
       case 'storage': return <StorageTab />;
       case 'database': return <DatabaseTab />;
       case 'settings': return <SettingsTab initialSection={sectionParam} />;
-      default: return <OverviewTab />;
+      default: return <ModelsTab />;
     }
   };
 

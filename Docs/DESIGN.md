@@ -88,7 +88,16 @@ Use only the currently exported shared presets. Prefer local CSS transitions for
 - Advanced tool settings use `.workspace-advanced-flyout` from `app/globals.css`. Desktop flyouts are height-bounded, internally scrollable and positioned clear of the bottom material dock. Keep each panel width in `--workspace-flyout-width` rather than adding one-off fixed positioning.
 - Toggle buttons expose state with `aria-pressed` or `role="switch"` plus `aria-checked`. Tooltip-only help indicators are not inert buttons.
 
-## 9. Change discipline
+## 9. Route and page ownership
+
+- `/` redirects to `/workspace/generate`.
+- `/workspace` redirects to `/workspace/generate`; active workspace deep links use `/workspace/<tool>/<workspace_id>`.
+- Canonical tool routes are `/workspace/generate`, `/workspace/retopology`, `/workspace/texture`, `/workspace/texture-edit`, `/workspace/texture-pbr`, `/workspace/smart-uv`, `/workspace/segmentation`, `/workspace/animate`, and `/workspace/rigging`.
+- Workspace overlays are Assets (`/workspace/assets`), Jobs (`/workspace/jobs`), and System (opened from the FastAPI status control); there is no Dashboard/Overview page.
+- `/admin` opens Models by default. Supported tabs are Models, Runtime, Logs, Jobs, Queue, Health, Storage, Database, and Settings.
+- `/dashboard`, `/workspace/dashboard`, `/workspace/fill-parts`, and obsolete workspace route aliases are removed. Do not reintroduce them; add routes only when a current UI owner and navigation entry exist.
+
+## 10. Change discipline
 
 1. Inspect the current component and its callers before adding or replacing a UI pattern.
 2. Reuse existing CSS variables and component primitives.

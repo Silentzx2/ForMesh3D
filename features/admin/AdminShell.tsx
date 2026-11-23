@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { motion, AnimatePresence } from 'motion/react';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
-  LayoutDashboardIcon, BoxesIcon, Activity01Icon, ScrollTextIcon, Briefcase01Icon,
+  BoxesIcon, Activity01Icon, ScrollTextIcon, Briefcase01Icon,
   ListOrderedIcon, HeartPulseIcon, Settings01Icon, HardDriveIcon,
   ChevronLeft, ChevronRight, BoxIcon, SparklesIcon, CpuIcon,
   Wifi01Icon, Search01Icon, BellIcon, Menu01Icon, Database01Icon
@@ -21,7 +21,6 @@ import type { RuntimeStatus } from '@/types';
 import { mapSystemStatusToRuntimeStatus } from '@/features/admin/utils/systemStatus';
 
 const ICON_MAP: Record<string, any> = {
-  LayoutDashboard: LayoutDashboardIcon,
   Boxes: BoxesIcon,
   Activity: Activity01Icon,
   ScrollText: ScrollTextIcon,
@@ -32,7 +31,6 @@ const ICON_MAP: Record<string, any> = {
   HardDrive: HardDriveIcon,
   Database01: Database01Icon,
   Database: Database01Icon,
-  LayoutDashboardIcon,
   BoxesIcon,
   ActivityIcon: Activity01Icon,
   Activity01Icon,
@@ -48,7 +46,6 @@ const ICON_MAP: Record<string, any> = {
 };
 
 export type AdminTab =
-  | 'overview'
   | 'models'
   | 'runtime'
   | 'logs'
@@ -60,7 +57,6 @@ export type AdminTab =
   | 'settings';
 
 const TAB_LABELS: Record<string, string> = {
-  overview: 'Dashboard',
   models: 'Models',
   runtime: 'Runtime',
   logs: 'Logs',
@@ -146,7 +142,7 @@ export function AdminShell({ activeTab, onTabChange, children }: AdminShellProps
             </p>
           )}
           {ADMIN_NAV_ITEMS.map((item) => {
-            const IconComponent = ICON_MAP[item.icon] || LayoutDashboardIcon;
+            const IconComponent = ICON_MAP[item.icon] || BoxesIcon;
             const isActive = activeTab === item.id;
             return (
               <button

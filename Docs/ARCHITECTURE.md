@@ -62,7 +62,8 @@ Enablement means the config exposes a model for selection. It does not guarantee
 
 ## 5. Workspace and viewport
 
-- Workspace deep links use `/workspace/generate/<workspace_id>`.
+- Workspace deep links use `/workspace/generate/<workspace_id>`; active tool routes are allowlisted in `features/workspace/lib/workspaceRouteContract.ts`.
+- `/` and `/workspace` lead to Generate. The standalone Dashboard/Overview views and obsolete `/dashboard`, `/workspace/dashboard`, `/workspace/fill-parts`, and legacy workspace aliases are removed. `/admin` opens Models; the admin tabs are Models, Runtime, Logs, Jobs, Queue, Health, Storage, Database, and Settings.
 - Workspace/asset state is persisted by backend storage and database code; `metadata.json` is not a substitute for the authoritative database state.
 - The current viewport uses local `GLTFLoader` parsing and `glbCache` in the browser.
 - The old WebSocket/WebRTC server-side mesh streaming implementation was removed. Do not reintroduce its routers, hooks, or viewer.

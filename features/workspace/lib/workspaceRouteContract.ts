@@ -1,13 +1,9 @@
 const WORKSPACE_TOOL_SEGMENTS = new Set([
-  'generate', 'generate-image', 'model', '3d-gen', 'retopology', 'remesh',
-  'texture', 'textures', 'texture-edit', 'texture-upscale', 'texture-pbr',
-  'smart-uv', 'uv', 'segmentation', 'segment', 'fill-parts', 'edit', 'pbr',
-  'animation', 'animate', 'rigging', 'rig', 'tools',
+  'generate', 'retopology', 'texture', 'texture-edit', 'texture-pbr',
+  'smart-uv', 'segmentation', 'animate', 'rigging',
 ]);
 
-const WORKSPACE_VIEW_SEGMENTS = new Set([
-  'dashboard', 'assets', 'outputs', 'jobs', 'models',
-]);
+const WORKSPACE_VIEW_SEGMENTS = new Set(['assets', 'jobs']);
 
 const JOB_ID_PATTERN = /^[a-zA-Z0-9_\-\.]{3,128}$/;
 

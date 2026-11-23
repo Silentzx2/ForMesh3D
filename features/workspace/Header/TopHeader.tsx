@@ -85,7 +85,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onMobileMenuToggle, isMobi
 
         {/* Brand Studio Logo (ForMesh 3D) */}
         <div
-          onClick={() => navigateToMain('dashboard')}
+          onClick={() => navigateToTool('model')}
           className="flex items-center gap-1.5 cursor-pointer group py-0.5 pr-1 flex-shrink-0 select-none"
         >
           {/* Stylized Logo Cube */}

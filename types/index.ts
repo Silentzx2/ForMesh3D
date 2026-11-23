@@ -223,30 +223,6 @@ export interface SystemVerification {
   issues: string[];
 }
 
-export interface AdminOverview {
-  status: string;
-  uptime: string;
-  active_jobs: number;
-  queued_jobs: number;
-  completed_today: number;
-  failed_today: number;
-  success_rate: number;
-  gpu_utilization: number;
-  vram_used_mb: number;
-  vram_total_mb: number;
-  cpu_usage: number;
-  cpu_name: string;
-  cpu_cores?: number;
-  cpu_threads?: number;
-  ram_usage: number;
-  ram_total: number;
-  storage_used_gb: number;
-  storage_total_gb: number;
-  queue_running: boolean;
-  gpu_temp?: number;
-  cuda_available?: boolean;
-}
-
 export interface AdminLog {
   id: string;
   timestamp: string;

@@ -69,7 +69,7 @@ export interface ActiveTask {
   sourceModelUrl?: string;
 }
 
-export type MainNavRoute = 'workspace' | 'dashboard' | 'assets' | 'system' | 'settings' | 'models' | 'jobs';
+export type MainNavRoute = 'workspace' | 'assets' | 'system' | 'settings' | 'models' | 'jobs';
 
 export type ShadingMode = 
   | 'textured' 

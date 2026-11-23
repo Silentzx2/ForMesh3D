@@ -345,7 +345,6 @@ export const DEFAULT_WORKSPACE_SHORTCUTS: ShortcutDefinition[] = [
   { id: 'tool-animation', name: 'Animation / Motion', description: 'Switch to Skeletal Animation', defaultKey: 'A', category: 'tools' },
   { id: 'tool-rigging', name: 'Auto-Rigging', description: 'Switch to SkinTokens Armature', defaultKey: 'K', category: 'tools' },
   { id: 'tool-segment', name: 'Mesh Segmentation', description: 'Switch to Mesh Segmentation', defaultKey: 'S', category: 'tools' },
-  { id: 'nav-dashboard', name: 'Dashboard', description: 'Navigate to Command Center', defaultKey: 'Ctrl/Cmd + 1', category: 'navigation' },
   { id: 'nav-assets', name: 'Assets Library', description: 'Navigate to Asset Outputs', defaultKey: 'Ctrl/Cmd + 2', category: 'navigation' },
   { id: 'nav-jobs', name: 'Jobs & Execution', description: 'Navigate to Task & Job Queue', defaultKey: 'Ctrl/Cmd + 3', category: 'navigation' },
   { id: 'nav-logs', name: 'System Logs', description: 'Open System Telemetry & Logs', defaultKey: 'Ctrl/Cmd + 4', category: 'navigation' },

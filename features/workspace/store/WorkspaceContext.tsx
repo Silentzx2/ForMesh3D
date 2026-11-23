@@ -1697,7 +1697,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         setActiveTool('model');
         setMainNav('workspace');
         // In workspace shell: replaceState keeps MeshViewer mounted. Outside
-        // shell (e.g. dashboard): full router.push navigation.
+        // shell: full router.push navigation.
         if (pathname.startsWith('/workspace')) {
           window.history.replaceState(null, '', targetRoute);
         } else {
@@ -3339,15 +3339,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   const isWorkspaceShellActive = useCallback((path?: string | null) => {
     if (!path) return false;
     return (
-      path.startsWith('/workspace') ||
-      path === '/animation' ||
-      path.startsWith('/animation') ||
-      path === '/rigging' ||
-      path.startsWith('/rigging') ||
-      path === '/dashboard' ||
-      path === '/outputs' ||
-      path === '/system' ||
-      path === '/jobs'
+      path.startsWith('/workspace')
     );
   }, []);
 
@@ -3411,7 +3403,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     }
 
     const routeMap: Record<string, string> = {
-      dashboard: '/workspace/generate',
       assets: '/workspace/assets',
       jobs: '/workspace/jobs',
       workspace: '/workspace/generate',
