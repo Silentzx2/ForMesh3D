@@ -19,6 +19,20 @@ describe('viewer asset-selection state machine', () => {
     assert.equal(useViewerStore.getState().assetSelectionState, 'ready');
     assert.equal(useViewerStore.getState().loadedModelUrl, '/mesh-a.glb');
   });
+  it('clears previous-mesh statistics when a new selection starts without unloading the visible mesh', () => {
+    useViewerStore.setState({
+      loadedModelUrl: '/previous.glb',
+      modelStats: { vertices: 120, triangles: 40, dimensions: { x: 1, y: 1, z: 1 } },
+    });
+    useViewerStore.getState().requestAssetSelection(asset('next'));
+    const state = useViewerStore.getState();
+    assert.equal(state.assetSelectionState, 'selecting');
+    assert.equal(state.modelStats, null);
+    assert.equal(state.loadedModelUrl, '/previous.glb');
+    useViewerStore.getState().requestAssetSelection(null);
+    assert.equal(useViewerStore.getState().modelStats, null);
+    assert.equal(useViewerStore.getState().assetSelectionState, 'idle');
+  });
   it('ignores stale completion/failure after a newer selection', () => {
     const stale = useViewerStore.getState().requestAssetSelection(asset('old'));
     useViewerStore.getState().verifyAsset(stale);

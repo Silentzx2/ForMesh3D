@@ -113,4 +113,8 @@ Use only the currently exported shared presets. Prefer local CSS transitions for
 - Duplicates are local aliases to the original file. Removing a duplicate removes only the alias and never deletes its shared source. Backend deletion is attempted only for a validated job/upload identity and the card is removed only after a successful response.
 - Thumbnail failures are scoped to the asset ID and exact thumbnail URL, so a changed URL can be retried. Pagination resets on filter/scope changes and clamps when results shrink.
 - Upload guidance matches the validator: GLB, GLTF, OBJ, FBX, STL and PLY, up to 200 MiB.
+- The Generator context accordion follows persisted desktop inspector state; changing tools may auto-expand it until the user manually overrides it.
+- Asset favorites are toggled from each asset's options menu and persisted by stable asset identity in the existing app-state store.
+- Viewer statistics are cleared when a new asset selection begins, preventing the still-visible previous mesh from supplying stale metrics to the new selection. The old mesh remains rendered until the replacement load succeeds.
+- Geometry health and UV chart counts display unknown when no measured or backend metadata exists; do not substitute assumed manifold status, chart counts or UV-channel labels.
 - `glbCache.ts` shares network work while keeping cancellation per consumer; the underlying fetch is aborted only after the final subscriber leaves.

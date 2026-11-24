@@ -79,8 +79,6 @@ def _labels_from_merge_tree(
             f"from {face_count} faces (produced {len(active)})"
         )
 
-    cluster_labels = {node_id: label for label, node_id in enumerate(sorted(active))}
-
     def find_root(face_id: int) -> int:
         node_id = face_id
         while parent.get(node_id, node_id) != node_id:
@@ -93,8 +91,18 @@ def _labels_from_merge_tree(
             node_id = next_id
         return root_id
 
+    # Label clusters by their first source-face occurrence, not merge-node IDs.
+    # Internal node IDs reflect tree construction order and are not semantic order.
+    cluster_labels: Dict[int, int] = {}
+
+    def label_for_face(face_id: int) -> int:
+        root_id = find_root(face_id)
+        if root_id not in cluster_labels:
+            cluster_labels[root_id] = len(cluster_labels)
+        return cluster_labels[root_id]
+
     labels = np.fromiter(
-        (cluster_labels[find_root(face_id)] for face_id in range(face_count)),
+        (label_for_face(face_id) for face_id in range(face_count)),
         dtype=np.int32,
         count=face_count,
     )

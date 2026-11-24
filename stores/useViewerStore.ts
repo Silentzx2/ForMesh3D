@@ -147,7 +147,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   // slow earlier responses cannot overwrite a newer user selection (§14.7).
   requestAssetSelection: (asset) => {
     const nextId = (get().selectionRequestId || 0) + 1;
-    set({ selectionRequestId: nextId, selectedAsset: asset, assetSelectionState: asset ? 'selecting' : 'idle', assetLoadError: null });
+    set({ selectionRequestId: nextId, selectedAsset: asset, assetSelectionState: asset ? 'selecting' : 'idle', assetLoadError: null, modelStats: null });
     return nextId;
   },
 

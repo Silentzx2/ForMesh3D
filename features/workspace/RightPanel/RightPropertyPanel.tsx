@@ -89,7 +89,7 @@ export const RightPropertyPanel: React.FC = () => {
 
   // Auto-expand section matching activeTool; manual toggle overrides auto behavior
   const manualOverridesRef = useRef<Set<string>>(new Set());
-  const prevToolRef = useRef<string | null>(null);
+  const prevToolRef = useRef<string | null>(activeTool);
 
   useEffect(() => {
     if (prevToolRef.current !== activeTool) {
@@ -112,10 +112,8 @@ export const RightPropertyPanel: React.FC = () => {
   };
 
   const isSectionExpanded = (sectionId: string) => {
-    // Context section is ALWAYS expanded by default for tool inspectors
-    if (sectionId === 'context') return true;
-    // When inside a dedicated dynamic tool, collapse general mesh properties by default
-    if (activeTool === 'rigging' || activeTool === 'segment' || activeTool === 'uv' || activeTool === 'animation') {
+    // Dedicated tool inspectors collapse general mesh properties by default.
+    if (sectionId !== 'context' && (activeTool === 'rigging' || activeTool === 'segment' || activeTool === 'uv' || activeTool === 'animation')) {
       return rightPanelSections?.[sectionId] ?? false;
     }
     return rightPanelSections?.[sectionId] ?? true;
@@ -989,23 +987,28 @@ export const RightPropertyPanel: React.FC = () => {
 
         {/* 2. Geometry Statistics & Topology Health */}
         {isSectionExpanded('geometry') && (() => {
-          const verticesDisplay = currentAsset?.vertices
+          const verticesDisplay = currentAsset.statsAvailable
             ? currentAsset.vertices.toLocaleString()
-            : modelStats?.vertices
-            ? modelStats.vertices.toLocaleString()
-            : '—';
+            : currentAsset.vertices > 0
+              ? currentAsset.vertices.toLocaleString()
+              : modelStats?.vertices?.toLocaleString() ?? '—';
 
-          const facesDisplay = currentAsset?.faces
+          const facesDisplay = currentAsset.statsAvailable
             ? currentAsset.faces.toLocaleString()
-            : modelStats?.triangles
-            ? modelStats.triangles.toLocaleString()
-            : '—';
+            : currentAsset.faces > 0
+              ? currentAsset.faces.toLocaleString()
+              : modelStats?.triangles?.toLocaleString() ?? '—';
 
-          const isManifold = currentAsset?.isManifold ?? modelStats?.isManifold ?? true;
-          const nonManifoldEdges = currentAsset?.nonManifoldEdges ?? modelStats?.nonManifoldEdges ?? 0;
-          const surfaceArea = currentAsset?.surfaceArea ?? modelStats?.surfaceArea;
-          const volume = currentAsset?.volume ?? modelStats?.volume;
-          const uvCharts = currentAsset?.uvCharts ?? modelStats?.uvCharts;
+          const isManifold = currentAsset.isManifold ?? modelStats?.isManifold;
+          const nonManifoldEdges = currentAsset.nonManifoldEdges ?? modelStats?.nonManifoldEdges;
+          const manifoldStatus = isManifold === true || (isManifold === undefined && nonManifoldEdges === 0)
+            ? 'manifold'
+            : isManifold === false || (nonManifoldEdges !== undefined && nonManifoldEdges > 0)
+              ? 'non-manifold'
+              : 'unknown';
+          const surfaceArea = currentAsset.surfaceArea ?? modelStats?.surfaceArea;
+          const volume = currentAsset.volume ?? modelStats?.volume;
+          const uvCharts = currentAsset.uvCharts ?? modelStats?.uvCharts;
 
           return (
             <Collapsible
@@ -1032,15 +1035,19 @@ export const RightPropertyPanel: React.FC = () => {
                     />
                   </button>
                 </CollapsibleTrigger>
-                {isManifold && nonManifoldEdges === 0 ? (
+                {manifoldStatus === 'manifold' ? (
                   <span className="flex items-center gap-1 text-[10px] text-[hsl(var(--neon-green))] font-mono px-1.5 py-0.5 rounded bg-[hsl(var(--neon-green))]/10 border border-[hsl(var(--neon-green))]/30">
                     <HugeiconsIcon icon={ShieldCheckIcon} size={16} className="w-3 h-3" />
                     Manifold
                   </span>
-                ) : (
+                ) : manifoldStatus === 'non-manifold' ? (
                   <span className="flex items-center gap-1 text-[10px] text-amber-400 font-mono px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30">
                     <HugeiconsIcon icon={TriangleAlertIcon} size={16} className="w-3 h-3" />
-                    Non-Manifold ({nonManifoldEdges})
+                    Non-Manifold{nonManifoldEdges !== undefined ? ` (${nonManifoldEdges})` : ''}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-[hsl(var(--muted-foreground))] font-mono px-1.5 py-0.5 rounded border border-[hsl(var(--border))]">
+                    Not analyzed
                   </span>
                 )}
               </div>
@@ -1074,14 +1081,10 @@ export const RightPropertyPanel: React.FC = () => {
                   </div>
                   <div className="p-2 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
                     <span className="text-[hsl(var(--muted-foreground))] block text-[10px]">UV Islands</span>
-                    <span className="font-bold text-[hsl(var(--neon-green))]">{uvCharts !== undefined && uvCharts > 0 ? `${uvCharts} charts` : '1 chart'}</span>
+                    <span className="font-bold text-[hsl(var(--neon-green))]">{uvCharts !== undefined ? `${uvCharts} charts` : '—'}</span>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))] pt-1 border-t border-[hsl(var(--border))]">
-                  <span>UV Channels</span>
-                  <span className="font-mono text-[hsl(var(--foreground))]">2 (UV0: Diffuse, UV1: Lightmap)</span>
-                </div>
                 {currentAsset.dimensions && (
                   <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))] pt-1 border-t border-[hsl(var(--border))]">
                     <span>Dimensions (X×Y×Z)</span>

@@ -41,7 +41,7 @@ export const RightAssetsPanel: React.FC = () => {
     workspaceId,
   } = useWorkspace();
 
-  const { assetCollections, addAssetCollection, assetCollectionAssignments, setAssetCollectionAssignment } = useAppStore();
+  const { assetCollections, addAssetCollection, assetCollectionAssignments, setAssetCollectionAssignment, assetFavorites, setAssetFavorite } = useAppStore();
 
   const [activePage, setActivePage] = useState(1);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
@@ -75,7 +75,8 @@ export const RightAssetsPanel: React.FC = () => {
       if (collectionMenuRef.current && !collectionMenuRef.current.contains(e.target as Node)) {
         setCollectionMenuOpen(false);
       }
-      if (activeMenuAssetId && !(e.target as HTMLElement).closest(`[data-asset-menu="${activeMenuAssetId}"]`)) {
+      const targetMenu = (e.target as HTMLElement).closest('[data-asset-menu]');
+      if (activeMenuAssetId && targetMenu?.getAttribute('data-asset-menu') !== activeMenuAssetId) {
         setActiveMenuAssetId(null);
       }
     };
@@ -126,15 +127,25 @@ export const RightAssetsPanel: React.FC = () => {
   };
 
   const scopedBaseAssets = React.useMemo(() => {
-    if (!scopeToWorkspace || !workspaceId) return assets;
-    return assets.filter((asset) =>
+    const withFavorites = assets.map((asset) => {
+      const favoriteKey = asset.isLocalDuplicate
+        ? asset.id
+        : asset.id.startsWith('local_')
+          ? (asset.source?.fileId || asset.fileId || asset.id).replace(/^job-/, '')
+          : asset.id.replace(/^(?:hist_|upload_)/, '');
+      return assetFavorites[favoriteKey] === undefined
+        ? asset
+        : { ...asset, isFavorite: assetFavorites[favoriteKey] };
+    });
+    if (!scopeToWorkspace || !workspaceId) return withFavorites;
+    return withFavorites.filter((asset) =>
       asset.workspace_id === workspaceId ||
       asset.id === `local_${workspaceId}` ||
       asset.id === workspaceId ||
       asset.fileId === workspaceId ||
       asset.source?.fileId === workspaceId
     );
-  }, [assets, scopeToWorkspace, workspaceId]);
+  }, [assets, assetFavorites, scopeToWorkspace, workspaceId]);
 
   const filteredAssets = scopedBaseAssets.filter(a => {
     if (showFavoritesOnly && !a.isFavorite) return false;
@@ -343,6 +354,11 @@ export const RightAssetsPanel: React.FC = () => {
             {/* Asset Items */}
             {paginatedAssets.map((asset) => {
             const isSelected = currentAsset?.id === asset.id;
+            const favoriteKey = asset.isLocalDuplicate
+              ? asset.id
+              : asset.id.startsWith('local_')
+                ? (asset.source?.fileId || asset.fileId || asset.id).replace(/^job-/, '')
+                : asset.id.replace(/^(?:hist_|upload_)/, '');
 
             return (
               <div
@@ -446,6 +462,22 @@ export const RightAssetsPanel: React.FC = () => {
 
                       {activeMenuAssetId === asset.id && (
                         <div className="absolute right-0 bottom-full mb-1 w-44 py-1.5 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.1] shadow-2xl z-50 text-xs font-medium animate-in fade-in zoom-in-95 duration-100">
+                          <button
+                            type="button"
+                            aria-pressed={Boolean(asset.isFavorite)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const nextFavorite = !asset.isFavorite;
+                              setAssetFavorite(favoriteKey, nextFavorite);
+                              setActiveMenuAssetId(null);
+                              toast.success(nextFavorite ? 'Added to favorites' : 'Removed from favorites');
+                            }}
+                            className="w-full text-left px-2.5 py-1.5 text-zinc-200 hover:bg-[hsl(var(--surface-3))] flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <HugeiconsIcon icon={StarIcon} size={15} className={asset.isFavorite ? 'w-3.5 h-3.5 text-primary fill-current' : 'w-3.5 h-3.5 text-zinc-400'} />
+                            <span>{asset.isFavorite ? 'Remove Favorite' : 'Add to Favorites'}</span>
+                          </button>
+                          <div className="border-t border-white/[0.06] my-1" />
                           {asset.collection && (
                             <>
                               <div className="px-2.5 py-1 text-[9px] font-mono text-primary truncate flex items-center justify-between">

@@ -134,3 +134,15 @@ The checked-in CI commands are documented in [CONTRIBUTING.md](../CONTRIBUTING.m
 **Implementation record:** selection transitions share viewer loader outcomes; deletion targets are ownership-aware and response-checked; duplicates remain local aliases; workspace scope is strict; collections persist and filter; pagination and thumbnail retry are keyed; upload hints match validation; GLB cancellation is subscriber-aware. Focused Node/Bun regression tests were added.
 
 **Validation:** source changes are committed as one dev update. TypeScript, lint, Bun tests, production build and browser interaction must be verified by CI after push; no GPU/inference code changed.
+
+## 15. Desktop inspector and asset controls — 2026-11-24
+- Restored persisted expand/collapse behavior for the Generator context accordion; tool changes auto-expand it only until the user manually overrides it.
+- Added per-asset favorite toggling with persistence in the existing app-state store; stable backend file identity keeps favorites across upload/history aliases.
+- Cleared stale viewer statistics at selection start while keeping the previous mesh rendered until the new loader completes.
+- Geometry health and UV metrics now show unknown when source metadata is absent; removed fabricated manifold, chart-count and UV-channel claims.
+- Kept this pass desktop-only; no mobile layout or navigation changes.
+
+## 16. PartField merge-tree label stability — 2026-11-24
+- Assign output labels by first source-face occurrence instead of internal merge-node IDs.
+- Partial cuts now preserve intuitive, deterministic face-order labels without changing merge ancestry or the requested part count.
+- Regression covers a single-cut tree where the surviving leaf ID sorts before the merged parent ID.
