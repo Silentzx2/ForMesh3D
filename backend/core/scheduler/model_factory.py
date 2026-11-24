@@ -83,22 +83,22 @@ class ModelFactory:
             "module": "adapters.trellis2_adapter",
             "class": "Trellis2ImageMeshPaintingAdapter",
         },
-        # Hunyuan3D adapters
+        # Hunyuan3D-2.1 Unified adapter — single adapter for shape + paint
         "hunyuan3d_shape_v21_image_to_raw_mesh": {
-            "module": "adapters.hunyuan3d_shape_v21",
-            "class": "Hunyuan3DShapeV21ImageToRawMeshAdapter",
+            "module": "adapters.hunyuan3d_21_unified",
+            "class": "Hunyuan3D21UnifiedAdapter",
         },
         "hunyuan3d_shape_v21_image_to_3d": {
-            "module": "adapters.hunyuan3d_shape_v21",
-            "class": "Hunyuan3DShapeV21ImageToRawMeshAdapter",
+            "module": "adapters.hunyuan3d_21_unified",
+            "class": "Hunyuan3D21UnifiedAdapter",
         },
         "hunyuan3d_shape_v21_image_to_textured_mesh": {
-            "module": "adapters.hunyuan3d_shape_v21",
-            "class": "Hunyuan3DShapeV21ImageToRawMeshAdapter",
+            "module": "adapters.hunyuan3d_21_unified",
+            "class": "Hunyuan3D21UnifiedAdapter",
         },
         "hunyuan3d_paint_v21_image_mesh_painting": {
-            "module": "adapters.hunyuan3d_adapter_v21",
-            "class": "Hunyuan3DV21ImageMeshPaintingAdapter",
+            "module": "adapters.hunyuan3d_21_unified",
+            "class": "Hunyuan3D21UnifiedAdapter",
         },
         "hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh": {
             "module": "adapters.hunyuan3d_dit_v2_mini_turbo",
@@ -107,23 +107,6 @@ class ModelFactory:
         "hunyuan3d_dit_v2_mini_turbo_image_to_3d": {
             "module": "adapters.hunyuan3d_dit_v2_mini_turbo",
             "class": "Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter",
-        },
-        # Hunyuan3D legacy adapters (deprecated)
-        "hunyuan3dv21_image_to_raw_mesh": {
-            "module": "adapters.hunyuan3d_adapter_v21",
-            "class": "Hunyuan3DV21ImageToRawMeshAdapter",
-        },
-        "hunyuan3dv21_image_to_3d": {
-            "module": "adapters.hunyuan3d_adapter_v21",
-            "class": "Hunyuan3DV21ImageToRawMeshAdapter",
-        },
-        "hunyuan3dv21_image_to_textured_mesh": {
-            "module": "adapters.hunyuan3d_adapter_v21",
-            "class": "Hunyuan3DV21ImageToRawMeshAdapter",
-        },
-        "hunyuan3dv21_image_mesh_painting": {
-            "module": "adapters.hunyuan3d_adapter_v21",
-            "class": "Hunyuan3DV21ImageMeshPaintingAdapter",
         },
         # SkinTokens adapters
         "skintokens_auto_rigging": {

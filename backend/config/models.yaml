@@ -3,10 +3,10 @@
 # Only enabled entries are exposed to the scheduler; model weights must be installed separately.
 image_to_raw_mesh:
   hunyuan3d_shape_v21_image_to_raw_mesh:
-    model_name: "Hunyuan3D-2.1 Shape \u2014 Image to Raw Mesh"
-    ui_label: Hunyuan3D-2.1 Shape
-    ui_tag: High Detail
-    ui_note: "10GB VRAM \xB7 50 steps \xB7 512 octree"
+    model_name: "Hunyuan3D-2.1 Unified \u2014 Image to Raw Mesh + Texture Paint"
+    ui_label: Hunyuan3D-2.1 Unified
+    ui_tag: Shape + Paint
+    ui_note: "10GB VRAM \xB7 50 steps \xB7 512 octree \xB7 autochain texture"
     ui_badge: 10GB VRAM
     enabled: true
     vram_requirement: 10240
@@ -19,7 +19,7 @@ image_to_raw_mesh:
     model_path: backend/pretrained/tencent/Hunyuan3D-2.1
     capabilities:
       raw_mesh: true
-      texture_generation: false
+      texture_generation: true
       image_to_3d: true
       supports_quad_topology: false
       default_topology: Triangle
@@ -254,17 +254,16 @@ image_to_textured_mesh:
     model_type: mesh
 image_mesh_painting:
   hunyuan3d_paint_v21_image_mesh_painting:
-    model_name: "Hunyuan3D-2.1 Paint \u2014 Image Mesh Painting"
-    ui_label: Hunyuan3D-Paint v2.1
+    model_name: "Hunyuan3D-2.1 Unified \u2014 Image Mesh Painting"
+    ui_label: Hunyuan3D-2.1 Paint
     ui_tag: PBR Multi-view
-    ui_note: Multi-view projection & full PBR maps
+    ui_note: "Multi-view projection & full PBR maps (paint page / standalone)"
     ui_badge: 12GB VRAM
     enabled: true
     vram_requirement: 12000
     max_workers: 1
     supported_inputs:
       - mesh
-      - text
       - image
     supported_outputs:
       - glb

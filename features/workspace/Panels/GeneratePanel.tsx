@@ -372,6 +372,54 @@ export const GeneratePanel: React.FC = () => {
     (modelCapabilities.supported_texture_resolutions as any) || ['1K', '2K', '4K'];
   const modelSupportsTexture = modelCapabilities.texture_generation !== false;
 
+  // Available paint/texture models for autochain when the selected shape model
+  // does not support native texture generation (e.g. Hunyuan3D-2.1 Shape).
+  const textureModels = useMemo(() => {
+    const registeredIds = Object.keys(modelDetails);
+    return registeredIds
+      .filter((mid) => {
+        const detail = modelDetails[mid];
+        if (!detail || detail.enabled === false) return false;
+        const type = detail.model_type || '';
+        const feat = detail.feature || '';
+        return (
+          type === 'texture' ||
+          feat === 'image_mesh_painting' ||
+          feat === 'image-mesh-painting' ||
+          feat === 'mesh_painting'
+        );
+      })
+      .map((mid) => {
+        const detail = modelDetails[mid];
+        return {
+          id: mid,
+          label: detail?.ui_label || detail?.model_name || mid,
+          tag: detail?.ui_tag || 'Ready',
+          note: detail?.ui_note || '',
+        };
+      });
+  }, [modelDetails]);
+
+  const [textureModel, setTextureModel] = useState<string | undefined>(undefined);
+
+  // Sync texture_model into generation settings
+  useEffect(() => {
+    setGenerationSettings((prev) => ({
+      ...prev,
+      texture_model: textureModel,
+    }));
+  }, [textureModel, setGenerationSettings]);
+
+  // Initialize textureModel from persisted generation settings on mount
+  useEffect(() => {
+    const persisted = generationSettings.texture_model;
+    if (persisted && textureModels.some((m) => m.id === persisted)) {
+      setTextureModel(persisted);
+    } else if (textureModels.length > 0 && !textureModel) {
+      setTextureModel(textureModels[0].id);
+    }
+  }, [generationSettings.texture_model, textureModels, textureModel, setTextureModel]);
+
   // Sync texture resolution fallback if model changes
   useEffect(() => {
     if (supportedResolutions.length > 0 && !supportedResolutions.includes(textureQuality)) {
@@ -1062,6 +1110,74 @@ export const GeneratePanel: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* 4b. Texture Model Selector (for shape models without native texture pipeline) */}
+      {!modelSupportsTexture && textureModels.length > 0 && (
+        <div className="border-t border-[hsl(var(--border))] pt-2 space-y-1">
+          <label className="text-[10px] font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider block">
+            Texture Model (Paint After Generate)
+          </label>
+          <p className="text-xs text-zinc-400 mb-1">
+            {selectedModelDetail?.ui_label || selectedModel} generates a raw mesh. Select a paint model to apply texture after generation.
+          </p>
+          <div className="relative">
+            <button
+              type="button"
+              aria-haspopup="listbox"
+              aria-expanded={isModelDropdownOpen}
+              aria-label="Select Texture Model"
+              onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+              className="w-full h-8 px-2 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] flex items-center justify-between text-left transition-all cursor-pointer shadow-sm"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-5 h-5 rounded-md bg-[#F9CF00]/10 border border-[#F9CF00]/25 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
+                  <Sparkles className="w-3 h-3 text-[#F9CF00]" />
+                </div>
+                <div className="min-w-0 flex items-baseline gap-1.5">
+                  <p className="text-[11px] font-bold text-[hsl(var(--foreground))] truncate">
+                    {textureModels.find((m) => m.id === textureModel)?.label ||
+                      (textureModels.length > 0 ? textureModels[0].label : 'Select Texture Model')}
+                  </p>
+                </div>
+              </div>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] flex-shrink-0 ml-1 transition-transform duration-200 ${
+                  isModelDropdownOpen ? 'rotate-180 text-primary' : ''
+                }`}
+              />
+            </button>
+            {isModelDropdownOpen && (
+              <div
+                role="listbox"
+                aria-label="Available texture models"
+                className="absolute top-full mt-1 left-0 right-0 rounded-xl bg-[#1a1b26] border border-white/10 shadow-2xl p-1 z-40 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
+              >
+                {textureModels.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    role="option"
+                    aria-selected={textureModel === m.id}
+                    onClick={() => setTextureModel(m.id)}
+                    className={`w-full text-left px-2 py-1.5 rounded-lg text-[11px] transition-all cursor-pointer flex items-center justify-between ${
+                      textureModel === m.id
+                        ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
+                        : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
+                    }`}
+                  >
+                    <div className="min-w-0 pr-1 flex items-center gap-1.5">
+                      <span className="block font-semibold truncate leading-tight">{m.label}</span>
+                      {m.note && (
+                        <span className="text-[9px] opacity-70 block truncate leading-tight">{m.note}</span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 4c. Texture Settings (model-aware — hidden when model has no texture pipeline) */}
       {modelSupportsTexture && (

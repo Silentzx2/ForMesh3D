@@ -522,6 +522,7 @@ export interface GenerationSettings {
   texture_resolution?: '512' | '1K' | '2K' | '4K' | '8K';
   texture_settings?: Record<string, any>;
   textureResolution?: '512' | '1K' | '2K' | '4K' | '8K';
+  texture_model?: string;
   targetPolycount?: number;
   target_polycount?: number;
   polycount?: number;
