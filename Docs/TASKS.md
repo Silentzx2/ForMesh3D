@@ -1,112 +1,130 @@
-# Direct-Save Workspace Architecture & Complete Temp Removal
+# Current Tasks and Verified Cleanup Record
 
-## 1. AGENTS.md Governance & Priority Guardrails
-- **Large GPU Parity (`sm >= 80`)**: Zero regressions on Ampere/Hopper/Blackwell (A100, RTX 3090/4090, H100). Maintain native BF16, FlashAttention 2, and upstream flows. Any pre-Ampere (`sm < 80`) workarounds must remain strictly isolated behind `_is_pre_ampere`.
-- **Model Adapter Direct Patching**: Runtime fixes stay strictly inside specific adapters (`partuv_adapter.py`, `skintokens_adapter.py`) or `patcher/<model>/`; zero global monkeypatches leaking across sibling pipelines.
-- **Section C Complete Removal Protocol**: When removing temp preview staging, delete all traces: routes, imports, registrations, UI bars, types, test cases, and orphaned files.
-- **Ponytail Ladder**: YAGNI -> reuse existing codebase helpers -> stdlib -> platform -> installed dependencies -> minimal clean code.
-- **Strict Scope Boundary**: Mesh Generate panel (`GeneratePanel.tsx`, image-to-3d pipeline) is completely untouched.
-- **Context Budget Rule**: This document must strictly stay within 100–150 lines.
+> **Audit date:** 2026-11-24  
+> **Branch:** `dev`  
+> **Baseline:** `27f48a76f302008fa0ab9d9b1d7788a8eb7d55a1`  
+> **Rule:** This file records source-verified cleanup. A missing frontend caller alone does not make a REST endpoint safe to delete.
 
-## 2. Implicit State Machines (Full Lifecycle & Explicit Transitions)
-- **Problematic Legacy State**: Scattered booleans (`persistenceState`, `isSubmitting`, `isPreviewActive`, `isMeshGen`), race conditions between job polling and temp staging, and blocking Keep/Discard modal bars.
-- **Explicit Workspace Operation Lifecycle**:
-  - `IDLE`: Active mesh loaded in viewer. Workspace tool panel ready for parameter configuration.
-  - `VALIDATING`: Client verifies active mesh existence, file format (.glb/.obj), and parameter bounds.
-  - `SUBMITTING`: Canonical POST sent to backend (`/api/v1/{retopo,unwrap,segment,rig}`) with active `workspace_id`.
-  - `PROCESSING`: Real-time backend progress (`0-100%`) and execution step message; viewer shows non-blocking progress spinner.
-  - `PUBLISHING`: Backend atomic write to workspace directory, DB row created, active mesh pointer updated.
-  - `COMPLETED`: New derived asset promoted to `active_mesh_asset_id`, appended to Version History, viewer re-renders new mesh immediately.
-  - `FAILED`: Operation terminates cleanly, original active mesh remains active and untouched, user receives error toast.
-  - `CANCELLED`: User aborts job, partial artifacts unlinked on disk, workspace returns cleanly to `IDLE`.
-- **Explicit Version Switch State Machine**:
-  - `VIEWING(version_k)` -> User clicks `version_j` in Version History -> `SWITCHING` -> `VIEWING(version_j)`. Viewer loads selected asset; no re-computation or file movement required.
+## 1. Removed orphaned first-party files
 
-## 3. Phase 1: Section C Complete Removal Plan
-- [x] **Backend Routes Removal**:
-  - Delete endpoints in `backend/api/routers/system.py`: `/workspace/operations/{operation_id}/keep`, `/operations/{operation_id}/keep`, `/workspace/operations/{operation_id}/discard`, `/operations/{operation_id}/discard`, `/workspace/operations/{operation_id}/preview`, `/operations/{operation_id}/preview`, and `/workspace/operations/{operation_id}`.
-  - Delete `execute_script_operation` temp staging logic in `backend/api/routers/script_execution.py`.
-- [x] **Backend Storage & Schema Cleanup**:
-  - Remove `create_operation_temp` and all filesystem operations writing to `storage/temp/`.
-  - Remove `temp_dir` column reliance in `DatabaseManager` and SQLite schema.
-- [x] **Frontend Component & State Removal**:
-  - Delete `features/workspace/Viewport/OperationActionBar.tsx`.
-  - Remove `persistenceState` ('not_saved' | 'saving' | 'saved' | 'save_failed' | 'discarded') from `WorkspaceContext.tsx` and `useViewerStore`.
-  - Remove `restorePreviewBaseline`, `discardActivePreview`, and temporary preview rollback caches.
+| Path | Evidence / reason |
+|---|---|
+| `features/workspace/Viewport/GenerationLoadingPreview.tsx` | Component had no code importer, dynamic import, route registration, or runtime consumer. Its old mention in this file was documentation only. |
+| `features/workspace/lib/meshTelemetry.ts` | `analyzeGeometryTelemetry`, `countUVCharts`, and `prepareMeshTangentsAndNormals` had no consumers. Active viewer statistics use `meshStats.ts`. |
+| `features/workspace/lib/presetIntent.ts` | `getPresetIntentFromSearch`, `getPromptFromSearch`, and `getModelFromSearch` had no callers. |
+| `features/workspace/lib/riggingProgress.ts` | `computeRigProgress` and `computeRigStatusText` had no callers. |
+| `components/icons/hugeicons-mapping.ts` | Mapping export had no imports; active icon components use the actual Hugeicons component layer. |
+| `backend/core/utils/validation.py` | All validation helpers had zero first-party import/call sites; active request validation lives in router/Pydantic contracts. |
+| `backend/core/utils/format_utils.py` | `fbx_to_glb` and `fbx_to_glb_headless` had no callers or registered conversion flow. |
+| `backend/core/utils/mask_generator.py` | `MaskGenerator` and its convenience functions had no imports or runtime consumers. |
+| `backend/utils/partuv_utils.py` | `PartUVRunner` had no callers; the active PartUV adapter owns the current inference path. |
+| `scripts/verify_integration_loop.py` | Standalone script was unreferenced and stale: it imports missing `backend.core.animation.ardy_converter` and calls retired motion-generation paths. |
 
-## 4. Phase 2: Canonical Direct-Save Pipeline (Script & AI Modes)
-- [x] **Canonical Tool Endpoints**:
-  - Retopo: `POST /api/v1/retopo` (`engine: "ai" | "script"`)
-  - UV Unwrap: `POST /api/v1/unwrap` (`engine: "ai" | "script"`)
-  - Segmentation: `POST /api/v1/segment` (`engine: "ai" | "script"`)
-  - Auto-Rig: `POST /api/v1/rig` (direct model invocation)
-  - Texturing: `POST /api/v1/texture/generate` (direct model invocation)
-- [x] **Direct Workspace Disk Persistence**:
-  - Script Execution: Synchronous/threadpool pipeline writes output directly to `storage/<workspace_id>/<tool_type>/` using `WorkspaceStorageManager.publish_derived_mesh`.
-  - AI Execution: Scheduler worker writes completed model output directly into `storage/<workspace_id>/<tool_type>/` via `publish_derived_mesh` instead of overwriting master `mesh.glb`.
-- [x] **Database Registration & Promotion**:
-  - New `AssetModel` row created with unique `asset_id`, `workspace_id`, `relative_path`, `byte_size`, `sha256`, and `settings_snapshot`.
-  - `DatabaseManager.update_workspace_active_mesh(workspace_id, asset_id)` automatically promotes the asset.
-  - Response returns full saved asset model, download URL, and computed face/vertex statistics.
+## 2. Removed unused API-client wrappers
 
-## 5. Phase 3: Disk Management & Multi-Run Versioning Logic
-- [x] **Directory Layout Per Tool**:
-  - Retopology: `storage/<workspace_id>/retopology/<workspace_id>_retopology_v{NNN}.glb`
-  - UV Unwrapping: `storage/<workspace_id>/uv/<workspace_id>_uv_v{NNN}.glb`
-  - Segmentation: `storage/<workspace_id>/segmentation/<workspace_id>_segmentation_v{NNN}.glb`
-  - Rigging: `storage/<workspace_id>/rigging/<workspace_id>_rigging_v{NNN}.glb`
-  - Texturing: `storage/<workspace_id>/texture/pbr/<workspace_id>_textured_v{NNN}.glb`
-- [x] **Atomic Versioning on Disk**:
-  - Step 1: Scan target tool directory and resolve next monotonic version index (`_v002`, `_v003`, etc.) via `get_version_mesh_path`.
-  - Step 2: Write output initially to `.staging_<uuid>.tmp` inside the target directory.
-  - Step 3: Atomic replace: `staging_path.replace(final_version_path)`. Unlink partial files on any failure.
-  - Step 4: Generate paired thumbnail: `<final_version_stem>_thumbnail.png`.
-- [x] **Iterative Parameter Tracking**:
-  - Each run stores its exact input parameters in `AssetModel.settings_snapshot` (JSON string: `{ "target_faces": 5000, "engine": "script", "timestamp": "..." }`).
-  - Running an operation repeatedly with varying settings never overwrites prior iterations; all historical runs remain safely on disk and in DB.
+The following methods in `services/apiClient.ts` had no frontend callers. Only the client wrappers were removed; their backend endpoints were retained as API contracts.
 
-## 6. Phase 4: UI State Machine & Version Switching
-- [x] **Immediate Promotion Flow**:
-  - Operation completion directly activates new asset in `WorkspaceContext`, clears execution spinner, and streams GLB to `MeshViewer`.
-  - Zero blocking Keep/Discard prompts or modal overlays.
-- [x] **Version History Selector**:
-  - Workspace displays chronological version list (`workspaceVersions`) with tool badges and parameter summaries.
-  - Clicking any prior version immediately updates `activeMeshAssetId` and switches the viewer mesh with zero recomputation.
-- [x] **Tool Panel Fixes**:
-  - `UVPanel.tsx`: Force `pack_method: "blender"` when `engine === "ai"` for PartUV to satisfy backend schema. Add PartUV neural model badge and parameter binding.
-  - `RiggingPanel.tsx`: Full SkinTokens neural model integration with EngineModeSelector (`tool="rig"`), SkinTokens model card (14GB VRAM), inference parameters (`top_k`, `top_p`, `temperature`, `num_beams`, `use_transfer`, `use_postprocess`), and direct workspace persistence.
-  - `SegmentationPanel.tsx`: Ensure semantic part count and hierarchical settings cleanly route to direct-save pipeline with AI readiness state.
-- [x] **Frontend Performance & Telemetry Optimization**:
-  - Dynamically import secondary tool panels (`TexturePanel`, `UVPanel`, `RemeshPanel`, `RiggingPanel`, `SegmentationPanel`, `AnimationPanel`) using Next.js `dynamic()` with fallback skeletons to eliminate ~258 KiB unused initial script evaluation.
-  - Flatten root redirects directly to `/workspace/generate` to eliminate 660ms double-hop redirect latency.
-  - Align Resource Monitor button `aria-label` with visible text metrics for WCAG 2.5.3 compliance.
+- `getModelParameters()`
+- `downloadJobResult()` — workspace download code builds its current download URL directly.
+- `getFileMetadata()`
+- `getMeshGenerationSupportedFormats()`
+- `getMeshSegmentationSupportedFormats()`
+- `getAutoRiggingSupportedFormats()`
+- `getRetopologyAvailableModels()`
+- `getMeshRetopologySupportedFormats()`
+- `getUVUnwrappingAvailableModels()`
+- `getUVUnwrappingPackMethods()`
+- `getMeshUVUnwrappingSupportedFormats()`
+- `getMotionCheckpoints()`
+- `getMotionAvailableModels()`
+- `getMotionSupportedFormats()`
 
-## 7. Phase 5: Model Adapter Specifications (PartUV & SkinTokens)
-- **PartUV Adapter (`partuv_adapter.py`)**:
-  - Add missing `import sys` to eliminate `NameError`.
-  - Guard `partuv` import to ensure `preprocess` loads cleanly even if native `_core.so` is missing.
-  - Pack results and return canonical dictionary with `output_mesh_path` and `success: True`.
-- **SkinTokens Adapter (`skintokens_adapter.py`)**:
-  - Ensure thin adapter routes outputs directly to workspace target folder without intermediate temp copying.
-  - Preserve locked inference profile: TokenRig architecture, BF16 native on `sm >= 80`, FP16 on `sm < 80`.
-- **TripoSG Adapter & Patcher (`triposg_adapter.py`, `patcher/triposg/`)**:
-  - Route raw mesh exports to managed temporary paths promoted by the multiprocess scheduler to `storage/<workspace_id>/mesh/mesh.glb`.
-  - Completely eliminate diverging `triposg_output` directory creation and monkeypatching.
+## 3. Removed unused exports and deprecated function
 
-## 8. Phase 6: Error Handling & Failure Recovery Matrix
-- **Validation Failure (HTTP 400)**: Invalid mesh format or parameter bounds; no files written; viewer retains active mesh; instant warning toast.
-- **Pipeline Failure (HTTP 500)**: Script crash (e.g. missing QuadriFlow) or AI OOM; staging path unlinked; active mesh unchanged; error toast.
-- **Scheduler Cancellation**: User aborts job; worker process SIGTERM, partial files unlinked, DB job marked CANCELLED, UI returns to IDLE.
+- `features/config.js`: removed `API_BASE` and `resourceUrl()`; retained `SERVER_ORIGIN` and `assetUrl()`.
+- `lib/motion.ts`: removed `MOTION_BASE`, `MOTION_SLOW`, and `MOTION_SPRING_SNAPPY`; retained `MOTION_FAST` and `MOTION_SPRING`.
+- `backend/api/routers/file_upload.py`: removed synchronous `resolve_file_id()` (deprecated, always returned `None`, no callers). Retained `resolve_file_id_async()`, which is used by active routes.
+- `features/workspace/types.ts`, `RemeshPanel.tsx`, and `WorkspaceContext.tsx`: removed the unused `RemeshSettings.variant` field. The panel only wrote `V1K` and the inspector displayed it as `FastMesh Variant`, but the active workspace AI remesh request always submits TriFlow and does not consume that value. Removed the stale field and misleading inspector row.
 
-## 9. Phase 7: Verification & Integrity Checklist
-- [x] **Python Compilation**: Run `python3 -m compileall backend/` to guarantee zero syntax or import errors.
-- [x] **Frontend TypeScript Validation**: Run `bun tsc` or `npx tsc --noEmit` (no `bun run build`).
-- [x] **Section D Audit**: Verify zero dead references to removed endpoints, no orphan imports, and no lingering temp directories.
+## 4. Workspace tool execution — current state
 
-## 10. Detailed Execution Sequence & Milestones
-- **Milestone 1**: Clean removal of temp endpoints and action bar (Section C audit passes).
-- **Milestone 2**: Backend direct publication in `publish_derived_mesh` and scheduler tool output routing.
-- **Milestone 3**: Canonical endpoints updated with `settings_snapshot` persistence and active asset promotion.
-- **Milestone 4**: Frontend state simplification (`WorkspaceContext`, `UVPanel`, `RiggingPanel`, `SegmentationPanel`).
-- **Milestone 5**: Full validation via `compileall` and `tsc --noEmit` before git push.
-- **Milestone 6**: Auto-retry loop elimination, canonical mesh output routing, TRELLIS utils3d shim, and UI retry toggle.
+- The separate Script-engine execution path has been retired. Retopology (TriFlow), UV (PartUV), segmentation (PartField) and rigging (SkinTokens) dispatch through their configured AI adapters.
+- Removed the Script engine selector, its frontend bridge, and deterministic geometric segmentation execution. The PartField island-merging helper remains in a shared utility because neural segmentation uses it for small-island cleanup.
+- SQLite operation records remain the common queued/processing/completed/failed lifecycle and lineage mechanism; they are not a separate Script engine.
+
+## 5. Wiring correction
+
+`backend/core/runtime_probe.py` reads `backend.adapters._ADAPTER_MAP`, while `ModelFactory.ADAPTER_REGISTRY` already registered the enabled specialist adapters. The runtime map omitted:
+- `triflow_retopology` → `backend.adapters.triflow_adapter`
+- `partfield_segmentation` → `backend.adapters.partfield_adapter`
+
+The map now includes these IDs, and `test_batch1_regressions.py` protects the inventory.
+
+## 6. Reviewed and deliberately retained
+
+These were false positives or unsafe deletion candidates:
+
+- `backend/utils/trellis2_utils.py`, TRELLIS.2 adapters, patchers and validation code: retained because TRELLIS.2 is intentionally disabled, not retired. Do not remove disabled-model support.
+- `backend/utils/image_super_utils.py`, `pipeline_utils.py`, `simplify_mesh_utils.py`, `multiview_utils.py`, `uvwrap_utils.py`, `torchvision_fix.py`, and `dinov3_vit.py`: compatibility/model support paths; not safe to delete from first-party import counts alone.
+- `backend/adapters/trellis2_mesh_validation.py`: retained validation support.
+- `backend/api/routers/script_execution.py`, `features/workspace/Panels/EngineModeSelector.tsx`, and `features/workspace/services/meshProcessingBridge.ts`: retired Script-mode execution/UI files; no active callers remain. The PartField island-merging helper was moved to `backend/core/utils/mesh_segmentation_utils.py` before deleting the old geometric segmentation pipeline.
+- `features/workspace/Viewport/meshStats.ts`, `glbCache.ts`, and `components/index.ts`: active callers exist.
+- Disabled models **Unique3D, Pixal3D, TRELLIS.2, TaoFlowForge**: configuration remains unchanged. No model was enabled or removed.
+
+## 7. API endpoints deliberately preserved
+
+No backend REST endpoint was deleted. Routes without a current frontend caller remain externally addressable and/or documented/tested API contracts. Examples include model parameters, supported-format metadata, candidate download/select, shutdown, adapter inventory, logs configuration, file counts, and database verification. The system router's direct `/api/v1` aliases are also retained for compatibility. Removing these requires a separate explicit API-breaking decision and contract/doc updates.
+
+## 8. Verification baseline
+
+The checked-in CI commands are documented in [CONTRIBUTING.md](../CONTRIBUTING.md). Frontend CI runs frozen Bun install, TypeScript check, lint, tests and production build. Backend CI compiles first-party Python packages, patchers and project scripts while excluding the pinned upstream `backend/thirdparty` submodule; it then runs selected backend contract tests, downloader shell syntax and resolver tests. The full-tree `python -m compileall -q backend` command currently reports an existing `IndentationError` in the pinned TRELLIS source (`backend/thirdparty/TRELLIS/trellis/utils/postprocessing_utils.py:57-58`), so that upstream tree is intentionally not part of the first-party syntax gate. CI does not validate GPU inference or checkpoint installation.
+
+## 9. Viewport-only comparison and PartField AI segmentation
+
+- Right-panel comparison UI, orphan viewer, and persisted picker state removed; viewport wipe remains the only model comparison surface.
+- Segmentation is AI-only through PartField. The run action is gated by CUDA, checkpoint, vendored inference source and dependency readiness; no geometric/connected-components Script fallback is exposed.
+- Backend readiness/API contracts, PartField adapter tests and UI/API docs were updated. Frontend and backend runtime contract CI passed on the implementation commit; GPU inference smoke test remains environment-dependent.
+
+## 10. Unified viewport comparison — plan and implementation record (2026-11-23)
+
+**Reference:** uploaded `1903.jpg`: same dragon, textured/PBR on one side and neutral white clay on the other, with a draggable diagonal boundary. Use only `MeshViewer.tsx` and `ViewportToolOverlay.tsx`; never restore Right Panel comparison or add another renderer.
+
+**Invariants:** reuse existing Three.js scene, camera, lights, render loop, `isComparing` state and comparison-before group. Comparison is read-only. Load the before copy only while enabled; cancel stale loads and dispose comparison-owned resources on close/error/unmount. Do not dispose active-model resources. Keep alignment, camera, turntable, lighting and exposure consistent. Enable only for a renderable mesh and valid source/result lineage; never infer a predecessor from a filename or unrelated asset.
+
+**Modes:** Texture/PBR = same mesh URL twice, clay override on before copy, textured active after copy. Retopo, Remesh and Segmentation = persisted source mesh versus completed processed mesh. UV = compare only when output is a distinct renderable mesh; atlas/metadata-only output is not comparable. Other tools use generic labels only with verified source/result URLs. Labels: Clay / Untextured ↔ PBR / Textured; Before Retopo ↔ After Retopo; Original Mesh ↔ Remeshed; Before UV ↔ After UV; Original ↔ Segmented.
+
+**Phase 1 — Core contract:** resolve mode, URLs, labels and availability from active tool + asset lineage. Texture uses same URL and clay override; geometry uses distinct verified URLs. Running/failed/missing pairs are unavailable. Cancel stale loads and safely dispose comparison-owned resources.
+
+**Phase 2 — Tool support:** trace existing persisted sourceAssetId/source artifact for Retopo, Remesh, UV and Segmentation. Use only actual mesh outputs; preserve alignment and never fabricate UV geometry.
+
+**Phase 3 — Rail and interaction:** one viewport toggle, mode-specific tooltip/labels, pointer/touch/keyboard drag, no orbit while dragging. Renderer currently uses rectangular WebGL scissor; retain truthful vertical wipe until real diagonal polygon/stencil clipping is implemented and tested. A decorative diagonal over a vertical split is not acceptable.
+
+**Phase 4 — Regression and delivery:** test texture URL availability, missing/equal geometry URLs, failed/running jobs, atlas-only UV, labels, asset/tool switch, stale-load cancellation and cleanup. Run TypeScript, lint, focused tests and production build; backend tests only if backend contracts change. Update design/task docs to shipped behavior.
+
+**Implementation record:** [x] Reference inspected. [x] Texture/PBR same-mesh clay-vs-textured path wired to existing source-group loader. [x] Tool rail enables compare for a loaded Texture/PBR mesh without a separate predecessor. [x] Retopo/Remesh/UV/Segmentation labels use active tool when verified lineage exists. [x] True diagonal wipe implemented with two render-target passes and a full-screen composite shader in the existing WebGLRenderer; divider angle and shader boundary share the same 14-degree geometry. [x] Render targets resize with the viewport and are disposed with the renderer. [x] Frontend CI passed: TypeScript, ESLint, all Bun tests, and production build. [x] Backend Runtime Contract CI passed: Python compile, regression, workspace/API integration, and resolver checks. The shader boundary and divider geometry have deterministic unit coverage; no manual interactive-browser/WebGL visual result is claimed because this session has no running browser.
+
+
+## 11. Desktop workspace controls — 2026-11-23
+- Header popovers are mutually exclusive to prevent dropdown/resource-panel stacking.
+- Viewport shading modes have one owner (bottom material dock); wireframe, turntable and grid each have one primary toggle.
+- Advanced tool flyouts share the global desktop layout class in `app/globals.css`; height is bounded, overflow scrolls within the flyout, and placement clears the material dock.
+- Desktop toggle state is exposed to assistive technology. Mobile-specific layout was not changed.
+
+
+## 12. PartField multipart persistence and Script-mode retirement — 2026-11-24
+
+- The combined colored GLB remains the active segmentation result.
+- When Save Individual Part Files is enabled, every generated part is copied out of the adapter's temporary directory into a versioned workspace folder, registered as an independent mesh asset, and included in a durable ZIP archive.
+- ZIP download resolves through the segmentation asset's operation record and serves only the saved part archive; it no longer mistakes a combined single-mesh GLB for a multipart export.
+- The client-side fallback refuses to export one combined mesh as a one-file “parts” ZIP.
+- Retopology, UV, rigging and segmentation panels expose only their AI model routes; obsolete Script-mode selectors and script-only branches were removed.
+- Regression coverage verifies durable part copies, ZIP contents, path containment, and AI-only segmentation request validation.
+
+
+## 13. Workspace-scoped derived-operation output — 2026-11-24
+
+- Fixed scheduler result handling so retopology, UV, segmentation and rigging do not create an extra `storage/<job_id>/` directory before publishing.
+- Derived meshes and thumbnails continue to publish into the existing `storage/<workspace_id>/<operation_type>/` folder and remain registered as immutable workspace assets.
+- Adapter-owned temporary output is removed after durable publication. For compatibility, a legacy job-ID directory is removed only with `rmdir()` when it is empty, is not the active workspace, and resolves inside the configured storage root; non-empty directories are never recursively deleted.
+- Generation jobs retain their existing canonical workspace creation path.
+- Added a regression guard ensuring tool operations cannot create job-scoped roots while generation still can.

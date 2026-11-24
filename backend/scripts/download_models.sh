@@ -5,7 +5,7 @@
 # 
 # Available models:
 #   hunyuan2mini, hunyuan21, trellis, trellis-text, trellis2,
-#   skintokens, partuv, fastmesh, triposg, ardy, unique3d, pixal3d, taoflowforge, misc, all
+#   skintokens, partuv, triposg, ardy, unique3d, pixal3d, taoflowforge, misc, all
 #
 # Options:
 #   -h, --help              Show this help message
@@ -119,7 +119,7 @@ VERIFY_ONLY=false
 FORCE_DOWNLOAD=false
 
 # Available models
-AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "stable_fast_3d" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "triposg" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
+AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "stable_fast_3d" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "triflow" "partfield" "triposg" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
 
 show_help() {
     cat << EOF
@@ -145,7 +145,7 @@ Available models:
     trellis2           - TRELLIS.2-4B model (image-based only)
     skintokens         - SkinTokens model for unified auto-rigging (alias: unirig)
     partuv             - PartUV model
-    fastmesh           - FastMesh model
+    triflow            - TriFlow neural quad-dominant retopology model
     triposg            - TripoSG and RMBG models
     ardy               - ARDY motion generation models
     unique3d           - Unique3D high-fidelity single-image to 3D model
@@ -634,63 +634,6 @@ download_skintokens() {
     fi
 }
 
-# Verify the actual FastMesh variant and full checkpoint, not directory entry count.
-# Both public V1K/V4K safetensors files are larger than 4 GB; truncated weights are not ready.
-verify_fastmesh_model() {
-    local model_dir="$1"
-    if ! verify_file "$model_dir/config.json" 100; then
-        return 1
-    fi
-    if ! verify_file "$model_dir/model.safetensors" 4000000000; then
-        return 1
-    fi
-    return 0
-}
-
-# Function to download FastMesh model
-download_fastmesh() {
-    print_info "========================================"
-    print_info "Downloading FastMesh Models"
-    print_info "========================================"
-
-    local model_dir_v1k="$PRETRAINED_DIR/FastMesh-V1K"
-    local model_dir_v4k="$PRETRAINED_DIR/FastMesh-V4K"
-
-    if [ "$FORCE_DOWNLOAD" = false ] && verify_fastmesh_model "$model_dir_v1k"; then
-        print_info "FastMesh v1k model already exists and verified"
-    else
-        mkdir -p "$model_dir_v1k"
-        print_info "Downloading FastMesh v1k model..."
-        if hf_download "WopperSet/FastMesh-V1K" --local-dir "$model_dir_v1k"; then
-            if ! verify_fastmesh_model "$model_dir_v1k"; then
-                print_error "FastMesh V1K download did not contain a complete checkpoint"
-                return 1
-            fi
-            print_success "FastMesh v1k model downloaded successfully"
-        else
-            print_error "Failed to download FastMesh v1k model"
-            return 1
-        fi
-    fi
-
-    if [ "$FORCE_DOWNLOAD" = false ] && verify_fastmesh_model "$model_dir_v4k"; then
-        print_info "FastMesh v4k model already exists and verified"
-    else
-        mkdir -p "$model_dir_v4k"
-        print_info "Downloading FastMesh v4k model..."
-        if hf_download "WopperSet/FastMesh-V4K" --local-dir "$model_dir_v4k"; then
-            if ! verify_fastmesh_model "$model_dir_v4k"; then
-                print_error "FastMesh V4K download did not contain a complete checkpoint"
-                return 1
-            fi
-            print_success "FastMesh v4k model downloaded successfully"
-        else
-            print_error "Failed to download FastMesh v4k model"
-            return 1
-        fi
-    fi
-}
-
 # Function to download PartUV models 
 download_partuv() {
     print_info "========================================"
@@ -708,6 +651,52 @@ download_partuv() {
             "$partuv_checkpoint_path" \
             "PartUV checkpoint"
         print_success "PartUV checkpoint downloaded successfully"
+    fi
+}
+
+# Function to download TriFlow models
+download_triflow() {
+    print_info "========================================"
+    print_info "Downloading TriFlow Model (Neural Retopology)"
+    print_info "========================================"
+
+    local triflow_dir="$PRETRAINED_DIR/TriFlow"
+    mkdir -p "$triflow_dir"
+
+    local f1="$triflow_dir/flow_model.safetensors"
+    local f2="$triflow_dir/sdf_vae.safetensors"
+    local f3="$triflow_dir/nvv_vae.safetensors"
+
+    if [ "$FORCE_DOWNLOAD" = false ] && verify_file "$f1" 500000000 && verify_file "$f2" 50000000 && verify_file "$f3" 50000000; then
+        print_info "TriFlow checkpoints already exist and verified"
+        return 0
+    else
+        print_info "Downloading TriFlow checkpoints from HuggingFace (lihcxr/TriFlow)..."
+        if ! hf_download lihcxr/TriFlow flow_model.safetensors sdf_vae.safetensors nvv_vae.safetensors --local-dir "$triflow_dir" || ! verify_file "$f1" 500000000; then
+            print_error "Failed to download TriFlow checkpoints"
+            return 1
+        fi
+        print_success "TriFlow checkpoints downloaded successfully"
+    fi
+}
+
+# Function to download PartField models (NVIDIA 3D Part Segmentation)
+download_partfield() {
+    print_info "========================================"
+    print_info "Downloading PartField Model (NVIDIA Mesh Part Segmentation)"
+    print_info "========================================"
+
+    local partfield_checkpoint_path="$PRETRAINED_DIR/PartField/model_objaverse.ckpt"
+    if [ "$FORCE_DOWNLOAD" = false ] && verify_file "$partfield_checkpoint_path" 50000000; then
+        print_info "PartField checkpoint already exists and verified"
+        return 0
+    else
+        mkdir -p "$PRETRAINED_DIR/PartField"
+        download_with_verify \
+            "https://huggingface.co/mikaelaangel/partfield-ckpt/resolve/main/model_objaverse.ckpt" \
+            "$partfield_checkpoint_path" \
+            "PartField checkpoint"
+        print_success "PartField checkpoint downloaded successfully"
     fi
 }
 
@@ -1133,10 +1122,8 @@ verify_all_models() {
     
     print_info "Checking PartUV..."
     verify_directory "$PRETRAINED_DIR/PartUV" 1 || all_verified=false
-    print_info "Checking FastMesh v1k..."
-    verify_fastmesh_model "$PRETRAINED_DIR/FastMesh-V1K" || all_verified=false
-    print_info "Checking FastMesh v4k..."
-    verify_fastmesh_model "$PRETRAINED_DIR/FastMesh-V4K" || all_verified=false
+    print_info "Checking TriFlow..."
+    verify_file "$PRETRAINED_DIR/TriFlow/flow_model.safetensors" 500000000 || print_warning "TriFlow checkpoints not found"
     
     print_info "Checking TRELLIS.2-4B..."
     verify_directory "$PRETRAINED_DIR/TRELLIS.2/TRELLIS.2-4B" 5 || all_verified=false
@@ -1262,8 +1249,11 @@ for model in "${MODELS_ARRAY[@]}"; do
         "partuv")
             download_partuv
             ;;
-        "fastmesh")
-            print_warning "FastMesh removed from main repo (thirdparty/FastMesh deleted). Skipping."
+        "triflow")
+            download_triflow
+            ;;
+        "partfield")
+            download_partfield
             ;;
         "triposg")
             download_triposg
@@ -1294,7 +1284,8 @@ for model in "${MODELS_ARRAY[@]}"; do
             download_trellis2
             download_skintokens
             download_partuv
-            download_fastmesh
+            download_partfield
+            download_triflow
             download_triposg
             download_ardy
             download_unique3d

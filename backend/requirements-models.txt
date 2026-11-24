@@ -98,4 +98,23 @@ gpytoolbox==0.2.0           # [SF3D] sf3d/models/mesh.py — Marching Tetrahedra
 open_clip_torch==2.24.0     # [SF3D] image-text encoding
 pynanoinstantmeshes==0.0.3  # [SF3D] instant meshes remeshing
 
-# ── FastMesh removed (thirdparty/FastMesh deleted from main repo) ───────────
+# ── TriFlow (Neural Retopology) extra deps (backend/thirdparty/triflow) ───────
+hydra-core>=1.3.2           # [TRIFLOW] configs/trellis_slatflow_latent_512
+meshlib>=3.1.1              # [TRIFLOW] mesh voxelization & mrmesh C++ bindings
+meshiki>=0.0.7              # [TRIFLOW] mesh topology utilities
+PyMCubes>=0.1.6             # [TRIFLOW] marching cubes
+fbxloader>=0.0.2            # [TRIFLOW] fbx ingestion support
+PyOpenGL>=3.1.0             # [TRIFLOW] pyrender OpenGL mesh renderer
+
+# ── PartField (Neural Mesh Segmentation) extra deps (backend/thirdparty/PartField) ──
+scikit-learn>=1.2          # [PARTFIELD] official learned-feature agglomerative clustering
+networkx>=3.0              # [PARTFIELD] adjacency and tree utilities imported by upstream clustering
+yacs>=0.1.8                 # [PARTFIELD] configs/final/demo.yaml
+potpourri3d>=0.0.9          # [PARTFIELD] geodesic distance & mesh geometry utilities
+open3d>=0.18.0              # [PARTFIELD] run_part_clustering.py
+plyfile>=1.0.3              # [PARTFIELD] export_pointcloud_with_labels_to_ply
+mesh2sdf>=1.1.0             # [PARTFIELD] dataloader.py SDF remeshing
+tetgen>=0.6.5               # [PARTFIELD] dataloader.py tetrahedral mesh generation
+simple-parsing>=0.1.7       # [PARTFIELD] demo argument parsing
+arrgh>=1.0.0                # [PARTFIELD] demo command CLI
+polyscope>=2.4.0            # [PARTFIELD] interactive mesh visualization

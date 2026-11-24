@@ -335,7 +335,6 @@ app.include_router(
     motion_generation.router, prefix="/api/v1", tags=["Motion Generation"]
 )
 
-
 # Canonical storage static files mount (models, uploads, textures, previews)
 try:
     from core.utils.file_utils import get_storage_base_dir

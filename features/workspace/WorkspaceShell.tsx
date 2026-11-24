@@ -88,10 +88,6 @@ const SystemPage = dynamic(() => import('./Dashboard/SystemPage').then(mod => mo
   ssr: false,
   loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
 });
-const StudioDashboard = dynamic(() => import('./Dashboard/StudioDashboard').then(mod => mod.StudioDashboard), {
-  ssr: false,
-  loading: () => <div className="w-full h-full animate-pulse bg-[hsl(var(--surface-0))]" />,
-});
 
 const ExportModal = dynamic(() => import('./Modals/ExportModal').then(mod => mod.ExportModal), {
   ssr: false,
@@ -104,27 +100,14 @@ import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 
 const ROUTE_SEGMENT_TO_TOOL: Record<string, ToolType> = {
   'generate': 'model',
-  'generate-image': 'model',
-  'model': 'model',
-  '3d-gen': 'model',
   'retopology': 'remesh',
-  'remesh': 'remesh',
   'texture': 'texture',
-  'textures': 'texture',
   'texture-edit': 'texture',
-  'texture-upscale': 'texture',
   'texture-pbr': 'pbr',
   'smart-uv': 'uv',
-  'uv': 'uv',
   'segmentation': 'segment',
-  'segment': 'segment',
-  'edit': 'texture',
-  'pbr': 'pbr',
-  'animation': 'animation',
   'animate': 'animation',
   'rigging': 'rigging',
-  'rig': 'rigging',
-  'tools': 'tools',
 };
 
 export const WorkspaceShell: React.FC = () => {
@@ -228,10 +211,7 @@ export const WorkspaceShell: React.FC = () => {
         return bound === pressedCombo;
       };
 
-      if (matches('nav-dashboard', 'Ctrl/Cmd + 1')) {
-        e.preventDefault();
-        navigateToMainNav('dashboard');
-      } else if (matches('nav-assets', 'Ctrl/Cmd + 2')) {
+      if (matches('nav-assets', 'Ctrl/Cmd + 2')) {
         e.preventDefault();
         navigateToMainNav('assets');
       } else if (matches('nav-jobs', 'Ctrl/Cmd + 3')) {
@@ -298,35 +278,15 @@ export const WorkspaceShell: React.FC = () => {
       return;
     }
 
-    // Outputs / Assets routes
-    if (cleanPath === '/workspace/assets' || cleanPath === '/workspace/outputs' || cleanPath === '/outputs' || cleanPath === '/assets') {
+    // Assets route
+    if (cleanPath === '/workspace/assets') {
       setMainNav('assets');
       return;
     }
 
-    // Jobs routes: /workspace/jobs or /workspace/jobs/[id] or /jobs
-    if (cleanPath.startsWith('/workspace/jobs') || cleanPath === '/jobs') {
+    // Jobs routes: /workspace/jobs or /workspace/jobs/[id]
+    if (cleanPath.startsWith('/workspace/jobs')) {
       setMainNav('jobs');
-      return;
-    }
-
-    // Models route: redirect to admin models tab
-    if (cleanPath === '/workspace/models' || cleanPath === '/models') {
-      router.push('/admin?tab=models');
-      return;
-    }
-
-    // Rigging routes: /rigging or /workspace/rigging
-    if (cleanPath === '/rigging' || cleanPath.startsWith('/rigging')) {
-      setMainNav('workspace');
-      setActiveTool('rigging');
-      return;
-    }
-
-    // Animation routes: /animation or /workspace/animation
-    if (cleanPath === '/animation' || cleanPath.startsWith('/animation')) {
-      setMainNav('workspace');
-      setActiveTool('animation');
       return;
     }
 
@@ -503,20 +463,8 @@ export const WorkspaceShell: React.FC = () => {
           )}
         </div>
 
-        {/* Dashboard/Assets/System overlays with smooth Framer Motion transition - matching exact workspace dimensions */}
+        {/* Assets/System/Jobs overlays with smooth Framer Motion transition */}
         <AnimatePresence mode="wait" initial={false}>
-          {mainNav === 'dashboard' && (
-            <motion.div
-              key="dashboard-overlay"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={MOTION_FAST}
-              className="absolute inset-0 left-0 md:left-[58px] z-[15] bg-[hsl(var(--surface-0))] overflow-auto flex flex-col"
-            >
-              <StudioDashboard />
-            </motion.div>
-          )}
           {mainNav === 'assets' && (
             <motion.div
               key="assets-overlay"

@@ -6,7 +6,7 @@ Provides endpoints for generating optimized UV coordinates for 3D meshes.
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -16,7 +16,6 @@ from api.routers.file_upload import resolve_file_id_async, resolve_input_referen
 from core.file_store import FileStore
 from core.scheduler.database_manager import DatabaseManager
 from core.scheduler.database_models import generate_operation_id
-from api.routers.script_execution import execute_script_operation
 from core.scheduler.job_queue import JobRequest
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
 from core.utils.file_utils import get_storage_base_dir, get_workspace_storage_manager
@@ -76,7 +75,7 @@ class MeshUVUnwrappingRequest(BaseModel):
         True, description="Save individual part meshes"
     )
     save_visuals: bool = Field(False, description="Save visualization images")
-    output_format: str = Field("obj", description="Output format for UV unwrapped mesh")
+    output_format: str = Field("glb", description="Output format for UV unwrapped mesh")
     model_preference: str = Field(
         "partuv_uv_unwrapping",
         description="Name of the UV unwrapping model to use",
@@ -104,9 +103,24 @@ class MeshUVUnwrappingRequest(BaseModel):
         return v
 
     workspace_id: Optional[str] = Field(None, description="Target workspace ID")
-    engine: str = Field("ai", description="Execution engine: ai or script")
     parent_operation_id: Optional[str] = Field(None, description="Parent operation for retry/regeneration")
-    atlas_resolution: int = Field(2048, ge=256, le=8192)
+    atlas_resolution: Union[int, str] = Field(2048, description="Atlas resolution (int e.g. 2048 or str e.g. '2K')")
+
+    @field_validator("atlas_resolution", mode="before")
+    @classmethod
+    def parse_atlas_resolution(cls, v):
+        if isinstance(v, str):
+            clean = v.strip().upper()
+            if clean.endswith("K"):
+                try:
+                    return int(clean[:-1]) * 1024
+                except ValueError:
+                    pass
+            try:
+                return int(clean)
+            except ValueError:
+                pass
+        return v
     island_margin: int = Field(4, ge=0, le=64)
     unwrap_strategy: str = "hybrid"
     max_cone_deg: float = Field(66.0, ge=1.0, le=180.0)
@@ -119,16 +133,7 @@ class MeshUVUnwrappingRequest(BaseModel):
             raise ValueError("One of mesh_path, mesh_file_id, or workspace_id must be provided")
         if inputs_provided > 1:
             raise ValueError("Only one of mesh_path or mesh_file_id should be provided")
-        if self.engine == "ai" and self.pack_method != "blender":
-            raise ValueError("AI UV unwrapping supports the blender pack_method only")
         return self
-
-    @field_validator("engine")
-    @classmethod
-    def validate_engine(cls, value):
-        if value not in {"ai", "script"}:
-            raise ValueError("engine must be ai or script")
-        return value
 
     model_config = ConfigDict(protected_namespaces=("settings_",))
 
@@ -191,10 +196,16 @@ async def unwrap_mesh(
         if request.mesh_file_id:
             # Handle file ID (uses Redis in multi-worker mode)
             mesh_file_path = await resolve_file_id_async(request.mesh_file_id, file_store)
-            if not mesh_file_path:
-                raise HTTPException(
-                    status_code=404, detail="Mesh file not found or expired"
-                )
+            if not mesh_file_path and input_asset and input_asset.relative_path:
+                storage_base = get_storage_base_dir().resolve()
+                if getattr(input_asset, "workspace_id", None):
+                    cand = (storage_base / input_asset.workspace_id / input_asset.relative_path).resolve()
+                    if cand.is_file() and cand.is_relative_to(storage_base):
+                        mesh_file_path = str(cand)
+                if not mesh_file_path:
+                    cand = (storage_base / input_asset.relative_path).resolve()
+                    if cand.is_file() and cand.is_relative_to(storage_base):
+                        mesh_file_path = str(cand)
         elif request.mesh_path:
             # mesh_path may be a download URL or bare /{file_id} path from an upstream job
             mesh_file_path = await resolve_input_reference_async(
@@ -208,11 +219,8 @@ async def unwrap_mesh(
             try:
                 mesh_file_path = resolve_server_file_path(mesh_file_path)
             except FileUploadError:
-                # Unresolvable URL/path (asset deleted or never registered on disk)
-                raise HTTPException(
-                    status_code=404,
-                    detail="Mesh file not found on the server. Re-import or regenerate the model, then retry.",
-                )
+                # If mesh_file_path was a URL or non-direct path, fall back to target workspace
+                mesh_file_path = None
 
         if target_ws_id and not mesh_file_path:
             ws = db.get_workspace(target_ws_id)
@@ -228,7 +236,7 @@ async def unwrap_mesh(
         # Validate tool prerequisites
         if not mesh_file_path:
             raise HTTPException(
-                status_code=400, detail="Mesh path or file ID must be provided"
+                status_code=400, detail="Mesh path or file ID must be provided and resolvable"
             )
 
         if not Path(mesh_file_path).exists():
@@ -241,28 +249,6 @@ async def unwrap_mesh(
             raise HTTPException(
                 status_code=400, detail=f"Prerequisite failed: Unsupported mesh format {ext}"
             )
-
-        if request.engine == "script":
-            from pipelines.smart_uv import execute_smart_uv
-            result = await execute_script_operation(
-                db=db, storage=ws_storage, background_tasks=background_tasks, workspace_id=target_ws_id,
-                input_asset_id=input_asset.asset_id if input_asset else None,
-                operation_type="uv", input_path=mesh_file_path,
-                settings={
-                    "atlas_resolution": request.atlas_resolution, "island_margin": request.island_margin,
-                    "pack_method": request.pack_method, "unwrap_strategy": request.unwrap_strategy,
-                    "output_format": request.output_format,
-                },
-                pipeline=execute_smart_uv,
-                options={
-                    "resolution": request.atlas_resolution, "padding_texels": request.island_margin,
-                    "method": request.pack_method, "max_cone_deg": request.max_cone_deg,
-                    "output_format": request.output_format,
-                },
-                output_format=request.output_format,
-                parent_operation_id=request.parent_operation_id,
-            )
-            return MeshUVUnwrappingResponse(**result)
 
         scheduler = await get_scheduler(http_request)
         validate_model_preference(request.model_preference, "uv_unwrapping", scheduler)

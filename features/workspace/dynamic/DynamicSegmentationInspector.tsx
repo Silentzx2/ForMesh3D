@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import * as THREE from 'three';
+import { invalidateViewportRender } from '../Viewport/viewportEvents';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
 import { useWorkspace } from '../store/WorkspaceContext';
@@ -108,7 +109,7 @@ function buildSimpleZip(files: { name: string; data: Uint8Array }[]): Blob {
 export const DynamicSegmentationInspector: React.FC = () => {
   const { currentAsset, setHoveredPartId } = useWorkspace();
   const activeModelObject = useViewerStore((s) => s.activeModelObject);
-  const [highlightBoundaries, setHighlightBoundaries] = useState(true);
+  const [highlightBoundaries, setHighlightBoundaries] = useState(false);
   const [colorizeViewport, setColorizeViewport] = useState(true);
   const [selectedPartId, setSelectedPartId] = useState<string | null>('p1');
   const [viewAngle, setViewAngle] = useState<'front' | 'ortho' | 'side'>('ortho');
@@ -172,29 +173,38 @@ export const DynamicSegmentationInspector: React.FC = () => {
   const totalFaces = useMemo(() => parts.reduce((acc, p) => acc + p.faces, 0), [parts]);
   const visibleCount = useMemo(() => parts.filter((p) => p.visible).length, [parts]);
 
+  const handleSelectId = useCallback((id: string) => {
+    setSelectedPartId(id);
+    const p = parts.find((x) => x.id === id);
+    if (p) toast.info(`Selected Part: ${p.name}`);
+  }, [parts]);
+
+  const handleHoverId = useCallback((id: string | null) => {
+    setHoveredPartId(id);
+  }, [setHoveredPartId]);
+
   // Toggle visibility of individual part and update activeModelObject mesh in Three.js scene
   const togglePartVisibility = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setParts((prev) =>
-      prev.map((p, idx) => {
-        if (p.id === id) {
-          const nextVis = !p.visible;
-          if (activeModelObject) {
-            let meshIdx = 0;
-            activeModelObject.traverse((node) => {
-              if (node instanceof THREE.Mesh) {
-                if (meshIdx === idx || node.name === p.name) {
-                  node.visible = nextVis;
-                }
-                meshIdx++;
-              }
-            });
+    const partIndex = parts.findIndex((part) => part.id === id);
+    const part = parts[partIndex];
+    if (!part) return;
+    const nextVis = !part.visible;
+
+    if (activeModelObject) {
+      let meshIdx = 0;
+      activeModelObject.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          if (meshIdx === partIndex || node.name === part.name) {
+            node.visible = nextVis;
           }
-          return { ...p, visible: nextVis };
+          meshIdx++;
         }
-        return p;
-      })
-    );
+      });
+    }
+
+    setParts((prev) => prev.map((item) => item.id === id ? { ...item, visible: nextVis } : item));
+    invalidateViewportRender();
   };
 
   const toggleAllVisibility = () => {
@@ -207,6 +217,7 @@ export const DynamicSegmentationInspector: React.FC = () => {
           node.visible = nextVis;
         }
       });
+      invalidateViewportRender();
     }
     toast.info(allVisible ? 'Hidden all parts' : 'Showing all parts');
   };
@@ -233,27 +244,23 @@ export const DynamicSegmentationInspector: React.FC = () => {
         const objExporter = new OBJExporter();
         const files: { name: string; data: Uint8Array }[] = [];
 
-        let meshIdx = 0;
+        const meshNodes: THREE.Mesh[] = [];
         activeModelObject.traverse((node) => {
-          if (node instanceof THREE.Mesh && node.geometry) {
-            const part = parts[meshIdx % parts.length];
-            const partName = (part?.name || `part_${meshIdx + 1}`).replace(/\s+/g, '_');
-            const objText = objExporter.parse(node);
-            files.push({
-              name: `${partName}.obj`,
-              data: new TextEncoder().encode(objText),
-            });
-            meshIdx++;
-          }
+          if (node instanceof THREE.Mesh && node.geometry) meshNodes.push(node);
         });
-
-        if (files.length === 0) {
-          const singleObj = objExporter.parse(activeModelObject);
-          files.push({
-            name: `${currentAsset?.name || 'model'}.obj`,
-            data: new TextEncoder().encode(singleObj),
-          });
+        if (meshNodes.length < 2) {
+          throw new Error('Saved individual part files are unavailable. Re-run segmentation with Save Individual Part Files enabled.');
         }
+
+        meshNodes.forEach((node, meshIdx) => {
+          const part = parts[meshIdx];
+          const partName = (part?.name || node.name || `part_${meshIdx + 1}`).replace(/\s+/g, '_');
+          const objText = objExporter.parse(node);
+          files.push({
+            name: `${partName}.obj`,
+            data: new TextEncoder().encode(objText),
+          });
+        });
 
         const zipBlob = buildSimpleZip(files);
         const url = URL.createObjectURL(zipBlob);
@@ -311,12 +318,8 @@ export const DynamicSegmentationInspector: React.FC = () => {
       <RealModelPreviewCanvas
         mode="segmentation"
         selectedId={selectedPartId}
-        onSelectId={(id) => {
-          setSelectedPartId(id);
-          const p = parts.find((x) => x.id === id);
-          if (p) toast.info(`Selected Part: ${p.name}`);
-        }}
-        onHoverId={(id) => setHoveredPartId(id)}
+        onSelectId={handleSelectId}
+        onHoverId={handleHoverId}
         parts={parts}
         highlightBoundaries={highlightBoundaries}
         colorizeViewport={colorizeViewport}

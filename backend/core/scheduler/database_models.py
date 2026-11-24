@@ -44,7 +44,7 @@ class ExecutionStatus(str, Enum):
 
 
 ExecutionStatus.ALLOWED_TRANSITIONS = {
-    ExecutionStatus.QUEUED: {ExecutionStatus.PROCESSING, ExecutionStatus.CANCELLED},
+    ExecutionStatus.QUEUED: {ExecutionStatus.PROCESSING, ExecutionStatus.FAILED, ExecutionStatus.CANCELLED},
     ExecutionStatus.PROCESSING: {
         ExecutionStatus.COMPLETED,
         ExecutionStatus.FAILED,
@@ -337,6 +337,7 @@ class OperationModel(Base):
     temp_dir = Column(String(512), nullable=True)
     result_json = Column(Text, nullable=True)
     error_json = Column(Text, nullable=True)
+    progress_logs_json = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
     completed_at = Column(DateTime, nullable=True)
 
@@ -365,6 +366,12 @@ class OperationModel(Base):
                 error = json.loads(self.error_json)
             except Exception:
                 error = None
+        logs = []
+        if self.progress_logs_json:
+            try:
+                logs = json.loads(self.progress_logs_json)
+            except Exception:
+                logs = []
         return {
             "operation_id": self.operation_id,
             "workspace_id": self.workspace_id,
@@ -380,6 +387,7 @@ class OperationModel(Base):
             "temp_dir": self.temp_dir,
             "result": result,
             "error": error,
+            "logs": logs if isinstance(logs, list) else [],
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
         }

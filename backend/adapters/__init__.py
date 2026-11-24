@@ -16,7 +16,7 @@ from __future__ import annotations
 # the adapter module that implements that model.
 _ADAPTER_MAP: dict[str, str] = {
     # ── image-to-raw-mesh ──────────────────────────────────────────────
-    "hunyuan3d_shape_v21_image_to_raw_mesh": "backend.adapters.hunyuan3d_shape_v21",
+    "hunyuan3d_shape_v21_image_to_raw_mesh": "backend.adapters.hunyuan3d_21_unified",
     "hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh": "backend.adapters.hunyuan3d_dit_v2_mini_turbo",
     "triposg_image_to_raw_mesh": "backend.adapters.triposg_adapter",
     "unique3d_image_to_raw_mesh": "backend.adapters.unique3d_adapter",
@@ -33,11 +33,14 @@ _ADAPTER_MAP: dict[str, str] = {
     "stable_fast_3d_image_to_textured_mesh": "backend.adapters.stable_fast_3d_adapter",
     # ── image-mesh-painting ────────────────────────────────────────────
     "trellis_image_mesh_painting": "backend.adapters.trellis_adapter",
+    "trellis_text_mesh_painting": "backend.adapters.trellis_adapter",
     "trellis2_image_mesh_painting": "backend.adapters.trellis2_adapter",
-    "hunyuan3d_paint_v21_image_mesh_painting": "backend.adapters.hunyuan3d_adapter_v21",
+    "hunyuan3d_paint_v21_image_mesh_painting": "backend.adapters.hunyuan3d_21_unified",
     "hunyuan3d_v20_paint_image_mesh_painting": "backend.adapters.hunyuan3d_v20_paint_adapter",
     # ── mesh-retopology ────────────────────────────────────────────────
-    # FastMesh removed from main repo (thirdparty/FastMesh deleted).
+    "triflow_retopology": "backend.adapters.triflow_adapter",
+    # ── mesh-segmentation ──────────────────────────────────────────────
+    "partfield_segmentation": "backend.adapters.partfield_adapter",
     # ── uv-unwrapping ──────────────────────────────────────────────────
     "partuv_uv_unwrapping": "backend.adapters.partuv_adapter",
     # ── auto-rigging ───────────────────────────────────────────────────

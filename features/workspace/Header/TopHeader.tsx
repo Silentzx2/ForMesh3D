@@ -41,6 +41,13 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onMobileMenuToggle, isMobi
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const workspaceMenuRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    const closeOther = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== 'workspace-mode') setWorkspaceMenuOpen(false);
+    };
+    window.addEventListener('workspace-header-popover-open', closeOther);
+    return () => window.removeEventListener('workspace-header-popover-open', closeOther);
+  }, []);
   // Close dropdown on outside click or Escape key
   useEffect(() => {
     if (!workspaceMenuOpen) return;
@@ -78,7 +85,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onMobileMenuToggle, isMobi
 
         {/* Brand Studio Logo (ForMesh 3D) */}
         <div
-          onClick={() => navigateToMain('dashboard')}
+          onClick={() => navigateToTool('model')}
           className="flex items-center gap-1.5 cursor-pointer group py-0.5 pr-1 flex-shrink-0 select-none"
         >
           {/* Stylized Logo Cube */}
@@ -96,7 +103,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onMobileMenuToggle, isMobi
         <div ref={workspaceMenuRef} className="relative hidden md:block">
           <button
             id="btn-workspace-switcher"
-            onClick={() => setWorkspaceMenuOpen(!workspaceMenuOpen)}
+            aria-expanded={workspaceMenuOpen}
+            onClick={() => { const nextOpen = !workspaceMenuOpen; if (nextOpen) window.dispatchEvent(new CustomEvent('workspace-header-popover-open', { detail: 'workspace-mode' })); setWorkspaceMenuOpen(nextOpen); }}
             className="group h-6 px-2 rounded-full bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.16] hover:bg-white/[0.08] flex items-center gap-1 transition-all duration-200 active:scale-95 cursor-pointer shadow-sm"
           >
             <span className="text-zinc-200 group-hover:text-white text-[10px] font-semibold flex gap-1 items-center transition-colors duration-200">

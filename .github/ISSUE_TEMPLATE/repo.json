@@ -26,8 +26,7 @@
     "cuda",
     "hunyuan3d",
     "trellis",
-    "triposg",
-    "fastmesh"
+    "triposg"
   ],
   "topics": [
     "3d",

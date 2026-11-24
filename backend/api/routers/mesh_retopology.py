@@ -16,7 +16,6 @@ from api.routers.file_upload import resolve_file_id_async, resolve_input_referen
 from core.file_store import FileStore
 from core.scheduler.database_manager import DatabaseManager
 from core.scheduler.database_models import generate_operation_id
-from api.routers.script_execution import execute_script_operation
 from core.scheduler.job_queue import JobRequest
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
 from core.utils.file_utils import get_storage_base_dir, get_workspace_storage_manager
@@ -69,16 +68,16 @@ class MeshRetopologyRequest(BaseModel):
         None, description="Deprecated compatibility field; the V1K checkpoint fixes output resolution and ignores this value", ge=100, le=20000
     )
     target_polycount: Optional[int] = Field(
-        50000, description="Final production triangle budget applied after FastMesh retopology", ge=5000, le=200000
+        50000, description="Target polygon/face budget for retopology", ge=500, le=300000
     )
     poly_type: Optional[str] = Field(
-        "tri", description="Specification of the polygon type"
+        "quad", description="Specification of the polygon type (quad or tri)"
     )
-    output_format: str = Field("obj", description="Output format for retopologized mesh")
+    output_format: str = Field("glb", description="Output format for retopologized mesh")
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")
     model_preference: str = Field(
-        "fastmesh_v1k_retopology",
-        description="Retopology model preference; currently only fastmesh_v1k_retopology is registered",
+        "triflow_retopology",
+        description="Retopology model preference: triflow_retopology",
     )
     model_parameters: Optional[dict] = Field(
         None, 
@@ -102,7 +101,6 @@ class MeshRetopologyRequest(BaseModel):
         return v
 
     workspace_id: Optional[str] = Field(None, description="Target workspace ID")
-    engine: str = Field("ai", description="Execution engine: ai or script")
     parent_operation_id: Optional[str] = Field(None, description="Parent operation for retry/regeneration")
     preserve_features: bool = True
     feature_angle: float = Field(45.0, ge=0.0, le=180.0)
@@ -118,13 +116,6 @@ class MeshRetopologyRequest(BaseModel):
         if inputs_provided > 1:
             raise ValueError("Only one of mesh_path or mesh_file_id should be provided")
         return self
-
-    @field_validator("engine")
-    @classmethod
-    def validate_engine(cls, value):
-        if value not in {"ai", "script"}:
-            raise ValueError("engine must be ai or script")
-        return value
 
     model_config = ConfigDict(protected_namespaces=("settings_",))
 
@@ -187,10 +178,16 @@ async def retopologize_mesh(
         if request.mesh_file_id:
             # Handle file ID (uses Redis in multi-worker mode)
             mesh_file_path = await resolve_file_id_async(request.mesh_file_id, file_store)
-            if not mesh_file_path:
-                raise HTTPException(
-                    status_code=404, detail="Mesh file not found or expired"
-                )
+            if not mesh_file_path and input_asset and input_asset.relative_path:
+                storage_base = get_storage_base_dir().resolve()
+                if getattr(input_asset, "workspace_id", None):
+                    cand = (storage_base / input_asset.workspace_id / input_asset.relative_path).resolve()
+                    if cand.is_file() and cand.is_relative_to(storage_base):
+                        mesh_file_path = str(cand)
+                if not mesh_file_path:
+                    cand = (storage_base / input_asset.relative_path).resolve()
+                    if cand.is_file() and cand.is_relative_to(storage_base):
+                        mesh_file_path = str(cand)
         elif request.mesh_path:
             # mesh_path may be a download URL or bare /{file_id} path from an upstream job
             mesh_file_path = await resolve_input_reference_async(
@@ -204,11 +201,8 @@ async def retopologize_mesh(
             try:
                 mesh_file_path = resolve_server_file_path(mesh_file_path)
             except FileUploadError:
-                # Unresolvable URL/path (asset deleted or never registered on disk)
-                raise HTTPException(
-                    status_code=404,
-                    detail="Mesh file not found on the server. Re-import or regenerate the model, then retry.",
-                )
+                # If mesh_file_path was a URL or non-direct path, fall back to target workspace
+                mesh_file_path = None
 
         if target_ws_id and not mesh_file_path:
             ws = db.get_workspace(target_ws_id)
@@ -224,12 +218,12 @@ async def retopologize_mesh(
         # Validate tool prerequisites
         if not mesh_file_path:
             raise HTTPException(
-                status_code=400, detail="Mesh path or file ID must be provided"
+                status_code=400, detail="Mesh path or file ID must be provided and resolvable"
             )
 
         if not Path(mesh_file_path).exists():
             raise HTTPException(
-                status_code=404, detail="Mesh file not found"
+                status_code=404, detail=f"Mesh file not found: {mesh_file_path}"
             )
 
         ext = Path(mesh_file_path).suffix.lower()
@@ -237,33 +231,6 @@ async def retopologize_mesh(
             raise HTTPException(
                 status_code=400, detail=f"Prerequisite failed: Unsupported mesh format {ext}"
             )
-
-        if request.engine == "script":
-            from pipelines.retopo import execute_retopo
-            result = await execute_script_operation(
-                db=db, storage=ws_storage, background_tasks=background_tasks, workspace_id=target_ws_id,
-                input_asset_id=input_asset.asset_id if input_asset else None,
-                operation_type="retopology", input_path=mesh_file_path,
-                settings={
-                    "target_polycount": request.target_polycount, "poly_type": request.poly_type,
-                    "preserve_features": request.preserve_features, "feature_angle": request.feature_angle,
-                    "adaptive": request.adaptive, "watertight": request.watertight,
-                    "output_format": request.output_format,
-                },
-                pipeline=execute_retopo,
-                options={
-                    "target_faces": request.target_polycount or 50000,
-                    "quads": request.poly_type == "quad",
-                    "preserve_features": request.preserve_features,
-                    "feature_angle": request.feature_angle,
-                    "adaptive": request.adaptive,
-                    "watertight": request.watertight,
-                    "output_format": request.output_format,
-                },
-                output_format=request.output_format,
-                parent_operation_id=request.parent_operation_id,
-            )
-            return MeshRetopologyResponse(**result)
 
         scheduler = await get_scheduler(http_request)
         validate_model_preference(request.model_preference, "mesh_retopology", scheduler)
@@ -293,7 +260,13 @@ async def retopologize_mesh(
             inputs={
                 "mesh_path": mesh_file_path,
                 "target_polycount": request.target_polycount,
+                "face_count": request.target_polycount,
                 "poly_type": request.poly_type,
+                "quad_ratio": 0.95 if request.poly_type == "quad" else 0.0,
+                "preserve_features": request.preserve_features,
+                "feature_angle": request.feature_angle,
+                "adaptive": request.adaptive,
+                "watertight": request.watertight,
                 "output_format": request.output_format,
                 "seed": request.seed,
                 "workspace_id": target_ws_id,
@@ -364,16 +337,10 @@ async def get_available_models(
         # Add additional model descriptions
         models_details = {}
         for model_id in models_info:
-            if "v1k" in model_id.lower():
-                models_details[model_id] = {
-                    "description": "FastMesh V1K - Generates meshes with ~1000 vertices",
-                    "target_vertices": 1000,
-                }
-            else:
-                models_details[model_id] = {
-                    "description": "Mesh retopology model",
-                    "target_vertices": None,
-                }
+            models_details[model_id] = {
+                "description": "Mesh retopology model",
+                "target_vertices": None,
+            }
 
         return {
             "available_models": models_info,

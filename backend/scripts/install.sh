@@ -600,6 +600,11 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     echo "[INFO] Installing o-voxel..."
     install_local_wheel "o_voxel-*.whl" "o-voxel" || { echo "[ERROR] o-voxel wheel not found in $WHEEL_DIR"; exit 1; }
 
+    # custom_rasterizer — Hunyuan3D-2 differentiable rasterizer CUDA extension.
+    # Prebuilt wheel only, no source build. Required by hunyuan3d_v20_paint_image_mesh_painting.
+    echo "[INFO] Installing custom_rasterizer..."
+    install_local_wheel "custom_rasterizer-*.whl" "custom_rasterizer" || { echo "[ERROR] custom_rasterizer wheel not found in $WHEEL_DIR"; exit 1; }
+
     # kaolin (NVIDIA S3 wheel — no wheel-house copy)
     echo "[INFO] Installing kaolin..."
     $UV_PIP install --find-links="$WHEEL_DIR" kaolin -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.6.0_cu124.html \
@@ -629,6 +634,15 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
         $UV_PIP install "https://github.com/JeffreyXiang/Storages/releases/download/Space_Wheels_251210/flex_gemm-0.0.1-cp310-cp310-linux_x86_64.whl" || echo "[ERROR] flex_gemm install failed — Pixal3D sparse conv will fall back to 'none' via SPARSE_CONV_BACKEND env."
     fi
 
+    # torchsparse — CUDA sparse convolution backend for Direct3D-S2 / TRELLIS (TriFlow).
+    # Try wheel-house fast path first; fall back to pinned git source per backend/thirdparty/triflow/setup.sh:11.
+    # Required by Direct3D-S2's default sparse backend (BACKEND='torchsparse').
+    echo "[INFO] Installing torchsparse (TriFlow sparse conv backend)..."
+    if ! install_local_wheel "torchsparse-2.1.0-cp310-cp310-linux_x86_64.whl" "torchsparse"; then
+        echo "[WARN] torchsparse wheel not in $WHEEL_DIR; building from pinned git source..."
+        $UV_PIP install --no-build-isolation "git+https://github.com/mit-han-lab/torchsparse.git@385f5ce8718fcae93540511b7f5832f4e71fd835" || echo "[ERROR] torchsparse install failed — TriFlow will fail to load its SparseSDFVAE."
+    fi
+
     # natten — prebuilt wheel only, no source build (Pixal3D NAF upsample attention).
     # Try wheel-house fast path first; fall back to direct URL wheel if absent.
     echo "[INFO] Installing natten..."
@@ -642,6 +656,17 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     if ! install_local_wheel "utils3d-*.whl" "utils3d"; then
         echo "[INFO] Installing utils3d from Git source..."
         $UV_PIP install "git+https://github.com/EasternJournalist/utils3d.git" || { echo "[ERROR] utils3d install failed"; exit 1; }
+    fi
+
+    # pyfqmr-triflow — custom constrained QEM simplification for TriFlow neural retopology
+    if [ -d "backend/thirdparty/triflow/third_party/pyfqmr-triflow" ]; then
+        echo "[INFO] Installing pyfqmr-triflow..."
+        $UV_PIP install -e backend/thirdparty/triflow/third_party/pyfqmr-triflow || echo "[WARN] pyfqmr-triflow install failed"
+    fi
+
+    # PartField — NVIDIA 3D Feature Fields for Part Segmentation (backend/thirdparty/PartField)
+    if [ -d "backend/thirdparty/PartField" ]; then
+        echo "[INFO] PartField source present at backend/thirdparty/PartField."
     fi
 
     echo "[SUCCESS] Model dependencies installed."

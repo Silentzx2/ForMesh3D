@@ -11,16 +11,15 @@ from pathlib import Path
 import tempfile
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from api.dependencies import get_file_store, get_scheduler, sanitize_error_message
 from api.routers.file_upload import resolve_file_id_async, resolve_input_reference_async
 from core.file_store import FileStore
 from core.scheduler.database_manager import DatabaseManager
 from core.scheduler.database_models import generate_operation_id
-from api.routers.script_execution import execute_script_operation
 from core.scheduler.job_queue import JobRequest
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
 from core.utils.file_utils import (
@@ -89,9 +88,8 @@ class MeshSegmentationRequest(BaseModel):
     )
 
     workspace_id: Optional[str] = Field(None, description="Target workspace ID")
-    engine: str = Field("ai", description="Execution engine: ai or script")
     parent_operation_id: Optional[str] = Field(None, description="Parent operation for retry/regeneration")
-    method: str = Field("geometric", description="Script segmentation method")
+    method: str = Field("semantic", description="Algorithm: semantic for AI segmentation")
     hierarchical: bool = False
     min_face_island_threshold: int = Field(50, ge=0, le=5000)
     colorize_preview: bool = True
@@ -111,14 +109,10 @@ class MeshSegmentationRequest(BaseModel):
             raise ValueError(
                 "Only one of mesh_path, mesh_base64, or mesh_file_id should be provided"
             )
-        return self
 
-    @field_validator("engine")
-    @classmethod
-    def validate_engine(cls, value):
-        if value not in {"ai", "script"}:
-            raise ValueError("engine must be ai or script")
-        return value
+        if self.method not in {"semantic", "agglomerative"}:
+            raise ValueError("PartField AI segmentation uses learned semantic features with agglomerative clustering")
+        return self
 
     model_config = ConfigDict(protected_namespaces=("settings_",))
 
@@ -139,11 +133,18 @@ class MeshSegmentationResponse(BaseModel):
     stats: Optional[dict] = None
 
 
+@router.get("/readiness")
+async def get_segmentation_readiness():
+    """Report whether the trained PartField inference runtime can be selected."""
+    from adapters.partfield_adapter import PartFieldSegmentationAdapter
+
+    return PartFieldSegmentationAdapter.get_readiness()
+
+
 @router.post("", response_model=MeshSegmentationResponse)
 async def segment_mesh(
     request: MeshSegmentationRequest,
     http_request: Request,
-    background_tasks: BackgroundTasks,
     file_store: Optional[FileStore] = Depends(get_file_store),
 ):
     """
@@ -162,9 +163,10 @@ async def segment_mesh(
     scheduler = None
     try:
         user_id = None
-        if request.engine != "script":
-            scheduler = await get_scheduler(http_request)
-            validate_model_preference(request.model_preference, "mesh_segmentation", scheduler)
+        if not request.model_preference:
+            request.model_preference = "partfield_segmentation"
+        scheduler = await get_scheduler(http_request)
+        validate_model_preference(request.model_preference, "mesh_segmentation", scheduler)
 
         db = DatabaseManager()
         ws_storage = get_workspace_storage_manager()
@@ -194,10 +196,16 @@ async def segment_mesh(
         if request.mesh_file_id:
             # Handle file ID (uses Redis in multi-worker mode)
             mesh_file_path = await resolve_file_id_async(request.mesh_file_id, file_store)
-            if not mesh_file_path:
-                raise HTTPException(
-                    status_code=404, detail="Mesh file not found or expired"
-                )
+            if not mesh_file_path and input_asset and input_asset.relative_path:
+                storage_base = get_storage_base_dir().resolve()
+                if getattr(input_asset, "workspace_id", None):
+                    cand = (storage_base / input_asset.workspace_id / input_asset.relative_path).resolve()
+                    if cand.is_file() and cand.is_relative_to(storage_base):
+                        mesh_file_path = str(cand)
+                if not mesh_file_path:
+                    cand = (storage_base / input_asset.relative_path).resolve()
+                    if cand.is_file() and cand.is_relative_to(storage_base):
+                        mesh_file_path = str(cand)
         elif request.mesh_base64:
             valid, content_type, mesh_data = validate_base64_data(
                 request.mesh_base64, MAX_MESH_BASE64_BYTES
@@ -280,34 +288,6 @@ async def segment_mesh(
                 status_code=400, detail=f"Prerequisite failed: Unsupported mesh format {ext}"
             )
 
-        if request.engine == "script":
-            if request.method not in {"geometric", "connected_components"}:
-                raise HTTPException(status_code=422, detail="Script segmentation supports geometric or connected_components methods; semantic segmentation requires AI mode")
-            from pipelines.segment import execute_segment
-            result = await execute_script_operation(
-                db=db, storage=ws_storage, background_tasks=background_tasks, workspace_id=target_ws_id,
-                input_asset_id=input_asset.asset_id if input_asset else None,
-                operation_type="segmentation", input_path=mesh_file_path,
-                settings={
-                    "num_parts": request.num_parts, "method": request.method,
-                    "hierarchical": request.hierarchical, "min_face_island_threshold": request.min_face_island_threshold,
-                    "colorize_preview": request.colorize_preview,
-                    "save_individual_parts": request.save_individual_parts,
-                    "output_format": request.output_format,
-                },
-                pipeline=execute_segment,
-                options={
-                    "num_parts": request.num_parts, "method": request.method,
-                    "hierarchical": request.hierarchical, "min_face_island_threshold": request.min_face_island_threshold,
-                    "colorize_preview": request.colorize_preview,
-                    "save_individual_parts": request.save_individual_parts,
-                    "output_format": request.output_format,
-                },
-                output_format=request.output_format,
-                parent_operation_id=request.parent_operation_id,
-            )
-            return MeshSegmentationResponse(**result)
-
         operation_id = None
         if target_ws_id:
             operation_id = generate_operation_id()
@@ -319,6 +299,11 @@ async def segment_mesh(
                 parent_operation_id=request.parent_operation_id,
                 settings={
                     "num_parts": request.num_parts,
+                    "method": request.method,
+                    "hierarchical": request.hierarchical,
+                    "min_face_island_threshold": request.min_face_island_threshold,
+                    "colorize_preview": request.colorize_preview,
+                    "save_individual_parts": request.save_individual_parts,
                     "output_format": request.output_format,
                     **(request.model_parameters or {}),
                 },
@@ -329,13 +314,18 @@ async def segment_mesh(
         job_request = JobRequest(
             feature="mesh_segmentation",
             inputs={
+                **(request.model_parameters or {}),
                 "mesh_path": mesh_file_path,
                 "num_parts": request.num_parts,
+                "method": request.method,
+                "hierarchical": request.hierarchical,
+                "min_face_island_threshold": request.min_face_island_threshold,
+                "colorize_preview": request.colorize_preview,
+                "save_individual_parts": request.save_individual_parts,
                 "output_format": request.output_format,
                 "workspace_id": target_ws_id,
                 "operation_id": operation_id,
                 "parent_operation_id": request.parent_operation_id,
-                **(request.model_parameters or {}),
             },
             model_preference=request.model_preference,
             priority=1,

@@ -170,16 +170,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           </CommandItem>
 
           <CommandItem
-            value="remesh retopology quad flow fastmesh"
-            onSelect={() => runAction(() => navigateToTool('remesh'))}
-          >
-            <HugeiconsIcon icon={HexagonIcon} size={16} className="mr-2 h-4 w-4 text-primary shrink-0" />
-            <span>Quad Retopology</span>
-            <span className="ml-2 text-xs text-muted-foreground">FastMesh game-ready clean quads</span>
-            <CommandShortcut>R</CommandShortcut>
-          </CommandItem>
-
-          <CommandItem
             value="texture pbr paint material albedo roughness"
             onSelect={() => runAction(() => navigateToTool('texture'))}
           >
@@ -244,15 +234,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
         {/* Workspace Navigation */}
         <CommandGroup heading="Navigation">
-          <CommandItem
-            value="dashboard overview home"
-            onSelect={() => runAction(() => navigateToMain('dashboard'))}
-          >
-            <HugeiconsIcon icon={Box} size={16} className="mr-2 h-4 w-4 text-[hsl(var(--foreground))] shrink-0" />
-            <span>Dashboard / Command Center</span>
-            <CommandShortcut>⌘ 1</CommandShortcut>
-          </CommandItem>
-
           <CommandItem
             value="assets outputs library files"
             onSelect={() => runAction(() => navigateToMain('assets'))}

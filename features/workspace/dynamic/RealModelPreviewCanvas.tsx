@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useViewerStore } from '@/stores/useViewerStore';
@@ -34,7 +34,7 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
   orbitYaw,
   bones = [],
   parts = [],
-  highlightBoundaries = true,
+  highlightBoundaries = false,
   colorizeViewport = true,
   viewAngle = 'ortho',
   highlightSeams = true,
@@ -46,47 +46,133 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
   const activeModel = useViewerStore((s) => s.activeModelObject);
   const [hovered, setHovered] = useState<string | null>(null);
   const [webglError, setWebglError] = useState<string | null>(null);
+
+  // Persistent Three.js references (prevent WebGL context thrashing)
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const invalidateRenderRef = useRef<() => void>(() => {});
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const controlsRef = useRef<OrbitControls | null>(null);
+  const modelGroupRef = useRef<THREE.Group | null>(null);
   const interactivesRef = useRef<{ obj: THREE.Object3D; id: string }[]>([]);
 
+  // Stable callback refs to avoid re-triggering effects on every render
+  const onHoverIdRef = useRef(onHoverId);
+  onHoverIdRef.current = onHoverId;
+  const onSelectIdRef = useRef(onSelectId);
+  onSelectIdRef.current = onSelectId;
+
+  // Geometry edge cache to avoid synchronous CPU recomputation
+  const edgeGeoCacheRef = useRef<WeakMap<THREE.BufferGeometry, THREE.EdgesGeometry>>(new WeakMap());
+
+  // 1. One-time WebGL Engine Mount & OrbitControls Lifecycle
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+
     const w = el.clientWidth || 220;
     const h = el.clientHeight || 220;
 
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 50);
-    camera.position.set(0, 0.4, 3.2);
-
-    // Pre-check WebGL availability before constructing the renderer (getContext
-    // returns null silently when WebGL is disabled/sandboxed — no throw, no
-    // Three.js console spam).
+    // WebGL probe
     const webglProbe = document.createElement('canvas');
-    const webglContext =
-      webglProbe.getContext('webgl') || webglProbe.getContext('webgl2');
+    const webglContext = webglProbe.getContext('webgl') || webglProbe.getContext('webgl2');
     if (!webglContext) {
-      const msg = 'WebGL context is not available in this browser/environment.';
-      setWebglError(msg);
-      console.warn('[RealModelPreviewCanvas] WebGL not available:', msg);
+      setWebglError('WebGL context is not available in this browser/environment.');
       return;
     }
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+
+    const scene = new THREE.Scene();
+    sceneRef.current = scene;
+
+    const camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 50);
+    camera.position.set(0, 0.4, 3.2);
+    cameraRef.current = camera;
+
+    const renderer = new THREE.WebGLRenderer({
+      alpha: true,
+      antialias: true,
+      powerPreference: 'low-power',
+    });
     renderer.setSize(w, h);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    rendererRef.current = renderer;
     el.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
     controls.enablePan = false;
+    controlsRef.current = controls;
 
     scene.add(new THREE.AmbientLight(0xffffff, 1.2));
     const dl = new THREE.DirectionalLight(0xffffff, 1.5);
     dl.position.set(3, 4, 3);
     scene.add(dl);
 
-    const group = new THREE.Group();
-    scene.add(group);
+    const modelGroup = new THREE.Group();
+    modelGroupRef.current = modelGroup;
+    scene.add(modelGroup);
+
+    // Responsive resize observer without context reconstruction
+    let rafId: number | null = null;
+    let isDisposed = false;
+    const renderFrame = () => {
+      rafId = null;
+      if (isDisposed) return;
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    const invalidate = () => {
+      if (isDisposed || rafId !== null) return;
+      rafId = requestAnimationFrame(renderFrame);
+    };
+    invalidateRenderRef.current = invalidate;
+    controls.addEventListener('change', invalidate);
+    invalidate();
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const nw = entry.contentRect.width;
+        const nh = entry.contentRect.height;
+        if (nw > 0 && nh > 0 && cameraRef.current && rendererRef.current) {
+          cameraRef.current.aspect = nw / nh;
+          cameraRef.current.updateProjectionMatrix();
+          rendererRef.current.setSize(nw, nh);
+          invalidate();
+        }
+      }
+    });
+    resizeObserver.observe(el);
+
+    return () => {
+      isDisposed = true;
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      invalidateRenderRef.current = () => {};
+      controls.removeEventListener('change', invalidate);
+      resizeObserver.disconnect();
+      controls.dispose();
+      renderer.dispose();
+      if (renderer.domElement && el.contains(renderer.domElement)) {
+        el.removeChild(renderer.domElement);
+      }
+      rendererRef.current = null;
+      sceneRef.current = null;
+      cameraRef.current = null;
+      controlsRef.current = null;
+      modelGroupRef.current = null;
+    };
+  }, []);
+
+  // 2. Model Structure Build — Only runs when activeModel identity actually changes
+  useEffect(() => {
+    const group = modelGroupRef.current;
+    if (!group) return;
+
+    // Clear previous children
+    while (group.children.length > 0) {
+      const child = group.children[0];
+      group.remove(child);
+    }
     interactivesRef.current = [];
 
     // Build model representation
@@ -95,32 +181,12 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
       new THREE.MeshStandardMaterial({ color: 0x2e3248, roughness: 0.4 })
     );
 
-    // Apply mode materials to meshes
     let meshIdx = 0;
     root.traverse((node) => {
-      if (node instanceof THREE.Mesh) {
-        if (mode === 'segmentation') {
-          const part = parts[meshIdx % Math.max(1, parts.length)];
-          if (part) {
-            node.visible = part.visible;
-            node.material = new THREE.MeshStandardMaterial({
-              color: colorizeViewport ? new THREE.Color(part.color) : 0x475569,
-              roughness: 0.35,
-            });
-            interactivesRef.current.push({ obj: node, id: part.id });
-          }
-        } else if (mode === 'uv' && viewportChecker) {
-          node.material = new THREE.MeshBasicMaterial({ wireframe: true, color: 0xf9cf00 });
-        } else {
-          node.material = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4 });
-        }
-        if ((mode === 'segmentation' && highlightBoundaries) || (mode === 'uv' && highlightSeams)) {
-          const wire = new THREE.LineSegments(
-            new THREE.EdgesGeometry(node.geometry, 24),
-            new THREE.LineBasicMaterial({ color: mode === 'uv' ? 0xef4444 : 0xffffff, opacity: 0.6, transparent: true })
-          );
-          node.add(wire);
-        }
+      if (node instanceof THREE.Mesh && node.geometry) {
+        node.userData.__meshIndex = meshIdx;
+
+        interactivesRef.current.push({ obj: node, id: `p${meshIdx + 1}` });
         meshIdx++;
       }
     });
@@ -134,7 +200,7 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
     root.scale.setScalar(scale);
     group.add(root);
 
-    // Rigging: Add SkeletonHelper & joint markers
+    // Rigging Armature setup
     if (mode === 'rigging') {
       const realBones: THREE.Bone[] = [];
       root.traverse((n) => { if (n instanceof THREE.Bone) realBones.push(n); });
@@ -144,88 +210,172 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
         (skel.material as THREE.LineBasicMaterial).color = new THREE.Color(0xf9cf00);
         skel.renderOrder = xrayBones ? 999 : 0;
         group.add(skel);
-        realBones.forEach((b) => {
-          const sphere = new THREE.Mesh(
-            new THREE.SphereGeometry(0.04, 10, 10),
-            new THREE.MeshBasicMaterial({ color: selectedId === b.name ? 0xf9cf00 : 0xffffff, depthTest: !xrayBones })
-          );
-          sphere.renderOrder = xrayBones ? 1000 : 1;
-          b.getWorldPosition(sphere.position);
-          group.add(sphere);
-          interactivesRef.current.push({ obj: sphere, id: b.name });
-        });
-      } else {
-        bones.forEach((b) => {
-          const sphere = new THREE.Mesh(
-            new THREE.SphereGeometry(0.035, 10, 10),
-            new THREE.MeshBasicMaterial({ color: selectedId === b.id ? 0xf9cf00 : 0xffffff, depthTest: !xrayBones })
-          );
-          sphere.position.set(b.pos[0] * 0.8, b.pos[1] * 0.8, b.pos[2] * 0.8);
-          sphere.renderOrder = xrayBones ? 1000 : 1;
-          group.add(sphere);
-          interactivesRef.current.push({ obj: sphere, id: b.id });
-        });
       }
     }
+    invalidateRenderRef.current();
+  }, [activeModel, mode, xrayBones]);
 
-    // Animation overlay
-    if (mode === 'animation' && showArmature && activeModel) {
-      const skel = new THREE.SkeletonHelper(root);
-      (skel.material as THREE.LineBasicMaterial).color = new THREE.Color(0xf9cf00);
-      group.add(skel);
-    }
+  // 3. Build expensive edge geometry only when the user enables seam/boundary highlighting.
+  // This keeps segmentation page mount lightweight for dense production meshes.
+  useEffect(() => {
+    const group = modelGroupRef.current;
+    if (!group) return;
 
-    // Camera view angle
+    const shouldShowEdges =
+      (mode === 'segmentation' && highlightBoundaries) ||
+      (mode === 'uv' && highlightSeams);
+
+    group.traverse((node) => {
+      if (!(node instanceof THREE.Mesh) || node.userData.__meshIndex === undefined || !node.geometry) {
+        return;
+      }
+
+      const existingWire = node.getObjectByName('__wire_boundary') as THREE.LineSegments | undefined;
+      if (!shouldShowEdges) {
+        if (existingWire) {
+          node.remove(existingWire);
+          (existingWire.material as THREE.Material).dispose();
+        }
+        return;
+      }
+
+      if (existingWire) {
+        existingWire.visible = true;
+        return;
+      }
+
+      // Guard: EdgesGeometry is a synchronous CPU-bound computation.
+      // Skip it for very large meshes to avoid freezing the main thread.
+      const indexCount = node.geometry.index ? node.geometry.index.count : node.geometry.attributes.position.count;
+      const faceCount = indexCount / 3;
+      if (faceCount > 100_000) {
+        console.warn(
+          `[RealModelPreviewCanvas] Skipping boundary edges for mesh with ${Math.round(faceCount)} faces (exceeds 100k limit)`,
+        );
+        return;
+      }
+
+      let edgeGeo = edgeGeoCacheRef.current.get(node.geometry);
+      if (!edgeGeo) {
+        edgeGeo = new THREE.EdgesGeometry(node.geometry, 30);
+        edgeGeoCacheRef.current.set(node.geometry, edgeGeo);
+      }
+
+      const wire = new THREE.LineSegments(
+        edgeGeo,
+        new THREE.LineBasicMaterial({
+          color: mode === 'uv' ? 0xef4444 : 0xffffff,
+          opacity: 0.6,
+          transparent: true,
+        })
+      );
+      wire.name = '__wire_boundary';
+      node.add(wire);
+    });
+    invalidateRenderRef.current();
+  }, [activeModel, mode, highlightBoundaries, highlightSeams]);
+
+  // 4. Fast In-Place Materials & Visibility Updates (Zero Context Rebuild, Zero Allocation)
+  useEffect(() => {
+    const group = modelGroupRef.current;
+    if (!group) return;
+
+    group.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.userData.__meshIndex !== undefined) {
+        const meshIdx = node.userData.__meshIndex as number;
+
+        if (mode === 'segmentation') {
+          const part = parts[meshIdx % Math.max(1, parts.length)];
+          if (part) {
+            node.visible = part.visible;
+            if (node.material instanceof THREE.MeshStandardMaterial) {
+              node.material.color.set(colorizeViewport ? part.color : '#475569');
+              node.material.roughness = 0.35;
+              node.material.needsUpdate = true;
+            } else {
+              node.material = new THREE.MeshStandardMaterial({
+                color: colorizeViewport ? new THREE.Color(part.color) : 0x475569,
+                roughness: 0.35,
+              });
+            }
+          }
+        } else if (mode === 'uv' && viewportChecker) {
+          node.material = new THREE.MeshBasicMaterial({ wireframe: true, color: 0xf9cf00 });
+        }
+
+        // Toggle wire boundary visibility without recreating geometry
+        const wire = node.getObjectByName('__wire_boundary');
+        if (wire) {
+          wire.visible = Boolean((mode === 'segmentation' && highlightBoundaries) || (mode === 'uv' && highlightSeams));
+        }
+      }
+    });
+    invalidateRenderRef.current();
+  }, [mode, parts, selectedId, colorizeViewport, highlightBoundaries, highlightSeams, viewportChecker]);
+
+  // 4. View Angle Adjustment
+  useEffect(() => {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls) return;
+
     if (orbitYaw !== undefined) {
       const rad = (orbitYaw * Math.PI) / 180;
       camera.position.set(Math.sin(rad) * 3.2, 0.4, Math.cos(rad) * 3.2);
-    } else if (viewAngle === 'front') camera.position.set(0, 0, 3.2);
-    else if (viewAngle === 'side') camera.position.set(3.2, 0.2, 0);
+    } else if (viewAngle === 'front') {
+      camera.position.set(0, 0, 3.2);
+    } else if (viewAngle === 'side') {
+      camera.position.set(3.2, 0.2, 0);
+    } else {
+      camera.position.set(2.2, 1.4, 2.2);
+    }
+    controls.update();
+    invalidateRenderRef.current();
+  }, [viewAngle, orbitYaw]);
 
-    let rafId: number;
-    const loop = () => {
-      controls.update();
-      renderer.render(scene, camera);
-      rafId = requestAnimationFrame(loop);
-    };
-    rafId = requestAnimationFrame(loop);
-
-    return () => {
-      cancelAnimationFrame(rafId);
-      controls.dispose();
-      renderer.dispose();
-      if (renderer.domElement && el.contains(renderer.domElement)) el.removeChild(renderer.domElement);
-    };
-  }, [activeModel, mode, selectedId, xrayBones, orbitYaw, bones, parts, highlightBoundaries, colorizeViewport, viewAngle, highlightSeams, viewportChecker, showArmature, onHoverId]);
-
-  const handlePointer = (e: React.MouseEvent<HTMLDivElement>, isClick: boolean) => {
+  // 5. Throttled Pointer Handler
+  const isRaycastingRef = useRef(false);
+  const handlePointer = useCallback((e: React.MouseEvent<HTMLDivElement>, isClick: boolean) => {
     const el = containerRef.current;
-    if (!el || interactivesRef.current.length === 0) return;
+    const camera = cameraRef.current;
+    if (!el || !camera || interactivesRef.current.length === 0) return;
+
+    if (!isClick && isRaycastingRef.current) return;
+    if (!isClick) isRaycastingRef.current = true;
+
     const rect = el.getBoundingClientRect();
-    const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
-    // Mirror the camera position used in the render loop so raycasting matches the view
-    let camX = 0, camY = 0.4, camZ = 3.2;
-    if (orbitYaw !== undefined) {
-      const rad = (orbitYaw * Math.PI) / 180;
-      camX = Math.sin(rad) * 3.2; camZ = Math.cos(rad) * 3.2;
-    } else if (viewAngle === 'front') { camX = 0; camY = 0; camZ = 3.2; }
-    else if (viewAngle === 'side') { camX = 3.2; camY = 0.2; camZ = 0; }
-    const camera = new THREE.PerspectiveCamera(40, rect.width / rect.height, 0.1, 50);
-    camera.position.set(camX, camY, camZ);
+    const mouse = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1
+    );
+
     const ray = new THREE.Raycaster();
     ray.setFromCamera(mouse, camera);
-    const hits = ray.intersectObjects(interactivesRef.current.map((i) => i.obj), true);
+
+    const meshObjects = interactivesRef.current.map((i) => i.obj);
+    const hits = ray.intersectObjects(meshObjects, true);
+
     if (hits.length > 0) {
       const hit = hits[0].object;
       const found = interactivesRef.current.find((i) => i.obj === hit || i.obj.children.includes(hit));
       if (found) {
-        if (isClick && onSelectId) onSelectId(found.id);
-        else { setHovered(found.id); onHoverId?.(found.id); }
+        if (isClick) {
+          onSelectIdRef.current?.(found.id);
+        } else {
+          setHovered(found.id);
+          onHoverIdRef.current?.(found.id);
+        }
+        isRaycastingRef.current = false;
         return;
       }
     }
-    if (!isClick) { setHovered(null); onHoverId?.(null); }
-  };
+
+    if (!isClick) {
+      setHovered(null);
+      onHoverIdRef.current?.(null);
+      isRaycastingRef.current = false;
+    }
+  }, []);
 
   return (
     <div

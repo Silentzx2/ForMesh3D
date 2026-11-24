@@ -64,10 +64,12 @@ export interface ActiveTask {
   result?: Record<string, unknown>;
   logs?: { stage: string; progress: number; message: string; level: string; timestamp: string }[];
   comparisonGroupId?: string;
+  /** Asset identity captured with sourceModelUrl when this operation was submitted. */
+  sourceAssetId?: string;
   sourceModelUrl?: string;
 }
 
-export type MainNavRoute = 'workspace' | 'dashboard' | 'assets' | 'system' | 'settings' | 'models' | 'jobs';
+export type MainNavRoute = 'workspace' | 'assets' | 'system' | 'settings' | 'models' | 'jobs';
 
 export type ShadingMode = 
   | 'textured' 
@@ -83,6 +85,8 @@ export type ShadingMode =
   | 'normals'
   | 'matcap'
   | 'uv-checker';
+
+export type LightTone = 'studio' | 'warm' | 'cool' | 'neutral';
 
 export type CameraViewPreset = 'perspective' | 'front' | 'back' | 'top' | 'bottom' | 'left' | 'right' | 'ortho';
 
@@ -267,6 +271,7 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
     workspace_id: raw.workspace_id || raw.workspaceId,
     operation_id: raw.operation_id || raw.operationId,
     operation_type: raw.operation_type || raw.operationType || undefined,
+    sourceAssetId: raw.sourceAssetId || raw.source_asset_id || undefined,
     name: String(raw.name || '3D Model'),
     category: raw.category || 'mesh',
     thumbnail: raw.thumbnail || raw.thumbnail_url || '',
@@ -469,7 +474,6 @@ export interface SegmentationSettings {
 
 export interface RemeshSettings {
   tab: 'auto' | 'manual';
-  variant: 'V1K';
   polyType: 'tri' | 'quad';
   targetPolycount: number;
 }
@@ -518,6 +522,7 @@ export interface GenerationSettings {
   texture_resolution?: '512' | '1K' | '2K' | '4K' | '8K';
   texture_settings?: Record<string, any>;
   textureResolution?: '512' | '1K' | '2K' | '4K' | '8K';
+  texture_model?: string;
   targetPolycount?: number;
   target_polycount?: number;
   polycount?: number;

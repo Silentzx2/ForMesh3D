@@ -5,7 +5,7 @@ MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
 Model ID          : partuv_uv_unwrapping
 Model Name        : PartUV — UV Unwrapping
 Feature Target    : uv_unwrapping
-Status            : BETA / ACTIVE
+Status            : STABLE / WORKING
 Upstream Repo     : https://github.com/GAP-LAB-CUHK-SZ/PartUV
 Upstream Pipeline : partuv.preprocess.preprocess (partuv._core)
 Checkpoint / Path : backend/pretrained/PartUV
@@ -17,13 +17,14 @@ AGENT GOVERNANCE RULES:
 2. Unpacks 4-tuple preprocess return (mesh = result[0]) before export.
 =============================================================================
 """
-# Status - BETA / ACTIVE
+# Status - STABLE / WORKING
 
 from __future__ import annotations
 
 import contextlib
 import logging
 import sys
+import time
 import types
 from pathlib import Path
 from typing import Any, Dict
@@ -67,6 +68,45 @@ class PartUVUnwrappingAdapter(BaseModel):
     def _load_model(self) -> Any:
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading PartUV from %s", weights_dir)
+
+        # Resolve checkpoint and expose via env var so thirdparty code can find it
+        ckpt_path = weights_dir / "model_objaverse.ckpt"
+        if not ckpt_path.is_file():
+            # Try auto-download via huggingface_hub if available
+            try:
+                from huggingface_hub import hf_hub_download
+                logger.info("model_objaverse.ckpt not found locally; downloading from HuggingFace...")
+                hf_hub_download(
+                    repo_id="mikaelaangel/partfield-ckpt",
+                    filename="model_objaverse.ckpt",
+                    local_dir=str(weights_dir),
+                )
+                logger.info("model_objaverse.ckpt downloaded to %s", ckpt_path)
+            except Exception as exc:
+                logger.warning(
+                    "model_objaverse.ckpt not found at %s and auto-download failed: %s. "
+                    "Run: ./manager.sh -> Models -> [12] PartUV",
+                    ckpt_path, exc,
+                )
+        import os as _os
+        _os.environ["PARTUV_CHECKPOINT_PATH"] = str(ckpt_path)
+
+        # Ensure Trimesh 4/5 compatibility for legacy PartUV operations in worker
+        try:
+            import trimesh
+            if not hasattr(trimesh.Trimesh, "remove_duplicate_faces"):
+                def _remove_duplicate_faces(mesh_self):
+                    if hasattr(mesh_self, "update_faces") and hasattr(mesh_self, "unique_faces"):
+                        mesh_self.update_faces(mesh_self.unique_faces())
+                trimesh.Trimesh.remove_duplicate_faces = _remove_duplicate_faces
+            if not hasattr(trimesh.Trimesh, "remove_degenerate_faces"):
+                def _remove_degenerate_faces(mesh_self):
+                    if hasattr(mesh_self, "update_faces") and hasattr(mesh_self, "nondegenerate_faces"):
+                        mesh_self.update_faces(mesh_self.nondegenerate_faces())
+                trimesh.Trimesh.remove_degenerate_faces = _remove_degenerate_faces
+        except Exception:
+            pass
+
         # Make the vendored PartUV source importable in the worker process,
         # which only has backend/ on sys.path. Model-specific source path setup
         # per TASKS.md §3.3 — not a global patch, not in loader.py.
@@ -108,42 +148,59 @@ class PartUVUnwrappingAdapter(BaseModel):
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
         distortion_threshold = float(inputs.get("distortion_threshold", 1.25))
+        output_format = str(inputs.get("output_format", "glb")).lower().lstrip(".")
+        if output_format not in {"glb", "obj"}:
+            raise ValueError("PartUV output_format must be 'glb' or 'obj'")
 
         import trimesh
 
         mesh = trimesh.load(mesh_path, process=False)
 
-        ctx = contextlib.nullcontext()
-        with ctx:
-            try:
-                result = self._preprocess(mesh_path)
-            except TypeError:
-                result = self._preprocess(mesh_path)
-
         import tempfile
 
-        out = Path(tempfile.mkdtemp()) / f"partuv_{seed}.obj"
+        preprocess_out = Path(tempfile.mkdtemp())
+        ctx = contextlib.nullcontext()
+        logger.info("[PARTUV] Sampling mesh surfaces and predicting part-aware UV features...")
+        preprocess_started = time.perf_counter()
+        with ctx:
+            result = self._preprocess(mesh_path, output_path=str(preprocess_out))
+        preprocess_elapsed = time.perf_counter() - preprocess_started
+
         # preprocess returns a 4-tuple: (mesh, binary_file_path, tree_dict, preprocess_times)
         mesh_result = result[0] if isinstance(result, tuple) else result
+        preprocess_times = result[3] if isinstance(result, tuple) and len(result) > 3 else None
+        logger.info(
+            "[PARTUV] Sampling/decoding pipeline completed elapsed=%.2fs",
+            preprocess_elapsed,
+        )
+        if isinstance(preprocess_times, dict):
+            for stage, elapsed in preprocess_times.items():
+                logger.info("[PARTUV] upstream_stage=%s elapsed=%s", stage, elapsed)
+
+        logger.info("[PARTUV] Decoding UV chart mesh and exporting %s artifact...", output_format.upper())
+        out = Path(tempfile.mkdtemp()) / f"partuv_{seed}.{output_format}"
         if hasattr(mesh_result, "export"):
-            mesh_result.export(str(out))
+            mesh_result.export(str(out), file_type=output_format)
         elif isinstance(mesh_result, trimesh.Trimesh):
             mesh_result.export(str(out))
         else:
             return {"success": False, "error": "PartUV produced no exportable mesh"}
 
+        logger.info("[PARTUV] Export completed: path=%s size_bytes=%d", out, out.stat().st_size)
         return {
             "success": True,
             "output_mesh_path": str(out),
             "mesh_path": str(out),
+            "format": output_format,
             "generation_info": {
                 "seed": seed,
                 "distortion_threshold": distortion_threshold,
+                "preprocess_elapsed_s": round(preprocess_elapsed, 3),
             },
         }
 
     def get_supported_formats(self) -> Dict[str, list[str]]:
-        return {"input": ["obj", "glb"], "output": ["obj"]}
+        return {"input": ["obj", "glb"], "output": ["obj", "glb"]}
 
     def get_parameter_schema(self) -> Dict[str, Any]:
         return {

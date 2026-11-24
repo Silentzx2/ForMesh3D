@@ -78,6 +78,20 @@ from .resource_planner import ResourcePlan, ResourcePlanner, configure_cpu_runti
 
 logger = logging.getLogger(__name__)
 
+
+def _result_artifact_format(result: Dict[str, Any]) -> str:
+    """Return the actual mesh extension used by the published job artifact."""
+    output_path = (
+        result.get("output_mesh_path")
+        or result.get("mesh_path")
+        or result.get("output_path")
+        or result.get("file_path")
+    )
+    suffix = Path(str(output_path)).suffix.lower().lstrip(".") if output_path else ""
+    candidate = suffix or str(result.get("format") or "").lower().lstrip(".")
+    return candidate if candidate in {"glb", "gltf", "obj", "fbx", "stl", "ply"} else "glb"
+
+
 def parse_bool_env(env_var: str, default: bool = False) -> bool:
     """Parse environment variable as boolean, handling common string representations."""
     value = os.environ.get(env_var, str(default)).strip().lower()
@@ -370,6 +384,7 @@ def model_worker_process(
     device_label = "CPU" if cpu_only else f"GPU {gpu_id}"
     # Clear stale __pycache__ so worker always loads latest adapter code
     # (prevents old .pyc from being used after a code update without full restart)
+    import os
     import shutil as _shutil
     from pathlib import Path as _Path
     _repo_root = _Path(__file__).resolve().parents[3]
@@ -398,7 +413,6 @@ def model_worker_process(
         # Set up process environment
         logger.info(f"Starting worker process {worker_id} on {device_label}")
         # At the very beginning we try to login huggingface for the download of some special models
-        import os
         from huggingface_hub import InferenceClient, login
 
         hf_token = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HF_TOKEN")
@@ -2285,8 +2299,6 @@ class MultiprocessModelScheduler:
                     _src = Path(_out_mesh_path)
                     if _src.is_file():
                         from core.utils.artifact_utils import canonical_asset_workspace
-                        canonical_root = canonical_asset_workspace(job_id, final_result, job_request.inputs)
-                        canonical_root.mkdir(parents=True, exist_ok=True)
 
                         _feature = job_request.feature
                         _op_id = job_request.metadata.get("operation_id") or job_request.inputs.get("operation_id")
@@ -2306,7 +2318,16 @@ class MultiprocessModelScheduler:
 
                             _ws_mgr = get_workspace_storage_manager()
                             _db = DatabaseManager()
-                            _ws_id = _target_ws_id or canonical_root.name
+                            # Derived operations belong to the existing workspace. Do not create
+                            # a second storage-root directory named after this operation's job_id.
+                            _operation_record = _db.get_operation(_op_id) if _op_id else None
+                            _ws_id = _target_ws_id or (
+                                _operation_record.workspace_id if _operation_record else None
+                            )
+                            if not _ws_id:
+                                raise ValueError(
+                                    "Derived mesh operation requires an existing workspace_id"
+                                )
                             _op_type = tool_op_map.get(_feature, "tool")
 
                             pub = _ws_mgr.publish_derived_mesh(
@@ -2336,12 +2357,53 @@ class MultiprocessModelScheduler:
                                 byte_size=_dst.stat().st_size,
                                 sha256=_digest.hexdigest(),
                                 operation_id=_op_id,
+                                operation_type=_op_type,
                                 is_retained=1,
                             )
                             _db.update_workspace_active_mesh(_ws_id, _mesh_asset.asset_id)
                             final_result["asset_id"] = _asset_id
                             final_result["active_mesh_asset_id"] = _asset_id
                             final_result["workspace_id"] = _ws_id
+
+                            individual_source_paths = (
+                                final_result.get("individual_part_paths")
+                                or (final_result.get("stats") or {}).get("individual_part_files")
+                                or []
+                            )
+                            if _feature == "mesh_segmentation" and individual_source_paths:
+                                from core.utils.segmentation_artifacts import persist_individual_parts
+
+                                _workspace_dir = _ws_mgr.get_workspace_dir(_ws_id)
+                                _part_artifacts = persist_individual_parts(
+                                    individual_source_paths,
+                                    _src,
+                                    _dst,
+                                    _workspace_dir,
+                                )
+                                final_result.update(_part_artifacts)
+                                _part_asset_ids = []
+                                for _part_relative_path in _part_artifacts["individual_part_relative_paths"]:
+                                    _part_path = (_workspace_dir / _part_relative_path).resolve()
+                                    _part_digest = hashlib.sha256()
+                                    with _part_path.open("rb") as _part_handle:
+                                        for _chunk in iter(lambda: _part_handle.read(1024 * 1024), b""):
+                                            _part_digest.update(_chunk)
+                                    _part_asset = _db.add_asset(
+                                        asset_id=f"ast_{uuid.uuid4().hex[:12]}",
+                                        workspace_id=_ws_id,
+                                        file_type="mesh",
+                                        relative_path=_part_relative_path,
+                                        original_filename=_part_path.name,
+                                        byte_size=_part_path.stat().st_size,
+                                        sha256=_part_digest.hexdigest(),
+                                        operation_id=_op_id,
+                                        operation_type=_op_type,
+                                        is_retained=1,
+                                    )
+                                    _part_asset_ids.append(_part_asset.asset_id)
+                                final_result["individual_part_asset_ids"] = _part_asset_ids
+                                if isinstance(final_result.get("stats"), dict):
+                                    final_result["stats"]["individual_part_files"] = _part_artifacts["individual_part_paths"]
 
                             if _op_id:
                                 # Ensure proper state transition: QUEUED -> PROCESSING -> COMPLETED
@@ -2358,10 +2420,37 @@ class MultiprocessModelScheduler:
                                         "relative_mesh_path": _relative_path,
                                         "asset_id": _asset_id,
                                         "format": _dst.suffix.lower().lstrip("."),
+                                        "individual_part_asset_ids": final_result.get("individual_part_asset_ids", []),
+                                        "individual_part_relative_paths": final_result.get("individual_part_relative_paths", []),
+                                        "individual_part_count": final_result.get("individual_part_count", 0),
+                                        "parts_archive_relative_path": final_result.get("parts_archive_relative_path"),
                                     },
                                 )
+                                try:
+                                    _db.update_operation_persistence_status(_op_id, PersistenceStatus.SAVING)
+                                except Exception:
+                                    pass
                                 _db.update_operation_persistence_status(_op_id, PersistenceStatus.SAVED)
+                            # Remove legacy empty job-id directories left by older scheduler versions.
+                            # rmdir is intentional: any directory containing data is preserved.
+                            _legacy_job_root = canonical_asset_workspace(
+                                job_id, final_result, job_request.inputs
+                            )
+                            _workspace_root = _ws_mgr.get_workspace_dir(_ws_id).resolve()
+                            if (
+                                not _legacy_job_root.is_symlink()
+                                and _legacy_job_root.resolve() != _workspace_root
+                                and _legacy_job_root.resolve().is_relative_to(_ws_mgr.storage_root.resolve())
+                                and _legacy_job_root.is_dir()
+                            ):
+                                try:
+                                    _legacy_job_root.rmdir()
+                                except OSError:
+                                    pass
                         else:
+                            # Only generation jobs create a canonical workspace from their job ID.
+                            canonical_root = canonical_asset_workspace(job_id, final_result, job_request.inputs)
+                            canonical_root.mkdir(parents=True, exist_ok=True)
                             # Generation jobs: copy to canonical workspace {workspace_id}/mesh/mesh.glb
                             mesh_dir = canonical_root / "mesh"
                             mesh_dir.mkdir(parents=True, exist_ok=True)
@@ -2416,11 +2505,16 @@ class MultiprocessModelScheduler:
                                             "format": "glb",
                                         },
                                     )
+                                    try:
+                                        _db.update_operation_persistence_status(_gen_op_id, PersistenceStatus.SAVING)
+                                    except Exception:
+                                        pass
                                     _db.update_operation_persistence_status(_gen_op_id, PersistenceStatus.SAVED)
                             except Exception as _db_error:
                                 logger.warning(f"Failed to sync generated mesh asset to workspace DB: {_db_error}")
                 # The adapter output has now been copied to durable storage.
                 # Remove its private temp directory before persisting the job result.
+                final_result["format"] = _result_artifact_format(final_result)
                 self._cleanup_adapter_temporary_output(final_result, nested=False)
                 # Persist durable paths (asset_root / output_mesh_path / mesh_path)
                 # so the download endpoint can resolve the job artifact even when
@@ -2726,10 +2820,16 @@ class MultiprocessModelScheduler:
                         final_result.setdefault("high_fidelity_url", master_url)
                         final_result.setdefault("download_url", derived_url)
                     elif out_mesh:
-                        final_result.setdefault("model_url", f"/api/v1/system/jobs/{job_id}/download?artifact_format=glb")
-                        final_result.setdefault("game_ready_url", f"/api/v1/system/jobs/{job_id}/download?artifact_format=glb")
-                        final_result.setdefault("source_model_url", f"/api/v1/system/jobs/{job_id}/download?artifact_format=glb")
-                        final_result.setdefault("download_url", f"/api/v1/system/jobs/{job_id}/download?artifact_format=glb")
+                        artifact_format = _result_artifact_format(final_result)
+                        artifact_url = (
+                            f"/api/v1/system/jobs/{job_id}/download"
+                            f"?artifact_format={artifact_format}"
+                        )
+                        final_result["format"] = artifact_format
+                        final_result.setdefault("model_url", artifact_url)
+                        final_result.setdefault("game_ready_url", artifact_url)
+                        final_result.setdefault("source_model_url", artifact_url)
+                        final_result.setdefault("download_url", artifact_url)
                     gen_info = final_result.get("generation_info") or {}
                     if "polygon_count" not in final_result:
                         final_result["polygon_count"] = gen_info.get("face_count") or gen_info.get("native_face_count") or 0
@@ -2750,7 +2850,14 @@ class MultiprocessModelScheduler:
                     try:
                         from core.scheduler.database_manager import DatabaseManager
                         from core.scheduler.database_models import ExecutionStatus
-                        DatabaseManager().update_operation_execution_status(
+                        _db = DatabaseManager()
+                        _curr_op = _db.get_operation(_op_id)
+                        if _curr_op and _curr_op.execution_status == ExecutionStatus.QUEUED:
+                            try:
+                                _db.update_operation_execution_status(_op_id, ExecutionStatus.PROCESSING)
+                            except Exception:
+                                pass
+                        _db.update_operation_execution_status(
                             _op_id, ExecutionStatus.FAILED, error=err_msg
                         )
                     except Exception as _op_err:

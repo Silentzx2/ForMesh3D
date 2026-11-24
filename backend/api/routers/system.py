@@ -28,7 +28,7 @@ from starlette.background import BackgroundTask
 from api.dependencies import get_current_settings, get_scheduler, sanitize_error_message, verify_api_key
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
 from core.utils.artifact_utils import first_result_path, resolve_declared_artifact, resolve_manifest_path
-from core.utils.file_utils import encode_file_to_base64, get_file_size_mb, get_storage_base_dir
+from core.utils.file_utils import encode_file_to_base64, get_file_size_mb, get_storage_base_dir, get_workspace_storage_manager
 
 DEFAULT_MESH_THUMBNAIL_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">'
@@ -284,22 +284,6 @@ def _is_model_weights_available(model_config: Any) -> bool:
         if not path.is_dir():
             return False
 
-        # FastMesh needs a variant-matching descriptor and the complete
-        # multi-gigabyte checkpoint; a tiny/truncated safetensors file is not ready.
-        if path.name in {"FastMesh-V1K", "FastMesh-V4K"}:
-            try:
-                expected_vertices = 1000 if path.name == "FastMesh-V1K" else 4000
-                descriptor = json.loads((path / "config.json").read_text(encoding="utf-8"))
-                checkpoint = path / "model.safetensors"
-                return (
-                    descriptor.get("model_name") == "MeshGen"
-                    and descriptor.get("max_vertices") == expected_vertices
-                    and checkpoint.is_file()
-                    and checkpoint.stat().st_size > 4_000_000_000
-                )
-            except (OSError, json.JSONDecodeError):
-                return False
-
         checkpoint_suffixes = {
             ".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".onnx", ".engine"
         }
@@ -307,7 +291,7 @@ def _is_model_weights_available(model_config: Any) -> bool:
 
         # Known model weight file signatures for models without a config.json/yaml
         known_signatures = (
-            "mp_rank", "hunyuan", "fastmesh", "objaverse", "model.ckpt", "trellis",
+            "mp_rank", "hunyuan", "objaverse", "model.ckpt", "trellis",
             "stage", "taoflowforge", "flowforge",
         )
 
@@ -341,7 +325,7 @@ def _model_supports_download(model_id: str) -> bool:
     return any(
         token in model_id
         for token in (
-            "trellis", "triposg", "hunyuan", "fastmesh",
+            "trellis", "triposg", "hunyuan",
             "unique3d", "taoflowforge", "pixal3d",
             "skintokens", "unirig", "partuv", "ardy"
         )
@@ -1145,27 +1129,77 @@ async def get_jobs_history(
 
             page_status = status.lower() if status else None
 
+            page_limit = limit + offset
             page_jobs, total_jobs = await asyncio.to_thread(
                 db_manager.get_jobs_page,
                 status=page_status,
                 feature=feature,
                 start_date=parse_date(start_date),
                 end_date=parse_date(end_date),
-                limit=limit,
-                offset=offset,
+                limit=page_limit,
+                offset=0,
             )
-            if page_jobs or total_jobs:
+            operation_type_filter = {
+                "retopology": "retopology",
+                "mesh_retopology": "retopology",
+                "uv_unwrapping": "uv",
+                "mesh_uv_unwrapping": "uv",
+                "segmentation": "segmentation",
+                "mesh_segmentation": "segmentation",
+            }.get(feature or "")
+            if feature and not operation_type_filter:
+                page_operations, total_operations = [], 0
+            else:
+                page_operations, total_operations = await asyncio.to_thread(
+                    db_manager.get_operations_page,
+                    status=page_status,
+                    operation_type=operation_type_filter,
+                    limit=page_limit,
+                    offset=0,
+                )
+            if page_jobs or total_jobs or page_operations or total_operations:
                 jobs = [job.to_dict() for job in page_jobs]
                 for job_dict in jobs:
                     if job_dict.get("status") == "completed" and job_dict.get("result"):
                         _ensure_production_result_urls(job_dict.get("job_id") or job_dict.get("id"), job_dict["result"])
+
+                for operation in page_operations:
+                    op_data = operation.to_dict()
+                    logs = op_data.get("logs") or []
+                    latest = logs[-1] if logs else {}
+                    error_data = op_data.get("error")
+                    settings = {}
+                    if op_data.get("settings_snapshot"):
+                        try:
+                            settings = json.loads(op_data["settings_snapshot"])
+                        except Exception:
+                            settings = {}
+                    jobs.append({
+                        "job_id": operation.operation_id,
+                        "id": operation.operation_id,
+                        "operation_id": operation.operation_id,
+                        "workspace_id": operation.workspace_id,
+                        "operation_type": operation.operation_type,
+                        "feature": operation.operation_type,
+                        "model_preference": settings.get("model_preference", ""),
+                        "status": operation.execution_status,
+                        "progress": float(operation.progress or 0.0),
+                        "stage": latest.get("message") or operation.execution_status,
+                        "error": error_data.get("message") if isinstance(error_data, dict) else error_data,
+                        "created_at": op_data.get("created_at"),
+                        "completed_at": op_data.get("completed_at"),
+                    })
+
+                jobs.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+                total = total_jobs + total_operations
+                page = jobs[offset:offset + limit]
                 return {
-                    "jobs": jobs,
+                    "jobs": page,
                     "pagination": {
                         "limit": limit,
                         "offset": offset,
-                        "total": total_jobs,
-                        "has_more": offset + len(jobs) < total_jobs,
+                        "total": total,
+                        "has_more": offset + len(page) < total,
                     },
                     "filters": {
                         "status": status,
@@ -1306,8 +1340,11 @@ async def get_job_status(job_id: str, request: Request):
                         "execution_status": op_row.execution_status,
                         "persistence_status": op_row.persistence_status,
                         "progress": op_row.progress,
+                        "stage": (op_row.to_dict().get("logs") or [{}])[-1].get("message"),
+                        "logs": op_row.to_dict().get("logs") or [],
+                        "operation_type": op_row.operation_type,
                         "result": json.loads(op_row.result_json) if op_row.result_json else {},
-                        "error": json.loads(op_row.error_json) if op_row.error_json else None,
+                        "error": (json.loads(op_row.error_json).get("message") if isinstance(json.loads(op_row.error_json), dict) else json.loads(op_row.error_json)) if op_row.error_json else None,
                         "created_at": op_row.created_at.isoformat() if op_row.created_at else None,
                         "completed_at": op_row.completed_at.isoformat() if op_row.completed_at else None,
                         "api_version": "1",
@@ -1514,6 +1551,16 @@ async def get_job_status(job_id: str, request: Request):
                 job_status["operation_id"] = op.operation_id
                 job_status["execution_status"] = op.execution_status
                 job_status["persistence_status"] = op.persistence_status
+                existing_operation = job_status.get("operation")
+                job_status["operation"] = {
+                    **(existing_operation if isinstance(existing_operation, dict) else {}),
+                    "operation_id": op.operation_id,
+                    "input_asset_id": op.input_asset_id,
+                    "parent_operation_id": op.parent_operation_id,
+                    "operation_type": op.operation_type,
+                    "execution_status": op.execution_status,
+                    "persistence_status": op.persistence_status,
+                }
 
         return job_status
     except HTTPException:
@@ -1528,7 +1575,7 @@ async def get_job_status(job_id: str, request: Request):
 
 @router.get("/workspace/operations/{operation_id}", summary="Get SQLite-backed workspace operation status")
 async def get_workspace_operation_status(operation_id: str):
-    """Read Script operation progress directly from SQLite without acquiring the AI scheduler."""
+    """Read workspace operation progress directly from SQLite."""
     from core.scheduler.database_manager import DatabaseManager
     from core.scheduler.database_models import ExecutionStatus
 
@@ -1545,11 +1592,15 @@ async def get_workspace_operation_status(operation_id: str):
     return {
         "operation_id": operation.operation_id,
         "workspace_id": operation.workspace_id,
+        "input_asset_id": operation.input_asset_id,
+        "parent_operation_id": operation.parent_operation_id,
         "operation_type": operation.operation_type,
         "status": operation.execution_status,
         "execution_status": operation.execution_status,
         "persistence_status": operation.persistence_status,
         "progress": float(operation.progress or 0.0),
+        "stage": (operation.to_dict().get("logs") or [{}])[-1].get("message"),
+        "logs": operation.to_dict().get("logs") or [],
         "result": {
             "format": format_ext,
             "stats": result.get("stats") or {},
@@ -1565,9 +1616,9 @@ async def get_workspace_operation_status(operation_id: str):
     }
 
 
-@router.post("/workspace/operations/{operation_id}/cancel", summary="Cancel a Script workspace operation")
+@router.post("/workspace/operations/{operation_id}/cancel", summary="Cancel a workspace operation")
 async def cancel_workspace_operation(operation_id: str):
-    """Cancel a queued or processing Script operation in the authoritative SQLite state machine."""
+    """Cancel a queued or processing workspace operation in the authoritative SQLite state machine."""
     from core.scheduler.database_manager import DatabaseManager
     from core.scheduler.database_models import ExecutionStatus
 
@@ -1725,6 +1776,7 @@ async def download_job_result(
         FileResponse for direct download or JSON with base64 data
     """
     try:
+        requested_artifact_format = artifact_format.strip().lower() if isinstance(artifact_format, str) else "glb"
         scheduler = await get_scheduler(request)
         job_status = await scheduler.get_job_status(job_id)
 
@@ -1738,7 +1790,35 @@ async def download_job_result(
                 active_asset = db.get_asset(ws.active_mesh_asset_id)
                 if active_asset and active_asset.file_type == "mesh":
                     asset = active_asset
+            def _saved_parts_archive(asset_record):
+                if not asset_record or not asset_record.operation_id:
+                    return None
+                operation = db.get_operation(asset_record.operation_id)
+                if not operation or not operation.result_json:
+                    return None
+                try:
+                    operation_result = json.loads(operation.result_json)
+                except (TypeError, json.JSONDecodeError):
+                    return None
+                relative_archive = operation_result.get("parts_archive_relative_path")
+                if not relative_archive:
+                    return None
+                workspace_root = (storage_base / asset_record.workspace_id).resolve()
+                archive_path = (workspace_root / relative_archive).resolve()
+                if archive_path.is_file() and archive_path.is_relative_to(workspace_root):
+                    return archive_path
+                return None
+
             if asset and ws:
+                if requested_artifact_format == "zip":
+                    archive_path = _saved_parts_archive(asset)
+                    if archive_path:
+                        return FileResponse(
+                            path=str(archive_path),
+                            filename=filename or f"{Path(asset.original_filename).stem}_parts.zip",
+                            media_type="application/zip",
+                        )
+                    raise HTTPException(status_code=404, detail="No saved individual segmentation parts are available for this asset")
                 file_path = (storage_base / ws.workspace_id / asset.relative_path).resolve()
                 if file_path.is_file() and file_path.is_relative_to(storage_base):
                     return FileResponse(
@@ -1755,6 +1835,15 @@ async def download_job_result(
             asset = db.get_asset(job_id)
             if asset:
                 storage_base = get_storage_base_dir().resolve()
+                if requested_artifact_format == "zip":
+                    archive_path = _saved_parts_archive(asset)
+                    if archive_path:
+                        return FileResponse(
+                            path=str(archive_path),
+                            filename=filename or f"{Path(asset.original_filename).stem}_parts.zip",
+                            media_type="application/zip",
+                        )
+                    raise HTTPException(status_code=404, detail="No saved individual segmentation parts are available for this asset")
                 file_path = (storage_base / asset.workspace_id / asset.relative_path).resolve()
                 if file_path.is_file() and file_path.is_relative_to(storage_base):
                     return FileResponse(
@@ -1764,6 +1853,55 @@ async def download_job_result(
                     )
             op = db.get_operation(job_id)
             if op:
+                storage_base = get_storage_base_dir().resolve()
+                if op.result_json:
+                    try:
+                        op_res = json.loads(op.result_json)
+                        if isinstance(op_res, dict):
+                            if requested_artifact_format == "zip" and op.workspace_id:
+                                relative_archive = op_res.get("parts_archive_relative_path")
+                                if relative_archive:
+                                    workspace_root = (storage_base / op.workspace_id).resolve()
+                                    archive_path = (workspace_root / relative_archive).resolve()
+                                    if archive_path.is_file() and archive_path.is_relative_to(workspace_root):
+                                        return FileResponse(
+                                            path=str(archive_path),
+                                            filename=filename or f"{op.operation_id}_parts.zip",
+                                            media_type="application/zip",
+                                        )
+                                if op.operation_type in {"segmentation", "mesh_segmentation"}:
+                                    raise HTTPException(status_code=404, detail="Individual segmentation parts were not saved for this operation")
+                            out_p = op_res.get("output_path")
+                            if out_p:
+                                out_p_path = Path(out_p).resolve()
+                                if out_p_path.is_file() and out_p_path.is_relative_to(storage_base):
+                                    return FileResponse(
+                                        path=str(out_p_path),
+                                        filename=filename or out_p_path.name,
+                                        media_type=get_content_type_for_file(str(out_p_path)),
+                                    )
+                            rel_p = op_res.get("relative_mesh_path")
+                            if rel_p and op.workspace_id:
+                                rel_path = (storage_base / op.workspace_id / rel_p).resolve()
+                                if rel_path.is_file() and rel_path.is_relative_to(storage_base):
+                                    return FileResponse(
+                                        path=str(rel_path),
+                                        filename=filename or rel_path.name,
+                                        media_type=get_content_type_for_file(str(rel_path)),
+                                    )
+                            op_asset_id = op_res.get("asset_id")
+                            if op_asset_id:
+                                op_ast = db.get_asset(op_asset_id)
+                                if op_ast:
+                                    ast_file = (storage_base / op_ast.workspace_id / op_ast.relative_path).resolve()
+                                    if ast_file.is_file() and ast_file.is_relative_to(storage_base):
+                                        return FileResponse(
+                                            path=str(ast_file),
+                                            filename=filename or op_ast.original_filename,
+                                            media_type=get_content_type_for_file(str(ast_file)),
+                                        )
+                    except Exception:
+                        pass
                 mgr = get_workspace_storage_manager()
                 temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / job_id)
                 temp_dir = temp_dir.resolve()
@@ -1776,6 +1914,25 @@ async def download_job_result(
                                 filename=filename or cand.name,
                                 media_type=get_content_type_for_file(str(cand)),
                             )
+                if op.workspace_id:
+                    op_ws = db.get_workspace(op.workspace_id)
+                    if op_ws and op_ws.active_mesh_asset_id:
+                        active_ast = db.get_asset(op_ws.active_mesh_asset_id)
+                        if active_ast and active_ast.relative_path:
+                            ast_file = (storage_base / op.workspace_id / active_ast.relative_path).resolve()
+                            if ast_file.is_file() and ast_file.is_relative_to(storage_base):
+                                return FileResponse(
+                                    path=str(ast_file),
+                                    filename=filename or active_ast.original_filename,
+                                    media_type=get_content_type_for_file(str(ast_file)),
+                                )
+                    direct_base = (storage_base / op.workspace_id / "mesh" / "mesh.glb").resolve()
+                    if direct_base.is_file() and direct_base.is_relative_to(storage_base):
+                        return FileResponse(
+                            path=str(direct_base),
+                            filename=filename or "mesh.glb",
+                            media_type=get_content_type_for_file(str(direct_base)),
+                        )
             # Direct fallback: generated mesh is saved at <workspace_id>/mesh/mesh.glb
             # by the scheduler. asset_root/output_mesh_path may not be in Redis when
             # job_id is actually a workspace_id (frontend passes workspace_id as job_id).
@@ -1803,7 +1960,7 @@ async def download_job_result(
         # Canonical postprocessed artifacts are resolved from the job workspace.
         # Client input is a whitelist key, never a filesystem path.
         output_path = None
-        canonical_format = artifact_format.strip().lower() if isinstance(artifact_format, str) else "glb"
+        canonical_format = requested_artifact_format
         asset_root = result.get("asset_root")
         asset_name = result.get("asset_name")
 
@@ -2019,25 +2176,40 @@ async def download_job_result(
                     raise HTTPException(status_code=400, detail="Unsupported texture artifact")
                 output_path = asset_root_path / "texture" / f"{texture_name}.png"
             elif canonical_format == "zip":
-                temp_dir = Path(tempfile.mkdtemp(prefix=f"formash3d-{job_id}-"))
-                archive_path = temp_dir / f"{asset_root_path.name}.zip"
-                try:
-                    with zipfile.ZipFile(
-                        archive_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6
-                    ) as archive:
-                        for file_path in sorted(asset_root_path.rglob("*")):
-                            if file_path.is_file():
-                                archive.write(file_path, file_path.relative_to(asset_root_path.parent))
-                    return FileResponse(
-                        path=str(archive_path),
-                        filename=archive_path.name,
-                        media_type="application/zip",
-                        background=BackgroundTask(shutil.rmtree, str(temp_dir), ignore_errors=True),
-                        headers={"X-Job-ID": job_id, "Cache-Control": "no-store"},
-                    )
-                except Exception:
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                    raise
+                parts_archive_candidate = result.get("parts_archive_path")
+                if parts_archive_candidate:
+                    archive_path = Path(parts_archive_candidate).resolve()
+                    try:
+                        archive_path.relative_to(models_root)
+                        if asset_root_path:
+                            archive_path.relative_to(asset_root_path)
+                    except ValueError:
+                        raise HTTPException(status_code=400, detail="Invalid segmentation parts archive path")
+                    if not archive_path.is_file():
+                        raise HTTPException(status_code=404, detail="Saved segmentation parts archive not found")
+                    output_path = archive_path
+                else:
+                    if job_status.get("feature") in {"mesh_segmentation", "segmentation"}:
+                        raise HTTPException(status_code=404, detail="Individual segmentation parts were not saved for this operation")
+                    temp_dir = Path(tempfile.mkdtemp(prefix=f"formash3d-{job_id}-"))
+                    archive_path = temp_dir / f"{asset_root_path.name}.zip"
+                    try:
+                        with zipfile.ZipFile(
+                            archive_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6
+                        ) as archive:
+                            for file_path in sorted(asset_root_path.rglob("*")):
+                                if file_path.is_file():
+                                    archive.write(file_path, file_path.relative_to(asset_root_path.parent))
+                        return FileResponse(
+                            path=str(archive_path),
+                            filename=archive_path.name,
+                            media_type="application/zip",
+                            background=BackgroundTask(shutil.rmtree, str(temp_dir), ignore_errors=True),
+                            headers={"X-Job-ID": job_id, "Cache-Control": "no-store"},
+                        )
+                    except Exception:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        raise
             else:
                 raise HTTPException(status_code=400, detail=f"Unsupported artifact format: {canonical_format}")
         else:
@@ -2176,15 +2348,35 @@ async def download_job_thumbnail(
                             media_type="image/png",
                         )
             asset = db.get_asset(job_id)
-            if asset and asset.thumbnail_path:
+            if asset:
                 storage_base = get_storage_base_dir().resolve()
-                thumb_path = (storage_base / asset.workspace_id / asset.thumbnail_path).resolve()
-                if thumb_path.is_file() and thumb_path.is_relative_to(storage_base):
+                if asset.thumbnail_path:
+                    thumb_path = (storage_base / asset.workspace_id / asset.thumbnail_path).resolve()
+                    if thumb_path.is_file() and thumb_path.is_relative_to(storage_base):
+                        return FileResponse(
+                            path=str(thumb_path),
+                            filename=filename or f"{job_id}_thumb.png",
+                            media_type="image/png",
+                        )
+                # If asset has no thumbnail, check workspace active mesh or thumbnail dir
+                cand_thumb = (storage_base / asset.workspace_id / "mesh" / "thumbnail.png").resolve()
+                if cand_thumb.is_file() and cand_thumb.is_relative_to(storage_base):
                     return FileResponse(
-                        path=str(thumb_path),
+                        path=str(cand_thumb),
                         filename=filename or f"{job_id}_thumb.png",
                         media_type="image/png",
                     )
+                # Fallback to default SVG placeholder
+                svg_bytes = DEFAULT_MESH_THUMBNAIL_SVG.encode("utf-8")
+                return Response(
+                    content=svg_bytes,
+                    media_type="image/svg+xml",
+                    headers={
+                        "X-Job-ID": job_id,
+                        "X-Thumbnail-Generated": "placeholder",
+                        "Cache-Control": "public, max-age=3600",
+                    },
+                )
             raise HTTPException(status_code=404, detail="Job not found")
 
         if job_status.get("status") != "completed":

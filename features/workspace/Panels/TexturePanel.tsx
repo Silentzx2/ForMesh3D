@@ -258,7 +258,6 @@ export const TexturePanel: React.FC = () => {
     executionProgress,
     executionStep,
     cancelExecution,
-    generate3DModel,
     runTextureGeneration,
     generationSettings,
     setGenerationSettings,
@@ -660,15 +659,19 @@ export const TexturePanel: React.FC = () => {
 
   const handleGenerate = async () => {
     if (!generationSettings.image && !imagePreview && !textureSettings.referenceImage) {
-      toast.error('Please upload an image first');
+      toast.error('Please upload a reference image first');
+      return;
+    }
+    if (!currentAsset) {
+      toast.error('Please select a 3D mesh to texture');
+      return;
+    }
+    if (!runTextureGeneration) {
+      toast.error('Texture generation is not available');
       return;
     }
     try {
-      if (runTextureGeneration && currentAsset) {
-        await runTextureGeneration();
-      } else {
-        await generate3DModel();
-      }
+      await runTextureGeneration();
     } catch (err: any) {
       toast.error(`Texture generation failed: ${err.message || 'Unknown error'}`);
     }
@@ -1176,7 +1179,7 @@ export const TexturePanel: React.FC = () => {
             id="texture-settings-flyout"
             role="dialog"
             aria-label="Advanced Texture Settings"
-            className="fixed left-4 right-4 md:left-[290px] md:right-auto bottom-12 md:bottom-16 w-auto md:w-[280px] p-3 rounded-2xl bg-[#141421] border border-[#F9CF00]/40 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-2.5 animate-in fade-in zoom-in-95 duration-150 z-50 pointer-events-auto select-none"
+            className="workspace-advanced-flyout p-3 rounded-2xl bg-[#141421] border border-[#F9CF00]/40 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-2.5 animate-in fade-in zoom-in-95 duration-150 pointer-events-auto select-none" style={{ '--workspace-flyout-width': '280px' } as React.CSSProperties}
           >
             {/* Flyout Header */}
             <div className="flex items-start justify-between pb-1 border-b border-white/[0.08]">

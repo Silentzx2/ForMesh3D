@@ -203,6 +203,7 @@ def test_b4_t1_image_to_raw_mesh_response_and_operation_registration(batch4_app_
             "image_file_id": asset_id,
             "workspace_id": ws_id,
             "quality_mode": "high",
+            "model_preference": "hunyuan3d_shape_v21_image_to_raw_mesh",
         },
     )
     assert gen_resp.status_code == 200, gen_resp.text
@@ -299,7 +300,7 @@ def test_b4_t1_texture_dispatches_prompt_only_painting(batch4_app_client):
     scheduler = batch4_app_client["scheduler"]
     mesh = client.post(
         "/api/v1/file-upload/mesh",
-        files={"file": ("paint_target.obj", b"v 0 0 0\\nv 1 0 0\\nv 0 1 0\\nf 1 2 3\\n", "application/octet-stream")},
+        files={"file": ("paint_target.obj", b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", "application/octet-stream")},
     )
     assert mesh.status_code == 200, mesh.text
 
@@ -323,7 +324,7 @@ def test_b4_t1_texture_dispatches_image_guided_painting(batch4_app_client):
     scheduler = batch4_app_client["scheduler"]
     mesh = client.post(
         "/api/v1/file-upload/mesh",
-        files={"file": ("paint_target.obj", b"v 0 0 0\\nv 1 0 0\\nv 0 1 0\\nf 1 2 3\\n", "application/octet-stream")},
+        files={"file": ("paint_target.obj", b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", "application/octet-stream")},
     )
     assert mesh.status_code == 200, mesh.text
     image = io.BytesIO()
@@ -349,7 +350,7 @@ def test_b4_t1_texture_dispatches_image_guided_painting(batch4_app_client):
 
 def test_b4_t1_legacy_workspace_routes_are_not_mounted(batch4_app_client):
     """No retired workspace API path remains registered as a redirect or alias."""
-    paths = {route.path for route in batch4_app_client["app"].routes}
+    paths = set(batch4_app_client["app"].openapi()["paths"])
     canonical = {
         "/api/v1/generate",
         "/api/v1/texture",
@@ -445,7 +446,7 @@ def test_b4_t1_regeneration_creates_new_operation_with_parent_lineage(batch4_app
 
 
 def test_b4_t1_image_to_textured_mesh_response_and_operation_registration(batch4_app_client):
-    """Verify /image-to-textured-mesh enqueues generate_textured_mesh operation."""
+    """An explicit textured-only model dispatches to the textured operation type."""
     client = batch4_app_client["client"]
     db = batch4_app_client["db"]
 
@@ -466,6 +467,7 @@ def test_b4_t1_image_to_textured_mesh_response_and_operation_registration(batch4
             "image_file_id": asset_id,
             "workspace_id": ws_id,
             "quality_mode": "high",
+            "model_preference": "stable_fast_3d_image_to_textured_mesh",
         },
     )
     assert gen_resp.status_code == 200, gen_resp.text
@@ -704,6 +706,70 @@ def test_b4_t3_direct_save_workspace_persistence(batch4_app_client):
     assert Path(kept["mesh_path"]).is_file(), "Discard must not remove a retained asset"
 
 
+def test_b4_t3b_segmentation_parts_archive_downloads_by_asset_id(batch4_app_client):
+    """The asset-ID download route must serve the saved multipart archive, not the combined GLB."""
+    db = batch4_app_client["db"]
+    ws_manager = batch4_app_client["ws_manager"]
+    client = batch4_app_client["client"]
+
+    workspace_id = "ws_parts_archive_005"
+    ws_manager.create_workspace_tree(workspace_id)
+    db.create_workspace(workspace_id=workspace_id, name="Parts Archive Test")
+
+    operation_id = "op_123456789abc"
+    db.enqueue_operation(
+        operation_id=operation_id,
+        workspace_id=workspace_id,
+        operation_type="segmentation",
+        settings={"save_individual_parts": True},
+    )
+    db.update_operation_execution_status(operation_id, ExecutionStatus.PROCESSING)
+    db.update_operation_execution_status(operation_id, ExecutionStatus.COMPLETED)
+
+    workspace_dir = ws_manager.get_workspace_dir(workspace_id)
+    segmentation_dir = workspace_dir / "segmentation"
+    segmentation_dir.mkdir(parents=True, exist_ok=True)
+    combined_path = segmentation_dir / "combined.glb"
+    combined_path.write_bytes(b"combined-colored-mesh")
+    archive_path = segmentation_dir / "combined_parts.zip"
+    import zipfile
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("combined_parts/part_01.glb", b"part-one")
+        archive.writestr("combined_parts/part_02.glb", b"part-two")
+
+    asset = db.add_asset(
+        asset_id="ast_0123456789ab",
+        workspace_id=workspace_id,
+        file_type="mesh",
+        relative_path="segmentation/combined.glb",
+        original_filename="combined.glb",
+        byte_size=combined_path.stat().st_size,
+        sha256="0" * 64,
+        operation_id=operation_id,
+        operation_type="segmentation",
+        is_retained=True,
+    )
+    db.update_workspace_active_mesh(workspace_id, asset.asset_id)
+
+    with db.get_session() as session:
+        operation = session.query(OperationModel).filter_by(operation_id=operation_id).one()
+        operation.result_json = json.dumps({
+            "asset_id": asset.asset_id,
+            "parts_archive_relative_path": "segmentation/combined_parts.zip",
+            "individual_part_count": 2,
+        })
+        session.commit()
+
+    response = client.get(
+        f"/api/v1/system/jobs/{asset.asset_id}/download?artifact_format=zip"
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("application/zip")
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        names = archive.namelist()
+    assert names == ["combined_parts/part_01.glb", "combined_parts/part_02.glb"]
+
+
 # ==============================================================================
 # B4-T4: API Deprecation Guard & Error Hardening
 # ==============================================================================
@@ -739,85 +805,3 @@ def test_b4_t4_cancel_delegation_to_system_endpoint(batch4_app_client):
     assert data["success"] is True
     assert data["job_id"] == job_id
     assert job_id in scheduler.cancelled_jobs
-
-
-def test_script_engine_specialist_routes_use_sqlite_preview_lifecycle(batch4_app_client, monkeypatch):
-    """Script mode executes local pipelines without scheduler access and supports Keep/Discard."""
-    from api.routers import mesh_retopology, mesh_segmentation, mesh_uv_unwrapping
-    from pipelines import retopo, segment, smart_uv
-
-    client = batch4_app_client["client"]
-    db = batch4_app_client["db"]
-    storage_root = batch4_app_client["storage_root"]
-    ws_manager = batch4_app_client["ws_manager"]
-
-    workspace_id = "ws_script_routes_001"
-    ws_manager.create_workspace_tree(workspace_id)
-    db.create_workspace(workspace_id=workspace_id, name="Script Routes Test")
-    input_path = storage_root / workspace_id / "input" / "source.glb"
-    input_path.parent.mkdir(parents=True, exist_ok=True)
-    input_path.write_bytes(b"glTF-test-input")
-
-    input_asset = db.add_asset(
-        asset_id="ast_script_input01",
-        workspace_id=workspace_id,
-        file_type="mesh",
-        relative_path="input/source.glb",
-        original_filename="source.glb",
-        byte_size=input_path.stat().st_size,
-        sha256="script-test-input",
-    )
-
-    async def resolve_input(_file_id, _file_store=None):
-        return str(input_path)
-
-    def fake_pipeline(_input_path, output_path, _options, progress_callback):
-        output_path.write_bytes(b"glTF-test-preview")
-        progress_callback("test pipeline complete", 0.9)
-        return {"success": True, "output_path": str(output_path), "stats": {"face_count": 12, "vertex_count": 8}}
-
-    for router_module in (mesh_retopology, mesh_uv_unwrapping, mesh_segmentation):
-        monkeypatch.setattr(router_module, "resolve_file_id_async", resolve_input)
-        monkeypatch.setattr(
-            router_module,
-            "get_scheduler",
-            lambda *_args, **_kwargs: pytest.fail("Script mode must not acquire the AI scheduler"),
-        )
-    monkeypatch.setattr(retopo, "execute_retopo", fake_pipeline)
-    monkeypatch.setattr(smart_uv, "execute_smart_uv", fake_pipeline)
-    monkeypatch.setattr(segment, "execute_segment", fake_pipeline)
-
-    requests = [
-        ("/api/v1/retopo", {"target_polycount": 12000, "poly_type": "tri"}),
-        ("/api/v1/unwrap", {"pack_method": "xatlas", "atlas_resolution": 1024}),
-        ("/api/v1/segment", {"num_parts": 4, "method": "geometric"}),
-    ]
-    operation_ids = []
-    for endpoint, options in requests:
-        response = client.post(
-            endpoint,
-            json={
-                "engine": "script",
-                "workspace_id": workspace_id,
-                "mesh_file_id": input_asset.asset_id,
-                "output_format": "glb",
-                **options,
-            },
-        )
-        assert response.status_code == 200, response.text
-        data = response.json()
-        assert data["status"] == "queued"
-        assert data["workspace_id"] == workspace_id
-        assert data["operation_id"].startswith("op_")
-        operation = db.get_operation(data["operation_id"])
-        assert operation is not None
-        assert operation.execution_status == ExecutionStatus.COMPLETED
-        assert operation.persistence_status == PersistenceStatus.SAVED
-        status_response = client.get(f"/api/v1/system/workspace/operations/{data['operation_id']}")
-        assert status_response.status_code == 200
-        assert status_response.json()["execution_status"] == "completed"
-        assert status_response.json()["result"]["stats"]["face_count"] == 12
-        assert status_response.json()["result"]["asset_id"].startswith("ast_")
-        operation_ids.append(data["operation_id"])
-
-    assert len(operation_ids) == 3

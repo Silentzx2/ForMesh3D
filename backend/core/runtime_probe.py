@@ -1,6 +1,6 @@
 """Runtime capability probe for system resources, GPU VRAM, and adapter availability.
 
-Fulfills TASKS.md Section 2 runtime detection contract.
+Provides the runtime capability and adapter-inventory data consumed by the system status API.
 """
 from __future__ import annotations
 
@@ -108,7 +108,7 @@ def probe_runtime(
 ) -> Dict[str, Any]:
     """Probe system resources, GPU/VRAM state, installed and enabled adapters.
 
-    Returns exact dictionary schema specified in TASKS.md Section 2.
+    Returns system-resource, GPU, loaded-model, and adapter-inventory fields consumed by the system router.
     """
     optins = dict(license_optins or {})
 

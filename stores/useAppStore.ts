@@ -274,7 +274,6 @@ const DEFAULT_STATE: AppStateData = {
     context: true,
     shading: true,
     meshDiff: false,
-    modelComparison: false,
     export: true,
   },
   isCommandPaletteOpen: false,
@@ -296,7 +295,7 @@ const DEFAULT_STATE: AppStateData = {
   isDirty: false,
 };
 
-const PERSISTENCE_VERSION = 1;
+const PERSISTENCE_VERSION = 2;
 const PERSISTENCE_KEY = 'ai3d:app-state';
 
 export const useAppStore = create<AppState>()(
@@ -696,7 +695,10 @@ export const useAppStore = create<AppState>()(
           ...p,
           viewer: { ...defaults.viewer, ...(p.viewer as Record<string, unknown> ?? {}) },
           capabilities: { ...defaults.capabilities, ...(p.capabilities as Record<string, unknown> ?? {}) },
-          rightPanelSections: { ...defaults.rightPanelSections, ...(p.rightPanelSections as Record<string, boolean> ?? {}) },
+          rightPanelSections: Object.fromEntries(
+            Object.entries({ ...defaults.rightPanelSections, ...(p.rightPanelSections as Record<string, boolean> ?? {}) })
+              .filter(([sectionId]) => sectionId !== 'modelComparison')
+          ),
           tasks: (p.tasks as Record<string, unknown>) ?? {},
           downloads: (p.downloads as Record<string, unknown>) ?? {},
           installProgress: (p.installProgress as Record<string, unknown>) ?? {},

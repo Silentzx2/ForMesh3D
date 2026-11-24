@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute, mintWorkspaceId } from './workspaceRouteContract';
+import { isKnownWorkspaceRoute, parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute, mintWorkspaceId } from './workspaceRouteContract';
 
 describe('workspace tool route state machine', () => {
   const base = { status: 'base' } as const;
@@ -20,6 +20,20 @@ describe('workspace tool route state machine', () => {
 
   it('keeps a base route when switching tools without a selected workspace', () => {
     assert.deepEqual(transitionWorkspaceToolRoute(base, { type: 'select-different-tool' }), base);
+  });
+});
+
+describe('workspace route allowlist', () => {
+  it('accepts only active tool and workspace view routes', () => {
+    for (const route of ['generate', 'retopology', 'texture', 'texture-edit', 'texture-pbr', 'smart-uv', 'segmentation', 'animate', 'rigging', 'assets', 'jobs']) {
+      assert.equal(isKnownWorkspaceRoute([route]), true, `${route} should be registered`);
+    }
+  });
+
+  it('rejects removed dashboard, fill-parts, and legacy aliases', () => {
+    for (const route of ['dashboard', 'fill-parts', 'outputs', 'models', 'generate-image', 'model', '3d-gen', 'remesh', 'textures', 'texture-upscale', 'uv', 'segment', 'edit', 'pbr', 'animation', 'rig', 'tools']) {
+      assert.equal(isKnownWorkspaceRoute([route]), false, `${route} should not be registered`);
+    }
   });
 });
 

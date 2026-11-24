@@ -24,6 +24,8 @@ AGENT GOVERNANCE RULES:
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -31,7 +33,7 @@ from typing import Any, Dict
 
 from backend.core.models.base import BaseModel, ModelStatus
 from backend.loader import get_model_weights_dir
-from patcher.skintokens import apply_patch
+from patcher.skintokens import apply_patch, bpy_server_popen_args
 
 logger = logging.getLogger(__name__)
 
@@ -72,17 +74,46 @@ class SkinTokensAdapter(BaseModel):
 
     def _load_model(self) -> Any:
         skintokens_root = Path(__file__).resolve().parents[1] / "thirdparty" / "SkinTokens"
+        repo_root = Path(__file__).resolve().parents[2]
         root_str = str(skintokens_root)
         if root_str not in sys.path:
             sys.path.insert(0, root_str)
+
+        # Warn when running in low-VRAM / CPU-offload mode so the operator
+        # knows inference may be slower or may fail if the model does not fit.
+        strategy = (self.resource_plan or {}).get("strategy")
+        if strategy == "single_gpu_low_vram":
+            logger.warning(
+                "SkinTokens running in low-VRAM/offload mode (strategy=%s, "
+                "reservation=%sMB); inference may be slower or fail on GPU OOM.",
+                strategy,
+                (self.resource_plan or {}).get("reservation_mb", {}).get(
+                    self.gpu_id, "unknown"
+                ),
+            )
 
         # Apply model-specific pre-Ampere (T4) hardware patcher and import shims
         apply_patch(gpu_id=self.gpu_id)
 
         import demo
 
-        # Start companion bpy binding server
-        self._server_proc = demo.start_bpy_server()
+        # Start companion bpy binding server — run from skintokens_root so
+        # bpy_server.py (vendored in thirdparty/SkinTokens/) is found. The
+        # subprocess is a fresh interpreter, so it does not inherit the Michelangelo
+        # models stub injected by apply_patch(); launch it via bpy_server_popen_args
+        # which injects the stub before importing src.server.spec, preventing the
+        # ModuleNotFoundError: No module named 'src.model.michelangelo.models'
+        # crash that kept bpy_server from ever serving /ping.
+        _orig_cwd = os.getcwd()
+        os.chdir(str(skintokens_root))
+        try:
+            self._server_proc = subprocess.Popen(
+                bpy_server_popen_args(str(skintokens_root), str(repo_root)),
+                stdout=None,
+                stderr=None,
+            )
+        finally:
+            os.chdir(_orig_cwd)
         demo.wait_for_bpy_server()
 
         # Resolve weights and call official upstream model loader
@@ -101,8 +132,30 @@ class SkinTokensAdapter(BaseModel):
                 break
 
         logger.info("Loading SkinTokens model from %s", ckpt_path or "default")
-        demo.load_model(model_ckpt=ckpt_path or "", hf_path=None)
+        try:
+            demo.load_model(model_ckpt=ckpt_path or "", hf_path=None)
+        except RuntimeError as e:
+            if "model_ckpt is empty" in str(e):
+                raise RuntimeError(
+                    "SkinTokens model load failed: no checkpoint found. "
+                    "Download SkinTokens weights (manager.sh option 11 or "
+                    "backend/scripts/download_models.sh skintokens), then retry."
+                ) from e
+            raise RuntimeError(
+                "SkinTokens model load failed: the Michelangelo encoder source "
+                "is not vendored in backend/thirdparty/SkinTokens/. "
+                "Vendor src/model/michelangelo/models/ there, then retry. "
+                f"Original error: {e}"
+            ) from e
+
         self.model = demo.model
+        if getattr(self.model, "_skintokens_stub", False):
+            raise RuntimeError(
+                "SkinTokens loaded a stub model because the Michelangelo encoder "
+                "source is not vendored. "
+                "Vendor backend/thirdparty/SkinTokens/src/model/michelangelo/models/"
+                " (from upstream NeuralCarver/Michelangelo) and retry."
+            )
         self.status = ModelStatus.LOADED
         return self.model
 

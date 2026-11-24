@@ -99,7 +99,7 @@ if [ ! -f "config/models.yaml" ]; then
 fi
 
 # Set environment variables
-export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+export PYTHONPATH="${PROJECT_ROOT}:${BACKEND_DIR}:${PYTHONPATH}"
 export PYTHONUNBUFFERED="1"
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"

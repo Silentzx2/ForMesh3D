@@ -63,7 +63,7 @@ export const ResourceMonitor: React.FC = () => {
 
   useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 5000);
+    const interval = setInterval(fetchStats, 30000);
     return () => clearInterval(interval);
   }, [fetchStats]);
 
@@ -106,6 +106,13 @@ export const ResourceMonitor: React.FC = () => {
   const formatPercent = (val: number) => `${Math.round(val)}%`;
   const formatGB = (used: number, total: number) => `${used.toFixed(1)}/${total.toFixed(1)} GB`;
 
+  useEffect(() => {
+    const closeOther = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== 'resources') setIsExpanded(false);
+    };
+    window.addEventListener('workspace-header-popover-open', closeOther);
+    return () => window.removeEventListener('workspace-header-popover-open', closeOther);
+  }, []);
   // Outside click listener
   const containerRef = React.useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -150,7 +157,7 @@ export const ResourceMonitor: React.FC = () => {
       {/* Collapsed View - vertical pipes with live load colors and percentages */}
       <SimpleTooltip label="System Telemetry (GPU / RAM / CPU) • Click to open details" side="bottom">
         <button
-          onClick={() => setIsExpanded(!isExpanded)}
+          onClick={() => { const nextOpen = !isExpanded; if (nextOpen) window.dispatchEvent(new CustomEvent('workspace-header-popover-open', { detail: 'resources' })); setIsExpanded(nextOpen); }}
           className={`group flex items-center gap-1.5 h-6 px-2 rounded-full bg-[hsl(var(--surface-0))] border transition-all cursor-pointer select-none active:scale-95 ${
             isExpanded ? 'border-primary/50 bg-[hsl(var(--surface-2))] shadow-sm' : 'border-white/[0.08] hover:border-white/[0.18] hover:bg-[hsl(var(--surface-2))]'
           }`}

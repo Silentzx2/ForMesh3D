@@ -34,19 +34,11 @@ import {
   MeshSegmentationRequest,
   AutoRiggingRequest,
   MeshRetopologyRequest,
-  RetopologyAvailableModels,
   MeshUVUnwrappingRequest,
-  UVUnwrappingAvailableModels,
-  UVPackMethods,
   FileUploadResponse,
-  FileMetadata,
-  SupportedFormats,
   ApiError,
-  ModelParametersResponse,
   QueueStatsResponse,
   MotionGenerationRequest,
-  MotionCheckpointsResponse,
-  MotionAvailableModelsResponse
 } from '@/types/api';
 
 class ApiClient {
@@ -245,12 +237,6 @@ class ApiClient {
     return response.data;
   }
 
-  async getModelParameters(modelId: string): Promise<ModelParametersResponse> {
-    const response = await this.retry(() =>
-      this.client.get<ModelParametersResponse>(`/api/v1/system/models/${encodeURIComponent(modelId)}/parameters`)
-    );
-    return response.data;
-  }
 
   // Job Management Endpoints
   async getJobStatus(jobId: string): Promise<JobInfo> {
@@ -267,19 +253,6 @@ class ApiClient {
     return response.data;
   }
 
-  async downloadJobResult(jobId: string, format: 'file' | 'base64' = 'file', filename?: string): Promise<Blob | string> {
-    const params: any = { format };
-    if (filename) params.filename = filename;
-
-    const response = await this.retry(() => 
-      this.client.get(`/api/v1/system/jobs/${jobId}/download`, {
-        params,
-        responseType: format === 'file' ? 'blob' : 'json'
-      })
-    );
-
-    return response.data;
-  }
 
   async getJobsHistory(params?: JobsHistoryParams): Promise<JobsHistoryResponse> {
     const response = await this.retry(() => 
@@ -479,12 +452,6 @@ class ApiClient {
     return response.data;
   }
 
-  async getFileMetadata(fileId: string): Promise<FileMetadata> {
-    const response = await this.retry(() => 
-      this.client.get<FileMetadata>(`/api/v1/file-upload/metadata/${fileId}`)
-    );
-    return response.data;
-  }
 
   // Mesh Generation Endpoints
   async generateMesh(request: ImageToMeshRequest): Promise<BaseApiResponse> {
@@ -533,26 +500,8 @@ class ApiClient {
 
 
   // Supported Formats Endpoints
-  async getMeshGenerationSupportedFormats(): Promise<SupportedFormats> {
-    const response = await this.retry(() => 
-      this.client.get<SupportedFormats>('/api/v1/generate/supported-formats')
-    );
-    return response.data;
-  }
 
-  async getMeshSegmentationSupportedFormats(): Promise<SupportedFormats> {
-    const response = await this.retry(() => 
-      this.client.get<SupportedFormats>('/api/v1/segment/supported-formats')
-    );
-    return response.data;
-  }
 
-  async getAutoRiggingSupportedFormats(): Promise<SupportedFormats> {
-    const response = await this.retry(() => 
-      this.client.get<SupportedFormats>('/api/v1/rig/supported-formats')
-    );
-    return response.data;
-  }
 
   // Mesh Retopology Endpoints
   async retopologizeMesh(request: MeshRetopologyRequest): Promise<BaseApiResponse> {
@@ -563,19 +512,7 @@ class ApiClient {
     return response.data;
   }
 
-  async getRetopologyAvailableModels(): Promise<RetopologyAvailableModels> {
-    const response = await this.retry(() => 
-      this.client.get<RetopologyAvailableModels>('/api/v1/retopo/available-models')
-    );
-    return response.data;
-  }
 
-  async getMeshRetopologySupportedFormats(): Promise<SupportedFormats> {
-    const response = await this.retry(() => 
-      this.client.get<SupportedFormats>('/api/v1/retopo/supported-formats')
-    );
-    return response.data;
-  }
 
   // Mesh UV Unwrapping Endpoints
   async unwrapMeshUV(request: MeshUVUnwrappingRequest): Promise<BaseApiResponse> {
@@ -586,26 +523,8 @@ class ApiClient {
     return response.data;
   }
 
-  async getUVUnwrappingAvailableModels(): Promise<UVUnwrappingAvailableModels> {
-    const response = await this.retry(() => 
-      this.client.get<UVUnwrappingAvailableModels>('/api/v1/unwrap/available-models')
-    );
-    return response.data;
-  }
 
-  async getUVUnwrappingPackMethods(): Promise<UVPackMethods> {
-    const response = await this.retry(() => 
-      this.client.get<UVPackMethods>('/api/v1/unwrap/pack-methods')
-    );
-    return response.data;
-  }
 
-  async getMeshUVUnwrappingSupportedFormats(): Promise<SupportedFormats> {
-    const response = await this.retry(() => 
-      this.client.get<SupportedFormats>('/api/v1/unwrap/supported-formats')
-    );
-    return response.data;
-  }
 
   // Motion Generation Endpoints (ARDY)
   async generateMotion(request: MotionGenerationRequest): Promise<BaseApiResponse> {
@@ -616,26 +535,8 @@ class ApiClient {
     return response.data;
   }
 
-  async getMotionCheckpoints(): Promise<MotionCheckpointsResponse> {
-    const response = await this.retry(() =>
-      this.client.get<MotionCheckpointsResponse>('/api/v1/motion/checkpoints')
-    );
-    return response.data;
-  }
 
-  async getMotionAvailableModels(): Promise<MotionAvailableModelsResponse> {
-    const response = await this.retry(() =>
-      this.client.get<MotionAvailableModelsResponse>('/api/v1/motion/available-models')
-    );
-    return response.data;
-  }
 
-  async getMotionSupportedFormats(): Promise<SupportedFormats> {
-    const response = await this.retry(() =>
-      this.client.get<SupportedFormats>('/api/v1/motion/supported-formats')
-    );
-    return response.data;
-  }
 
   // ─── Admin / Runtime Endpoints ──────────────────────────────────────────────
   // ponytail: the current 3DAIGC-API backend does not expose the legacy admin

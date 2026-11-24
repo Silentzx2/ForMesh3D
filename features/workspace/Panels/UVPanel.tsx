@@ -16,7 +16,6 @@ import {
   Edit2,
   Sparkles,
   Layers,
-  Cpu,
   ShieldCheck,
   Zap,
 } from '@/components/icons/hugeicons-components';
@@ -29,8 +28,6 @@ import {
 } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
-import { EngineModeSelector } from './EngineModeSelector';
-import type { EngineMode } from '../services/meshProcessingBridge';
 
 // ==========================================
 // 1. Quality Metrics & QualityBadge Export
@@ -275,8 +272,6 @@ export const UVPanel: React.FC = () => {
   const dragCounterRef = useRef(0);
 
   // Core Smart UV parameter state
-  const [engineMode, setEngineMode] = useState<EngineMode>('ai');
-  const [activeScriptId, setActiveScriptId] = useState<string>('xatlas_fast');
   const [unwrapStrategy, setUnwrapStrategy] = useState<'organic' | 'hard_surface'>('organic');
   const [atlasResolution, setAtlasResolution] = useState<'1K' | '2K' | '4K'>('2K');
   const [islandMargin, setIslandMargin] = useState<2 | 4 | 8 | 16>(8);
@@ -286,7 +281,7 @@ export const UVPanel: React.FC = () => {
   const [distortionThreshold, setDistortionThreshold] = useState<number>(1.25);
   const [symmetryStacking, setSymmetryStacking] = useState<boolean>(true);
   const [saveIndividualParts, setSaveIndividualParts] = useState<boolean>(true);
-  const [outputFormat, setOutputFormat] = useState<'obj' | 'glb'>('obj');
+  const [outputFormat, setOutputFormat] = useState<'obj' | 'glb'>('glb');
   const [mounted, setMounted] = useState(false);
 
   const advancedTriggerRef = useRef<HTMLButtonElement>(null);
@@ -511,10 +506,8 @@ export const UVPanel: React.FC = () => {
     try {
       if (runUVUnwrapGeneration) {
         await runUVUnwrapGeneration({
-          engineMode,
-          scriptId: activeScriptId,
           distortionThreshold,
-          packMethod: engineMode === 'ai' ? 'blender' : (activeScriptId === 'blender_smart_uv' ? 'blender' : 'xatlas'),
+          packMethod: 'blender',
           outputFormat,
           saveIndividualParts,
           unwrapStrategy,
@@ -798,17 +791,7 @@ export const UVPanel: React.FC = () => {
           </div>
         )}
 
-        {/* Dual-Engine Mode Switcher: AI Model vs Fast Script */}
-        <EngineModeSelector
-          mode={engineMode}
-          onChange={setEngineMode}
-          tool="uv"
-          activeScriptId={activeScriptId}
-          onScriptChange={setActiveScriptId}
-        />
-
         {/* Neural AI Model Card (PartUV) when in AI Mode */}
-        {engineMode === 'ai' && (
           <div className="space-y-1.5 p-3 rounded-2xl bg-[#12131d] border border-white/[0.08]">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
@@ -823,7 +806,6 @@ export const UVPanel: React.FC = () => {
               Part-based neural boundary seam prediction &amp; low-distortion parameterization.
             </p>
           </div>
-        )}
 
         {/* 3. Unwrap Strategy: Organic vs Hard-Surface */}
         <div className="space-y-1">
@@ -971,7 +953,7 @@ export const UVPanel: React.FC = () => {
             id="uv-advanced-flyout"
             role="dialog"
             aria-label="Advanced UV Settings"
-            className="fixed left-4 right-4 md:left-[290px] md:right-auto bottom-12 md:bottom-16 w-auto md:w-[300px] p-3.5 rounded-2xl bg-[#141421] border border-[#F9CF00]/50 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-3 animate-in fade-in zoom-in-95 duration-150 z-50 pointer-events-auto select-none"
+            className="workspace-advanced-flyout p-3.5 rounded-2xl bg-[#141421] border border-[#F9CF00]/50 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-3 animate-in fade-in zoom-in-95 duration-150 pointer-events-auto select-none" style={{ '--workspace-flyout-width': '300px' } as React.CSSProperties}
           >
             {/* Header with Title and Close Button */}
             <div className="flex items-start justify-between pb-1.5 border-b border-white/[0.08]">
@@ -1152,7 +1134,7 @@ export const UVPanel: React.FC = () => {
               className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Grid3X3 className="w-3.5 h-3.5 text-black" />
-              <span>{engineMode === 'ai' ? 'Run AI UV (PartUV)' : 'Run Fast UV (XAtlas / Blender)'}</span>
+              <span>Run AI UV (PartUV)</span>
             </button>
             <div className="flex items-center justify-between text-[9.5px] text-zinc-400 px-1 font-mono">
               <span>Atlas: {atlasResolution} · Margin: {islandMargin}px</span>

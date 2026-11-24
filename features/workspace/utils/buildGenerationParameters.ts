@@ -382,6 +382,7 @@ export function buildGenerationParameters(
       texture_resolution_preset: textureResolutionPreset,
     } : {}),
     ...(settings.texture_settings ? { texture_settings: settings.texture_settings } : {}),
+    ...(settings.texture_model ? { texture_model: settings.texture_model } : {}),
   };
 
   return {

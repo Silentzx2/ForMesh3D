@@ -40,8 +40,102 @@ logger = logging.getLogger(__name__)
 
 def apply_patch(gpu_id: Optional[int] = None) -> None:
     """Apply SkinTokens pre-Ampere and import compatibility patches."""
+    _inject_michelangelo_models_stub()
     _shim_gradio_if_missing()
     _patch_attention_and_precision(gpu_id=gpu_id)
+
+
+def _inject_michelangelo_models_stub() -> None:
+    """Inject stub modules for the missing Michelangelo models package.
+
+    The vendored SkinTokens source is missing
+    backend/thirdparty/SkinTokens/src/model/michelangelo/models/ which
+    src/model/michelangelo/get_model.py imports at line 3. Without this,
+    `import demo` crashes with ModuleNotFoundError before any weights are
+    loaded. The stub allows the import chain and demo.load_model() to
+    proceed; the adapter then surfaces a clear error if the real
+    architecture is still absent at inference time.
+    """
+    if torch is None:
+        return
+
+    import types
+
+    # Only register packages that are actually missing from disk.
+    # src, src.model, src.model.michelangelo exist on disk (with __init__.py)
+    # and must resolve normally — do not replace them with empty-path stubs,
+    # otherwise sibling subpackages (e.g. src.data) become unimportable.
+    missing_pkgs = [
+        "src.model.michelangelo.models",
+        "src.model.michelangelo.models.tsal",
+    ]
+    for pkg_name in missing_pkgs:
+        if pkg_name not in sys.modules:
+            pkg = types.ModuleType(pkg_name)
+            pkg.__path__ = []
+            pkg.__package__ = pkg_name
+            sys.modules[pkg_name] = pkg
+
+    mod_name = "src.model.michelangelo.models.tsal.sal_perceiver"
+    if mod_name not in sys.modules:
+        mod = types.ModuleType(mod_name)
+
+        class AlignedShapeLatentPerceiver(torch.nn.Module):
+            """Stub for the real Michelangelo encoder. Not vendored upstream."""
+            _skintokens_stub = True
+
+            def __init__(self, **kwargs):
+                super().__init__()
+
+            def load_state_dict(self, state_dict, strict=True):
+                # Accept any checkpoint without error so load proceeds; the
+                # adapter rejects stub models before inference.
+                return super().load_state_dict({}, strict=False)
+
+            def forward(self, *args, **kwargs):
+                raise RuntimeError(
+                    "SkinTokens: real Michelangelo models source is not vendored. "
+                    "Vendor backend/thirdparty/SkinTokens/src/model/michelangelo/models/"
+                    " and retry."
+                )
+
+        class ShapeAsLatentPerceiverEncoder(torch.nn.Module):
+            """Stub for the real Michelangelo encoder. Not vendored upstream."""
+            _skintokens_stub = True
+
+            def __init__(self, **kwargs):
+                super().__init__()
+
+        mod.AlignedShapeLatentPerceiver = AlignedShapeLatentPerceiver
+        mod.ShapeAsLatentPerceiverEncoder = ShapeAsLatentPerceiverEncoder
+        mod.__package__ = "src.model.michelangelo.models.tsal"
+        sys.modules[mod_name] = mod
+        logger.debug("SkinTokens patcher: injected Michelangelo models stub")
+
+
+def bpy_server_popen_args(skintokens_root: str, repo_root: str) -> list[str]:
+    """Popen args that launch the bpy_server companion with the Michelangelo
+    models stub pre-injected in the subprocess.
+
+    apply_patch() only injects the stub into the calling process's
+    ``sys.modules``. bpy_server.py runs in a fresh interpreter, so without this
+    it crashes with ``ModuleNotFoundError: No module named
+    'src.model.michelangelo.models'`` while importing ``src.server.spec`` and
+    never serves ``/ping``.
+
+    The snippet imports ``src.server.bpy_server`` as a module (so its relative
+    imports resolve) and calls ``run()`` after injecting the stub.
+    """
+    snippet = (
+        "import sys\n"
+        "sys.path.insert(0, {repo_root!r})\n"
+        "sys.path.insert(0, {skintokens_root!r})\n"
+        "from patcher.skintokens import _inject_michelangelo_models_stub\n"
+        "_inject_michelangelo_models_stub()\n"
+        "from src.server.bpy_server import run\n"
+        "run()\n"
+    ).format(repo_root=repo_root, skintokens_root=skintokens_root)
+    return [sys.executable, "-c", snippet]
 
 
 def _shim_gradio_if_missing() -> None:

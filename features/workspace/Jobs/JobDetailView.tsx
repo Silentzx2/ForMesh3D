@@ -36,7 +36,10 @@ interface RealJobItem {
   result?: any;
   inputs?: any;
   parameters?: any;
-  logs?: { stage: string; progress: number; message: string; level: string; timestamp: string }[];
+  engine?: string;
+  operation_id?: string;
+  operation_type?: string;
+  logs?: { stage?: string; progress?: number | null; message: string; level: string; timestamp: string; kind?: string; elapsed_ms?: number | null }[];
   productionStatus?: string;
 }
 
@@ -79,6 +82,8 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
       const res = await client.getJobsHistory({ limit: 50 });
       const jobs = (res?.jobs || []).map((j: any) => ({
         id: j.job_id || j.id,
+        feature: j.feature || j.operation_type,
+        engine: j.engine,
         ...j,
       }));
       setJobsList(jobs);
@@ -96,7 +101,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
       if (document.visibilityState === 'visible') void fetchJobs();
     };
     void fetchJobs();
-    const interval = setInterval(refresh, hasRunningJobs ? 5000 : 30000);
+    const interval = setInterval(refresh, hasRunningJobs ? 15000 : 60000);
     document.addEventListener('visibilitychange', refresh);
     return () => {
       clearInterval(interval);
@@ -117,7 +122,10 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
           status: res.status,
           progress: Math.max(0, Math.min(100, Number((res as any).progress ?? 0) <= 1 ? Number((res as any).progress ?? 0) * 100 : Number((res as any).progress ?? 0))),
           stage: (res as any).stage || (res as any).message || res.status,
-          feature: (res as any).feature || (res as any).type,
+          feature: (res as any).feature || (res as any).operation_type || (res as any).type,
+          engine: (res as any).engine,
+          operation_id: (res as any).operation_id,
+          operation_type: (res as any).operation_type,
           model_preference: (res as any).model_preference || (res as any).model,
           created_at: (res as any).created_at,
           completed_at: (res as any).completed_at,
@@ -542,6 +550,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
                   </p>
                 </div>
               )}
+
 
               {/* Output Actions & Details Card */}
               {jobStatus === 'completed' && jobPresentation && (

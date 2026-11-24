@@ -26,6 +26,13 @@ export const NotificationCenter: React.FC = () => {
   };
 
   useEffect(() => {
+    const closeOther = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== 'notifications') setIsOpen(false);
+    };
+    window.addEventListener('workspace-header-popover-open', closeOther);
+    return () => window.removeEventListener('workspace-header-popover-open', closeOther);
+  }, []);
+  useEffect(() => {
     refreshNotifications();
     const handleUpdate = () => refreshNotifications();
     window.addEventListener('formash_notifications_updated', handleUpdate);
@@ -78,13 +85,14 @@ export const NotificationCenter: React.FC = () => {
         <button
           id="btn-header-notifications"
           type="button"
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={() => { const nextOpen = !isOpen; if (nextOpen) window.dispatchEvent(new CustomEvent('workspace-header-popover-open', { detail: 'notifications' })); setIsOpen(nextOpen); }}
           className={`relative w-6 h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
             isOpen
               ? 'bg-[hsl(var(--surface-2))] text-white'
               : 'text-zinc-400 hover:text-white hover:bg-[hsl(var(--surface-1))]'
           }`}
           aria-label="Activity Center"
+          aria-expanded={isOpen}
         >
           <HugeiconsIcon icon={BellIcon} size={13} className="w-3 h-3" />
           {unreadCount > 0 && (

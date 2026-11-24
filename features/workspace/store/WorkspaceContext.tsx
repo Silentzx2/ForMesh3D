@@ -25,6 +25,7 @@ import { apiClient } from '../lib/api';
 import { parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute, mintWorkspaceId } from '../lib/workspaceRouteContract';
 import { captureWorkspacePreviewBaseline, createWorkspacePreviewRestorePlan } from '../lib/workspacePreviewSnapshot';
 import { createWorkspaceRegenerationRequest } from '../lib/workspaceRegeneration';
+import { resolveComparisonSourceAssetId } from '../lib/assetComparison';
 import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
 import { useAppStore } from '@/stores/useAppStore';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
@@ -41,7 +42,6 @@ import {
 } from '../utils/buildGenerationParameters';
 import { buildTextureGenerationParameters } from '../utils/buildTextureGenerationParameters';
 import { taskPersistence } from '@/services/taskPersistence';
-import { executeMeshOperation, type EngineMode } from '../services/meshProcessingBridge';
 
 interface ComparisonGroup {
   id: string;
@@ -159,8 +159,6 @@ interface WorkspaceContextType {
   generate3DModel: () => Promise<void>;
   runModelGeneration: () => Promise<void>;
   runRemeshGeneration: (customSettings?: {
-    engineMode?: EngineMode;
-    variant?: 'V1K';
     polyType?: string;
     targetPolycount?: number;
     preserveEdges?: boolean;
@@ -171,8 +169,6 @@ interface WorkspaceContextType {
   }) => Promise<void>;
   runTextureGeneration: () => Promise<void>;
   runUVUnwrapGeneration: (customSettings?: {
-    engineMode?: EngineMode;
-    scriptId?: string;
     distortionThreshold?: number;
     packMethod?: string;
     outputFormat?: string;
@@ -185,7 +181,6 @@ interface WorkspaceContextType {
     modelParameters?: Record<string, any>;
   }) => Promise<void>;
   runSegmentation: (customSettings?: {
-    engineMode?: EngineMode;
     numParts?: number;
     method?: string;
     hierarchical?: boolean;
@@ -201,7 +196,6 @@ interface WorkspaceContextType {
     bindPose?: string;
     exportFormat?: string;
     modelPreference?: string;
-    engineMode?: EngineMode;
     modelParameters?: Record<string, any>;
     customSettings?: Record<string, any>;
   }) => Promise<void>;
@@ -300,8 +294,17 @@ function preferredGenerationPreviewUrl(result?: Record<string, any>): string | u
 
 function comparisonSourceUrl(asset?: ModelAsset | null): string | undefined {
   const fileId = asset?.source?.fileId || asset?.fileId;
-  return asset?.source?.viewUrl || asset?.source?.localUrl ||
-    (fileId ? `/api/v1/file-upload/download/${encodeURIComponent(fileId)}` : undefined);
+  const viewUrl = asset?.source?.viewUrl;
+  if (viewUrl && !viewUrl.startsWith('blob:')) return viewUrl;
+  if (fileId) {
+    const artifactFormat = (asset?.format || 'GLB').toLowerCase();
+    return fileId.startsWith('job-')
+      ? `/api/v1/system/jobs/${encodeURIComponent(fileId.slice(4))}/download?artifact_format=${artifactFormat}`
+      : fileId.startsWith('ast_')
+        ? `/api/v1/system/jobs/${encodeURIComponent(fileId)}/download?artifact_format=${artifactFormat}`
+        : `/api/v1/file-upload/download/${encodeURIComponent(fileId)}`;
+  }
+  return viewUrl || asset?.source?.localUrl;
 }
 
 function preferredPreviewStats(result?: Record<string, any>): Record<string, any> {
@@ -389,9 +392,10 @@ export function routeShortId(source: string | undefined): string {
 
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const queryClient = useQueryClient();
-  const appStore = useAppStore();
+  const autoRotatePreference = useAppStore((state) => state.viewer?.autoRotate);
+  const hasRunningBatchJobs = useAppStore((state) => state.batchQueue.some((item) => item.status === 'running' && item.jobId));
   const updateBatchItem = useAppStore((state) => state.updateBatchItem);
-  const viewerStore = useViewerStore();
+  const setViewerShadingMode = useViewerStore((state) => state.setShadingMode);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -420,7 +424,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const stats = await apiClient.getSystemStats();
       return stats as unknown as SystemStats;
     },
-    refetchInterval: 5000, // Refresh resource telemetry every 5s
+    refetchInterval: 30000, // Refresh resource telemetry every 30s
     staleTime: 10000,
   });
 
@@ -524,8 +528,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         });
       }) as ModelAsset[];
     },
-    refetchInterval: 10000,
-    staleTime: 5000,
+    refetchInterval: 30000,
+    staleTime: 30000,
   });
 
   const [assets, setAssets] = useState<ModelAsset[]>([]);
@@ -704,7 +708,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [showWireframe, setShowWireframeState] = useState(false);
   const [showGrid, setShowGridState] = useState(false);
   const [showBones, setShowBonesState] = useState(false);
-  const [isTurntable, setIsTurntableState] = useState(appStore.viewer?.autoRotate ?? false);
+  const [isTurntable, setIsTurntableState] = useState(autoRotatePreference ?? false);
   const [activeTransformTool, setActiveTransformTool] = useState<'select' | 'rotate' | 'pan' | 'frame'>('select');
   const [viewportResetTrigger, setViewportResetTrigger] = useState(0);
 
@@ -819,7 +823,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
    const [comparisonGroupId, setComparisonGroupId] = useState<string | null>(null);
  
    const [remeshSettings, setRemeshSettings] = useState<RemeshSettings>({
-    tab: 'auto', variant: 'V1K', polyType: 'quad', targetPolycount: 50000,
+    tab: 'auto', polyType: 'quad', targetPolycount: 50000,
   });
 
   const [textureSettings, setTextureSettings] = useState<TextureSettings>({
@@ -1024,6 +1028,34 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=glb`;
       const previewStats = preferredPreviewStats(result);
       const cleanName = promptTitle && promptTitle !== 'generate' && promptTitle !== 'asset' ? promptTitle : `Model_${jobId.slice(0, 6)}`;
+      const resultArtifacts = result.artifacts && typeof result.artifacts === 'object' ? result.artifacts : {};
+      const artifactSource = typeof resultArtifacts.source === 'string'
+        ? resultArtifacts.source
+        : (typeof resultArtifacts.source?.url === 'string' ? resultArtifacts.source.url : undefined);
+      const candidateSourceAssetId = matchingTask?.sourceAssetId ||
+        rawData?.operation?.input_asset_id ||
+        rawData?.input_asset_id ||
+        result.source_asset_id ||
+        undefined;
+      const sourceAssetRecord = Array.isArray(rawData?.assets)
+        ? rawData.assets.find((asset: any) => asset.asset_id === candidateSourceAssetId)
+        : undefined;
+      // Generation input_asset_id can be an image. Only a retained mesh is a valid wipe predecessor.
+      const sourceAssetId = resolveComparisonSourceAssetId({
+        taskSourceAssetId: matchingTask?.sourceAssetId,
+        operationInputAssetId: candidateSourceAssetId,
+        operationInputFileType: sourceAssetRecord?.file_type,
+      });
+      const sourceFilename = [sourceAssetRecord?.original_filename, sourceAssetRecord?.relative_path]
+        .find((filename: string | undefined) => Boolean(filename && /\.[a-z0-9]+$/i.test(filename))) || '';
+      const sourceFormat = sourceFilename.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() || 'glb';
+      const sourceAssetUrl = sourceAssetId
+        ? `/api/v1/system/jobs/${encodeURIComponent(sourceAssetId)}/download?artifact_format=${sourceFormat}`
+        : undefined;
+      const comparisonSource = matchingTask?.sourceModelUrl || sourceAssetUrl || artifactSource || previewSourceUrl(result);
+      const outputArtifacts = comparisonSource
+        ? { ...resultArtifacts, source: comparisonSource }
+        : result.artifacts;
       void prefetchGLB(modelUrl);
       const finalAssetId = isRetainedResult && retainedAssetId
         ? retainedAssetId
@@ -1034,7 +1066,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         category: isRetainedResult ? 'mesh' : 'generation',
         workspace_id: resolvedWorkspaceId,
         operation_id: resolvedOperationId,
-       sourceAssetId: currentAsset?.id,
+       sourceAssetId,
        settingsSnapshot: matchingTask?.submissionSnapshot?.body || undefined,
         thumbnail: result.thumbnail_url || `/api/v1/system/jobs/${encodeURIComponent(retainedAssetLookupId)}/thumbnail`,
         source: {
@@ -1064,7 +1096,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         zip_url: result.zip_url,
         qa_report: result.qa_report,
         quality_trace: result.quality_trace,
-        artifacts: result.artifacts,
+        artifacts: outputArtifacts,
         candidates: result.candidates,
       });
       addAsset(outputAsset);
@@ -1211,8 +1243,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const setShadingMode = useCallback((mode: ShadingMode) => {
     setShadingModeState(mode);
-    viewerStore.setShadingMode(shadingModeToPreset(mode));
-  }, [viewerStore]);
+    setViewerShadingMode(shadingModeToPreset(mode));
+  }, [setViewerShadingMode]);
 
   const setShowWireframe = useCallback((show: boolean) => {
     setShowWireframeState(show);
@@ -1274,14 +1306,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
    }, []);
     // Poll batch job statuses periodically
     useEffect(() => {
-      const { batchQueue } = appStore;
-     
-     // Check if we have any batch jobs that need monitoring
-     const hasBatchJobs = batchQueue.some(item => 
-       item.status === 'running' && item.jobId
-     );
-     
-     if (!hasBatchJobs) {
+     // Start/stop the batch poller only when the queue transitions between
+     // having active jobs and having none. Read queue contents fresh per tick.
+     if (!hasRunningBatchJobs) {
        // Clean up any existing polling interval
        if (batchPollingIntervalRef.current) {
          clearInterval(batchPollingIntervalRef.current);
@@ -1294,6 +1321,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
      if (!batchPollingIntervalRef.current) {
        batchPollingIntervalRef.current = setInterval(async () => {
          try {
+           const batchQueue = useAppStore.getState().batchQueue;
            // Get all unique job IDs from batch queue items that are running
              const jobIds = Array.from(new Set(
                batchQueue
@@ -1381,7 +1409,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         // Clear the job ID map
         batchJobIdMap.current = {};
       };
-    }, [useAppStore]);
+    }, [hasRunningBatchJobs, updateBatchItem]);
 
 
 function dataURLtoFile(dataURL: string, filename: string): File {
@@ -1663,7 +1691,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         setActiveTool('model');
         setMainNav('workspace');
         // In workspace shell: replaceState keeps MeshViewer mounted. Outside
-        // shell (e.g. dashboard): full router.push navigation.
+        // shell: full router.push navigation.
         if (pathname.startsWith('/workspace')) {
           window.history.replaceState(null, '', targetRoute);
         } else {
@@ -1873,6 +1901,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       inputImage,
       inputImageName,
       comparisonGroupId,
+      sourceAssetId: sourceModelUrl ? selectedAsset?.id : undefined,
       sourceModelUrl,
     };
     setIsExecuting(true);
@@ -2375,8 +2404,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 }
 
   const runRemeshGeneration = useCallback(async (customSettings?: {
-    engineMode?: EngineMode;
-    variant?: 'V1K';
     polyType?: string;
     targetPolycount?: number;
     preserveEdges?: boolean;
@@ -2385,12 +2412,11 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     watertightHealing?: boolean;
     outputFormat?: string;
   }) => {
-    const engine = customSettings?.engineMode || 'ai';
     const localTaskId = startTask(
       'remesh',
-      engine === 'script' ? 'Algorithmic Remesh (Python)' : 'Neural Remesh (FastMesh)',
+      'Neural Remesh (TriFlow)',
       undefined,
-      engine === 'script' ? 'trimesh_autoretopo' : 'fastmesh_v1k_retopology',
+      'triflow_retopology',
       undefined,
       undefined,
       comparisonGroupId ?? undefined,
@@ -2404,100 +2430,18 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const polyType = customSettings?.polyType || remeshSettings.polyType;
       const meshUrl = currentAsset?.source?.localUrl || currentAsset?.source?.viewUrl || (meshRef.mesh_file_id ? `/api/v1/file-upload/download/${meshRef.mesh_file_id}` : '');
 
-      if (engine === 'script') {
-        setExecutionStep('Executing Python Trimesh AutoRetopo...');
-        const result = await executeMeshOperation({
-          tool: 'remesh',
-          engine: 'script',
-          workspaceId: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
-          meshUrl,
-          meshRef,
-          params: {
-            targetPolycount: targetPoly,
-            polyType,
-            preserveEdges: customSettings?.preserveEdges ?? true,
-            featureAngle: customSettings?.featureAngle ?? 45,
-            adaptiveDensity: customSettings?.adaptiveDensity ?? true,
-            watertightHealing: customSettings?.watertightHealing ?? true,
-          },
-          onProgress: (step, pct, stage) => {
-            setExecutionStep(step);
-            setExecutionProgress(pct);
-            setActiveTask(prev => prev ? {
-              ...prev,
-              status: 'running',
-              progress: pct,
-              stage: stage || prev.stage,
-              currentStep: step,
-            } : prev);
-          },
-          onLog: (message) => {
-            setActiveTask(prev => prev ? {
-              ...prev,
-              logs: [...(prev.logs || []), {
-                stage: prev.stage || '',
-                progress: prev.progress,
-                message,
-                level: 'info',
-                timestamp: new Date().toISOString(),
-              }],
-            } : prev);
-          },
-          signal,
-        });
-
-        if (result.success && result.modelUrl) {
-          const targetWsId = result.workspaceId || currentAsset?.workspace_id || workspaceIdRef.current || undefined;
-          if (!result.operationId) throw new Error("Script retopology did not return an operation ID.");
-          const newAssetId = `preview_${result.operationId}`;
-          const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
-          const newAsset = normalizeModelAsset({
-            id: newAssetId,
-            workspace_id: targetWsId,
-            operation_id: result.operationId,
-            name: `${cleanBaseName}_retopo_${polyType}`,
-            category: 'edit',
-            source: { filename: `${cleanBaseName}_retopo.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'retopology' },
-            artifacts: { source: meshUrl || comparisonSourceUrl(currentAsset) },
-            format: 'GLB',
-            topology: polyType === 'quad' ? 'Quad' : 'Triangle',
-            faces: result.stats?.face_count || targetPoly,
-            vertices: result.stats?.vertex_count || Math.round(targetPoly / 2),
-            triangles: result.stats?.face_count || targetPoly,
-            statsAvailable: true,
-            sourceAssetId: currentAsset?.id,
-            settingsSnapshot: { engineMode: engine, polyType, targetPolycount: targetPoly, preserveEdges: customSettings?.preserveEdges ?? true, featureAngle: customSettings?.featureAngle ?? 45, adaptiveDensity: customSettings?.adaptiveDensity ?? true, watertightHealing: customSettings?.watertightHealing ?? true },
-          });
-
-          addAsset(newAsset);
-          selectAsset(newAsset.id);
-          loadModelInViewer(result.modelUrl);
-          setViewportResetTrigger((p) => p + 1);
-
-          setIsExecuting(false);
-          setExecutionProgress(100);
-          setExecutionStep('Retopology completed successfully');
-          setExecutionState('completed');
-          setPersistenceState('saved');
-          void refreshAssets();
-          setActiveTask((prev) => (prev ? {
-            ...prev,
-            status: 'completed',
-            progress: 100,
-            currentStep: 'Retopology completed',
-            operationId: result.operationId,
-            workspaceId: targetWsId,
-          } : null));
-          toast.success('Retopology completed!', { description: `Optimized to ${polyType.toUpperCase()} topology (${targetPoly.toLocaleString()} faces)` });
-          return;
-        }
-      }
-
       // AI Mode Execution
       const body: Record<string, unknown> = {
         output_format: customSettings?.outputFormat || 'glb',
-        model_preference: 'fastmesh_v1k_retopology',
+        model_preference: 'triflow_retopology',
         target_polycount: targetPoly,
+        face_count: targetPoly,
+        poly_type: polyType,
+        quad_ratio: polyType === 'quad' ? 0.95 : 0.0,
+        preserve_features: customSettings?.preserveEdges ?? true,
+        feature_angle: customSettings?.featureAngle ?? 45,
+        adaptive: customSettings?.adaptiveDensity ?? true,
+        watertight: customSettings?.watertightHealing ?? false,
         workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
         ...meshRef,
       };
@@ -2528,12 +2472,23 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   }, [remeshSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId, addAsset, selectAsset, setViewportResetTrigger]);
 
   const runTextureGeneration = useCallback(async () => {
-    const originalRefImage = currentAsset?.referenceImage || currentAsset?.inputImage || (currentAsset?.category === 'generation' ? currentAsset?.thumbnail : undefined);
-    const referenceImageFileId = currentAsset?.referenceImageFileId || (currentAsset as any)?.fileId;
-    const hasImageReference = Boolean(originalRefImage || referenceImageFileId);
-    const modelPreference = hasImageReference
-      ? (textureSettings.modelId || 'hunyuan3d_paint_v21_image_mesh_painting')
-      : 'trellis_text_mesh_painting';
+    // Texture generation is standalone: operates on an existing mesh + reference image.
+    // The mesh reference comes from the currently selected asset; the image reference
+    // comes from textureSettings (never from the mesh asset's fileId).
+    if (!currentAsset) {
+      const message = 'No mesh selected. Please select a 3D mesh to texture.';
+      setIsExecuting(false);
+      setExecutionStep(message);
+      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
+      toast.error(message);
+      return;
+    }
+
+    const referenceImage = textureSettings.referenceImage;
+    const referenceImageFileId = textureSettings.referenceImageFileId;
+    const hasImageReference = Boolean(referenceImage || referenceImageFileId);
+
+    const modelPreference = textureSettings.modelId || 'hunyuan3d_paint_v21_image_mesh_painting';
 
     const localTaskId = startTask('texture', 'Texture generation', undefined, modelPreference, undefined, undefined, comparisonGroupId ?? undefined, comparisonSourceUrl(currentAsset));
     const signal = activeAbortControllerRef.current?.signal;
@@ -2543,7 +2498,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         { ...textureSettings, modelId: modelPreference },
         meshRef,
         {
-          url: originalRefImage,
+          url: referenceImage,
           fileId: referenceImageFileId,
         },
       );
@@ -2581,8 +2536,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   }, [textureSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
 
   const runUVUnwrapGeneration = useCallback(async (customSettings?: {
-    engineMode?: EngineMode;
-    scriptId?: string;
     distortionThreshold?: number;
     packMethod?: string;
     outputFormat?: string;
@@ -2594,15 +2547,15 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     symmetryStacking?: boolean;
     modelParameters?: Record<string, any>;
   }) => {
-    const engine = customSettings?.engineMode || 'ai';
     const localTaskId = startTask(
       'uv',
-      engine === 'script' ? 'Algorithmic UV Unwrap (Python)' : 'Smart UV Unwrapping (PartUV)',
+      'Smart UV Unwrapping (PartUV)',
       undefined,
-      engine === 'script' ? (customSettings?.scriptId || 'xatlas_fast') : 'partuv_uv_unwrapping',
+      'partuv_uv_unwrapping',
       undefined,
       undefined,
-      comparisonGroupId ?? undefined
+      comparisonGroupId ?? undefined,
+      comparisonSourceUrl(currentAsset)
     );
     const signal = activeAbortControllerRef.current?.signal;
     try {
@@ -2610,99 +2563,14 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const meshRef = await resolveMeshReference(currentAsset, signal);
       const meshUrl = currentAsset?.source?.localUrl || currentAsset?.source?.viewUrl || (meshRef.mesh_file_id ? `/api/v1/file-upload/download/${meshRef.mesh_file_id}` : '');
 
-      if (engine === 'script') {
-        setExecutionStep('Running XAtlas / Python UV unwrapping...');
-        const result = await executeMeshOperation({
-          tool: 'uv',
-          engine: 'script',
-          workspaceId: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
-          scriptId: customSettings?.scriptId,
-          meshUrl,
-          meshRef,
-          params: {
-            atlasResolution: customSettings?.atlasResolution || 2048,
-            islandMargin: customSettings?.islandMargin ?? 4,
-            packMethod: customSettings?.packMethod || 'xatlas',
-            unwrapStrategy: customSettings?.unwrapStrategy || 'hybrid',
-          },
-          onProgress: (step, pct, stage) => {
-            setExecutionStep(step);
-            setExecutionProgress(pct);
-            setActiveTask(prev => prev ? {
-              ...prev,
-              status: 'running',
-              progress: pct,
-              stage: stage || prev.stage,
-              currentStep: step,
-            } : prev);
-          },
-          onLog: (message) => {
-            setActiveTask(prev => prev ? {
-              ...prev,
-              logs: [...(prev.logs || []), {
-                stage: prev.stage || '',
-                progress: prev.progress,
-                message,
-                level: 'info',
-                timestamp: new Date().toISOString(),
-              }],
-            } : prev);
-          },
-          signal,
-        });
-
-        if (result.success && result.modelUrl) {
-          const targetWsId = result.workspaceId || currentAsset?.workspace_id || workspaceIdRef.current || undefined;
-          if (!result.operationId) throw new Error("Script UV unwrap did not return an operation ID.");
-          const newAssetId = `preview_${result.operationId}`;
-          const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
-          const newAsset = normalizeModelAsset({
-            id: newAssetId,
-            workspace_id: targetWsId,
-            operation_id: result.operationId,
-            name: `${cleanBaseName}_uv_unwrapped`,
-            category: 'edit',
-            source: { filename: `${cleanBaseName}_uv.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'uv' },
-            format: 'GLB',
-            topology: currentAsset?.topology || 'Triangle',
-            faces: currentAsset?.faces || 0,
-            vertices: currentAsset?.vertices || 0,
-            statsAvailable: Boolean(currentAsset?.faces),
-          });
-
-          addAsset(newAsset);
-          selectAsset(newAsset.id);
-          loadModelInViewer(result.modelUrl);
-          setViewportResetTrigger((p) => p + 1);
-
-          setIsExecuting(false);
-          setExecutionProgress(100);
-          setExecutionStep('UV unwrapping completed');
-          setExecutionState('completed');
-          setPersistenceState('saved');
-          void refreshAssets();
-          setActiveTask((prev) => (prev ? {
-            ...prev,
-            status: 'completed',
-            progress: 100,
-            currentStep: 'UV unwrapping completed',
-            operationId: result.operationId,
-            workspaceId: targetWsId,
-          } : null));
-          toast.success('UV Map generated successfully!', { description: 'Non-overlapping atlas packed into mesh' });
-          return;
-        }
-      }
-
       // AI Mode Execution
       const body: Record<string, unknown> = {
-        engine: 'ai',
         workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
         distortion_threshold: customSettings?.distortionThreshold ?? 1.25,
         pack_method: customSettings?.packMethod || 'blender',
         save_individual_parts: customSettings?.saveIndividualParts ?? true,
         save_visuals: false,
-        output_format: customSettings?.outputFormat || 'obj',
+        output_format: customSettings?.outputFormat || 'glb',
         model_preference: 'partuv_uv_unwrapping',
         boundary_packer: customSettings?.boundaryPacker ?? true,
         symmetry_stacking: customSettings?.symmetryStacking ?? false,
@@ -2741,7 +2609,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId, addAsset, selectAsset, setViewportResetTrigger]);
 
   const runSegmentation = useCallback(async (customSettings?: {
-    engineMode?: EngineMode;
     numParts?: number;
     method?: string;
     hierarchical?: boolean;
@@ -2753,16 +2620,15 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     modelPreference?: string;
   } | number) => {
     const settingsObj = typeof customSettings === 'number' ? { numParts: customSettings } : (customSettings || {});
-    const engine = settingsObj.engineMode || 'ai';
     const numParts = settingsObj.numParts ?? 8;
     const outputFormat = settingsObj.outputFormat ?? 'glb';
     const pref = settingsObj.modelPreference || '';
 
     const localTaskId = startTask(
       'segment',
-      engine === 'script' ? 'Geometric Segmentation (Trimesh)' : 'Semantic Part Segmentation (AI)',
+      'Semantic Part Segmentation (AI)',
       undefined,
-      engine === 'script' ? 'trimesh_decomposition' : pref || undefined,
+      pref || undefined,
       undefined,
       undefined,
       comparisonGroupId ?? undefined,
@@ -2774,102 +2640,17 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const meshRef = await resolveMeshReference(currentAsset, signal);
       const meshUrl = currentAsset?.source?.localUrl || currentAsset?.source?.viewUrl || (meshRef.mesh_file_id ? `/api/v1/file-upload/download/${meshRef.mesh_file_id}` : '');
 
-      if (engine === 'script') {
-        setExecutionStep(`Running Trimesh geometric decomposition into ${numParts} parts...`);
-        const result = await executeMeshOperation({
-          tool: 'segment',
-          engine: 'script',
-          workspaceId: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
-          meshUrl,
-          meshRef,
-          params: {
-            numParts,
-            method: settingsObj.method || 'geometric',
-            hierarchical: Boolean(settingsObj.hierarchical),
-            minFaceIslandThreshold: Number(settingsObj.minFaceIslandThreshold ?? settingsObj.modelParameters?.min_face_island_threshold ?? 0),
-            colorizePreview: settingsObj.colorizePreview ?? settingsObj.modelParameters?.colorize_preview ?? true,
-            saveIndividualParts: settingsObj.saveIndividualParts ?? settingsObj.modelParameters?.save_individual_parts ?? false,
-            outputFormat,
-          },
-          onProgress: (step, pct, stage) => {
-            setExecutionStep(step);
-            setExecutionProgress(pct);
-            setActiveTask(prev => prev ? {
-              ...prev,
-              status: 'running',
-              progress: pct,
-              stage: stage || prev.stage,
-              currentStep: step,
-            } : prev);
-          },
-          onLog: (message) => {
-            setActiveTask(prev => prev ? {
-              ...prev,
-              logs: [...(prev.logs || []), {
-                stage: prev.stage || '',
-                progress: prev.progress,
-                message,
-                level: 'info',
-                timestamp: new Date().toISOString(),
-              }],
-            } : prev);
-          },
-          signal,
-        });
-
-        if (result.success && result.modelUrl) {
-          const targetWsId = result.workspaceId || currentAsset?.workspace_id || workspaceIdRef.current || undefined;
-          if (!result.operationId) throw new Error("Script segmentation did not return an operation ID.");
-          const newAssetId = `preview_${result.operationId}`;
-          const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
-          const newAsset = normalizeModelAsset({
-            id: newAssetId,
-            workspace_id: targetWsId,
-            operation_id: result.operationId,
-            name: `${cleanBaseName}_segmented_${numParts}parts`,
-            category: 'edit',
-            source: { filename: `${cleanBaseName}_segmented.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'segmentation' },
-            artifacts: { source: meshUrl || comparisonSourceUrl(currentAsset) },
-            format: 'GLB',
-            topology: currentAsset?.topology || 'Triangle',
-            faces: result.stats?.face_count || currentAsset?.faces || 0,
-            vertices: result.stats?.vertex_count || currentAsset?.vertices || 0,
-            statsAvailable: Boolean(result.stats?.face_count || currentAsset?.faces),
-            sourceAssetId: currentAsset?.id,
-            settingsSnapshot: { engineMode: engine, numParts, method: settingsObj.method || 'geometric', outputFormat },
-          });
-
-          addAsset(newAsset);
-          selectAsset(newAsset.id);
-          loadModelInViewer(result.modelUrl);
-          setViewportResetTrigger((p) => p + 1);
-
-          setIsExecuting(false);
-          setExecutionProgress(100);
-          setExecutionStep('Segmentation complete');
-          setExecutionState('completed');
-          setPersistenceState('saved');
-          void refreshAssets();
-          setActiveTask((prev) => (prev ? {
-            ...prev,
-            status: 'completed',
-            progress: 100,
-            currentStep: 'Segmentation complete',
-            operationId: result.operationId,
-            workspaceId: targetWsId,
-          } : null));
-          toast.success('Mesh segmented successfully', { description: `Partitioned into ${numParts} parts (Trimesh)` });
-          return;
-        }
-        return;
-      }
-
       // AI Mode Execution
       const body: Record<string, unknown> = {
         workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
         num_parts: numParts,
         output_format: outputFormat,
-        model_preference: pref,
+        model_preference: pref || 'partfield_segmentation',
+        method: settingsObj.method || 'semantic',
+        hierarchical: Boolean(settingsObj.hierarchical),
+        min_face_island_threshold: Number(settingsObj.minFaceIslandThreshold ?? settingsObj.modelParameters?.min_face_island_threshold ?? 50),
+        colorize_preview: settingsObj.colorizePreview ?? settingsObj.modelParameters?.colorize_preview ?? true,
+        save_individual_parts: settingsObj.saveIndividualParts ?? settingsObj.modelParameters?.save_individual_parts ?? false,
         ...meshRef,
       };
       if (settingsObj.modelParameters) {
@@ -2883,55 +2664,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         signal,
       });
 
-      if (!res.ok) {
-        if (res.status === 400 || res.status === 404 || res.status === 500) {
-          try {
-            setExecutionStep(`AI scheduler offline. Gracefully falling back to Trimesh (${numParts} parts)...`);
-            const fbResult = await executeMeshOperation({
-              tool: 'segment',
-              engine: 'script',
-              workspaceId: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
-              meshUrl,
-              meshRef,
-              params: { numParts },
-              onProgress: (step, pct, stage) => {
-                setExecutionStep(step);
-                setExecutionProgress(pct);
-                setActiveTask(prev => prev ? {
-                  ...prev,
-                  status: 'running',
-                  progress: pct,
-                  stage: stage || prev.stage,
-                  currentStep: step,
-                } : prev);
-              },
-              onLog: (message) => {
-                setActiveTask(prev => prev ? {
-                  ...prev,
-                  logs: [...(prev.logs || []), {
-                    stage: prev.stage || '',
-                    progress: prev.progress,
-                    message,
-                    level: 'info',
-                    timestamp: new Date().toISOString(),
-                  }],
-                } : prev);
-              },
-              signal,
-            });
-            setIsExecuting(false);
-            setExecutionProgress(100);
-            setExecutionStep('Segmentation complete');
-            setActiveTask((prev) => (prev ? { ...prev, status: 'completed', progress: 100, currentStep: 'Segmentation complete' } : null));
-            toast.success('Mesh segmented successfully (Script fallback)', { description: `Partitioned into ${numParts} parts` });
-            return;
-          } catch (fbErr) {
-            if (signal?.aborted) return;
-            console.warn('Fallback segmentation error:', fbErr);
-          }
-        }
-        throw await parseApiError(res);
-      }
+      if (!res.ok) throw await parseApiError(res);
       const data = await parseApiData<{ job_id?: string; id?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
       const jobId = data.job_id ?? data.id;
       if (!jobId) throw new Error('Backend did not return a segmentation job ID');
@@ -2955,7 +2688,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     bindPose?: string;
     exportFormat?: string;
     modelPreference?: string;
-    engineMode?: EngineMode;
     modelParameters?: Record<string, any>;
     customSettings?: Record<string, any>;
   }) => {
@@ -2969,7 +2701,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         rig_mode: options?.skeletonTemplate || 'humanoid',
         output_format: (options?.exportFormat || 'glb').toLowerCase(),
         model_preference: modelPref,
-        engine: options?.engineMode || 'ai',
         model_parameters: {
           ...(options?.modelParameters || {}),
           bind_pose: options?.bindPose || 't_pose',
@@ -3327,15 +3058,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   const isWorkspaceShellActive = useCallback((path?: string | null) => {
     if (!path) return false;
     return (
-      path.startsWith('/workspace') ||
-      path === '/animation' ||
-      path.startsWith('/animation') ||
-      path === '/rigging' ||
-      path.startsWith('/rigging') ||
-      path === '/dashboard' ||
-      path === '/outputs' ||
-      path === '/system' ||
-      path === '/jobs'
+      path.startsWith('/workspace')
     );
   }, []);
 
@@ -3399,7 +3122,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     }
 
     const routeMap: Record<string, string> = {
-      dashboard: '/workspace/generate',
       assets: '/workspace/assets',
       jobs: '/workspace/jobs',
       workspace: '/workspace/generate',

@@ -58,6 +58,10 @@ class ModelFactory:
             "module": "adapters.trellis_adapter",
             "class": "TrellisImageMeshPaintingAdapter",
         },
+        "trellis_text_mesh_painting": {
+            "module": "adapters.trellis_adapter",
+            "class": "TrellisTextMeshPaintingAdapter",
+        },
         # TRELLIS.2 adapters (image-only, no text support)
         "trellis2_image_to_textured_mesh": {
             "module": "adapters.trellis2_adapter",
@@ -79,22 +83,22 @@ class ModelFactory:
             "module": "adapters.trellis2_adapter",
             "class": "Trellis2ImageMeshPaintingAdapter",
         },
-        # Hunyuan3D adapters
+        # Hunyuan3D-2.1 Unified adapter — single adapter for shape + paint
         "hunyuan3d_shape_v21_image_to_raw_mesh": {
-            "module": "adapters.hunyuan3d_shape_v21",
-            "class": "Hunyuan3DShapeV21ImageToRawMeshAdapter",
+            "module": "adapters.hunyuan3d_21_unified",
+            "class": "Hunyuan3D21UnifiedAdapter",
         },
         "hunyuan3d_shape_v21_image_to_3d": {
-            "module": "adapters.hunyuan3d_shape_v21",
-            "class": "Hunyuan3DShapeV21ImageToRawMeshAdapter",
+            "module": "adapters.hunyuan3d_21_unified",
+            "class": "Hunyuan3D21UnifiedAdapter",
         },
         "hunyuan3d_shape_v21_image_to_textured_mesh": {
-            "module": "adapters.hunyuan3d_shape_v21",
-            "class": "Hunyuan3DShapeV21ImageToRawMeshAdapter",
+            "module": "adapters.hunyuan3d_21_unified",
+            "class": "Hunyuan3D21UnifiedAdapter",
         },
         "hunyuan3d_paint_v21_image_mesh_painting": {
-            "module": "adapters.hunyuan3d_adapter_v21",
-            "class": "Hunyuan3DV21ImageMeshPaintingAdapter",
+            "module": "adapters.hunyuan3d_21_unified",
+            "class": "Hunyuan3D21UnifiedAdapter",
         },
         "hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh": {
             "module": "adapters.hunyuan3d_dit_v2_mini_turbo",
@@ -103,23 +107,6 @@ class ModelFactory:
         "hunyuan3d_dit_v2_mini_turbo_image_to_3d": {
             "module": "adapters.hunyuan3d_dit_v2_mini_turbo",
             "class": "Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter",
-        },
-        # Hunyuan3D legacy adapters (deprecated)
-        "hunyuan3dv21_image_to_raw_mesh": {
-            "module": "adapters.hunyuan3d_adapter_v21",
-            "class": "Hunyuan3DV21ImageToRawMeshAdapter",
-        },
-        "hunyuan3dv21_image_to_3d": {
-            "module": "adapters.hunyuan3d_adapter_v21",
-            "class": "Hunyuan3DV21ImageToRawMeshAdapter",
-        },
-        "hunyuan3dv21_image_to_textured_mesh": {
-            "module": "adapters.hunyuan3d_adapter_v21",
-            "class": "Hunyuan3DV21ImageToRawMeshAdapter",
-        },
-        "hunyuan3dv21_image_mesh_painting": {
-            "module": "adapters.hunyuan3d_adapter_v21",
-            "class": "Hunyuan3DV21ImageMeshPaintingAdapter",
         },
         # SkinTokens adapters
         "skintokens_auto_rigging": {
@@ -130,15 +117,20 @@ class ModelFactory:
             "module": "adapters.skintokens_adapter",
             "class": "SkinTokensAdapter",
         },
-        # FastMesh adapters
-        "fastmesh_v1k_retopology": {
-            "module": "adapters.fastmesh_adapter",
-            "class": "FastMeshRetopologyAdapter",
+        # Retopology adapters
+        "triflow_retopology": {
+            "module": "adapters.triflow_adapter",
+            "class": "TriFlowRetopologyAdapter",
         },
         # PartUV adapters
         "partuv_uv_unwrapping": {
             "module": "adapters.partuv_adapter",
             "class": "PartUVUnwrappingAdapter",
+        },
+        # PartField segmentation adapters
+        "partfield_segmentation": {
+            "module": "adapters.partfield_adapter",
+            "class": "PartFieldSegmentationAdapter",
         },
         # TripoSG adapter
         "triposg_image_to_raw_mesh": {
@@ -319,6 +311,8 @@ class ModelFactory:
             # Add any additional parameters from config
             if "vram_requirement" in config:
                 init_params["vram_requirement"] = config["vram_requirement"]
+            if "feature_type" in config and "feature_type" not in init_params:
+                init_params["feature_type"] = config["feature_type"]
 
             model_instance = model_class(**init_params)
 
@@ -385,6 +379,12 @@ class ModelFactory:
             "init_params": init_params or {},
             "capabilities": capabilities or {},
         }
+
+        # feature_type must reach the adapter constructor via init_params
+        # (unpacked as **kwargs). Otherwise adapters that default to
+        # "image_to_raw_mesh" will never paint textures on mesh->paint jobs.
+        if "feature_type" not in config["init_params"]:
+            config["init_params"]["feature_type"] = feature_type
 
         # Add module and class if provided
         if module_path:
