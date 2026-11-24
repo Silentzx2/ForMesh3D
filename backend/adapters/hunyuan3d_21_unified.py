@@ -118,6 +118,13 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
         if _hunyuan2_root not in sys.path:
             sys.path.insert(0, _hunyuan2_root)
 
+        # Hunyuan3D-2.1 shape pipeline lives under thirdparty/Hunyuan3D-2.1/hy3dshape
+        _hy3dshape_root = (
+            str(Path(__file__).resolve().parents[1] / "thirdparty" / "Hunyuan3D-2.1" / "hy3dshape")
+        )
+        if _hy3dshape_root not in sys.path:
+            sys.path.insert(0, _hy3dshape_root)
+
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading Hunyuan3D-2.1 Unified pipeline from %s", weights_dir)
         weights_dir_path = Path(weights_dir)

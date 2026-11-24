@@ -1168,6 +1168,12 @@ async def get_jobs_history(
                     logs = op_data.get("logs") or []
                     latest = logs[-1] if logs else {}
                     error_data = op_data.get("error")
+                    settings = {}
+                    if op_data.get("settings_snapshot"):
+                        try:
+                            settings = json.loads(op_data["settings_snapshot"])
+                        except Exception:
+                            settings = {}
                     jobs.append({
                         "job_id": operation.operation_id,
                         "id": operation.operation_id,
@@ -1175,7 +1181,7 @@ async def get_jobs_history(
                         "workspace_id": operation.workspace_id,
                         "operation_type": operation.operation_type,
                         "feature": operation.operation_type,
-                        "model_preference": operation.model_preference or "",
+                        "model_preference": settings.get("model_preference", ""),
                         "status": operation.execution_status,
                         "progress": float(operation.progress or 0.0),
                         "stage": latest.get("message") or operation.execution_status,
