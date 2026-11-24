@@ -1,5 +1,10 @@
 # ForMesh3D Changelog
 
+## 2026-11-24 — Workspace-Scoped Derived Operation Storage
+- Prevented retopology, UV, segmentation and rigging jobs from creating duplicate `storage/<job_id>/` directories.
+- Kept durable outputs and thumbnails under the existing workspace operation folders; legacy empty job directories are removed conservatively without recursive deletion.
+
+
 ## 2026-11-24 — PartField Multipart Persistence & AI-Only Tool Modes
 - Persisted individual PartField part meshes in versioned workspace storage and registered each part as a mesh asset.
 - Added a workspace-backed ZIP archive for the actual individual part files; combined colored GLB remains the active result.

@@ -109,3 +109,27 @@ def test_trellis_text_painting_manifest_alias_is_registered():
         "class": "TrellisTextMeshPaintingAdapter",
     }
     assert _ADAPTER_MAP["trellis_text_mesh_painting"] == "backend.adapters.trellis_adapter"
+
+
+
+def test_tool_jobs_do_not_create_operation_scoped_storage_roots():
+    """Derived mesh tools must publish into their workspace, not storage/<job_id>/."""
+    scheduler = (
+        ROOT / "backend" / "core" / "scheduler" / "multiprocess_scheduler.py"
+    ).read_text(encoding="utf-8")
+    output_block = scheduler.split("if _out_mesh_path:", 1)[1].split(
+        "# The adapter output has now been copied to durable storage.", 1
+    )[0]
+    tool_branch = output_block.split("if is_tool_operation:", 1)[1].split(
+        "                        else:\n                            # Only generation jobs",
+        1,
+    )[0]
+    generation_branch = output_block.split(
+        "                        else:\n                            # Only generation jobs", 1
+    )[1]
+
+    assert "canonical_root.mkdir" not in tool_branch
+    assert "_legacy_job_root.rmdir()" in tool_branch
+    assert "_operation_record.workspace_id" in tool_branch
+    assert "requires an existing workspace_id" in tool_branch
+    assert "canonical_root.mkdir(parents=True, exist_ok=True)" in generation_branch

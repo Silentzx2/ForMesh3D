@@ -1,8 +1,23 @@
 # Architecture Decisions — ForMesh 3D
 
 > **Version**: 0.8.0
-> **Last Updated**: November 20, 2026
+> **Last Updated**: November 24, 2026
 > **Retention Policy**: Keep only the last 3 active Architectural Decision Records (ADRs) to preserve lean context.
+
+---
+
+## ADR-110: Workspace-Scoped Derived Operation Artifacts (2026-11-24)
+
+**Context:** Retopology, UV, segmentation and rigging already publish their final mesh assets into the source workspace, but scheduler result handling also created a canonical directory from the operation job ID before it identified the operation type. This left an unnecessary sibling directory under `storage/` for a derived operation.
+
+**Decision:**
+1. Identify derived AI tool operations before creating any canonical job workspace.
+2. Publish their final mesh and thumbnail only through the existing `workspace_id` and operation-specific workspace folder.
+3. Let the adapter own its transient output and clean it after the durable workspace copy succeeds. Remove a legacy job-ID directory only when it is empty, is not the active workspace, and is contained by the configured storage root.
+4. Keep canonical job-workspace creation unchanged for image-to-mesh generation.
+5. Never recursively delete a non-empty job-ID directory or any retained workspace asset.
+
+**Consequences:** Derived operations no longer create duplicate storage-root directories; existing workspace asset IDs, versioning, operation lineage, active-mesh updates and generation layout remain unchanged.
 
 ---
 

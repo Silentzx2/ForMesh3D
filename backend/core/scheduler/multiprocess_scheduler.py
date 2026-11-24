@@ -2299,8 +2299,6 @@ class MultiprocessModelScheduler:
                     _src = Path(_out_mesh_path)
                     if _src.is_file():
                         from core.utils.artifact_utils import canonical_asset_workspace
-                        canonical_root = canonical_asset_workspace(job_id, final_result, job_request.inputs)
-                        canonical_root.mkdir(parents=True, exist_ok=True)
 
                         _feature = job_request.feature
                         _op_id = job_request.metadata.get("operation_id") or job_request.inputs.get("operation_id")
@@ -2320,7 +2318,16 @@ class MultiprocessModelScheduler:
 
                             _ws_mgr = get_workspace_storage_manager()
                             _db = DatabaseManager()
-                            _ws_id = _target_ws_id or canonical_root.name
+                            # Derived operations belong to the existing workspace. Do not create
+                            # a second storage-root directory named after this operation's job_id.
+                            _operation_record = _db.get_operation(_op_id) if _op_id else None
+                            _ws_id = _target_ws_id or (
+                                _operation_record.workspace_id if _operation_record else None
+                            )
+                            if not _ws_id:
+                                raise ValueError(
+                                    "Derived mesh operation requires an existing workspace_id"
+                                )
                             _op_type = tool_op_map.get(_feature, "tool")
 
                             pub = _ws_mgr.publish_derived_mesh(
@@ -2424,7 +2431,26 @@ class MultiprocessModelScheduler:
                                 except Exception:
                                     pass
                                 _db.update_operation_persistence_status(_op_id, PersistenceStatus.SAVED)
+                            # Remove legacy empty job-id directories left by older scheduler versions.
+                            # rmdir is intentional: any directory containing data is preserved.
+                            _legacy_job_root = canonical_asset_workspace(
+                                job_id, final_result, job_request.inputs
+                            )
+                            _workspace_root = _ws_mgr.get_workspace_dir(_ws_id).resolve()
+                            if (
+                                not _legacy_job_root.is_symlink()
+                                and _legacy_job_root.resolve() != _workspace_root
+                                and _legacy_job_root.resolve().is_relative_to(_ws_mgr.storage_root.resolve())
+                                and _legacy_job_root.is_dir()
+                            ):
+                                try:
+                                    _legacy_job_root.rmdir()
+                                except OSError:
+                                    pass
                         else:
+                            # Only generation jobs create a canonical workspace from their job ID.
+                            canonical_root = canonical_asset_workspace(job_id, final_result, job_request.inputs)
+                            canonical_root.mkdir(parents=True, exist_ok=True)
                             # Generation jobs: copy to canonical workspace {workspace_id}/mesh/mesh.glb
                             mesh_dir = canonical_root / "mesh"
                             mesh_dir.mkdir(parents=True, exist_ok=True)

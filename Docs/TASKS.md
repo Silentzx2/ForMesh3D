@@ -119,3 +119,12 @@ The checked-in CI commands are documented in [CONTRIBUTING.md](../CONTRIBUTING.m
 - The client-side fallback refuses to export one combined mesh as a one-file “parts” ZIP.
 - Retopology, UV, rigging and segmentation panels expose only their AI model routes; obsolete Script-mode selectors and script-only branches were removed.
 - Regression coverage verifies durable part copies, ZIP contents, path containment, and AI-only segmentation request validation.
+
+
+## 13. Workspace-scoped derived-operation output — 2026-11-24
+
+- Fixed scheduler result handling so retopology, UV, segmentation and rigging do not create an extra `storage/<job_id>/` directory before publishing.
+- Derived meshes and thumbnails continue to publish into the existing `storage/<workspace_id>/<operation_type>/` folder and remain registered as immutable workspace assets.
+- Adapter-owned temporary output is removed after durable publication. For compatibility, a legacy job-ID directory is removed only with `rmdir()` when it is empty, is not the active workspace, and resolves inside the configured storage root; non-empty directories are never recursively deleted.
+- Generation jobs retain their existing canonical workspace creation path.
+- Added a regression guard ensuring tool operations cannot create job-scoped roots while generation still can.
