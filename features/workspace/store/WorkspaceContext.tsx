@@ -26,6 +26,7 @@ import { parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute, mintWorkspac
 import { captureWorkspacePreviewBaseline, createWorkspacePreviewRestorePlan } from '../lib/workspacePreviewSnapshot';
 import { createWorkspaceRegenerationRequest } from '../lib/workspaceRegeneration';
 import { resolveComparisonSourceAssetId } from '../lib/assetComparison';
+import { resolveAssetDeletionTarget } from '../lib/assetDeletion';
 import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
 import { useAppStore } from '@/stores/useAppStore';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
@@ -601,17 +602,17 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         if (normUrl && seenUrls.has(normUrl)) return false;
 
         const assetUuid = extractUuid(a.id) || extractUuid(a.fileId) || extractUuid(a.source?.fileId) || extractUuid(rawUrl);
-        if (assetUuid) {
+        if (assetUuid && !a.isLocalDuplicate) {
           if (seenJobUuids.has(assetUuid)) return false;
           seenJobUuids.add(assetUuid);
         }
-
         const fn = a.source?.filename?.trim();
-        if (fn && fn !== 'model.glb' && seenFilenames.has(fn)) return false;
-
+        const filenameKey = a.workspace_id && fn && fn !== 'model.glb' ? `${a.workspace_id}:${fn.toLowerCase()}` : null;
+        if (!a.isLocalDuplicate && filenameKey && seenFilenames.has(filenameKey)) return false;
+        if (!a.isLocalDuplicate && normUrl && seenUrls.has(normUrl)) return false;
         seenIds.add(a.id);
-        if (fn && fn !== 'model.glb') seenFilenames.add(fn);
-        if (normUrl) seenUrls.add(normUrl);
+        if (!a.isLocalDuplicate && filenameKey) seenFilenames.add(filenameKey);
+        if (!a.isLocalDuplicate && normUrl) seenUrls.add(normUrl);
         return true;
       });
 
@@ -700,6 +701,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setSelectedAssetId(null);
       setActiveMeshAssetId(null);
       setWorkspaceVersions([]);
+      useViewerStore.getState().requestAssetSelection(null);
       useViewerStore.getState().setLoadedModel(null, null, null);
     }
   }, [pathname, setWorkspaceId]);
@@ -919,13 +921,17 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           : (isUuid ? `local_${asset.id}` : `local_${cleanStem}_${shortHash}`));
     const friendlyName = asset.name ? asset.name.replace(/\.[^/.]+$/, '') : `${cleanStem.charAt(0).toUpperCase() + cleanStem.slice(1)} ${shortHash}`;
     const normalized: ModelAsset = { ...asset, id: finalId, name: friendlyName, sourceType: 'local' as const };
-
-    setLocalAssets(prev => {
-      const idx = prev.findIndex(a =>
-        a.id === normalized.id ||
-        (normalized.source?.filename && a.source?.filename && normalized.source.filename !== 'model.glb' && a.source.filename === normalized.source.filename) ||
-        (normalized.source?.viewUrl && a.source?.viewUrl && a.source.viewUrl === normalized.source.viewUrl)
+    const matchesExistingAsset = (candidate: ModelAsset) => {
+      if (candidate.id === normalized.id) return true;
+      if (normalized.isLocalDuplicate || candidate.isLocalDuplicate) return false;
+      const sameWorkspace = normalized.workspace_id === candidate.workspace_id;
+      return sameWorkspace && (
+        (normalized.source?.filename && candidate.source?.filename && normalized.source.filename !== 'model.glb' && candidate.source.filename === normalized.source.filename) ||
+        (normalized.source?.viewUrl && candidate.source?.viewUrl && candidate.source.viewUrl === normalized.source.viewUrl)
       );
+    };
+    setLocalAssets(prev => {
+      const idx = prev.findIndex(matchesExistingAsset);
       if (idx >= 0) {
         const copy = [...prev];
         copy[idx] = { ...copy[idx], ...normalized };
@@ -934,11 +940,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return [normalized, ...prev];
     });
     setAssets(prev => {
-      const idx = prev.findIndex(a =>
-        a.id === normalized.id ||
-        (normalized.source?.filename && a.source?.filename && normalized.source.filename !== 'model.glb' && a.source.filename === normalized.source.filename) ||
-        (normalized.source?.viewUrl && a.source?.viewUrl && a.source.viewUrl === normalized.source.viewUrl)
-      );
+      const idx = prev.findIndex(matchesExistingAsset);
       if (idx >= 0) {
         const copy = [...prev];
         copy[idx] = { ...copy[idx], ...normalized };
@@ -948,6 +950,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     });
     setSelectedAssetId(finalId);
     setViewportResetTrigger(prev => prev + 1);
+    return finalId;
   }, []);
 
   const loadCompletedJobResult = useCallback(async (jobId: string, rawData: any, promptTitle?: string) => {
@@ -1665,20 +1668,48 @@ function dataURLtoFile(dataURL: string, filename: string): File {
   }, [addAsset, setWorkspaceId, setActiveMeshAssetId, setExecutionState, setPersistenceState]);
 
   const selectAsset = useCallback((id: string) => {
+    const target = assetsRef.current.find((asset) => asset.id === id);
     setSelectedAssetId(id);
     setActiveMeshAssetId(id);
-    // Selecting an asset updates only active_mesh_asset_id WITHOUT mutating the URL route
-    // Increment viewport trigger to force MeshViewer reload
     setViewportResetTrigger(prev => prev + 1);
+    const viewer = useViewerStore.getState();
+    if (!target) {
+      viewer.requestAssetSelection(null);
+      viewer.setLoadedModel(null, null, null);
+      return;
+    }
+    if (target.category !== 'texture' && target.format !== 'IMAGE' && target.format !== 'FILE') {
+      const requestId = viewer.requestAssetSelection(target as any);
+      viewer.verifyAsset(requestId);
+      viewer.beginAssetLoad(requestId);
+    } else {
+      viewer.requestAssetSelection(null);
+      viewer.setLoadedModel(null, null, null);
+    }
   }, [setActiveMeshAssetId]);
 
   const setCurrentAsset = useCallback((asset: ModelAsset | null) => {
     if (!asset) {
       setSelectedAssetId(null);
+      setActiveMeshAssetId(null);
+      const viewer = useViewerStore.getState();
+      viewer.requestAssetSelection(null);
+      viewer.setLoadedModel(null, null, null);
       return;
     }
-    addAsset(asset);
-    selectAsset(asset.id);
+    const selectedId = addAsset(asset);
+    setSelectedAssetId(selectedId);
+    setActiveMeshAssetId(selectedId);
+    setViewportResetTrigger(prev => prev + 1);
+    const viewer = useViewerStore.getState();
+    if (asset.category !== 'texture' && asset.format !== 'IMAGE' && asset.format !== 'FILE') {
+      const requestId = viewer.requestAssetSelection({ ...asset, id: selectedId } as any);
+      viewer.verifyAsset(requestId);
+      viewer.beginAssetLoad(requestId);
+    } else {
+      viewer.requestAssetSelection(null);
+      viewer.setLoadedModel(null, null, null);
+    }
 
     // Clicking an asset should open its generate workspace so the user is
     // taken back to /workspace/generate/<workspace_id> from any tab or after
@@ -1699,16 +1730,19 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         }
       }
     }
-  }, [addAsset, selectAsset, router, pathname, setActiveTool, setMainNav, setWorkspaceId]);
+  }, [addAsset, router, pathname, setActiveTool, setMainNav, setWorkspaceId, setActiveMeshAssetId]);
 
   const duplicateAsset = useCallback((id: string) => {
     const existing = assets.find(a => a.id === id);
     if (!existing) return;
-    const dup: ModelAsset = { ...existing, id: `asset-${Date.now()}`, name: `${existing.name}_copy`, dateCreated: new Date().toISOString().split('T')[0] };
+    const dup: ModelAsset = {
+      ...existing, id: `local_dup_${crypto.randomUUID()}`, name: `${existing.name}_copy`,
+      dateCreated: new Date().toISOString().split('T')[0], isLocalDuplicate: true, sourceType: 'local',
+    };
     setLocalAssets(prev => [dup, ...prev]);
     setAssets(prev => [dup, ...prev]);
-    setSelectedAssetId(dup.id);
-  }, [assets]);
+    setCurrentAsset(dup);
+  }, [assets, setCurrentAsset]);
 
   const updateAssetProperties = useCallback((id: string, updates: Partial<ModelAsset>) => {
     setLocalAssets(prev => {
@@ -1744,38 +1778,43 @@ function dataURLtoFile(dataURL: string, filename: string): File {
 
   const deleteAsset = useCallback(async (id: string) => {
     const asset = assets.find(a => a.id === id);
-    if (!asset) return;
-
-    // Immediately mark as deleted locally so UI updates instantly
+    if (!asset) return false;
+    const sourceIdentity = (item: ModelAsset) => item.source?.fileId || item.fileId || item.source?.viewUrl || item.source?.localUrl || null;
+    const identity = sourceIdentity(asset);
+    const hasDuplicateAliases = !asset.isLocalDuplicate && Boolean(identity) && assets.some(
+      (candidate) => candidate.id !== id && candidate.isLocalDuplicate && sourceIdentity(candidate) === identity
+    );
+    if (hasDuplicateAliases) {
+      toast.error('Remove this asset’s local duplicates before deleting its source.');
+      return false;
+    }
+    try {
+      const target = resolveAssetDeletionTarget(asset);
+      if (target.kind === 'job') {
+        const response = await fetch(`/api/v1/system/jobs/${encodeURIComponent(target.id)}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error(`Job deletion failed (HTTP ${response.status}).`);
+      } else if (target.kind === 'upload') {
+        const response = await fetch(`/api/v1/file-upload/${encodeURIComponent(target.id)}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error(`Upload deletion failed (HTTP ${response.status}).`);
+      }
+    } catch (error) {
+      console.warn('Asset deletion failed:', error);
+      toast.error(error instanceof Error ? error.message : 'Asset could not be deleted.');
+      return false;
+    }
+    const wasActive = id === selectedAssetIdRef.current || id === activeMeshAssetIdRef.current;
     setDeletedAssetIds(prev => new Set(prev).add(id));
     setLocalAssets(prev => prev.filter(a => a.id !== id));
-    setAssets(prev => {
-      const next = prev.filter(a => a.id !== id);
-      if (id === selectedAssetIdRef.current) {
-        setSelectedAssetId(next.length > 0 ? next[0].id : null);
-      }
-      return next;
-    });
-
-    const isJob = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ||
-      asset.category === 'generation' ||
-      asset.tags?.includes('AI Generated');
-
-    try {
-      if (isJob) {
-        await fetch(`/api/v1/system/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      }
-      if (asset.source?.fileId) {
-        await fetch(`/api/v1/file-upload/${encodeURIComponent(asset.source.fileId)}`, { method: 'DELETE' });
-      }
-    } catch (err) {
-      console.warn('Backend delete request failed:', err);
+    setAssets(prev => prev.filter(a => a.id !== id));
+    if (wasActive) {
+      const nextAsset = assets.find(a => a.id !== id && a.category !== 'texture' && a.format !== 'IMAGE' && a.format !== 'FILE');
+      setCurrentAsset(nextAsset || null);
     }
-
-    // Invalidate React Query caches so refetch does not bring back stale entries
     queryClient.invalidateQueries({ queryKey: ['uploaded-assets'] });
     queryClient.invalidateQueries({ queryKey: ['history-assets'] });
-  }, [assets, queryClient]);
+    toast.success('Asset deleted.');
+    return true;
+  }, [assets, queryClient, setCurrentAsset]);
 
   const resetCamera = useCallback(() => {
     setViewportResetTrigger(prev => prev + 1);

@@ -147,18 +147,14 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   // slow earlier responses cannot overwrite a newer user selection (§14.7).
   requestAssetSelection: (asset) => {
     const nextId = (get().selectionRequestId || 0) + 1;
-    set({
-      selectionRequestId: nextId,
-      assetSelectionState: asset ? 'selecting' : 'idle',
-      assetLoadError: null,
-    });
+    set({ selectionRequestId: nextId, selectedAsset: asset, assetSelectionState: asset ? 'selecting' : 'idle', assetLoadError: null });
     return nextId;
   },
 
   // Verify the selected asset before loading. Only the most recent request may proceed.
   verifyAsset: (requestId) => {
     const state = get();
-    if (state.selectionRequestId !== requestId) return; // stale request; ignore
+    if (state.selectionRequestId !== requestId || state.assetSelectionState !== 'selecting') return;
     if (!state.selectedAsset) {
       set({ assetSelectionState: 'idle' });
       return;
@@ -169,14 +165,14 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   // Begin loading the verified asset into the viewer.
   beginAssetLoad: (requestId) => {
     const state = get();
-    if (state.selectionRequestId !== requestId) return; // stale request; ignore
+    if (state.selectionRequestId !== requestId || state.assetSelectionState !== 'verifying') return;
     set({ assetSelectionState: 'loading', assetLoadError: null });
   },
 
   // Commit a successful asset load. Only the most recent request may commit.
   completeAssetLoad: (requestId, url, name, stats) => {
     const state = get();
-    if (state.selectionRequestId !== requestId) return; // stale request; ignore
+    if (state.selectionRequestId !== requestId || state.assetSelectionState !== 'loading') return;
     set({
       loadedModelUrl: url,
       loadedModelName: name,
@@ -189,7 +185,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   // Record a load failure while keeping the last valid selection visible.
   failAssetLoad: (requestId, error) => {
     const state = get();
-    if (state.selectionRequestId !== requestId) return; // stale request; ignore
+    if (state.selectionRequestId !== requestId || state.assetSelectionState !== 'loading') return;
     set({
       assetSelectionState: 'error',
       assetLoadError: error,
@@ -228,7 +224,13 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
 
 /** Single entry point used by panels / drag-drop to load a model everywhere. */
 export function loadModelInViewer(url: string, name?: string | null, asset?: AssetItem | null) {
-  useViewerStore.getState().setLoadedModel(url, name ?? null, asset ?? null);
+  const viewer = useViewerStore.getState();
+  if (asset && (viewer.selectedAsset?.id !== asset.id || viewer.assetSelectionState !== 'loading')) {
+    const requestId = viewer.requestAssetSelection(asset);
+    viewer.verifyAsset(requestId);
+    viewer.beginAssetLoad(requestId);
+  }
+  viewer.setLoadedModel(url, name ?? null, asset ?? null);
   // Keep the legacy window event for any listener that hasn't migrated.
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('load-glb-model', { detail: { url, name: name ?? null } }));

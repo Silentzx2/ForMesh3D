@@ -103,3 +103,14 @@ Use only the currently exported shared presets. Prefer local CSS transitions for
 2. Reuse existing CSS variables and component primitives.
 3. Keep design documentation aligned with shipped components; historical proposals belong in an explicitly marked history/ADR, not in the current component reference.
 4. Run `bun run test`, `bun run lint`, `bun test`, and `bun run build` for frontend changes.
+
+ 
+## 11. Asset library and viewer lifecycle
+
+- All renderable-asset selection entry points use the same request, verify, load, then ready/error lifecycle from the actual Three.js loader. A newer selection or workspace change invalidates stale completions; retry starts a new request.
+- The Workspace scope toggle is strict: it shows matching workspace assets only and may show an empty state. It never silently displays global assets as a fallback.
+- Collection names and asset assignments are persisted in the existing app-state localStorage store. The Collections control filters by an assignment; removing an assignment clears the persisted mapping.
+- Duplicates are local aliases to the original file. Removing a duplicate removes only the alias and never deletes its shared source. Backend deletion is attempted only for a validated job/upload identity and the card is removed only after a successful response.
+- Thumbnail failures are scoped to the asset ID and exact thumbnail URL, so a changed URL can be retried. Pagination resets on filter/scope changes and clamps when results shrink.
+- Upload guidance matches the validator: GLB, GLTF, OBJ, FBX, STL and PLY, up to 200 MiB.
+- `glbCache.ts` shares network work while keeping cancellation per consumer; the underlying fetch is aborted only after the final subscriber leaves.

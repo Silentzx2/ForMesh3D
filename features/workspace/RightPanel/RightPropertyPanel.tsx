@@ -666,12 +666,7 @@ export const RightPropertyPanel: React.FC = () => {
     const rows: React.ReactNode[] = [];
     if (base.length) {
       const baseAsset = base[0];
-      const handleBaseClick = () => {
-        const requestId = requestAssetSelection(baseAsset as any);
-        verifyAsset(requestId);
-        beginAssetLoad(requestId);
-        setCurrentAsset(baseAsset);
-      };
+      const handleBaseClick = () => setCurrentAsset(baseAsset);
       rows.push(
         <div key="base" className="flex items-center gap-1 px-1 py-1 rounded bg-[hsl(var(--surface-2))] cursor-pointer" onClick={handleBaseClick}>
           <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
@@ -684,12 +679,7 @@ export const RightPropertyPanel: React.FC = () => {
       group.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
       group.forEach((a, i) => {
         const isCurrent = currentAsset?.id === a.id;
-        const handleDerivedClick = () => {
-          const requestId = requestAssetSelection(a as any);
-          verifyAsset(requestId);
-          beginAssetLoad(requestId);
-          setCurrentAsset(a);
-        };
+        const handleDerivedClick = () => setCurrentAsset(a);
         rows.push(
           <div key={a.id} className="flex items-center gap-1 px-1 py-1 rounded cursor-pointer" onClick={handleDerivedClick}>
             <span className={`w-2 h-2 rounded-full shrink-0 ${isCurrent ? 'bg-primary' : 'bg-[hsl(var(--surface-3))]'}`} />

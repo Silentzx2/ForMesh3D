@@ -243,6 +243,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   })();
 
   const loadedModelUrl = useViewerStore((state) => state.loadedModelUrl);
+  const selectionRequestId = useViewerStore((state) => state.selectionRequestId);
 
   const [modelLoadStatus, setModelLoadStatus] = useState<'empty' | 'loading' | 'loaded' | 'error'>('empty');
   const [hasModel, setHasModel] = useState(false);
@@ -1271,7 +1272,11 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   }, [isComparing, canCompareModels, comparisonBeforeUrl, comparisonBeforeFormat, isTextureShadingComparison, setIsComparing, applyShadingToMesh]);
 
   useEffect(() => {
+    const selectionState = useViewerStore.getState();
+    const requestId = selectionState.selectionRequestId;
+    const tracksSelection = selectionState.assetSelectionState === 'loading';
     if (!modelUrl || !modelGroupRef.current) {
+      if (!modelUrl && tracksSelection) selectionState.failAssetLoad(requestId, 'Selected asset has no renderable model URL.');
       setModelLoadStatus('empty');
       setHasModel(false);
       setLoadError(null);
@@ -1327,7 +1332,9 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       }
 
       // Capture native geometry before viewport normalization changes its dimensions.
-      useViewerStore.getState().setModelStats(collectMeshStats(object));
+      const stats = collectMeshStats(object);
+      useViewerStore.getState().setModelStats(stats);
+      if (tracksSelection) useViewerStore.getState().completeAssetLoad(requestId, modelUrl, currentAsset?.name ?? null, stats);
 
       // Center and normalize model dimensions to fit comfortably inside unit space
       const box = new THREE.Box3().setFromObject(object);
@@ -1385,6 +1392,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         setModelLoadStatus('error');
         setHasModel(false);
         setLoadError(msg);
+        if (tracksSelection) useViewerStore.getState().failAssetLoad(requestId, msg);
       }
     };
 
@@ -1475,7 +1483,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       isCancelled = true;
       abortController.abort();
     };
-  }, [modelUrl, assetFormat, fitCameraToModel, applyShadingToMesh, retryKey]);
+  }, [modelUrl, assetFormat, fitCameraToModel, applyShadingToMesh, retryKey, selectionRequestId]);
 
   // 6. Highlight hovered part in main viewer (top-level hook — never nested inside another hook)
   useEffect(() => {

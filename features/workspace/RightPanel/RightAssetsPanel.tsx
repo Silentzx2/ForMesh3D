@@ -41,11 +41,12 @@ export const RightAssetsPanel: React.FC = () => {
     workspaceId,
   } = useWorkspace();
 
-  const { assetCollections, addAssetCollection } = useAppStore();
+  const { assetCollections, addAssetCollection, assetCollectionAssignments, setAssetCollectionAssignment } = useAppStore();
 
   const [activePage, setActivePage] = useState(1);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
+  const [collectionMenuOpen, setCollectionMenuOpen] = useState(false);
   const [scopeToWorkspace, setScopeToWorkspace] = useState(true);
   const [failedThumbnails, setFailedThumbnails] = useState<Set<string>>(() => new Set());
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
@@ -54,6 +55,7 @@ export const RightAssetsPanel: React.FC = () => {
   const [collectionAssetId, setCollectionAssetId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const filterMenuRef = useRef<HTMLDivElement>(null);
+  const collectionMenuRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const { state: meshUploadState, upload: uploadMesh, reset: resetMeshUpload } = useMeshAssetUpload();
   const uploadActive = meshUploadState.status === 'uploading' || meshUploadState.status === 'verifying';
@@ -62,13 +64,16 @@ export const RightAssetsPanel: React.FC = () => {
 
   useEffect(() => {
     setActivePage(1);
-  }, [assetFilter, showFavoritesOnly, selectedCollection]);
+  }, [assetFilter, showFavoritesOnly, selectedCollection, scopeToWorkspace, workspaceId]);
 
   // Handle outside click and Escape key for dropdown menus
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (filterMenuRef.current && !filterMenuRef.current.contains(e.target as Node)) {
         setFilterMenuOpen(false);
+      }
+      if (collectionMenuRef.current && !collectionMenuRef.current.contains(e.target as Node)) {
+        setCollectionMenuOpen(false);
       }
       if (activeMenuAssetId && !(e.target as HTMLElement).closest(`[data-asset-menu="${activeMenuAssetId}"]`)) {
         setActiveMenuAssetId(null);
@@ -77,6 +82,7 @@ export const RightAssetsPanel: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setFilterMenuOpen(false);
+        setCollectionMenuOpen(false);
         setActiveMenuAssetId(null);
       }
     };
@@ -86,7 +92,7 @@ export const RightAssetsPanel: React.FC = () => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [activeMenuAssetId]);
+  }, [activeMenuAssetId, collectionMenuOpen]);
 
   const processModelFile = useCallback(async (file: File) => {
     await uploadMesh(file);
@@ -121,20 +127,19 @@ export const RightAssetsPanel: React.FC = () => {
 
   const scopedBaseAssets = React.useMemo(() => {
     if (!scopeToWorkspace || !workspaceId) return assets;
-    const scoped = assets.filter(
-      (a) =>
-        a.workspace_id === workspaceId ||
-        a.id === `local_${workspaceId}` ||
-        a.id === workspaceId ||
-        (a.source?.fileId && a.source.fileId.includes(workspaceId)) ||
-        (a.id === currentAsset?.id)
+    return assets.filter((asset) =>
+      asset.workspace_id === workspaceId ||
+      asset.id === `local_${workspaceId}` ||
+      asset.id === workspaceId ||
+      asset.fileId === workspaceId ||
+      asset.source?.fileId === workspaceId
     );
-    return scoped.length > 0 ? scoped : assets;
-  }, [assets, scopeToWorkspace, workspaceId, currentAsset]);
+  }, [assets, scopeToWorkspace, workspaceId]);
 
   const filteredAssets = scopedBaseAssets.filter(a => {
     if (showFavoritesOnly && !a.isFavorite) return false;
-    if (selectedCollection && a.collection !== selectedCollection && !a.tags?.includes(selectedCollection)) return false;
+    const collection = a.collection || assetCollectionAssignments[a.id];
+    if (selectedCollection && collection !== selectedCollection && !a.tags?.includes(selectedCollection)) return false;
     if (assetFilter === 'all') return true;
     if (assetFilter === 'models') return a.category === 'generation' || a.category === 'mesh';
     if (assetFilter === 'textures') return a.category === 'texture' || a.tags?.includes('PBR');
@@ -142,6 +147,9 @@ export const RightAssetsPanel: React.FC = () => {
   });
 
   const totalPages = Math.max(1, Math.ceil(filteredAssets.length / ITEMS_PER_PAGE));
+  useEffect(() => {
+    if (activePage > totalPages) setActivePage(totalPages);
+  }, [activePage, totalPages]);
   const safePage = Math.min(activePage, totalPages);
   const paginatedAssets = filteredAssets.slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE);
 
@@ -258,17 +266,23 @@ export const RightAssetsPanel: React.FC = () => {
             )}
           </div>
 
-          {/* Manage Pill Button matching Reference */}
-          <button
-            type="button"
-            onClick={() => {
-              if (selectedCollection) setSelectedCollection(null);
-            }}
-            className="px-2.5 py-1 rounded-full text-[11px] font-semibold text-zinc-300 hover:text-white bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] transition-all cursor-pointer flex items-center gap-1.5"
-          >
-            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} className="text-zinc-400" />
-            <span>Manage</span>
-          </button>
+          <div className="relative" ref={collectionMenuRef}>
+            <button type="button" aria-label="Filter by collection" aria-expanded={collectionMenuOpen}
+              onClick={() => setCollectionMenuOpen((open) => !open)}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${selectedCollection ? 'text-primary bg-primary/10 border-primary/30' : 'text-zinc-300 hover:text-white bg-white/[0.06] hover:bg-white/[0.1] border-white/[0.08]'}`}>
+              <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} className="text-zinc-400" />
+              <span>{selectedCollection || 'Collections'}</span>
+            </button>
+            {collectionMenuOpen && <div className="absolute right-0 top-full mt-1.5 w-48 max-h-56 overflow-y-auto rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.1] shadow-2xl z-50 py-1 text-xs">
+              <button type="button" onClick={() => { setSelectedCollection(null); setCollectionMenuOpen(false); }} className="w-full px-3 py-2 text-left text-zinc-200 hover:bg-white/[0.06] flex items-center justify-between">
+                <span>All collections</span>{!selectedCollection && <HugeiconsIcon icon={CheckIcon} size={13} className="text-primary" />}
+              </button>
+              {assetCollections.map((collection) => <button key={collection} type="button" onClick={() => { setSelectedCollection(collection); setCollectionMenuOpen(false); }} className="w-full px-3 py-2 text-left text-zinc-300 hover:bg-white/[0.06] flex items-center justify-between">
+                <span className="truncate">{collection}</span>{selectedCollection === collection && <HugeiconsIcon icon={CheckIcon} size={13} className="text-primary" />}
+              </button>)}
+              {assetCollections.length === 0 && <div className="px-3 py-2 text-zinc-500">No collections yet</div>}
+            </div>}
+          </div>
         </div>
       </div>
 
@@ -310,10 +324,10 @@ export const RightAssetsPanel: React.FC = () => {
               Upload 3D Model
             </span>
             <span className="text-[10px] text-zinc-400 mt-1 font-medium">
-              OBJ, FBX, STL, GLB
+              GLB, GLTF, OBJ, FBX, STL, PLY
             </span>
             <span className="text-[9.5px] text-zinc-500 font-mono mt-0.5">
-              Size ≤ 150MB
+              Size ≤ 200MB
             </span>
           </div>
         </div>
@@ -350,14 +364,14 @@ export const RightAssetsPanel: React.FC = () => {
               >
                 {/* 3D Asset Thumbnail */}
                 <div className="relative w-full flex-1 bg-[#121316] overflow-hidden">
-                  {asset.thumbnail && !failedThumbnails.has(asset.id) ? (
+                  {asset.thumbnail && !failedThumbnails.has(`${asset.id}:${asset.thumbnail}`) ? (
                     <img
                       src={asset.thumbnail}
                       alt={asset.name}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       crossOrigin="anonymous"
                       onError={() => {
-                        setFailedThumbnails((prev) => new Set(prev).add(asset.id));
+                        setFailedThumbnails((prev) => new Set(prev).add(`${asset.id}:${asset.thumbnail}`));
                       }}
                     />
                   ) : (
@@ -445,6 +459,7 @@ export const RightAssetsPanel: React.FC = () => {
                                     collection: undefined,
                                     tags: (asset.tags || []).filter((t) => t !== prevCol),
                                   });
+                                  setAssetCollectionAssignment(asset.id, null);
                                   setActiveMenuAssetId(null);
                                   toast.success(`Removed from "${prevCol}"`);
                                 }}
@@ -469,6 +484,7 @@ export const RightAssetsPanel: React.FC = () => {
                                   collection: col,
                                   tags: Array.from(new Set([...(asset.tags || []), col])),
                                 });
+                                setAssetCollectionAssignment(asset.id, col);
                                 setActiveMenuAssetId(null);
                                 toast.success(`Added to "${col}"`);
                               }}
@@ -533,8 +549,8 @@ export const RightAssetsPanel: React.FC = () => {
           <button
             type="button"
             aria-label="Previous page"
-            onClick={() => setActivePage(Math.max(1, activePage - 1))}
-            disabled={activePage <= 1}
+            onClick={() => setActivePage(Math.max(1, safePage - 1))}
+            disabled={safePage <= 1}
             className="p-1 rounded-lg hover:text-white hover:bg-[hsl(var(--surface-2))] disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
           >
             <HugeiconsIcon icon={ChevronLeft} size={16} className="w-3.5 h-3.5" />
@@ -557,8 +573,8 @@ export const RightAssetsPanel: React.FC = () => {
           <button
             type="button"
             aria-label="Next page"
-            onClick={() => setActivePage(Math.min(totalPages, activePage + 1))}
-            disabled={activePage >= totalPages}
+            onClick={() => setActivePage(Math.min(totalPages, safePage + 1))}
+            disabled={safePage >= totalPages}
             className="p-1 rounded-lg hover:text-white hover:bg-[hsl(var(--surface-2))] disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
           >
             <HugeiconsIcon icon={ChevronRight} size={16} className="w-3.5 h-3.5" />
@@ -581,6 +597,7 @@ export const RightAssetsPanel: React.FC = () => {
           if (!asset || !name) return;
           addAssetCollection(name);
           updateAssetProperties(asset.id, { collection: name, tags: Array.from(new Set([...(asset.tags || []), name])) });
+          setAssetCollectionAssignment(asset.id, name);
           toast.success(`Created "${name}" and added asset`);
           setCollectionAssetId(null);
           setActiveMenuAssetId(null);
