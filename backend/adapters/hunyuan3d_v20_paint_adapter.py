@@ -87,13 +87,9 @@ class Hunyuan3DV20PaintImageMeshPaintingAdapter(BaseModel):
             p = weights_dir_path / subdir
             if not p.is_dir():
                 return False
-            # Diffusers pipelines require model_index.json plus weight files
-            if (p / "model_index.json").is_file():
-                return True
-            return any(
-                f.is_file() and f.suffix in {".safetensors", ".bin", ".pt", ".ckpt"}
-                for f in p.iterdir()
-            )
+            # Diffusers pipelines require model_index.json to load; weight files
+            # alone are insufficient for DiffusionPipeline.from_pretrained().
+            return (p / "model_index.json").is_file()
 
         delight_ok = _has_valid_checkpoint("hunyuan3d-delight-v2-0")
         paint_ok = _has_valid_checkpoint("hunyuan3d-paint-v2-0-turbo") or _has_valid_checkpoint(
