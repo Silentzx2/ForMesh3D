@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -32,7 +33,7 @@ from typing import Any, Dict
 
 from backend.core.models.base import BaseModel, ModelStatus
 from backend.loader import get_model_weights_dir
-from patcher.skintokens import apply_patch
+from patcher.skintokens import apply_patch, bpy_server_popen_args
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,7 @@ class SkinTokensAdapter(BaseModel):
 
     def _load_model(self) -> Any:
         skintokens_root = Path(__file__).resolve().parents[1] / "thirdparty" / "SkinTokens"
+        repo_root = Path(__file__).resolve().parents[2]
         root_str = str(skintokens_root)
         if root_str not in sys.path:
             sys.path.insert(0, root_str)
@@ -96,11 +98,20 @@ class SkinTokensAdapter(BaseModel):
         import demo
 
         # Start companion bpy binding server — run from skintokens_root so
-        # bpy_server.py (vendored in thirdparty/SkinTokens/) is found.
+        # bpy_server.py (vendored in thirdparty/SkinTokens/) is found. The
+        # subprocess is a fresh interpreter, so it does not inherit the Michelangelo
+        # models stub injected by apply_patch(); launch it via bpy_server_popen_args
+        # which injects the stub before importing src.server.spec, preventing the
+        # ModuleNotFoundError: No module named 'src.model.michelangelo.models'
+        # crash that kept bpy_server from ever serving /ping.
         _orig_cwd = os.getcwd()
         os.chdir(str(skintokens_root))
         try:
-            self._server_proc = demo.start_bpy_server()
+            self._server_proc = subprocess.Popen(
+                bpy_server_popen_args(str(skintokens_root), str(repo_root)),
+                stdout=None,
+                stderr=None,
+            )
         finally:
             os.chdir(_orig_cwd)
         demo.wait_for_bpy_server()

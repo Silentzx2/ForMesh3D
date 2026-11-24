@@ -311,6 +311,8 @@ class ModelFactory:
             # Add any additional parameters from config
             if "vram_requirement" in config:
                 init_params["vram_requirement"] = config["vram_requirement"]
+            if "feature_type" in config and "feature_type" not in init_params:
+                init_params["feature_type"] = config["feature_type"]
 
             model_instance = model_class(**init_params)
 
@@ -377,6 +379,12 @@ class ModelFactory:
             "init_params": init_params or {},
             "capabilities": capabilities or {},
         }
+
+        # feature_type must reach the adapter constructor via init_params
+        # (unpacked as **kwargs). Otherwise adapters that default to
+        # "image_to_raw_mesh" will never paint textures on mesh->paint jobs.
+        if "feature_type" not in config["init_params"]:
+            config["init_params"]["feature_type"] = feature_type
 
         # Add module and class if provided
         if module_path:

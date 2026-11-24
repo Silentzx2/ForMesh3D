@@ -113,7 +113,9 @@ class Hunyuan3DV20PaintImageMeshPaintingAdapter(BaseModel):
             snapshot_download(
                 repo_id="tencent/Hunyuan3D-2",
                 local_dir=str(weights_dir_path),
-                allow_patterns=["hunyuan3d-paint-v2-0/*", "hunyuan3d-paint-v2-0-turbo/*", "hunyuan3d-delight-v2-0/*"],
+                # '**/*' recurses into component subfolders (e.g. vae/, scheduler/)
+                # so DiffusionPipeline.from_pretrained() finds every weight file.
+                allow_patterns=["hunyuan3d-paint-v2-0/**/*", "hunyuan3d-paint-v2-0-turbo/**/*", "hunyuan3d-delight-v2-0/**/*"],
             )
 
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
@@ -134,7 +136,9 @@ class Hunyuan3DV20PaintImageMeshPaintingAdapter(BaseModel):
             snapshot_download(
                 repo_id="tencent/Hunyuan3D-2",
                 local_dir=str(weights_dir_path),
-                allow_patterns=["hunyuan3d-paint-v2-0/*", "hunyuan3d-paint-v2-0-turbo/*", "hunyuan3d-delight-v2-0/*"],
+                # '**/*' recurses into component subfolders (e.g. vae/, scheduler/)
+                # so DiffusionPipeline.from_pretrained() finds every weight file.
+                allow_patterns=["hunyuan3d-paint-v2-0/**/*", "hunyuan3d-paint-v2-0-turbo/**/*", "hunyuan3d-delight-v2-0/**/*"],
             )
             pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(weights_dir_path))
         if torch is not None and torch.cuda.is_available() and hasattr(pipeline, "enable_model_cpu_offload"):

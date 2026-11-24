@@ -113,6 +113,31 @@ def _inject_michelangelo_models_stub() -> None:
         logger.debug("SkinTokens patcher: injected Michelangelo models stub")
 
 
+def bpy_server_popen_args(skintokens_root: str, repo_root: str) -> list[str]:
+    """Popen args that launch the bpy_server companion with the Michelangelo
+    models stub pre-injected in the subprocess.
+
+    apply_patch() only injects the stub into the calling process's
+    ``sys.modules``. bpy_server.py runs in a fresh interpreter, so without this
+    it crashes with ``ModuleNotFoundError: No module named
+    'src.model.michelangelo.models'`` while importing ``src.server.spec`` and
+    never serves ``/ping``.
+
+    The snippet imports ``src.server.bpy_server`` as a module (so its relative
+    imports resolve) and calls ``run()`` after injecting the stub.
+    """
+    snippet = (
+        "import sys\n"
+        "sys.path.insert(0, {repo_root!r})\n"
+        "sys.path.insert(0, {skintokens_root!r})\n"
+        "from patcher.skintokens import _inject_michelangelo_models_stub\n"
+        "_inject_michelangelo_models_stub()\n"
+        "from src.server.bpy_server import run\n"
+        "run()\n"
+    ).format(repo_root=repo_root, skintokens_root=skintokens_root)
+    return [sys.executable, "-c", snippet]
+
+
 def _shim_gradio_if_missing() -> None:
     """Provide a minimal shim if gradio is not installed in the environment."""
     if "gradio" in sys.modules:
