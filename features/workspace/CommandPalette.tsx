@@ -170,16 +170,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           </CommandItem>
 
           <CommandItem
-            value="remesh retopology quad flow fastmesh"
-            onSelect={() => runAction(() => navigateToTool('remesh'))}
-          >
-            <HugeiconsIcon icon={HexagonIcon} size={16} className="mr-2 h-4 w-4 text-primary shrink-0" />
-            <span>Quad Retopology</span>
-            <span className="ml-2 text-xs text-muted-foreground">FastMesh game-ready clean quads</span>
-            <CommandShortcut>R</CommandShortcut>
-          </CommandItem>
-
-          <CommandItem
             value="texture pbr paint material albedo roughness"
             onSelect={() => runAction(() => navigateToTool('texture'))}
           >

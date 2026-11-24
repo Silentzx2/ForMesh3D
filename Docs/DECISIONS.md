@@ -23,7 +23,7 @@
 
 ## ADR-108: TriFlow Neural Quad-Dominant Retopology Integration & Dynamic Face Budget Conditioning (2026-11-20)
 
-**Context:** The existing neural retopology option (FastMesh V1K) had a fixed ~1K output resolution, disabling target polygon budget selection and quad/tri control in AI mode. Users required dynamic retopology supporting large reduction ratios (e.g. 700k poly input to 50k faces) with artist-like quad flow loops, crease preservation, and watertight healing.
+**Context:** The existing neural retopology option (FastMesh V1K) had a fixed ~1K output resolution, disabling target polygon budget selection and quad/tri control in AI mode. Users required dynamic retopology supporting large reduction ratios (e.g. 700k poly input to 50k faces) with artist-like quad flow loops, crease preservation, and watertight healing. FastMesh V1K was subsequently removed; TriFlow is now the sole retopology model.
 
 **Decision:**
 1. **TriFlow Model Adapter (`backend/adapters/triflow_adapter.py`)**: Subclassed `BaseModel` under model ID `triflow_retopology` (10GB VRAM profile). It encodes input mesh SDFs to sparse voxel latents, samples Nearest-Vertex Vector Fields (NVF) with Latent Flow Matching conditioned on target face count, and extracts final meshes via watershed clustering and constrained QEM decimation (`pyfqmr_triflow`).

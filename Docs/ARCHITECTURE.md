@@ -51,7 +51,7 @@ Configured enabled model families:
 | Textured mesh | `stable_fast_3d_image_to_textured_mesh` |
 | Texture painting | `hunyuan3d_paint_v21_image_mesh_painting`, `hunyuan3d_v20_paint_image_mesh_painting`, `trellis_image_mesh_painting` |
 | Segmentation | `partfield_segmentation` |
-| Retopology | `triflow_retopology`, `fastmesh_v1k_retopology` |
+| Retopology | `triflow_retopology` |
 | UV unwrapping | `partuv_uv_unwrapping` |
 | Auto-rigging | `skintokens_auto_rigging` |
 | Motion generation | `ardy_motion_generation` |
@@ -87,7 +87,7 @@ Enablement means the config exposes a model for selection. It does not guarantee
 
 ## 7. Runtime inventory invariant
 
-`backend/core/runtime_probe.py` reads `_ADAPTER_MAP` to report installed adapters. `ModelFactory.ADAPTER_REGISTRY` resolves model IDs to adapter classes. The runtime map must include the active specialist IDs `triflow_retopology`, `fastmesh_v1k_retopology`, and `partfield_segmentation`; a regression test protects this mapping.
+`backend/core/runtime_probe.py` reads `_ADAPTER_MAP` to report installed adapters. `ModelFactory.ADAPTER_REGISTRY` resolves model IDs to adapter classes. The runtime map must include the active specialist IDs `triflow_retopology`, and `partfield_segmentation`; a regression test protects this mapping.
 
 ## 8. Third-party and compatibility code
 

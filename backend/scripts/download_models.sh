@@ -5,7 +5,7 @@
 # 
 # Available models:
 #   hunyuan2mini, hunyuan21, trellis, trellis-text, trellis2,
-#   skintokens, partuv, fastmesh, triposg, ardy, unique3d, pixal3d, taoflowforge, misc, all
+#   skintokens, partuv, triposg, ardy, unique3d, pixal3d, taoflowforge, misc, all
 #
 # Options:
 #   -h, --help              Show this help message
@@ -119,7 +119,7 @@ VERIFY_ONLY=false
 FORCE_DOWNLOAD=false
 
 # Available models
-AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "stable_fast_3d" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "fastmesh" "triflow" "partfield" "triposg" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
+AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "stable_fast_3d" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "triflow" "partfield" "triposg" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
 
 show_help() {
     cat << EOF
@@ -145,7 +145,6 @@ Available models:
     trellis2           - TRELLIS.2-4B model (image-based only)
     skintokens         - SkinTokens model for unified auto-rigging (alias: unirig)
     partuv             - PartUV model
-    fastmesh           - FastMesh model
     triflow            - TriFlow neural quad-dominant retopology model
     triposg            - TripoSG and RMBG models
     ardy               - ARDY motion generation models
@@ -632,63 +631,6 @@ download_skintokens() {
     else
         print_error "Failed to download SkinTokens model"
         return 1
-    fi
-}
-
-# Verify the actual FastMesh variant and full checkpoint, not directory entry count.
-# Both public V1K/V4K safetensors files are larger than 4 GB; truncated weights are not ready.
-verify_fastmesh_model() {
-    local model_dir="$1"
-    if ! verify_file "$model_dir/config.json" 100; then
-        return 1
-    fi
-    if ! verify_file "$model_dir/model.safetensors" 4000000000; then
-        return 1
-    fi
-    return 0
-}
-
-# Function to download FastMesh model
-download_fastmesh() {
-    print_info "========================================"
-    print_info "Downloading FastMesh Models"
-    print_info "========================================"
-
-    local model_dir_v1k="$PRETRAINED_DIR/FastMesh-V1K"
-    local model_dir_v4k="$PRETRAINED_DIR/FastMesh-V4K"
-
-    if [ "$FORCE_DOWNLOAD" = false ] && verify_fastmesh_model "$model_dir_v1k"; then
-        print_info "FastMesh v1k model already exists and verified"
-    else
-        mkdir -p "$model_dir_v1k"
-        print_info "Downloading FastMesh v1k model..."
-        if hf_download "WopperSet/FastMesh-V1K" --local-dir "$model_dir_v1k"; then
-            if ! verify_fastmesh_model "$model_dir_v1k"; then
-                print_error "FastMesh V1K download did not contain a complete checkpoint"
-                return 1
-            fi
-            print_success "FastMesh v1k model downloaded successfully"
-        else
-            print_error "Failed to download FastMesh v1k model"
-            return 1
-        fi
-    fi
-
-    if [ "$FORCE_DOWNLOAD" = false ] && verify_fastmesh_model "$model_dir_v4k"; then
-        print_info "FastMesh v4k model already exists and verified"
-    else
-        mkdir -p "$model_dir_v4k"
-        print_info "Downloading FastMesh v4k model..."
-        if hf_download "WopperSet/FastMesh-V4K" --local-dir "$model_dir_v4k"; then
-            if ! verify_fastmesh_model "$model_dir_v4k"; then
-                print_error "FastMesh V4K download did not contain a complete checkpoint"
-                return 1
-            fi
-            print_success "FastMesh v4k model downloaded successfully"
-        else
-            print_error "Failed to download FastMesh v4k model"
-            return 1
-        fi
     fi
 }
 
@@ -1307,9 +1249,6 @@ for model in "${MODELS_ARRAY[@]}"; do
         "partuv")
             download_partuv
             ;;
-        "fastmesh")
-            print_warning "FastMesh removed from main repo (thirdparty/FastMesh deleted). Skipping."
-            ;;
         "triflow")
             download_triflow
             ;;
@@ -1347,7 +1286,6 @@ for model in "${MODELS_ARRAY[@]}"; do
             download_partuv
             download_partfield
             download_triflow
-            download_fastmesh
             download_triposg
             download_ardy
             download_unique3d

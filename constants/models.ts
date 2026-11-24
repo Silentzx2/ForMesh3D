@@ -287,22 +287,6 @@ export const CANONICAL_MODELS: ModelDefinition[] = [
     description: 'Lightweight PBR texture painting model (~11 GB VRAM), ideal for T4/16 GB cards. Single-image reference texturing on existing meshes.',
   },
   // ── RETOPOLOGY / REMESH ──────────────────────────────────────────────────
-  {
-    id: 'fastmesh_v1k_retopology',
-    name: 'FastMesh 1K (Game-Ready Quad Retopo)',
-    category: 'mesh_retopology',
-    feature: 'mesh_retopology',
-    featureLabel: 'Mesh Retopology',
-    vramMb: 16384,
-    lowVramSupported: false,
-    supportsTexture: false,
-    supportedInputs: ['obj', 'glb', 'ply', 'stl'],
-    supportedOutputs: ['obj', 'glb', 'ply'],
-    modelPath: 'backend/pretrained/FastMesh-V1K',
-    enabled: true,
-    status: 'available',
-    description: 'High-speed quad-dominant retopology producing clean animation loops under 10K polys.',
-  },
 
 
   // ── UV UNWRAPPING ────────────────────────────────────────────────────────

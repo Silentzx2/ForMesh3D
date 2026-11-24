@@ -98,7 +98,6 @@ gpytoolbox==0.2.0           # [SF3D] sf3d/models/mesh.py — Marching Tetrahedra
 open_clip_torch==2.24.0     # [SF3D] image-text encoding
 pynanoinstantmeshes==0.0.3  # [SF3D] instant meshes remeshing
 
-# ── FastMesh removed (thirdparty/FastMesh deleted from main repo) ───────────
 # ── TriFlow (Neural Retopology) extra deps (backend/thirdparty/triflow) ───────
 hydra-core>=1.3.2           # [TRIFLOW] configs/trellis_slatflow_latent_512
 meshlib>=3.1.1              # [TRIFLOW] mesh voxelization & mrmesh C++ bindings

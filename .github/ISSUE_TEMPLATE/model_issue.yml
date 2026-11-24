@@ -17,7 +17,6 @@ body:
         - TripoSG
         - SkinTokens (Auto-Rigging)
         - PartUV (UV Unwrapping)
-        - FastMesh (Retopology)
         - ARDY (Motion AI)
         - Other / Multiple
     validations:

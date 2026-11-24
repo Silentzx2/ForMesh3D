@@ -40,7 +40,7 @@ The API documentation is a route guide. Generated OpenAPI at `/openapi.json` and
 | Textured mesh | `stable_fast_3d_image_to_textured_mesh` |
 | Texture painting | `hunyuan3d_paint_v21_image_mesh_painting`, `hunyuan3d_v20_paint_image_mesh_painting`, `trellis_image_mesh_painting` |
 | Segmentation | `partfield_segmentation` |
-| Retopology | `triflow_retopology`, `fastmesh_v1k_retopology` |
+| Retopology | `triflow_retopology` |
 | UV | `partuv_uv_unwrapping` |
 | Rigging | `skintokens_auto_rigging` |
 | Motion | `ardy_motion_generation` |

@@ -78,7 +78,7 @@ class MeshRetopologyRequest(BaseModel):
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")
     model_preference: str = Field(
         "triflow_retopology",
-        description="Retopology model preference: triflow_retopology or fastmesh_v1k_retopology",
+        description="Retopology model preference: triflow_retopology",
     )
     model_parameters: Optional[dict] = Field(
         None, 
@@ -373,16 +373,10 @@ async def get_available_models(
         # Add additional model descriptions
         models_details = {}
         for model_id in models_info:
-            if "v1k" in model_id.lower():
-                models_details[model_id] = {
-                    "description": "FastMesh V1K - Generates meshes with ~1000 vertices",
-                    "target_vertices": 1000,
-                }
-            else:
-                models_details[model_id] = {
-                    "description": "Mesh retopology model",
-                    "target_vertices": None,
-                }
+            models_details[model_id] = {
+                "description": "Mesh retopology model",
+                "target_vertices": None,
+            }
 
         return {
             "available_models": models_info,

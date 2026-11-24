@@ -25,10 +25,10 @@
 
 The authoritative flags are in `backend/config/models.yaml`.
 
-Configured enabled families: Hunyuan3D Shape v2.1, Hunyuan3D DiT Mini Turbo, TripoSG, TRELLIS, Stable Fast 3D, Hunyuan3D Paint v2.0/v2.1, PartField, TriFlow, FastMesh V1K, PartUV, SkinTokens, and ARDY.
+Configured enabled families: Hunyuan3D Shape v2.1, Hunyuan3D DiT Mini Turbo, TripoSG, TRELLIS, Stable Fast 3D, Hunyuan3D Paint v2.0/v2.1, PartField, TriFlow, PartUV, SkinTokens, and ARDY.
 
 - PartField (`partfield_segmentation`) and PartUV (`partuv_uv_unwrapping`): marked stable and working.
-- TriFlow (`triflow_retopology`) and FastMesh V1K (`fastmesh_v1k_retopology`): marked stable and working.
+- TriFlow (`triflow_retopology`): marked stable and working.
 
 Intentionally disabled and retained: Unique3D, Pixal3D, TRELLIS.2, TaoFlowForge. Do not enable them or delete their adapter, patcher, validator, configuration, or model-support files during unrelated work.
 
@@ -38,7 +38,7 @@ A config flag does not prove checkpoint availability or successful inference. GP
 
 - `ModelFactory.ADAPTER_REGISTRY` resolves model IDs to adapter classes.
 - `backend/adapters/__init__.py::_ADAPTER_MAP` feeds `backend/core/runtime_probe.py`.
-- The audit found missing runtime-inventory entries for `triflow_retopology`, `fastmesh_v1k_retopology`, and `partfield_segmentation`; the cleanup commit adds them and a regression test.
+- The audit found missing runtime-inventory entries for `triflow_retopology`, and `partfield_segmentation`; the cleanup commit adds them and a regression test.
 - Third-party source is pinned under `backend/thirdparty`; preserve upstream notices and compatibility imports.
 
 ## 5. API and contracts
@@ -54,7 +54,7 @@ A config flag does not prove checkpoint availability or successful inference. GP
 
 Removed unreferenced first-party files:
 - Frontend: `GenerationLoadingPreview.tsx`, `meshTelemetry.ts`, `presetIntent.ts`, `riggingProgress.ts`, `hugeicons-mapping.ts`.
-- Backend: `core/utils/validation.py`, `core/utils/format_utils.py`, `core/utils/mask_generator.py`, `utils/fastmesh_utils.py`, `utils/partuv_utils.py`.
+- Backend: `core/utils/validation.py`, `core/utils/format_utils.py`, `core/utils/mask_generator.py`, `utils/partuv_utils.py`.
 - Broken obsolete script: `scripts/verify_integration_loop.py`.
 
 Removed 14 unused internal API-client methods, five unused exports, the deprecated synchronous resolver, the unused remesh `variant` state, and its misleading inspector row. See [TASKS.md](TASKS.md) for the full item-by-item reason and preserved false positives.

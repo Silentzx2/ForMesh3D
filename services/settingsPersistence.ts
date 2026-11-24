@@ -338,7 +338,7 @@ export const DEFAULT_WORKSPACE_SHORTCUTS: ShortcutDefinition[] = [
   { id: 'command-palette', name: 'Command Palette', description: 'Open global search and command palette', defaultKey: 'Ctrl/Cmd + K', category: 'general' },
   { id: 'quick-save', name: 'Quick Snapshot', description: 'Save current workspace snapshot', defaultKey: 'Ctrl/Cmd + S', category: 'general' },
   { id: 'tool-model', name: '3D Generation Tool', description: 'Switch to 3D AI Generation Studio', defaultKey: 'G', category: 'tools' },
-  { id: 'tool-remesh', name: 'Quad Retopology', description: 'Switch to FastMesh Quad Retopology', defaultKey: 'R', category: 'tools' },
+  { id: 'tool-remesh', name: 'Quad Retopology', description: 'Switch to Quad Retopology', defaultKey: 'R', category: 'tools' },
   { id: 'tool-texture', name: 'AI Texturing', description: 'Switch to AI PBR Texturing', defaultKey: 'T', category: 'tools' },
   { id: 'tool-uv', name: 'UV Unwrapping', description: 'Switch to PartUV Atlas Unwrapping', defaultKey: 'U', category: 'tools' },
   { id: 'tool-edit', name: 'Mesh Transform / Edit', description: 'Switch to 3D Transform Gizmo', defaultKey: 'E', category: 'tools' },

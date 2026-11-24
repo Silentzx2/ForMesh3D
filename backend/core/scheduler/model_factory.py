@@ -139,11 +139,6 @@ class ModelFactory:
             "module": "adapters.triflow_adapter",
             "class": "TriFlowRetopologyAdapter",
         },
-        # FastMesh adapters
-        "fastmesh_v1k_retopology": {
-            "module": "adapters.fastmesh_adapter",
-            "class": "FastMeshRetopologyAdapter",
-        },
         # PartUV adapters
         "partuv_uv_unwrapping": {
             "module": "adapters.partuv_adapter",

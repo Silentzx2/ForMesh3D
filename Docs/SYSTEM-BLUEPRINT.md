@@ -30,7 +30,7 @@ flowchart LR
 
 `backend/config/models.yaml` controls model enablement and capabilities. `ModelFactory.ADAPTER_REGISTRY` maps model IDs to adapter modules/classes. `backend/adapters/_ADAPTER_MAP` supplies the runtime probe's installed-adapter inventory.
 
-Enabled configured model families include Hunyuan3D Shape v2.1, Hunyuan3D DiT Mini Turbo, TripoSG, TRELLIS, Stable Fast 3D, Hunyuan3D Paint v2.0/v2.1, PartField, TriFlow, FastMesh V1K, PartUV, SkinTokens, and ARDY.
+Enabled configured model families include Hunyuan3D Shape v2.1, Hunyuan3D DiT Mini Turbo, TripoSG, TRELLIS, Stable Fast 3D, Hunyuan3D Paint v2.0/v2.1, PartField, TriFlow, PartUV, SkinTokens, and ARDY.
 
 Disabled but retained: Unique3D, Pixal3D, TRELLIS.2, and TaoFlowForge. Keep their config and support code unchanged during cleanup. Configured enablement does not imply installed weights or verified inference.
 

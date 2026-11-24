@@ -33,7 +33,7 @@ ForMesh3D brings image-to-3D generation and practical mesh-production tools into
 | **Textured mesh generation** | Generate a textured mesh from an image with Stable Fast 3D. |
 | **Texture painting** | Apply image-guided or text-guided materials to an existing mesh using the configured painting adapters. |
 | **Segmentation** | Split a mesh into semantic parts with the PartField adapter. |
-| **Retopology** | Rebuild mesh topology with TriFlow or the fixed-resolution FastMesh V1K adapter. |
+| **Retopology** | Rebuild mesh topology with TriFlow. |
 | **UV unwrapping** | Generate UV layouts with PartUV. |
 | **Auto-rigging** | Generate character rigs with SkinTokens. |
 | **Motion generation** | Generate character motion with the ARDY adapter. |
@@ -76,7 +76,7 @@ The enabled model manifest currently covers these tools:
 | Image-guided texture painting | Hunyuan3D-Paint v2.1, Hunyuan3D-Paint v2.0, TRELLIS Paint |
 | Text-guided texture painting | TRELLIS Text Paint |
 | Mesh segmentation | PartField |
-| Retopology | TriFlow, FastMesh V1K |
+| Retopology | TriFlow |
 | UV unwrapping | PartUV |
 | Auto-rigging | SkinTokens |
 | Motion generation | ARDY |

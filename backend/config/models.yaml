@@ -453,31 +453,6 @@ mesh_retopology:
       multi_gpu: true
       multi_gpu_strategy: accelerate_auto_device_map
     model_type: retopology
-  fastmesh_v1k_retopology:
-    model_name: "FastMesh \u2014 Retopology"
-    ui_label: FastMesh V1K
-    ui_tag: Retopology
-    ui_note: Clean quad-dominant retopology
-    ui_badge: 16GB VRAM
-    enabled: true
-    vram_requirement: 16384
-    max_workers: 1
-    supported_inputs:
-      - obj
-      - glb
-      - ply
-      - stl
-    supported_outputs:
-      - obj
-      - glb
-      - ply
-    model_path: backend/pretrained/FastMesh-V1K
-    capabilities:
-      retopology: true
-      target_variant: V1K
-      multi_gpu: true
-      multi_gpu_strategy: accelerate_auto_device_map
-    model_type: retopology
 uv_unwrapping:
   partuv_uv_unwrapping:
     model_name: "PartUV \u2014 UV Unwrapping"
