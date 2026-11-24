@@ -87,13 +87,10 @@ def test_partfield_model_factory_mapping():
 
 def test_partfield_api_method_defaults_follow_selected_engine():
     ai_request = MeshSegmentationRequest(mesh_path="source.obj")
-    script_request = MeshSegmentationRequest(mesh_path="source.obj", engine="script")
     assert ai_request.method == "semantic"
-    assert script_request.method == "geometric"
 
     connected_request = MeshSegmentationRequest(
         mesh_path="source.obj",
-        engine="script",
         method="connected_components",
     )
     assert connected_request.method == "connected_components"

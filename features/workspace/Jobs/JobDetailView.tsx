@@ -301,7 +301,6 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
   });
 
   const jobPresentation = selectedJob ? getJobPresentation(selectedJob) : null;
-  const scriptLogs = selectedJob?.engine === 'script' ? (selectedJob.logs || []).slice(-80) : [];
 
   return (
     <div id="job-detail-view" className="flex flex-col h-full w-full bg-[hsl(var(--surface-0))] text-white overflow-hidden select-none">
@@ -552,60 +551,6 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
                 </div>
               )}
 
-              {selectedJob.engine === 'script' && scriptLogs.length > 0 && (
-                <div className="rounded-xl bg-[hsl(var(--surface-1))] border border-white/[0.08] overflow-hidden">
-                  <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-xs font-bold text-white">Script Execution Trace</div>
-                      <div className="text-[10px] text-zinc-500 mt-0.5">Live stage events · persisted in SQLite · latest {scriptLogs.length}</div>
-                    </div>
-                    <span className="text-[9px] font-mono text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded px-2 py-1">SCRIPT ENGINE</span>
-                  </div>
-                  <div className="max-h-[420px] overflow-y-auto p-3 space-y-2">
-                    {scriptLogs.map((entry, index) => {
-                      const level = String(entry.level || 'INFO').toUpperCase();
-                      const tone = level === 'ERROR' || level === 'CRITICAL'
-                        ? { text: 'text-rose-300', border: 'border-rose-500/30', fill: 'bg-rose-500' }
-                        : level === 'WARNING'
-                          ? { text: 'text-amber-300', border: 'border-amber-500/30', fill: 'bg-amber-400' }
-                          : level === 'SUCCESS'
-                            ? { text: 'text-emerald-300', border: 'border-emerald-500/30', fill: 'bg-emerald-400' }
-                            : level === 'DEBUG'
-                              ? { text: 'text-sky-300', border: 'border-sky-500/20', fill: 'bg-sky-400' }
-                              : { text: 'text-primary', border: 'border-primary/20', fill: 'bg-primary' };
-                      const pct = typeof entry.progress === 'number'
-                        ? Math.round(Math.max(0, Math.min(1, entry.progress <= 1 ? entry.progress : entry.progress / 100)) * 100)
-                        : null;
-                      return (
-                        <div key={entry.timestamp + '-' + index} className={'rounded-lg border ' + tone.border + ' bg-[hsl(var(--surface-0))] px-3 py-2 ' + (entry.kind === 'banner' ? 'ring-1 ring-white/[0.06]' : '')}>
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className={'text-[9px] font-bold tracking-wider ' + tone.text}>{level}</span>
-                            <span className="text-[9px] uppercase tracking-wide text-zinc-500 truncate">{entry.stage || 'pipeline'}</span>
-                            <span className="ml-auto text-[9px] font-mono text-zinc-600 shrink-0">
-                              {entry.elapsed_ms != null ? (entry.elapsed_ms / 1000).toFixed(2) + 's · ' : ''}
-                              {entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : ''}
-                            </span>
-                          </div>
-                          <p className="mt-1 text-[11px] leading-relaxed text-zinc-200 font-mono whitespace-pre-wrap break-words">{entry.message}</p>
-                          {pct !== null && (
-                            <div className="mt-2 flex items-center gap-2">
-                              <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden flex-1">
-                                <div className={'h-full rounded-full ' + tone.fill + ' transition-all duration-300'} style={{ width: pct + '%' }} />
-                              </div>
-                              <span className={'text-[9px] font-mono ' + tone.text}>{pct}%</span>
-                            </div>
-                          )}
-                          {pct === null && /running|started|debug/i.test(entry.message) && (
-                            <div className="mt-2 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-                              <div className={'h-full w-1/3 rounded-full ' + tone.fill + ' animate-pulse'} />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
 
               {/* Output Actions & Details Card */}
               {jobStatus === 'completed' && jobPresentation && (

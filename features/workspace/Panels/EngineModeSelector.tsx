@@ -95,46 +95,7 @@ export const EngineModeSelector: React.FC<EngineModeSelectorProps> = ({
             <span>AI Model</span>
           </button>
         )}
-
-        <button
-          type="button"
-          onClick={() => onChange('script')}
-          className={`h-6 rounded-md text-[10.5px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-            mode === 'script'
-              ? 'bg-white text-black shadow-sm'
-              : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-          }`}
-        >
-          <HugeiconsIcon icon={CpuIcon} size={12} className="flex-shrink-0" />
-          <span>Fast Script</span>
-        </button>
       </div>
-
-      {/* Script Sub-selector for UV tool only when in script mode */}
-      {mode === 'script' && tool === 'uv' && (
-        <div className="flex items-center justify-between pt-0.5 text-[9.5px]">
-          <span className="text-zinc-500 font-mono">Algorithm:</span>
-          <div className="flex gap-1">
-            {[
-              { id: 'xatlas_fast', label: 'XAtlas' },
-              { id: 'blender_smart_uv', label: 'Blender' },
-            ].map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => onScriptChange?.(s.id)}
-                className={`px-1.5 py-0.5 rounded text-[9px] font-mono cursor-pointer transition-colors ${
-                  activeScriptId === s.id || (!activeScriptId && s.id === 'xatlas_fast')
-                    ? 'bg-[#F9CF00]/20 text-[#F9CF00] border border-[#F9CF00]/40 font-bold'
-                    : 'bg-black/30 text-zinc-400 hover:text-white border border-white/[0.04]'
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -250,7 +250,7 @@ export const SegmentationPanel: React.FC = () => {
   const dragCounterRef = useRef(0);
 
   // Core Segmentation parameter state
-  const [engineMode, setEngineMode] = useState<EngineMode>('script');
+  const [engineMode, setEngineMode] = useState<EngineMode>('ai');
   const [partFieldReadiness, setPartFieldReadiness] = useState<{ status: 'checking' | 'ready' | 'unavailable'; reason: string }>({ status: 'checking', reason: 'Checking PartField runtime…' });
   const [numParts, setNumParts] = useState<number>(8);
   const [decompositionMode, setDecompositionMode] = useState<'geometric' | 'connected_components'>('geometric');
@@ -295,7 +295,7 @@ export const SegmentationPanel: React.FC = () => {
 
   useEffect(() => {
     if (partFieldReadiness.status === 'unavailable' && engineMode === 'ai') {
-      setEngineMode('script');
+      setEngineMode('ai');
     }
   }, [partFieldReadiness.status, engineMode]);
 

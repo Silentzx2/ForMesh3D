@@ -11,16 +11,15 @@ from pathlib import Path
 import tempfile
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from api.dependencies import get_file_store, get_scheduler, sanitize_error_message
 from api.routers.file_upload import resolve_file_id_async, resolve_input_reference_async
 from core.file_store import FileStore
 from core.scheduler.database_manager import DatabaseManager
 from core.scheduler.database_models import generate_operation_id
-from api.routers.script_execution import execute_script_operation
 from core.scheduler.job_queue import JobRequest
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
 from core.utils.file_utils import (
@@ -89,9 +88,8 @@ class MeshSegmentationRequest(BaseModel):
     )
 
     workspace_id: Optional[str] = Field(None, description="Target workspace ID")
-    engine: str = Field("ai", description="Execution engine: ai or script")
     parent_operation_id: Optional[str] = Field(None, description="Parent operation for retry/regeneration")
-    method: str = Field("", description="Algorithm: semantic for AI; geometric or connected_components for Script")
+    method: str = Field("semantic", description="Algorithm: semantic for AI segmentation")
     hierarchical: bool = False
     min_face_island_threshold: int = Field(50, ge=0, le=5000)
     colorize_preview: bool = True
@@ -112,20 +110,9 @@ class MeshSegmentationRequest(BaseModel):
                 "Only one of mesh_path, mesh_base64, or mesh_file_id should be provided"
             )
 
-        if not self.method:
-            self.method = "geometric" if self.engine == "script" else "semantic"
-        if self.engine == "script" and self.method not in {"geometric", "connected_components"}:
-            raise ValueError("Script segmentation supports geometric or connected_components methods")
-        if self.engine == "ai" and self.method not in {"semantic", "agglomerative"}:
+        if self.method not in {"semantic", "agglomerative"}:
             raise ValueError("PartField AI segmentation uses learned semantic features with agglomerative clustering")
         return self
-
-    @field_validator("engine")
-    @classmethod
-    def validate_engine(cls, value):
-        if value not in {"ai", "script"}:
-            raise ValueError("engine must be ai or script")
-        return value
 
     model_config = ConfigDict(protected_namespaces=("settings_",))
 
@@ -158,7 +145,6 @@ async def get_segmentation_readiness():
 async def segment_mesh(
     request: MeshSegmentationRequest,
     http_request: Request,
-    background_tasks: BackgroundTasks,
     file_store: Optional[FileStore] = Depends(get_file_store),
 ):
     """
@@ -302,34 +288,6 @@ async def segment_mesh(
             raise HTTPException(
                 status_code=400, detail=f"Prerequisite failed: Unsupported mesh format {ext}"
             )
-
-        if request.engine == "script":
-            if request.method not in {"geometric", "connected_components"}:
-                raise HTTPException(status_code=422, detail="Script segmentation supports geometric or connected_components methods; semantic segmentation requires AI mode")
-            from pipelines.segment import execute_segment
-            result = await execute_script_operation(
-                db=db, storage=ws_storage, background_tasks=background_tasks, workspace_id=target_ws_id,
-                input_asset_id=input_asset.asset_id if input_asset else None,
-                operation_type="segmentation", input_path=mesh_file_path,
-                settings={
-                    "num_parts": request.num_parts, "method": request.method,
-                    "hierarchical": request.hierarchical, "min_face_island_threshold": request.min_face_island_threshold,
-                    "colorize_preview": request.colorize_preview,
-                    "save_individual_parts": request.save_individual_parts,
-                    "output_format": request.output_format,
-                },
-                pipeline=execute_segment,
-                options={
-                    "num_parts": request.num_parts, "method": request.method,
-                    "hierarchical": request.hierarchical, "min_face_island_threshold": request.min_face_island_threshold,
-                    "colorize_preview": request.colorize_preview,
-                    "save_individual_parts": request.save_individual_parts,
-                    "output_format": request.output_format,
-                },
-                output_format=request.output_format,
-                parent_operation_id=request.parent_operation_id,
-            )
-            return MeshSegmentationResponse(**result)
 
         operation_id = None
         if target_ws_id:

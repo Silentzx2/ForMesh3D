@@ -2422,9 +2422,9 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     const engine = customSettings?.engineMode || 'ai';
     const localTaskId = startTask(
       'remesh',
-      engine === 'script' ? 'Algorithmic Remesh (Python)' : 'Neural Remesh (TriFlow)',
+      'Neural Remesh (TriFlow)',
       undefined,
-      engine === 'script' ? 'trimesh_autoretopo' : 'triflow_retopology',
+      'triflow_retopology',
       undefined,
       undefined,
       comparisonGroupId ?? undefined,
@@ -2437,95 +2437,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const targetPoly = customSettings?.targetPolycount ?? remeshSettings.targetPolycount;
       const polyType = customSettings?.polyType || remeshSettings.polyType;
       const meshUrl = currentAsset?.source?.localUrl || currentAsset?.source?.viewUrl || (meshRef.mesh_file_id ? `/api/v1/file-upload/download/${meshRef.mesh_file_id}` : '');
-
-      if (engine === 'script') {
-        setExecutionStep('Executing Python Trimesh AutoRetopo...');
-        const result = await executeMeshOperation({
-          tool: 'remesh',
-          engine: 'script',
-          workspaceId: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
-          meshUrl,
-          meshRef,
-          params: {
-            targetPolycount: targetPoly,
-            polyType,
-            preserveEdges: customSettings?.preserveEdges ?? true,
-            featureAngle: customSettings?.featureAngle ?? 45,
-            adaptiveDensity: customSettings?.adaptiveDensity ?? true,
-            watertightHealing: customSettings?.watertightHealing ?? true,
-          },
-          onProgress: (step, pct, stage) => {
-            setExecutionStep(step);
-            setExecutionProgress(pct);
-            setActiveTask(prev => prev ? {
-              ...prev,
-              status: 'running',
-              progress: pct,
-              stage: stage || prev.stage,
-              currentStep: step,
-            } : prev);
-          },
-          onLog: (message) => {
-            setActiveTask(prev => prev ? {
-              ...prev,
-              logs: [...(prev.logs || []), {
-                stage: prev.stage || '',
-                progress: prev.progress,
-                message,
-                level: 'info',
-                timestamp: new Date().toISOString(),
-              }],
-            } : prev);
-          },
-          signal,
-        });
-
-        if (result.success && result.modelUrl) {
-          const targetWsId = result.workspaceId || currentAsset?.workspace_id || workspaceIdRef.current || undefined;
-          if (!result.operationId) throw new Error("Script retopology did not return an operation ID.");
-          const newAssetId = `preview_${result.operationId}`;
-          const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
-          const newAsset = normalizeModelAsset({
-            id: newAssetId,
-            workspace_id: targetWsId,
-            operation_id: result.operationId,
-            name: `${cleanBaseName}_retopo_${polyType}`,
-            category: 'edit',
-            source: { filename: `${cleanBaseName}_retopo.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'retopology' },
-            artifacts: { source: comparisonSourceUrl(currentAsset) || meshUrl },
-            format: 'GLB',
-            topology: polyType === 'quad' ? 'Quad' : 'Triangle',
-            faces: result.stats?.face_count || targetPoly,
-            vertices: result.stats?.vertex_count || Math.round(targetPoly / 2),
-            triangles: result.stats?.face_count || targetPoly,
-            statsAvailable: true,
-            sourceAssetId: currentAsset?.id,
-            settingsSnapshot: { engineMode: engine, polyType, targetPolycount: targetPoly, preserveEdges: customSettings?.preserveEdges ?? true, featureAngle: customSettings?.featureAngle ?? 45, adaptiveDensity: customSettings?.adaptiveDensity ?? true, watertightHealing: customSettings?.watertightHealing ?? true },
-          });
-
-          addAsset(newAsset);
-          selectAsset(newAsset.id);
-          loadModelInViewer(result.modelUrl);
-          setViewportResetTrigger((p) => p + 1);
-
-          setIsExecuting(false);
-          setExecutionProgress(100);
-          setExecutionStep('Retopology completed successfully');
-          setExecutionState('completed');
-          setPersistenceState('saved');
-          void refreshAssets();
-          setActiveTask((prev) => (prev ? {
-            ...prev,
-            status: 'completed',
-            progress: 100,
-            currentStep: 'Retopology completed',
-            operationId: result.operationId,
-            workspaceId: targetWsId,
-          } : null));
-          toast.success('Retopology completed!', { description: `Optimized to ${polyType.toUpperCase()} topology (${targetPoly.toLocaleString()} faces)` });
-          return;
-        }
-      }
 
       // AI Mode Execution
       const body: Record<string, unknown> = {
@@ -2649,9 +2560,9 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     const engine = customSettings?.engineMode || 'ai';
     const localTaskId = startTask(
       'uv',
-      engine === 'script' ? 'Algorithmic UV Unwrap (Python)' : 'Smart UV Unwrapping (PartUV)',
+      'Smart UV Unwrapping (PartUV)',
       undefined,
-      engine === 'script' ? (customSettings?.scriptId || 'xatlas_fast') : 'partuv_uv_unwrapping',
+      'partuv_uv_unwrapping',
       undefined,
       undefined,
       comparisonGroupId ?? undefined,
@@ -2662,92 +2573,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       setIsExecuting(true);
       const meshRef = await resolveMeshReference(currentAsset, signal);
       const meshUrl = currentAsset?.source?.localUrl || currentAsset?.source?.viewUrl || (meshRef.mesh_file_id ? `/api/v1/file-upload/download/${meshRef.mesh_file_id}` : '');
-
-      if (engine === 'script') {
-        setExecutionStep('Running XAtlas / Python UV unwrapping...');
-        const result = await executeMeshOperation({
-          tool: 'uv',
-          engine: 'script',
-          workspaceId: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
-          scriptId: customSettings?.scriptId,
-          meshUrl,
-          meshRef,
-          params: {
-            atlasResolution: customSettings?.atlasResolution || 2048,
-            islandMargin: customSettings?.islandMargin ?? 4,
-            packMethod: customSettings?.packMethod || 'xatlas',
-            unwrapStrategy: customSettings?.unwrapStrategy || 'hybrid',
-          },
-          onProgress: (step, pct, stage) => {
-            setExecutionStep(step);
-            setExecutionProgress(pct);
-            setActiveTask(prev => prev ? {
-              ...prev,
-              status: 'running',
-              progress: pct,
-              stage: stage || prev.stage,
-              currentStep: step,
-            } : prev);
-          },
-          onLog: (message) => {
-            setActiveTask(prev => prev ? {
-              ...prev,
-              logs: [...(prev.logs || []), {
-                stage: prev.stage || '',
-                progress: prev.progress,
-                message,
-                level: 'info',
-                timestamp: new Date().toISOString(),
-              }],
-            } : prev);
-          },
-          signal,
-        });
-
-        if (result.success && result.modelUrl) {
-          const targetWsId = result.workspaceId || currentAsset?.workspace_id || workspaceIdRef.current || undefined;
-          if (!result.operationId) throw new Error("Script UV unwrap did not return an operation ID.");
-          const newAssetId = `preview_${result.operationId}`;
-          const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
-          const newAsset = normalizeModelAsset({
-            id: newAssetId,
-            workspace_id: targetWsId,
-            operation_id: result.operationId,
-            name: `${cleanBaseName}_uv_unwrapped`,
-            category: 'edit',
-            source: { filename: `${cleanBaseName}_uv.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'uv' },
-            artifacts: { source: comparisonSourceUrl(currentAsset) || meshUrl },
-            sourceAssetId: currentAsset?.id,
-            format: 'GLB',
-            topology: currentAsset?.topology || 'Triangle',
-            faces: currentAsset?.faces || 0,
-            vertices: currentAsset?.vertices || 0,
-            statsAvailable: Boolean(currentAsset?.faces),
-          });
-
-          addAsset(newAsset);
-          selectAsset(newAsset.id);
-          loadModelInViewer(result.modelUrl);
-          setViewportResetTrigger((p) => p + 1);
-
-          setIsExecuting(false);
-          setExecutionProgress(100);
-          setExecutionStep('UV unwrapping completed');
-          setExecutionState('completed');
-          setPersistenceState('saved');
-          void refreshAssets();
-          setActiveTask((prev) => (prev ? {
-            ...prev,
-            status: 'completed',
-            progress: 100,
-            currentStep: 'UV unwrapping completed',
-            operationId: result.operationId,
-            workspaceId: targetWsId,
-          } : null));
-          toast.success('UV Map generated successfully!', { description: 'Non-overlapping atlas packed into mesh' });
-          return;
-        }
-      }
 
       // AI Mode Execution
       const body: Record<string, unknown> = {
@@ -2815,9 +2640,9 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
     const localTaskId = startTask(
       'segment',
-      engine === 'script' ? 'Geometric Segmentation (Trimesh)' : 'Semantic Part Segmentation (AI)',
+      'Semantic Part Segmentation (AI)',
       undefined,
-      engine === 'script' ? 'trimesh_decomposition' : pref || undefined,
+      pref || undefined,
       undefined,
       undefined,
       comparisonGroupId ?? undefined,
@@ -2828,96 +2653,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       setIsExecuting(true);
       const meshRef = await resolveMeshReference(currentAsset, signal);
       const meshUrl = currentAsset?.source?.localUrl || currentAsset?.source?.viewUrl || (meshRef.mesh_file_id ? `/api/v1/file-upload/download/${meshRef.mesh_file_id}` : '');
-
-      if (engine === 'script') {
-        setExecutionStep(`Running Trimesh geometric decomposition into ${numParts} parts...`);
-        const result = await executeMeshOperation({
-          tool: 'segment',
-          engine: 'script',
-          workspaceId: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
-          meshUrl,
-          meshRef,
-          params: {
-            numParts,
-            method: settingsObj.method || 'geometric',
-            hierarchical: Boolean(settingsObj.hierarchical),
-            minFaceIslandThreshold: Number(settingsObj.minFaceIslandThreshold ?? settingsObj.modelParameters?.min_face_island_threshold ?? 0),
-            colorizePreview: settingsObj.colorizePreview ?? settingsObj.modelParameters?.colorize_preview ?? true,
-            saveIndividualParts: settingsObj.saveIndividualParts ?? settingsObj.modelParameters?.save_individual_parts ?? false,
-            outputFormat,
-          },
-          onProgress: (step, pct, stage) => {
-            setExecutionStep(step);
-            setExecutionProgress(pct);
-            setActiveTask(prev => prev ? {
-              ...prev,
-              status: 'running',
-              progress: pct,
-              stage: stage || prev.stage,
-              currentStep: step,
-            } : prev);
-          },
-          onLog: (message) => {
-            setActiveTask(prev => prev ? {
-              ...prev,
-              logs: [...(prev.logs || []), {
-                stage: prev.stage || '',
-                progress: prev.progress,
-                message,
-                level: 'info',
-                timestamp: new Date().toISOString(),
-              }],
-            } : prev);
-          },
-          signal,
-        });
-
-        if (result.success && result.modelUrl) {
-          const targetWsId = result.workspaceId || currentAsset?.workspace_id || workspaceIdRef.current || undefined;
-          if (!result.operationId) throw new Error("Script segmentation did not return an operation ID.");
-          const newAssetId = `preview_${result.operationId}`;
-          const cleanBaseName = currentAsset?.name ? currentAsset.name.replace(/\.[^.]+$/, '') : 'Model';
-          const newAsset = normalizeModelAsset({
-            id: newAssetId,
-            workspace_id: targetWsId,
-            operation_id: result.operationId,
-            name: `${cleanBaseName}_segmented_${numParts}parts`,
-            category: 'edit',
-            source: { filename: `${cleanBaseName}_segmented.glb`, viewUrl: result.modelUrl, type: 'output', subfolder: 'segmentation' },
-            artifacts: { source: comparisonSourceUrl(currentAsset) || meshUrl },
-            format: 'GLB',
-            topology: currentAsset?.topology || 'Triangle',
-            faces: result.stats?.face_count || currentAsset?.faces || 0,
-            vertices: result.stats?.vertex_count || currentAsset?.vertices || 0,
-            statsAvailable: Boolean(result.stats?.face_count || currentAsset?.faces),
-            sourceAssetId: currentAsset?.id,
-            settingsSnapshot: { engineMode: engine, numParts, method: settingsObj.method || 'geometric', outputFormat },
-          });
-
-          addAsset(newAsset);
-          selectAsset(newAsset.id);
-          loadModelInViewer(result.modelUrl);
-          setViewportResetTrigger((p) => p + 1);
-
-          setIsExecuting(false);
-          setExecutionProgress(100);
-          setExecutionStep('Segmentation complete');
-          setExecutionState('completed');
-          setPersistenceState('saved');
-          void refreshAssets();
-          setActiveTask((prev) => (prev ? {
-            ...prev,
-            status: 'completed',
-            progress: 100,
-            currentStep: 'Segmentation complete',
-            operationId: result.operationId,
-            workspaceId: targetWsId,
-          } : null));
-          toast.success('Mesh segmented successfully', { description: `Partitioned into ${numParts} parts (Trimesh)` });
-          return;
-        }
-        return;
-      }
 
       // AI Mode Execution
       const body: Record<string, unknown> = {
