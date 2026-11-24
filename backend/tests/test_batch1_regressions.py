@@ -40,14 +40,15 @@ def test_remesh_contract_keeps_triflow_default():
     workspace = (ROOT / "features" / "workspace" / "store" / "WorkspaceContext.tsx").read_text(encoding="utf-8")
     workspace_types = (ROOT / "features" / "workspace" / "types.ts").read_text(encoding="utf-8")
     registry = (ROOT / "constants" / "models.ts").read_text(encoding="utf-8")
-    bridge = (ROOT / "features" / "workspace" / "services" / "meshProcessingBridge.ts").read_text(encoding="utf-8")
     api = (ROOT / "backend" / "api" / "routers" / "mesh_retopology.py").read_text(encoding="utf-8")
     factory = (ROOT / "backend" / "core" / "scheduler" / "model_factory.py").read_text(encoding="utf-8")
     inspector = (ROOT / "features" / "workspace" / "RightPanel" / "RightPropertyPanel.tsx").read_text(encoding="utf-8")
 
     # The workspace routes AI remeshing to TriFlow. FastMesh is fully removed.
     assert "model_preference: 'triflow_retopology'" in workspace
-    assert "triflow_retopology" in bridge
+    assert not (ROOT / "features" / "workspace" / "services" / "meshProcessingBridge.ts").exists()
+    assert not (ROOT / "features" / "workspace" / "Panels" / "EngineModeSelector.tsx").exists()
+    assert "engineMode" not in workspace
     assert "fastmesh_v1k_retopology" not in registry
     assert "fastmesh_v1k_retopology" not in factory
     assert "fastmesh_v4k_retopology" not in registry

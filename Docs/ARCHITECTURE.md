@@ -15,7 +15,7 @@
 | Model construction | `backend/core/scheduler/model_factory.py` | Model ID to adapter class resolution |
 | Runtime adapter inventory | `backend/adapters/__init__.py` | Module map read by `runtime_probe.py` |
 | Inference | `backend/adapters/` | Model-specific loading and inference |
-| Mesh operations | `backend/pipelines/` and specialist routers | Script-mode mesh processing and AI tool dispatch |
+| Mesh operations | `backend/adapters/` and specialist routers | Scheduler-backed AI mesh processing |
 | Persistent workspace data | `backend/storage/` | Job database, uploaded files, workspaces and generated assets |
 | Upstream model source | `backend/thirdparty/` | Pinned Git submodule; preserve upstream source and licenses |
 
@@ -24,7 +24,7 @@
 1. The Next.js workspace collects the image/mesh and user-selected settings.
 2. The request builder serializes the supported fields; `services/apiClient.ts` sends the request.
 3. FastAPI validates the request in the owning router.
-4. The scheduler/queue resolves the configured model and invokes the matching adapter or script pipeline.
+4. The scheduler/queue resolves the configured model and invokes its registered AI adapter.
 5. The result and workspace metadata are persisted by the backend storage/database owners.
 6. The frontend polls job/operation state and loads the resulting asset into the local viewport.
 
@@ -83,7 +83,7 @@ Enablement means the config exposes a model for selection. It does not guarantee
 | Auto-rigging | `backend/api/routers/auto_rigging.py` |
 | Motion | `backend/api/routers/motion_generation.py` |
 
-`script_execution.py` contains shared helpers imported by specialist routers; it is not an unused standalone router. Several API endpoints have no current frontend caller but remain externally addressable API contracts, so lack of a UI caller alone is not a safe deletion reason.
+Script-engine execution has been retired. Retopology, UV, segmentation and rigging use their configured AI adapters; `script_execution.py`, the Script engine selector and deterministic segmentation pipeline are not part of the active runtime. SQLite workspace operation records remain the shared lifecycle and lineage mechanism. Several API endpoints have no current frontend caller but remain externally addressable API contracts, so lack of a UI caller alone is not a safe deletion reason.
 
 ## 7. Runtime inventory invariant
 

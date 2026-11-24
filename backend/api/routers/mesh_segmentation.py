@@ -163,11 +163,10 @@ async def segment_mesh(
     scheduler = None
     try:
         user_id = None
-        if request.engine != "script":
-            if not request.model_preference:
-                request.model_preference = "partfield_segmentation"
-            scheduler = await get_scheduler(http_request)
-            validate_model_preference(request.model_preference, "mesh_segmentation", scheduler)
+        if not request.model_preference:
+            request.model_preference = "partfield_segmentation"
+        scheduler = await get_scheduler(http_request)
+        validate_model_preference(request.model_preference, "mesh_segmentation", scheduler)
 
         db = DatabaseManager()
         ws_storage = get_workspace_storage_manager()

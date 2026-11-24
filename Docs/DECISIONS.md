@@ -15,7 +15,7 @@
 2. **Registry & Routing Wiring**: Registered in `backend/config/models.yaml`, `backend/core/scheduler/model_factory.py`, and updated `backend/api/routers/mesh_segmentation.py` with default `model_preference = "partfield_segmentation"`.
 3. **Weight Automation**: Added `download_partfield()` to `backend/scripts/download_models.sh` (fetching from HuggingFace `mikaelaangel/partfield-ckpt`), registered Option `[20]` in `manager.sh`, and recorded dependencies in `backend/requirements-models.txt` and `backend/scripts/install.sh`.
 4. **Main-Thread Lag Elimination**: Refactored `RealModelPreviewCanvas.tsx` to mount WebGLRenderer, Scene, Camera, and OrbitControls once; cached `EdgesGeometry` in a `WeakMap` to eliminate CPU freeze; mutated materials and visibility in-place; memoized callbacks with `useCallback` in `DynamicSegmentationInspector.tsx`; and corrected the `parseInt(match[1], 10)` radix bug in `MeshViewer.tsx`.
-5. **Studio UI Unlock**: Unlocked AI Mode in `SegmentationPanel.tsx` and `EngineModeSelector.tsx` (`GPU (PartField)`).
+5. **Studio UI**: Exposed PartField AI segmentation with explicit runtime-readiness gating; no Script engine selector or geometric fallback is exposed.
 
 **Consequences:** Zero-lag instantaneous navigation and part inspection on the Segmentation page, full support for neural hierarchical part decomposition, zero GPU regressions on `sm >= 80`, and clean process-isolated adapter execution.
 
@@ -29,7 +29,7 @@
 1. **TriFlow Model Adapter (`backend/adapters/triflow_adapter.py`)**: Subclassed `BaseModel` under model ID `triflow_retopology` (10GB VRAM profile). It encodes input mesh SDFs to sparse voxel latents, samples Nearest-Vertex Vector Fields (NVF) with Latent Flow Matching conditioned on target face count, and extracts final meshes via watershed clustering and constrained QEM decimation (`pyfqmr_triflow`).
 2. **Model Registry & Routing**: Registered in `backend/config/models.yaml`, `model_factory.py`, and updated `backend/api/routers/mesh_retopology.py` to route dynamic parameters (`target_polycount`, `quad_ratio`, `preserve_features`, `watertight`).
 3. **Weight Automation**: Added `download_triflow()` to `backend/scripts/download_models.sh` (fetching from HuggingFace `lihcxr/TriFlow`) and added Option `[19]` to `manager.sh`.
-4. **Studio UI Unlock (`RemeshPanel.tsx`)**: Unlocked Target Face Budget slider (5,000 to 200,000) and presets (`5K Mob`, `20K Low`, `50K Game`, `100K Cine`) in AI mode, enabling seamless switching between neural quad flow and script-based QuadriFlow/Trimesh.
+4. **Studio UI (`RemeshPanel.tsx`)**: Target Face Budget slider (5,000 to 200,000) and presets (`5K Mob`, `20K Low`, `50K Game`, `100K Cine`) are exposed for TriFlow AI retopology. Script-based QuadriFlow/Trimesh execution is not part of the current tool contract.
 
 **Consequences:** Full end-to-end support for custom polygon budgets on AI retopology, zero regressions on modern GPUs (`sm >= 80`), clean process-level adapter isolation, and immediate visual feedback in the studio.
 

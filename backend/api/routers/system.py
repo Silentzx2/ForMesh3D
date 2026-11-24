@@ -1569,7 +1569,7 @@ async def get_job_status(job_id: str, request: Request):
 
 @router.get("/workspace/operations/{operation_id}", summary="Get SQLite-backed workspace operation status")
 async def get_workspace_operation_status(operation_id: str):
-    """Read Script operation progress directly from SQLite without acquiring the AI scheduler."""
+    """Read workspace operation progress directly from SQLite."""
     from core.scheduler.database_manager import DatabaseManager
     from core.scheduler.database_models import ExecutionStatus
 
@@ -1610,9 +1610,9 @@ async def get_workspace_operation_status(operation_id: str):
     }
 
 
-@router.post("/workspace/operations/{operation_id}/cancel", summary="Cancel a Script workspace operation")
+@router.post("/workspace/operations/{operation_id}/cancel", summary="Cancel a workspace operation")
 async def cancel_workspace_operation(operation_id: str):
-    """Cancel a queued or processing Script operation in the authoritative SQLite state machine."""
+    """Cancel a queued or processing workspace operation in the authoritative SQLite state machine."""
     from core.scheduler.database_manager import DatabaseManager
     from core.scheduler.database_models import ExecutionStatus
 
@@ -1770,6 +1770,7 @@ async def download_job_result(
         FileResponse for direct download or JSON with base64 data
     """
     try:
+        requested_artifact_format = artifact_format.strip().lower() if isinstance(artifact_format, str) else "glb"
         scheduler = await get_scheduler(request)
         job_status = await scheduler.get_job_status(job_id)
 
@@ -1783,7 +1784,35 @@ async def download_job_result(
                 active_asset = db.get_asset(ws.active_mesh_asset_id)
                 if active_asset and active_asset.file_type == "mesh":
                     asset = active_asset
+            def _saved_parts_archive(asset_record):
+                if not asset_record or not asset_record.operation_id:
+                    return None
+                operation = db.get_operation(asset_record.operation_id)
+                if not operation or not operation.result_json:
+                    return None
+                try:
+                    operation_result = json.loads(operation.result_json)
+                except (TypeError, json.JSONDecodeError):
+                    return None
+                relative_archive = operation_result.get("parts_archive_relative_path")
+                if not relative_archive:
+                    return None
+                workspace_root = (storage_base / asset_record.workspace_id).resolve()
+                archive_path = (workspace_root / relative_archive).resolve()
+                if archive_path.is_file() and archive_path.is_relative_to(workspace_root):
+                    return archive_path
+                return None
+
             if asset and ws:
+                if requested_artifact_format == "zip":
+                    archive_path = _saved_parts_archive(asset)
+                    if archive_path:
+                        return FileResponse(
+                            path=str(archive_path),
+                            filename=filename or f"{Path(asset.original_filename).stem}_parts.zip",
+                            media_type="application/zip",
+                        )
+                    raise HTTPException(status_code=404, detail="No saved individual segmentation parts are available for this asset")
                 file_path = (storage_base / ws.workspace_id / asset.relative_path).resolve()
                 if file_path.is_file() and file_path.is_relative_to(storage_base):
                     return FileResponse(
@@ -1800,6 +1829,15 @@ async def download_job_result(
             asset = db.get_asset(job_id)
             if asset:
                 storage_base = get_storage_base_dir().resolve()
+                if requested_artifact_format == "zip":
+                    archive_path = _saved_parts_archive(asset)
+                    if archive_path:
+                        return FileResponse(
+                            path=str(archive_path),
+                            filename=filename or f"{Path(asset.original_filename).stem}_parts.zip",
+                            media_type="application/zip",
+                        )
+                    raise HTTPException(status_code=404, detail="No saved individual segmentation parts are available for this asset")
                 file_path = (storage_base / asset.workspace_id / asset.relative_path).resolve()
                 if file_path.is_file() and file_path.is_relative_to(storage_base):
                     return FileResponse(
@@ -1814,6 +1852,19 @@ async def download_job_result(
                     try:
                         op_res = json.loads(op.result_json)
                         if isinstance(op_res, dict):
+                            if requested_artifact_format == "zip" and op.workspace_id:
+                                relative_archive = op_res.get("parts_archive_relative_path")
+                                if relative_archive:
+                                    workspace_root = (storage_base / op.workspace_id).resolve()
+                                    archive_path = (workspace_root / relative_archive).resolve()
+                                    if archive_path.is_file() and archive_path.is_relative_to(workspace_root):
+                                        return FileResponse(
+                                            path=str(archive_path),
+                                            filename=filename or f"{op.operation_id}_parts.zip",
+                                            media_type="application/zip",
+                                        )
+                                if op.operation_type in {"segmentation", "mesh_segmentation"}:
+                                    raise HTTPException(status_code=404, detail="Individual segmentation parts were not saved for this operation")
                             out_p = op_res.get("output_path")
                             if out_p:
                                 out_p_path = Path(out_p).resolve()
@@ -1903,7 +1954,7 @@ async def download_job_result(
         # Canonical postprocessed artifacts are resolved from the job workspace.
         # Client input is a whitelist key, never a filesystem path.
         output_path = None
-        canonical_format = artifact_format.strip().lower() if isinstance(artifact_format, str) else "glb"
+        canonical_format = requested_artifact_format
         asset_root = result.get("asset_root")
         asset_name = result.get("asset_name")
 
@@ -2119,25 +2170,40 @@ async def download_job_result(
                     raise HTTPException(status_code=400, detail="Unsupported texture artifact")
                 output_path = asset_root_path / "texture" / f"{texture_name}.png"
             elif canonical_format == "zip":
-                temp_dir = Path(tempfile.mkdtemp(prefix=f"formash3d-{job_id}-"))
-                archive_path = temp_dir / f"{asset_root_path.name}.zip"
-                try:
-                    with zipfile.ZipFile(
-                        archive_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6
-                    ) as archive:
-                        for file_path in sorted(asset_root_path.rglob("*")):
-                            if file_path.is_file():
-                                archive.write(file_path, file_path.relative_to(asset_root_path.parent))
-                    return FileResponse(
-                        path=str(archive_path),
-                        filename=archive_path.name,
-                        media_type="application/zip",
-                        background=BackgroundTask(shutil.rmtree, str(temp_dir), ignore_errors=True),
-                        headers={"X-Job-ID": job_id, "Cache-Control": "no-store"},
-                    )
-                except Exception:
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                    raise
+                parts_archive_candidate = result.get("parts_archive_path")
+                if parts_archive_candidate:
+                    archive_path = Path(parts_archive_candidate).resolve()
+                    try:
+                        archive_path.relative_to(models_root)
+                        if asset_root_path:
+                            archive_path.relative_to(asset_root_path)
+                    except ValueError:
+                        raise HTTPException(status_code=400, detail="Invalid segmentation parts archive path")
+                    if not archive_path.is_file():
+                        raise HTTPException(status_code=404, detail="Saved segmentation parts archive not found")
+                    output_path = archive_path
+                else:
+                    if job_status.get("feature") in {"mesh_segmentation", "segmentation"}:
+                        raise HTTPException(status_code=404, detail="Individual segmentation parts were not saved for this operation")
+                    temp_dir = Path(tempfile.mkdtemp(prefix=f"formash3d-{job_id}-"))
+                    archive_path = temp_dir / f"{asset_root_path.name}.zip"
+                    try:
+                        with zipfile.ZipFile(
+                            archive_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6
+                        ) as archive:
+                            for file_path in sorted(asset_root_path.rglob("*")):
+                                if file_path.is_file():
+                                    archive.write(file_path, file_path.relative_to(asset_root_path.parent))
+                        return FileResponse(
+                            path=str(archive_path),
+                            filename=archive_path.name,
+                            media_type="application/zip",
+                            background=BackgroundTask(shutil.rmtree, str(temp_dir), ignore_errors=True),
+                            headers={"X-Job-ID": job_id, "Cache-Control": "no-store"},
+                        )
+                    except Exception:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        raise
             else:
                 raise HTTPException(status_code=400, detail=f"Unsupported artifact format: {canonical_format}")
         else:

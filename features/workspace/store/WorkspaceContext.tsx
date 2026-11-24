@@ -42,7 +42,6 @@ import {
 } from '../utils/buildGenerationParameters';
 import { buildTextureGenerationParameters } from '../utils/buildTextureGenerationParameters';
 import { taskPersistence } from '@/services/taskPersistence';
-import { executeMeshOperation, type EngineMode } from '../services/meshProcessingBridge';
 
 interface ComparisonGroup {
   id: string;
@@ -160,7 +159,6 @@ interface WorkspaceContextType {
   generate3DModel: () => Promise<void>;
   runModelGeneration: () => Promise<void>;
   runRemeshGeneration: (customSettings?: {
-    engineMode?: EngineMode;
     polyType?: string;
     targetPolycount?: number;
     preserveEdges?: boolean;
@@ -171,8 +169,6 @@ interface WorkspaceContextType {
   }) => Promise<void>;
   runTextureGeneration: () => Promise<void>;
   runUVUnwrapGeneration: (customSettings?: {
-    engineMode?: EngineMode;
-    scriptId?: string;
     distortionThreshold?: number;
     packMethod?: string;
     outputFormat?: string;
@@ -185,7 +181,6 @@ interface WorkspaceContextType {
     modelParameters?: Record<string, any>;
   }) => Promise<void>;
   runSegmentation: (customSettings?: {
-    engineMode?: EngineMode;
     numParts?: number;
     method?: string;
     hierarchical?: boolean;
@@ -201,7 +196,6 @@ interface WorkspaceContextType {
     bindPose?: string;
     exportFormat?: string;
     modelPreference?: string;
-    engineMode?: EngineMode;
     modelParameters?: Record<string, any>;
     customSettings?: Record<string, any>;
   }) => Promise<void>;
@@ -2410,7 +2404,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 }
 
   const runRemeshGeneration = useCallback(async (customSettings?: {
-    engineMode?: EngineMode;
     polyType?: string;
     targetPolycount?: number;
     preserveEdges?: boolean;
@@ -2419,7 +2412,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     watertightHealing?: boolean;
     outputFormat?: string;
   }) => {
-    const engine = customSettings?.engineMode || 'ai';
     const localTaskId = startTask(
       'remesh',
       'Neural Remesh (TriFlow)',
@@ -2544,8 +2536,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   }, [textureSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
 
   const runUVUnwrapGeneration = useCallback(async (customSettings?: {
-    engineMode?: EngineMode;
-    scriptId?: string;
     distortionThreshold?: number;
     packMethod?: string;
     outputFormat?: string;
@@ -2557,7 +2547,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     symmetryStacking?: boolean;
     modelParameters?: Record<string, any>;
   }) => {
-    const engine = customSettings?.engineMode || 'ai';
     const localTaskId = startTask(
       'uv',
       'Smart UV Unwrapping (PartUV)',
@@ -2576,7 +2565,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
       // AI Mode Execution
       const body: Record<string, unknown> = {
-        engine: 'ai',
         workspace_id: currentAsset?.workspace_id || workspaceIdRef.current || undefined,
         distortion_threshold: customSettings?.distortionThreshold ?? 1.25,
         pack_method: customSettings?.packMethod || 'blender',
@@ -2621,7 +2609,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId, addAsset, selectAsset, setViewportResetTrigger]);
 
   const runSegmentation = useCallback(async (customSettings?: {
-    engineMode?: EngineMode;
     numParts?: number;
     method?: string;
     hierarchical?: boolean;
@@ -2633,7 +2620,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     modelPreference?: string;
   } | number) => {
     const settingsObj = typeof customSettings === 'number' ? { numParts: customSettings } : (customSettings || {});
-    const engine = settingsObj.engineMode || 'ai';
     const numParts = settingsObj.numParts ?? 8;
     const outputFormat = settingsObj.outputFormat ?? 'glb';
     const pref = settingsObj.modelPreference || '';
@@ -2702,7 +2688,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     bindPose?: string;
     exportFormat?: string;
     modelPreference?: string;
-    engineMode?: EngineMode;
     modelParameters?: Record<string, any>;
     customSettings?: Record<string, any>;
   }) => {
@@ -2716,7 +2701,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         rig_mode: options?.skeletonTemplate || 'humanoid',
         output_format: (options?.exportFormat || 'glb').toLowerCase(),
         model_preference: modelPref,
-        engine: options?.engineMode || 'ai',
         model_parameters: {
           ...(options?.modelParameters || {}),
           bind_pose: options?.bindPose || 't_pose',

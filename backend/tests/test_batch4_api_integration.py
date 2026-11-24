@@ -706,6 +706,70 @@ def test_b4_t3_direct_save_workspace_persistence(batch4_app_client):
     assert Path(kept["mesh_path"]).is_file(), "Discard must not remove a retained asset"
 
 
+def test_b4_t3b_segmentation_parts_archive_downloads_by_asset_id(batch4_app_client):
+    """The asset-ID download route must serve the saved multipart archive, not the combined GLB."""
+    db = batch4_app_client["db"]
+    ws_manager = batch4_app_client["ws_manager"]
+    client = batch4_app_client["client"]
+
+    workspace_id = "ws_parts_archive_005"
+    ws_manager.create_workspace_tree(workspace_id)
+    db.create_workspace(workspace_id=workspace_id, name="Parts Archive Test")
+
+    operation_id = "op_123456789abc"
+    db.enqueue_operation(
+        operation_id=operation_id,
+        workspace_id=workspace_id,
+        operation_type="segmentation",
+        settings={"save_individual_parts": True},
+    )
+    db.update_operation_execution_status(operation_id, ExecutionStatus.PROCESSING)
+    db.update_operation_execution_status(operation_id, ExecutionStatus.COMPLETED)
+
+    workspace_dir = ws_manager.get_workspace_dir(workspace_id)
+    segmentation_dir = workspace_dir / "segmentation"
+    segmentation_dir.mkdir(parents=True, exist_ok=True)
+    combined_path = segmentation_dir / "combined.glb"
+    combined_path.write_bytes(b"combined-colored-mesh")
+    archive_path = segmentation_dir / "combined_parts.zip"
+    import zipfile
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("combined_parts/part_01.glb", b"part-one")
+        archive.writestr("combined_parts/part_02.glb", b"part-two")
+
+    asset = db.add_asset(
+        asset_id="ast_0123456789ab",
+        workspace_id=workspace_id,
+        file_type="mesh",
+        relative_path="segmentation/combined.glb",
+        original_filename="combined.glb",
+        byte_size=combined_path.stat().st_size,
+        sha256="0" * 64,
+        operation_id=operation_id,
+        operation_type="segmentation",
+        is_retained=True,
+    )
+    db.update_workspace_active_mesh(workspace_id, asset.asset_id)
+
+    with db.get_session() as session:
+        operation = session.query(OperationModel).filter_by(operation_id=operation_id).one()
+        operation.result_json = json.dumps({
+            "asset_id": asset.asset_id,
+            "parts_archive_relative_path": "segmentation/combined_parts.zip",
+            "individual_part_count": 2,
+        })
+        session.commit()
+
+    response = client.get(
+        f"/api/v1/system/jobs/{asset.asset_id}/download?artifact_format=zip"
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("application/zip")
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        names = archive.namelist()
+    assert names == ["combined_parts/part_01.glb", "combined_parts/part_02.glb"]
+
+
 # ==============================================================================
 # B4-T4: API Deprecation Guard & Error Hardening
 # ==============================================================================

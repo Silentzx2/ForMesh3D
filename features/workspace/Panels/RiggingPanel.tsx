@@ -24,8 +24,6 @@ import {
 import { toast } from 'sonner';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
 import { MeshUploadStatus } from './MeshUploadStatus';
-import { EngineMode } from '../services/meshProcessingBridge';
-import { EngineModeSelector } from './EngineModeSelector';
 
 // ==========================================
 // 1. Quality Metrics & QualityBadge Export
@@ -249,9 +247,6 @@ export const RiggingPanel: React.FC = () => {
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
 
-  // Engine Mode: Neural AI (SkinTokens) vs Fast Script
-  const [engineMode, setEngineMode] = useState<EngineMode>('ai');
-
   // SkinTokens Neural Rigging Parameter State
   const [topK, setTopK] = useState<number>(5);
   const [topP, setTopP] = useState<number>(0.95);
@@ -410,7 +405,6 @@ export const RiggingPanel: React.FC = () => {
     return 32;
   }, [skeletonTemplate, facialAndFingerBones]);
 
-  const templateLabel = skeletonTemplate.charAt(0).toUpperCase() + skeletonTemplate.slice(1);
   const formatLabel = exportFormat.toUpperCase();
 
   // Execution Handler
@@ -461,7 +455,6 @@ export const RiggingPanel: React.FC = () => {
         bindPose,
         exportFormat,
         modelPreference: 'skintokens_auto_rigging',
-        engineMode,
         modelParameters: {
           skeleton_template: skeletonTemplate,
           bind_pose: bindPose,
@@ -639,15 +632,7 @@ export const RiggingPanel: React.FC = () => {
           </div>
         )}
 
-        {/* Dual-Engine Mode Switcher: AI Model vs Fast Script */}
-        <EngineModeSelector
-          mode={engineMode}
-          onChange={setEngineMode}
-          tool="rig"
-        />
-
         {/* Neural AI Model Card (SkinTokens) when in AI Mode */}
-        {engineMode === 'ai' && (
           <div className="space-y-1.5 p-3 rounded-2xl bg-[#12131d] border border-white/[0.08]">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
@@ -662,7 +647,6 @@ export const RiggingPanel: React.FC = () => {
               Discrete Skin Tokens &amp; Unified Autoregressive Joint / Deformation Prediction.
             </p>
           </div>
-        )}
 
         {/* 3. Skeleton Template: Humanoid vs Quadruped vs Generic */}
         <div className="space-y-1">
@@ -918,7 +902,6 @@ export const RiggingPanel: React.FC = () => {
             </div>
 
             {/* Parameter 5: SkinTokens Neural Options (Active in AI Mode) */}
-            {engineMode === 'ai' && (
               <div className="space-y-2 border-t border-white/[0.06] pt-2">
                 <span className="text-[10px] font-semibold text-[#F9CF00] uppercase tracking-wider block">
                   SkinTokens Neural Settings
@@ -1030,7 +1013,6 @@ export const RiggingPanel: React.FC = () => {
                   </button>
                 </div>
               </div>
-            )}
           </div>,
           document.body
         )}
@@ -1077,10 +1059,10 @@ export const RiggingPanel: React.FC = () => {
               className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Bone className="w-3.5 h-3.5 text-black" />
-              <span>{engineMode === 'ai' ? 'Auto-Rig Character (SkinTokens)' : 'Auto-Rig Character'}</span>
+              <span>Auto-Rig Character (SkinTokens)</span>
             </button>
             <div className="flex items-center justify-between text-[9.5px] text-zinc-400 px-1 font-mono">
-              <span>{engineMode === 'ai' ? 'Model: SkinTokens' : `Skeleton: ${templateLabel}`} · Bones: {estimatedBoneCount}</span>
+              <span>Model: SkinTokens · Bones: {estimatedBoneCount}</span>
               <span>Format: {formatLabel}</span>
             </div>
           </div>

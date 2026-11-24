@@ -91,9 +91,11 @@ The metadata route is covered by the repository contract verification script. It
 | UV unwrapping | `POST /api/v1/unwrap` | `GET /api/v1/unwrap/supported-formats`, `GET /api/v1/unwrap/pack-methods`, `GET /api/v1/unwrap/available-models` |
 | Motion | `POST /api/v1/motion` | `GET /api/v1/motion/checkpoints`, `GET /api/v1/motion/available-models`, `GET /api/v1/motion/supported-formats` |
 
-Retopology, segmentation and UV routes support the request modes defined by their Pydantic models; consult the live OpenAPI schema for exact fields.
+Retopology, segmentation and UV are scheduler-backed AI routes. Their request models do not expose a Script-engine discriminator; consult the live OpenAPI schema for exact fields.
 
-`GET /api/v1/segment/readiness` reports whether PartField AI mode has a CUDA runtime, a complete Objaverse checkpoint, the vendored inference source, and its required Python modules. The Segmentation panel disables AI mode when this probe is unavailable. This is an installation/readiness probe, not a promise that every mesh will fit the GPU or produce a successful inference.
+`GET /api/v1/segment/readiness` reports whether PartField has a CUDA runtime, a complete Objaverse checkpoint, the vendored inference source, and its required Python modules. The Segmentation panel disables the run action when this probe is unavailable. This is an installation/readiness probe, not a promise that every mesh will fit the GPU or produce a successful inference.
+
+When `save_individual_parts=true`, PartField saves each generated part as an independent workspace mesh asset and writes a ZIP archive. Download the saved parts using the completed combined mesh asset ID: `GET /api/v1/system/jobs/{asset_id}/download?artifact_format=zip`. The combined colored GLB remains the active segmentation result.
 
 ## Database administration
 

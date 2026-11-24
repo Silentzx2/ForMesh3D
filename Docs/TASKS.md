@@ -1,6 +1,6 @@
 # Current Tasks and Verified Cleanup Record
 
-> **Audit date:** 2026-11-22  
+> **Audit date:** 2026-11-24  
 > **Branch:** `dev`  
 > **Baseline:** `27f48a76f302008fa0ab9d9b1d7788a8eb7d55a1`  
 > **Rule:** This file records source-verified cleanup. A missing frontend caller alone does not make a REST endpoint safe to delete.
@@ -46,9 +46,11 @@ The following methods in `services/apiClient.ts` had no frontend callers. Only t
 - `backend/api/routers/file_upload.py`: removed synchronous `resolve_file_id()` (deprecated, always returned `None`, no callers). Retained `resolve_file_id_async()`, which is used by active routes.
 - `features/workspace/types.ts`, `RemeshPanel.tsx`, and `WorkspaceContext.tsx`: removed the unused `RemeshSettings.variant` field. The panel only wrote `V1K` and the inspector displayed it as `FastMesh Variant`, but the active workspace AI remesh request always submits TriFlow and does not consume that value. Removed the stale field and misleading inspector row.
 
-## 4. Runtime correction found during final verification
+## 4. Workspace tool execution — current state
 
-`execute_script_operation()` accepted FastAPI `BackgroundTasks` but awaited the pipeline through `asyncio.to_thread()`. That blocked the response and returned a completed status instead of the documented queued response. It now registers the existing worker with `background_tasks.add_task()`, allowing the API to return the queued operation while the task runs after response delivery. Integration tests cover the queued response and persisted completion.
+- The separate Script-engine execution path has been retired. Retopology (TriFlow), UV (PartUV), segmentation (PartField) and rigging (SkinTokens) dispatch through their configured AI adapters.
+- Removed the Script engine selector, its frontend bridge, and deterministic geometric segmentation execution. The PartField island-merging helper remains in a shared utility because neural segmentation uses it for small-island cleanup.
+- SQLite operation records remain the common queued/processing/completed/failed lifecycle and lineage mechanism; they are not a separate Script engine.
 
 ## 5. Wiring correction
 
@@ -65,7 +67,7 @@ These were false positives or unsafe deletion candidates:
 - `backend/utils/trellis2_utils.py`, TRELLIS.2 adapters, patchers and validation code: retained because TRELLIS.2 is intentionally disabled, not retired. Do not remove disabled-model support.
 - `backend/utils/image_super_utils.py`, `pipeline_utils.py`, `simplify_mesh_utils.py`, `multiview_utils.py`, `uvwrap_utils.py`, `torchvision_fix.py`, and `dinov3_vit.py`: compatibility/model support paths; not safe to delete from first-party import counts alone.
 - `backend/adapters/trellis2_mesh_validation.py`: retained validation support.
-- `backend/api/routers/script_execution.py`: helper functions are imported by specialist routers; it is not an unused router.
+- `backend/api/routers/script_execution.py`, `features/workspace/Panels/EngineModeSelector.tsx`, and `features/workspace/services/meshProcessingBridge.ts`: retired Script-mode execution/UI files; no active callers remain. The PartField island-merging helper was moved to `backend/core/utils/mesh_segmentation_utils.py` before deleting the old geometric segmentation pipeline.
 - `features/workspace/Viewport/meshStats.ts`, `glbCache.ts`, and `components/index.ts`: active callers exist.
 - Disabled models **Unique3D, Pixal3D, TRELLIS.2, TaoFlowForge**: configuration remains unchanged. No model was enabled or removed.
 
@@ -80,7 +82,7 @@ The checked-in CI commands are documented in [CONTRIBUTING.md](../CONTRIBUTING.m
 ## 9. Viewport-only comparison and PartField AI segmentation
 
 - Right-panel comparison UI, orphan viewer, and persisted picker state removed; viewport wipe remains the only model comparison surface.
-- Segmentation AI readiness is gated by CUDA, checkpoint, vendored inference source and dependencies; Script algorithms and AI learned-feature inference are distinct, with no silent fallback.
+- Segmentation is AI-only through PartField. The run action is gated by CUDA, checkpoint, vendored inference source and dependency readiness; no geometric/connected-components Script fallback is exposed.
 - Backend readiness/API contracts, PartField adapter tests and UI/API docs were updated. Frontend and backend runtime contract CI passed on the implementation commit; GPU inference smoke test remains environment-dependent.
 
 ## 10. Unified viewport comparison — plan and implementation record (2026-11-23)
@@ -107,3 +109,13 @@ The checked-in CI commands are documented in [CONTRIBUTING.md](../CONTRIBUTING.m
 - Viewport shading modes have one owner (bottom material dock); wireframe, turntable and grid each have one primary toggle.
 - Advanced tool flyouts share the global desktop layout class in `app/globals.css`; height is bounded, overflow scrolls within the flyout, and placement clears the material dock.
 - Desktop toggle state is exposed to assistive technology. Mobile-specific layout was not changed.
+
+
+## 12. PartField multipart persistence and Script-mode retirement — 2026-11-24
+
+- The combined colored GLB remains the active segmentation result.
+- When Save Individual Part Files is enabled, every generated part is copied out of the adapter's temporary directory into a versioned workspace folder, registered as an independent mesh asset, and included in a durable ZIP archive.
+- ZIP download resolves through the segmentation asset's operation record and serves only the saved part archive; it no longer mistakes a combined single-mesh GLB for a multipart export.
+- The client-side fallback refuses to export one combined mesh as a one-file “parts” ZIP.
+- Retopology, UV, rigging and segmentation panels expose only their AI model routes; obsolete Script-mode selectors and script-only branches were removed.
+- Regression coverage verifies durable part copies, ZIP contents, path containment, and AI-only segmentation request validation.

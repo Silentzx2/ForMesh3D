@@ -24,8 +24,6 @@ import {
 } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
-import { EngineModeSelector } from './EngineModeSelector';
-import type { EngineMode } from '../services/meshProcessingBridge';
 
 // ==========================================
 // 1. Quality Metrics & QualityBadge Export
@@ -250,10 +248,8 @@ export const SegmentationPanel: React.FC = () => {
   const dragCounterRef = useRef(0);
 
   // Core Segmentation parameter state
-  const [engineMode, setEngineMode] = useState<EngineMode>('ai');
   const [partFieldReadiness, setPartFieldReadiness] = useState<{ status: 'checking' | 'ready' | 'unavailable'; reason: string }>({ status: 'checking', reason: 'Checking PartField runtime…' });
   const [numParts, setNumParts] = useState<number>(8);
-  const [decompositionMode, setDecompositionMode] = useState<'geometric' | 'connected_components'>('geometric');
   const [hierarchical, setHierarchical] = useState<boolean>(false);
 
   // Advanced Segmentation Settings Flyout state
@@ -292,12 +288,6 @@ export const SegmentationPanel: React.FC = () => {
       });
     return () => controller.abort();
   }, []);
-
-  useEffect(() => {
-    if (partFieldReadiness.status === 'unavailable' && engineMode === 'ai') {
-      setEngineMode('ai');
-    }
-  }, [partFieldReadiness.status, engineMode]);
 
   // Close flyout on outside click or Escape
   useEffect(() => {
@@ -407,6 +397,10 @@ export const SegmentationPanel: React.FC = () => {
   };
 
   const handleRunSegmentation = async () => {
+    if (partFieldReadiness.status !== 'ready') {
+      toast.error('PartField AI is unavailable', { description: partFieldReadiness.reason || 'Check the backend GPU, checkpoint, and dependencies.' });
+      return;
+    }
     if (!currentAsset) {
       toast.error('Please load a 3D mesh first');
       return;
@@ -414,13 +408,12 @@ export const SegmentationPanel: React.FC = () => {
     try {
       if (runSegmentation) {
         await runSegmentation({
-          engineMode,
           numParts,
-          method: engineMode === 'ai' ? 'semantic' : decompositionMode,
+          method: 'semantic',
           hierarchical,
           outputFormat,
           modelParameters: {
-            method: engineMode === 'ai' ? 'semantic' : decompositionMode,
+            method: 'semantic',
             hierarchical,
             min_face_island_threshold: minFaceThreshold,
             save_individual_parts: saveIndividualParts,
@@ -570,15 +563,6 @@ export const SegmentationPanel: React.FC = () => {
           </div>
         )}
 
-        {/* Dual-Engine Mode Switcher: AI Model (PartField) vs Fast Script */}
-        <EngineModeSelector
-          mode={engineMode}
-          onChange={setEngineMode}
-          tool="segment"
-          aiDisabled={partFieldReadiness.status !== 'ready'}
-          aiDisabledReason={partFieldReadiness.reason}
-        />
-
         {/* 3. Target Parts (Single-Row Preset Pills) */}
         <div className="space-y-1">
           <div className="flex items-center justify-between">
@@ -586,7 +570,7 @@ export const SegmentationPanel: React.FC = () => {
               Target Parts
             </span>
             <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#F9CF00]/15 text-[#F9CF00] font-semibold border border-[#F9CF00]/30 font-mono">
-              {numParts} Parts · {decompositionMode.toUpperCase()}
+              {numParts} Parts · SEMANTIC
             </span>
           </div>
 
@@ -658,41 +642,10 @@ export const SegmentationPanel: React.FC = () => {
               </button>
             </div>
 
-            {/* AI uses learned PartField features; script mode exposes its supported algorithms. */}
-            {engineMode === 'ai' ? (
-              <div className="p-2 rounded-xl bg-black/30 border border-white/[0.06] space-y-1">
-                <span className="text-[10.5px] text-zinc-300 font-medium block">AI Decomposition</span>
-                <span className="text-[10px] text-zinc-400">PartField learned feature fields · Agglomerative clustering</span>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                <span className="text-[10.5px] text-zinc-300 font-medium block">Script Algorithm</span>
-                <div className="grid grid-cols-2 gap-1 p-0.5 rounded-xl bg-black/30 border border-white/[0.04]">
-                  <button
-                    type="button"
-                    onClick={() => setDecompositionMode('geometric')}
-                    className={`h-7 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                      decompositionMode === 'geometric'
-                        ? 'bg-white text-black shadow-sm font-bold'
-                        : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-                    }`}
-                  >
-                    <span>Geometric</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDecompositionMode('connected_components')}
-                    className={`h-7 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                      decompositionMode === 'connected_components'
-                        ? 'bg-white text-black shadow-sm font-bold'
-                        : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-                    }`}
-                  >
-                    <span>Connected Components</span>
-                  </button>
-                </div>
-              </div>
-            )}
+            <div className="p-2 rounded-xl bg-black/30 border border-white/[0.06] space-y-1">
+              <span className="text-[10.5px] text-zinc-300 font-medium block">AI Decomposition</span>
+              <span className="text-[10px] text-zinc-400">PartField learned feature fields · Agglomerative clustering</span>
+            </div>
 
             {/* Parameter 2: Fine-Grain Target Parts Slider (2 to 32) */}
             <div className="space-y-1.5 p-2 rounded-xl bg-black/30 border border-white/[0.04]">
@@ -860,6 +813,13 @@ export const SegmentationPanel: React.FC = () => {
 
       {/* 7. Sticky Bottom Action CTA Button (NO model name in button or subtitle as requested) */}
       <div className="p-3 pt-2 pb-3 border-t border-white/[0.08] bg-[hsl(var(--surface-1))] flex-shrink-0 space-y-1.5">
+        {partFieldReadiness.status !== 'ready' && (
+          <div role="status" aria-live="polite" className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-2.5 py-2 text-[10px] text-amber-200">
+            {partFieldReadiness.status === 'checking'
+              ? 'Checking PartField runtime readiness…'
+              : partFieldReadiness.reason || 'PartField AI is unavailable. Check CUDA, checkpoint, and dependencies.'}
+          </div>
+        )}
         {isExecuting ? (
           <div className="p-3 rounded-2xl bg-[#141524] border border-[#F9CF00]/30 shadow-xl space-y-2 animate-in fade-in">
             <div className="flex items-center justify-between text-xs">
@@ -895,15 +855,15 @@ export const SegmentationPanel: React.FC = () => {
             <button
               type="button"
               onClick={handleRunSegmentation}
-              disabled={!currentAsset}
+              disabled={!currentAsset || partFieldReadiness.status !== 'ready'}
               className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Scissors className="w-3.5 h-3.5 text-black" />
-              <span>{engineMode === 'ai' ? 'Run AI Segmentation' : 'Run Fast Segmentation (Trimesh)'}</span>
+              <span>Run AI Segmentation</span>
             </button>
             <div className="flex items-center justify-center text-[9.5px] text-zinc-400 px-1 font-mono">
               <span>
-                Target: {numParts} Parts · Mode: {engineMode === 'ai' ? 'PartField AI' : decompositionMode === 'connected_components' ? 'Connected Components' : 'Geometric'} · Format: {outputFormat.toUpperCase()}
+                Target: {numParts} Parts · Mode: PartField AI · Format: {outputFormat.toUpperCase()}
               </span>
             </div>
           </div>

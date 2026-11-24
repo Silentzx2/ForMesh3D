@@ -2350,12 +2350,53 @@ class MultiprocessModelScheduler:
                                 byte_size=_dst.stat().st_size,
                                 sha256=_digest.hexdigest(),
                                 operation_id=_op_id,
+                                operation_type=_op_type,
                                 is_retained=1,
                             )
                             _db.update_workspace_active_mesh(_ws_id, _mesh_asset.asset_id)
                             final_result["asset_id"] = _asset_id
                             final_result["active_mesh_asset_id"] = _asset_id
                             final_result["workspace_id"] = _ws_id
+
+                            individual_source_paths = (
+                                final_result.get("individual_part_paths")
+                                or (final_result.get("stats") or {}).get("individual_part_files")
+                                or []
+                            )
+                            if _feature == "mesh_segmentation" and individual_source_paths:
+                                from core.utils.segmentation_artifacts import persist_individual_parts
+
+                                _workspace_dir = _ws_mgr.get_workspace_dir(_ws_id)
+                                _part_artifacts = persist_individual_parts(
+                                    individual_source_paths,
+                                    _src,
+                                    _dst,
+                                    _workspace_dir,
+                                )
+                                final_result.update(_part_artifacts)
+                                _part_asset_ids = []
+                                for _part_relative_path in _part_artifacts["individual_part_relative_paths"]:
+                                    _part_path = (_workspace_dir / _part_relative_path).resolve()
+                                    _part_digest = hashlib.sha256()
+                                    with _part_path.open("rb") as _part_handle:
+                                        for _chunk in iter(lambda: _part_handle.read(1024 * 1024), b""):
+                                            _part_digest.update(_chunk)
+                                    _part_asset = _db.add_asset(
+                                        asset_id=f"ast_{uuid.uuid4().hex[:12]}",
+                                        workspace_id=_ws_id,
+                                        file_type="mesh",
+                                        relative_path=_part_relative_path,
+                                        original_filename=_part_path.name,
+                                        byte_size=_part_path.stat().st_size,
+                                        sha256=_part_digest.hexdigest(),
+                                        operation_id=_op_id,
+                                        operation_type=_op_type,
+                                        is_retained=1,
+                                    )
+                                    _part_asset_ids.append(_part_asset.asset_id)
+                                final_result["individual_part_asset_ids"] = _part_asset_ids
+                                if isinstance(final_result.get("stats"), dict):
+                                    final_result["stats"]["individual_part_files"] = _part_artifacts["individual_part_paths"]
 
                             if _op_id:
                                 # Ensure proper state transition: QUEUED -> PROCESSING -> COMPLETED
@@ -2372,6 +2413,10 @@ class MultiprocessModelScheduler:
                                         "relative_mesh_path": _relative_path,
                                         "asset_id": _asset_id,
                                         "format": _dst.suffix.lower().lstrip("."),
+                                        "individual_part_asset_ids": final_result.get("individual_part_asset_ids", []),
+                                        "individual_part_relative_paths": final_result.get("individual_part_relative_paths", []),
+                                        "individual_part_count": final_result.get("individual_part_count", 0),
+                                        "parts_archive_relative_path": final_result.get("parts_archive_relative_path"),
                                     },
                                 )
                                 try:

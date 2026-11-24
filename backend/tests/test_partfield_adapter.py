@@ -21,6 +21,7 @@ from backend.adapters.partfield_adapter import (
 )
 from backend.core.models.base import BaseModel, ModelStatus
 from backend.api.routers.mesh_segmentation import MeshSegmentationRequest
+from backend.core.utils.segmentation_artifacts import persist_individual_parts
 
 
 def test_partfield_adapter_initialization():
@@ -85,15 +86,13 @@ def test_partfield_model_factory_mapping():
     assert '"PartFieldSegmentationAdapter"' in content
 
 
-def test_partfield_api_method_defaults_follow_selected_engine():
+def test_partfield_api_is_ai_only():
     ai_request = MeshSegmentationRequest(mesh_path="source.obj")
     assert ai_request.method == "semantic"
+    assert "engine" not in MeshSegmentationRequest.model_fields
 
-    connected_request = MeshSegmentationRequest(
-        mesh_path="source.obj",
-        method="connected_components",
-    )
-    assert connected_request.method == "connected_components"
+    with pytest.raises(ValueError):
+        MeshSegmentationRequest(mesh_path="source.obj", method="connected_components")
 
 
 def test_partfield_merge_tree_cuts_to_requested_part_count():
@@ -126,3 +125,58 @@ def test_partfield_ai_never_uses_an_unloaded_geometric_fallback():
     adapter = PartFieldSegmentationAdapter(vram_requirement=8192)
     with pytest.raises(RuntimeError, match="PartField is not loaded"):
         adapter.execute({"mesh_path": "unused.obj", "num_parts": 4})
+
+
+
+def test_individual_segmentation_parts_are_persisted_and_archived(tmp_path):
+    workspace_dir = tmp_path / "storage" / "rabbit_a8f32c"
+    destination_dir = workspace_dir / "segmentation"
+    destination_dir.mkdir(parents=True)
+
+    worker_dir = tmp_path / "worker"
+    worker_dir.mkdir()
+    source_mesh = worker_dir / "source_partfield_segmented.glb"
+    source_mesh.write_bytes(b"combined")
+    source_parts_dir = worker_dir / "source_partfield_segmented_parts"
+    source_parts_dir.mkdir()
+    part_paths = []
+    for index in range(2):
+        part_path = source_parts_dir / f"part_{index + 1:02d}.glb"
+        part_path.write_bytes(f"part-{index + 1}".encode())
+        part_paths.append(str(part_path))
+
+    published_mesh = destination_dir / "rabbit_a8f32c_segmentation.glb"
+    published_mesh.write_bytes(b"combined")
+
+    result = persist_individual_parts(part_paths, source_mesh, published_mesh, workspace_dir)
+
+    assert result["individual_part_count"] == 2
+    assert len(result["individual_part_paths"]) == 2
+    assert all(Path(path).is_file() for path in result["individual_part_paths"])
+    assert all((workspace_dir / path).is_file() for path in result["individual_part_relative_paths"])
+    archive_path = Path(result["parts_archive_path"])
+    assert archive_path.is_file()
+    import zipfile
+    with zipfile.ZipFile(archive_path) as archive:
+        names = archive.namelist()
+    assert len(names) == 2
+    assert all(name.endswith(".glb") for name in names)
+
+
+def test_individual_segmentation_parts_reject_paths_outside_adapter_output(tmp_path):
+    workspace_dir = tmp_path / "storage" / "rabbit_a8f32c"
+    destination_dir = workspace_dir / "segmentation"
+    destination_dir.mkdir(parents=True)
+    worker_dir = tmp_path / "worker"
+    worker_dir.mkdir()
+    source_mesh = worker_dir / "source.glb"
+    source_mesh.write_bytes(b"combined")
+    source_parts_dir = worker_dir / "source_parts"
+    source_parts_dir.mkdir()
+    outside_part = tmp_path / "outside.glb"
+    outside_part.write_bytes(b"part")
+    published_mesh = destination_dir / "rabbit_segmentation.glb"
+    published_mesh.write_bytes(b"combined")
+
+    with pytest.raises(ValueError, match="outside adapter output"):
+        persist_individual_parts([str(outside_part)], source_mesh, published_mesh, workspace_dir)

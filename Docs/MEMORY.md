@@ -1,6 +1,6 @@
 # ForMesh3D — Current Project Memory
 
-> **Last audited:** 2026-11-22  
+> **Last audited:** 2026-11-24  
 > **Branch:** `dev`  
 > **Cleanup baseline:** `27f48a76f302008fa0ab9d9b1d7788a8eb7d55a1`  
 
@@ -48,7 +48,7 @@ A config flag does not prove checkpoint availability or successful inference. GP
 - Database administration routes are mounted at `/api/v1/system/database`.
 - No REST endpoint was deleted in this cleanup: lack of a frontend caller is not proof that an externally addressable API contract is unused.
 - The deprecated synchronous `resolve_file_id()` returned `None` and had no callers; `resolve_file_id_async()` remains active.
-- Script-mode specialist routes persist the operation first, return its queued response, and execute the pipeline through FastAPI `BackgroundTasks`; the operation status is then read from SQLite.
+- Specialist tool routes enqueue scheduler-backed AI operations; SQLite remains authoritative for operation status, progress and lineage.
 
 ## 6. Cleanup status
 
@@ -67,3 +67,9 @@ CI workflows are the checked-in baseline:
 - Full `python -m compileall -q backend` currently encounters a pre-existing upstream TRELLIS `IndentationError` at `backend/thirdparty/TRELLIS/trellis/utils/postprocessing_utils.py:57-58`. CI now syntax-checks first-party code separately.
 
 CI does not download model weights or prove GPU inference. Report those checks only when run on an appropriate host.
+
+## 8. Current tool execution
+
+- Retopology: TriFlow AI only. UV: PartUV AI only. Segmentation: PartField AI only. Rigging: SkinTokens AI only.
+- No Script engine selector, frontend execution bridge, or deterministic script segmentation pipeline is part of the active UI/runtime.
+- PartField can optionally persist each segmented part as a separate workspace mesh asset plus a ZIP archive; the combined colored GLB remains the active mesh.

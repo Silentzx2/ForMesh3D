@@ -21,9 +21,9 @@ Workspace identity is stable and deep-linkable through `/workspace/generate/<wor
 
 - **Generation:** FastAPI generation router plus model adapters selected through the model factory.
 - **Texture:** texture-generation/painting API and enabled texture-capable adapters.
-- **Retopology:** AI adapter and deterministic script pipeline exposed by the retopology router.
-- **UV unwrapping:** PartUV AI path and script pipeline.
-- **Segmentation:** PartField AI path and script pipeline.
+- **Retopology:** TriFlow AI adapter exposed by the retopology router.
+- **UV unwrapping:** PartUV AI adapter.
+- **Segmentation:** PartField AI adapter; no script/geometric fallback is exposed.
 - **Rigging:** SkinTokens adapter.
 - **Motion:** ARDY adapter and motion API.
 - **Viewport:** local GLB download and parsing through Three.js `GLTFLoader` and `glbCache`.

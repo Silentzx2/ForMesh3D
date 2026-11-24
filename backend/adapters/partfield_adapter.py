@@ -35,7 +35,7 @@ from pipelines.mesh_utils import (
     load_mesh_safe,
     to_single_trimesh,
 )
-from pipelines.segment import _generate_palette
+from core.utils.mesh_segmentation_utils import _generate_palette, _merge_small_islands
 
 logger = logging.getLogger(__name__)
 
@@ -339,8 +339,6 @@ class PartFieldSegmentationAdapter(BaseModel):
         # Drop very small face islands into their nearest segment using the
         # existing mesh-processing helper; it does not invent semantic features.
         if min_face_island > 0:
-            from pipelines.segment import _merge_small_islands
-
             labels = _merge_small_islands(labels, original_mesh.triangles_center, min_face_island)
             unique_labels = np.unique(labels)
             remap = {int(old): new for new, old in enumerate(unique_labels)}

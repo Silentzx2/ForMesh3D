@@ -88,6 +88,7 @@ bun run build
 ```bash
 python -m compileall -q backend/adapters backend/api backend/core backend/pipelines backend/scripts backend/tests backend/utils backend/loader.py patcher scripts
 python -m pytest -q backend/tests/test_batch1_regressions.py
+python -m pytest -q backend/tests/test_partfield_adapter.py
 python -m pytest -q backend/tests/test_batch3_queue_and_lifecycle.py backend/tests/test_workspace_regeneration.py backend/tests/test_batch4_api_integration.py
 bash -n backend/scripts/download_models.sh
 bash scripts/tests/compute_mode_test.sh

@@ -244,27 +244,23 @@ export const DynamicSegmentationInspector: React.FC = () => {
         const objExporter = new OBJExporter();
         const files: { name: string; data: Uint8Array }[] = [];
 
-        let meshIdx = 0;
+        const meshNodes: THREE.Mesh[] = [];
         activeModelObject.traverse((node) => {
-          if (node instanceof THREE.Mesh && node.geometry) {
-            const part = parts[meshIdx % parts.length];
-            const partName = (part?.name || `part_${meshIdx + 1}`).replace(/\s+/g, '_');
-            const objText = objExporter.parse(node);
-            files.push({
-              name: `${partName}.obj`,
-              data: new TextEncoder().encode(objText),
-            });
-            meshIdx++;
-          }
+          if (node instanceof THREE.Mesh && node.geometry) meshNodes.push(node);
         });
-
-        if (files.length === 0) {
-          const singleObj = objExporter.parse(activeModelObject);
-          files.push({
-            name: `${currentAsset?.name || 'model'}.obj`,
-            data: new TextEncoder().encode(singleObj),
-          });
+        if (meshNodes.length < 2) {
+          throw new Error('Saved individual part files are unavailable. Re-run segmentation with Save Individual Part Files enabled.');
         }
+
+        meshNodes.forEach((node, meshIdx) => {
+          const part = parts[meshIdx];
+          const partName = (part?.name || node.name || `part_${meshIdx + 1}`).replace(/\s+/g, '_');
+          const objText = objExporter.parse(node);
+          files.push({
+            name: `${partName}.obj`,
+            data: new TextEncoder().encode(objText),
+          });
+        });
 
         const zipBlob = buildSimpleZip(files);
         const url = URL.createObjectURL(zipBlob);

@@ -1,10 +1,15 @@
 # ForMesh3D Changelog
 
-## 2026-11-23 — Script Operation Telemetry & Live Execution Logs
+## 2026-11-24 — PartField Multipart Persistence & AI-Only Tool Modes
+- Persisted individual PartField part meshes in versioned workspace storage and registered each part as a mesh asset.
+- Added a workspace-backed ZIP archive for the actual individual part files; combined colored GLB remains the active result.
+- Removed obsolete Script-engine selectors and deterministic script segmentation execution while preserving the PartField island-merging utility.
+
+## 2026-11-23 — Workspace Operation Telemetry & Live Execution Logs
 - Persisted bounded per-operation progress/debug events in SQLite and exposed them through job history and operation status APIs.
-- Added colored Script Execution Trace with per-stage progress bars, lifecycle banners, timestamps and debug/error levels.
+- Added colored Operation Trace with per-stage progress bars, lifecycle banners, timestamps and debug/error levels.
 - Streamed headless Blender stdout/stderr while running; added operation-specific stage checkpoints and mesh diagnostics for Retopology, Smart UV and Segmentation.
-- Added safe script settings summaries, output validation/publish/hash milestones and failure tracebacks.
+- Added safe operation settings summaries, output validation/publish/hash milestones and failure tracebacks.
 
 ## 2026-11-23 — Model Artifact, Inference Telemetry & PartField Color Fixes
 - Fixed PartField RGBA face-color assignment for both the combined mesh and individual part exports.

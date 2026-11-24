@@ -32,8 +32,6 @@ import {
 } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
-import { EngineModeSelector } from './EngineModeSelector';
-import type { EngineMode } from '../services/meshProcessingBridge';
 
 // ==========================================
 // 1. Quality Metrics & QualityBadge Export
@@ -269,7 +267,6 @@ export const RemeshPanel: React.FC = () => {
   } = useWorkspace();
 
   // Core Parameters on Main Panel
-  const [engineMode, setEngineMode] = useState<EngineMode>('ai');
   const [polyType, setPolyType] = useState<'quad' | 'tri'>(remeshSettings.polyType || 'quad');
   const [targetPolycount, setTargetPolycount] = useState<number>(remeshSettings.targetPolycount || 50000);
   const [localPolycount, setLocalPolycount] = useState<number>(remeshSettings.targetPolycount || 50000);
@@ -468,7 +465,6 @@ export const RemeshPanel: React.FC = () => {
     try {
       if (runRemeshGeneration) {
         await runRemeshGeneration({
-          engineMode,
           polyType,
           targetPolycount: localPolycount,
           preserveEdges,
@@ -682,13 +678,6 @@ export const RemeshPanel: React.FC = () => {
           </div>
         )}
 
-          {/* Dual-Engine Mode Switcher: Neural AI vs Script Mode */}
-          <EngineModeSelector
-            mode={engineMode}
-            onChange={setEngineMode}
-            tool="remesh"
-          />
-
           {/* 3. Topology Type: Pure Quads vs Triangles */}
           <div className="space-y-1.5">
             <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider block">
@@ -783,8 +772,7 @@ export const RemeshPanel: React.FC = () => {
             </div>
           </div>
 
-          {/* Engine indicator */}
-          {engineMode === 'ai' ? (
+          {/* TriFlow AI engine */}
             <div className="p-2.5 rounded-xl bg-[#12131d] border border-white/[0.06] space-y-1">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-white flex items-center gap-1.5">
@@ -799,22 +787,6 @@ export const RemeshPanel: React.FC = () => {
                 Neural vector fields predict artist-like quad edge loops conditioned on your exact face budget.
               </p>
             </div>
-          ) : (
-            <div className="p-2.5 rounded-xl bg-[#12131d] border border-white/[0.06] space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-white flex items-center gap-1.5">
-                  <Cpu className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Algorithmic Engine (Python)</span>
-                </span>
-                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300 font-semibold border border-indigo-500/30">
-                  QuadriFlow / Trimesh
-                </span>
-              </div>
-              <p className="text-[10px] text-zinc-400">
-                Deterministic geometric remesher using QuadriFlow for quads or Taubin curvature smoothing for triangles.
-              </p>
-            </div>
-          )}
 
           <div className="pt-0.5">
             <button
@@ -1040,11 +1012,7 @@ export const RemeshPanel: React.FC = () => {
             >
               <RefreshCw className="w-3.5 h-3.5 text-black" />
               <span>
-                {engineMode === 'ai'
-                  ? 'Run Neural Retopology (TriFlow)'
-                  : polyType === 'quad'
-                  ? 'Run Quad Retopology (Script)'
-                  : 'Run Isotropic Remesh (Trimesh)'}
+                Run Neural Retopology (TriFlow)
               </span>
             </button>
             <div className="flex items-center justify-between text-[10px] text-zinc-400 px-1 font-mono">
