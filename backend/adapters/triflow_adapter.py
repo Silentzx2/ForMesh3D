@@ -418,6 +418,10 @@ class TriFlowRetopologyAdapter(BaseModel):
         try:
             if hasattr(input_mesh, "simplify_quadric_decimation"):
                 simplified = input_mesh.simplify_quadric_decimation(face_count=target_faces)
+                if simplified is None:
+                    # simplify_quadric_decimation can return None (e.g. mesh already
+                    # at/below target, or pyfqmr unavailable); fall back to input mesh.
+                    simplified = input_mesh
             else:
                 simplified = input_mesh
         except Exception as e:

@@ -600,6 +600,11 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     echo "[INFO] Installing o-voxel..."
     install_local_wheel "o_voxel-*.whl" "o-voxel" || { echo "[ERROR] o-voxel wheel not found in $WHEEL_DIR"; exit 1; }
 
+    # custom_rasterizer — Hunyuan3D-2 differentiable rasterizer CUDA extension.
+    # Prebuilt wheel only, no source build. Required by hunyuan3d_v20_paint_image_mesh_painting.
+    echo "[INFO] Installing custom_rasterizer..."
+    install_local_wheel "custom_rasterizer-*.whl" "custom_rasterizer" || { echo "[ERROR] custom_rasterizer wheel not found in $WHEEL_DIR"; exit 1; }
+
     # kaolin (NVIDIA S3 wheel — no wheel-house copy)
     echo "[INFO] Installing kaolin..."
     $UV_PIP install --find-links="$WHEEL_DIR" kaolin -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.6.0_cu124.html \

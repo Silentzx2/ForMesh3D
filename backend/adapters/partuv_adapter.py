@@ -5,7 +5,7 @@ MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
 Model ID          : partuv_uv_unwrapping
 Model Name        : PartUV — UV Unwrapping
 Feature Target    : uv_unwrapping
-Status            : BETA / ACTIVE
+Status            : STABLE / WORKING
 Upstream Repo     : https://github.com/GAP-LAB-CUHK-SZ/PartUV
 Upstream Pipeline : partuv.preprocess.preprocess (partuv._core)
 Checkpoint / Path : backend/pretrained/PartUV
@@ -17,7 +17,7 @@ AGENT GOVERNANCE RULES:
 2. Unpacks 4-tuple preprocess return (mesh = result[0]) before export.
 =============================================================================
 """
-# Status - BETA / ACTIVE
+# Status - STABLE / WORKING
 
 from __future__ import annotations
 

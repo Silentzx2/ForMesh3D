@@ -40,8 +40,78 @@ logger = logging.getLogger(__name__)
 
 def apply_patch(gpu_id: Optional[int] = None) -> None:
     """Apply SkinTokens pre-Ampere and import compatibility patches."""
+    _inject_michelangelo_models_stub()
     _shim_gradio_if_missing()
     _patch_attention_and_precision(gpu_id=gpu_id)
+
+
+def _inject_michelangelo_models_stub() -> None:
+    """Inject stub modules for the missing Michelangelo models package.
+
+    The vendored SkinTokens source is missing
+    backend/thirdparty/SkinTokens/src/model/michelangelo/models/ which
+    src/model/michelangelo/get_model.py imports at line 3. Without this,
+    `import demo` crashes with ModuleNotFoundError before any weights are
+    loaded. The stub allows the import chain and demo.load_model() to
+    proceed; the adapter then surfaces a clear error if the real
+    architecture is still absent at inference time.
+    """
+    if torch is None:
+        return
+
+    import types
+
+    # Build the package chain so `import src.model.michelangelo.models.tsal.sal_perceiver`
+    # resolves when skintokens_root is on sys.path.
+    pkgs = [
+        "src",
+        "src.model",
+        "src.model.michelangelo",
+        "src.model.michelangelo.models",
+        "src.model.michelangelo.models.tsal",
+    ]
+    for pkg_name in pkgs:
+        if pkg_name not in sys.modules:
+            pkg = types.ModuleType(pkg_name)
+            pkg.__path__ = []
+            pkg.__package__ = pkg_name
+            sys.modules[pkg_name] = pkg
+
+    mod_name = "src.model.michelangelo.models.tsal.sal_perceiver"
+    if mod_name not in sys.modules:
+        mod = types.ModuleType(mod_name)
+
+        class AlignedShapeLatentPerceiver(torch.nn.Module):
+            """Stub for the real Michelangelo encoder. Not vendored upstream."""
+            _skintokens_stub = True
+
+            def __init__(self, **kwargs):
+                super().__init__()
+
+            def load_state_dict(self, state_dict, strict=True):
+                # Accept any checkpoint without error so load proceeds; the
+                # adapter rejects stub models before inference.
+                return super().load_state_dict({}, strict=False)
+
+            def forward(self, *args, **kwargs):
+                raise RuntimeError(
+                    "SkinTokens: real Michelangelo models source is not vendored. "
+                    "Vendor backend/thirdparty/SkinTokens/src/model/michelangelo/models/"
+                    " and retry."
+                )
+
+        class ShapeAsLatentPerceiverEncoder(torch.nn.Module):
+            """Stub for the real Michelangelo encoder. Not vendored upstream."""
+            _skintokens_stub = True
+
+            def __init__(self, **kwargs):
+                super().__init__()
+
+        mod.AlignedShapeLatentPerceiver = AlignedShapeLatentPerceiver
+        mod.ShapeAsLatentPerceiverEncoder = ShapeAsLatentPerceiverEncoder
+        mod.__package__ = "src.model.michelangelo.models.tsal"
+        sys.modules[mod_name] = mod
+        logger.debug("SkinTokens patcher: injected Michelangelo models stub")
 
 
 def _shim_gradio_if_missing() -> None:

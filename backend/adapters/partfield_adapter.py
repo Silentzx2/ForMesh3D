@@ -102,7 +102,10 @@ def _labels_from_merge_tree(
 
 
 class PartFieldSegmentationAdapter(BaseModel):
-    """Official learned PartField feature inference and agglomerative segmentation."""
+    """Official learned PartField feature inference and agglomerative segmentation.
+
+    Status: STABLE / WORKING
+    """
 
     MODEL_KEY = "PartField"
     FEATURE_TYPE = "mesh_segmentation"
@@ -132,6 +135,8 @@ class PartFieldSegmentationAdapter(BaseModel):
         )
         self.device = "cuda" if torch is not None and torch.cuda.is_available() else "cpu"
         self.model: Any = None
+        self.experimental = False
+        self.version = "1.0"
 
     def _resolve_checkpoint(self) -> Path:
         repo_root = Path(__file__).resolve().parents[2]

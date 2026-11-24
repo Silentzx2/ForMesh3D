@@ -114,8 +114,30 @@ class SkinTokensAdapter(BaseModel):
                 break
 
         logger.info("Loading SkinTokens model from %s", ckpt_path or "default")
-        demo.load_model(model_ckpt=ckpt_path or "", hf_path=None)
+        try:
+            demo.load_model(model_ckpt=ckpt_path or "", hf_path=None)
+        except RuntimeError as e:
+            if "model_ckpt is empty" in str(e):
+                raise RuntimeError(
+                    "SkinTokens model load failed: no checkpoint found. "
+                    "Download SkinTokens weights (manager.sh option 11 or "
+                    "backend/scripts/download_models.sh skintokens), then retry."
+                ) from e
+            raise RuntimeError(
+                "SkinTokens model load failed: the Michelangelo encoder source "
+                "is not vendored in backend/thirdparty/SkinTokens/. "
+                "Vendor src/model/michelangelo/models/ there, then retry. "
+                f"Original error: {e}"
+            ) from e
+
         self.model = demo.model
+        if getattr(self.model, "_skintokens_stub", False):
+            raise RuntimeError(
+                "SkinTokens loaded a stub model because the Michelangelo encoder "
+                "source is not vendored. "
+                "Vendor backend/thirdparty/SkinTokens/src/model/michelangelo/models/"
+                " (from upstream NeuralCarver/Michelangelo) and retry."
+            )
         self.status = ModelStatus.LOADED
         return self.model
 
