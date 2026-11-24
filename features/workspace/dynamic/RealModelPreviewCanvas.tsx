@@ -244,6 +244,17 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
         return;
       }
 
+      // Guard: EdgesGeometry is a synchronous CPU-bound computation.
+      // Skip it for very large meshes to avoid freezing the main thread.
+      const indexCount = node.geometry.index ? node.geometry.index.count : node.geometry.attributes.position.count;
+      const faceCount = indexCount / 3;
+      if (faceCount > 100_000) {
+        console.warn(
+          `[RealModelPreviewCanvas] Skipping boundary edges for mesh with ${Math.round(faceCount)} faces (exceeds 100k limit)`,
+        );
+        return;
+      }
+
       let edgeGeo = edgeGeoCacheRef.current.get(node.geometry);
       if (!edgeGeo) {
         edgeGeo = new THREE.EdgesGeometry(node.geometry, 30);

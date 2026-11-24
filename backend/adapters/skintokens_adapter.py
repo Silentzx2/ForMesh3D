@@ -24,6 +24,7 @@ AGENT GOVERNANCE RULES:
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -94,8 +95,14 @@ class SkinTokensAdapter(BaseModel):
 
         import demo
 
-        # Start companion bpy binding server
-        self._server_proc = demo.start_bpy_server()
+        # Start companion bpy binding server — run from skintokens_root so
+        # bpy_server.py (vendored in thirdparty/SkinTokens/) is found.
+        _orig_cwd = os.getcwd()
+        os.chdir(str(skintokens_root))
+        try:
+            self._server_proc = demo.start_bpy_server()
+        finally:
+            os.chdir(_orig_cwd)
         demo.wait_for_bpy_server()
 
         # Resolve weights and call official upstream model loader

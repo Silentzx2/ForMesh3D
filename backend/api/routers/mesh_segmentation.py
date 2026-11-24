@@ -357,6 +357,7 @@ async def segment_mesh(
         job_request = JobRequest(
             feature="mesh_segmentation",
             inputs={
+                **(request.model_parameters or {}),
                 "mesh_path": mesh_file_path,
                 "num_parts": request.num_parts,
                 "method": request.method,
@@ -368,7 +369,6 @@ async def segment_mesh(
                 "workspace_id": target_ws_id,
                 "operation_id": operation_id,
                 "parent_operation_id": request.parent_operation_id,
-                **(request.model_parameters or {}),
             },
             model_preference=request.model_preference,
             priority=1,

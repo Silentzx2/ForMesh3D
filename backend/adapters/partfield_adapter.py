@@ -281,6 +281,10 @@ class PartFieldSegmentationAdapter(BaseModel):
         colorize = bool(inputs.get("colorize_preview", True))
         save_individual = bool(inputs.get("save_individual_parts", False))
         hierarchical = bool(inputs.get("hierarchical", False))
+        logger.info(
+            "[PARTFIELD] save_individual_parts=%s num_parts=%d min_face_island=%d",
+            save_individual, target_parts, min_face_island,
+        )
         progress = inputs.get("progress_callback")
         output_dir = Path(inputs.get("output_dir") or Path(mesh_path).resolve().parent)
         output_dir.mkdir(parents=True, exist_ok=True)

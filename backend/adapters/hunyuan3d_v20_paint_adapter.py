@@ -82,12 +82,24 @@ class Hunyuan3DV20PaintImageMeshPaintingAdapter(BaseModel):
         weights_dir = get_model_weights_dir(self.MODEL_KEY)
         logger.info("Loading Hunyuan3D-2 (v2.0) Paint pipeline from %s", weights_dir)
         weights_dir_path = Path(weights_dir)
-        is_downloaded = (
-            (weights_dir_path / "hunyuan3d-paint-v2-0").is_dir()
-            or (weights_dir_path / "hunyuan3d-paint-v2-0-turbo").is_dir()
-            or (weights_dir_path / "hunyuan3d-delight-v2-0").is_dir()
-            or (weights_dir_path / "config.json").is_file()
+
+        def _has_valid_checkpoint(subdir: str) -> bool:
+            p = weights_dir_path / subdir
+            if not p.is_dir():
+                return False
+            # Diffusers pipelines require model_index.json plus weight files
+            if (p / "model_index.json").is_file():
+                return True
+            return any(
+                f.is_file() and f.suffix in {".safetensors", ".bin", ".pt", ".ckpt"}
+                for f in p.iterdir()
+            )
+
+        delight_ok = _has_valid_checkpoint("hunyuan3d-delight-v2-0")
+        paint_ok = _has_valid_checkpoint("hunyuan3d-paint-v2-0-turbo") or _has_valid_checkpoint(
+            "hunyuan3d-paint-v2-0"
         )
+        is_downloaded = delight_ok and paint_ok
         if not is_downloaded:
             weights_dir_path.mkdir(parents=True, exist_ok=True)
             logger.info(
