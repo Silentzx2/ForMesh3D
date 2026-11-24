@@ -87,9 +87,15 @@ class Hunyuan3DV20PaintImageMeshPaintingAdapter(BaseModel):
             p = weights_dir_path / subdir
             if not p.is_dir():
                 return False
-            # Diffusers pipelines require model_index.json to load; weight files
-            # alone are insufficient for DiffusionPipeline.from_pretrained().
-            return (p / "model_index.json").is_file()
+            # Diffusers pipelines require model_index.json AND at least one
+            # weight file to load; a directory with only model_index.json
+            # (or no files at all) will cause from_pretrained() to fail.
+            if not (p / "model_index.json").is_file():
+                return False
+            return any(
+                f.is_file() and f.suffix in {".safetensors", ".bin", ".pt", ".ckpt"}
+                for f in p.iterdir()
+            )
 
         delight_ok = _has_valid_checkpoint("hunyuan3d-delight-v2-0")
         paint_ok = _has_valid_checkpoint("hunyuan3d-paint-v2-0-turbo") or _has_valid_checkpoint(
@@ -109,8 +115,28 @@ class Hunyuan3DV20PaintImageMeshPaintingAdapter(BaseModel):
                 local_dir=str(weights_dir_path),
                 allow_patterns=["hunyuan3d-paint-v2-0/*", "hunyuan3d-paint-v2-0-turbo/*", "hunyuan3d-delight-v2-0/*"],
             )
+
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
-        pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(weights_dir_path))
+        try:
+            pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(weights_dir_path))
+        except Exception as load_err:
+            # Upstream from_pretrained() only downloads if the PARENT directory
+            # is missing. If it exists but subdirs are incomplete, it passes
+            # bad paths to DiffusionPipeline.from_pretrained() which raises.
+            # Retry download once and reload.
+            logger.warning(
+                "Hunyuan3D-2 (v2.0) Paint pipeline load failed (%s); re-downloading checkpoints and retrying.",
+                load_err,
+            )
+            weights_dir_path.mkdir(parents=True, exist_ok=True)
+            from huggingface_hub import snapshot_download
+
+            snapshot_download(
+                repo_id="tencent/Hunyuan3D-2",
+                local_dir=str(weights_dir_path),
+                allow_patterns=["hunyuan3d-paint-v2-0/*", "hunyuan3d-paint-v2-0-turbo/*", "hunyuan3d-delight-v2-0/*"],
+            )
+            pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(weights_dir_path))
         if torch is not None and torch.cuda.is_available() and hasattr(pipeline, "enable_model_cpu_offload"):
             try:
                 pipeline.enable_model_cpu_offload(gpu_id=self.gpu_id if self.gpu_id is not None else 0)
