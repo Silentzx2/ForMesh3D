@@ -5,7 +5,7 @@ MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
 Model ID          : fastmesh_v1k_retopology
 Model Name        : FastMesh-V1K — Quad Retopology
 Feature Target    : retopology
-Status            : BETA / ACTIVE
+Status            : STABLE / WORKING
 Upstream Repo     : https://github.com/lucas-w-arnold/FastMesh
 Upstream Pipeline : models.MODELS['MeshGen'].from_pretrained
 Checkpoint / Path : backend/pretrained/FastMesh-V1K
@@ -17,7 +17,7 @@ AGENT GOVERNANCE RULES:
 2. Supports FastMesh-V1K fixed-budget quad retopology on GPU.
 =============================================================================
 """
-# Status - BETA / ACTIVE
+# Status - STABLE / WORKING
 
 from __future__ import annotations
 

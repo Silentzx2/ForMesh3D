@@ -61,16 +61,15 @@ def _inject_michelangelo_models_stub() -> None:
 
     import types
 
-    # Build the package chain so `import src.model.michelangelo.models.tsal.sal_perceiver`
-    # resolves when skintokens_root is on sys.path.
-    pkgs = [
-        "src",
-        "src.model",
-        "src.model.michelangelo",
+    # Only register packages that are actually missing from disk.
+    # src, src.model, src.model.michelangelo exist on disk (with __init__.py)
+    # and must resolve normally — do not replace them with empty-path stubs,
+    # otherwise sibling subpackages (e.g. src.data) become unimportable.
+    missing_pkgs = [
         "src.model.michelangelo.models",
         "src.model.michelangelo.models.tsal",
     ]
-    for pkg_name in pkgs:
+    for pkg_name in missing_pkgs:
         if pkg_name not in sys.modules:
             pkg = types.ModuleType(pkg_name)
             pkg.__path__ = []

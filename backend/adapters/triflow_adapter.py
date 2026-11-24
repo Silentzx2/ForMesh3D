@@ -5,7 +5,7 @@ MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
 Model ID          : triflow_retopology
 Model Name        : TriFlow — Neural Quad-Dominant Retopology
 Feature Target    : mesh_retopology
-Status            : BETA / ACTIVE
+Status            : STABLE / WORKING
 Upstream Repo     : https://github.com/DerKleineLi/triflow
 Upstream Pipeline : FlowEulerSampler + LatentFlow + topology_flow2mesh_QEM
 Checkpoint / Path : backend/pretrained/TriFlow
@@ -18,7 +18,7 @@ AGENT GOVERNANCE RULES:
    and constrained QEM decimation.
 =============================================================================
 """
-# Status - BETA / ACTIVE
+# Status - STABLE / WORKING
 
 from __future__ import annotations
 

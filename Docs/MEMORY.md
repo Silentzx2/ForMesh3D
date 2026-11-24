@@ -28,6 +28,7 @@ The authoritative flags are in `backend/config/models.yaml`.
 Configured enabled families: Hunyuan3D Shape v2.1, Hunyuan3D DiT Mini Turbo, TripoSG, TRELLIS, Stable Fast 3D, Hunyuan3D Paint v2.0/v2.1, PartField, TriFlow, FastMesh V1K, PartUV, SkinTokens, and ARDY.
 
 - PartField (`partfield_segmentation`) and PartUV (`partuv_uv_unwrapping`): marked stable and working.
+- TriFlow (`triflow_retopology`) and FastMesh V1K (`fastmesh_v1k_retopology`): marked stable and working.
 
 Intentionally disabled and retained: Unique3D, Pixal3D, TRELLIS.2, TaoFlowForge. Do not enable them or delete their adapter, patcher, validator, configuration, or model-support files during unrelated work.
 
