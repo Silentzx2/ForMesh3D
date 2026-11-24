@@ -30,6 +30,7 @@ import { resolveAssetDeletionTarget } from '../lib/assetDeletion';
 import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
 import { useAppStore } from '@/stores/useAppStore';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
+import { findTaskKeyForBackendJob } from '../lib/taskIdentity';
 import { useTaskManager } from '@/hooks/useTaskManager';
 import { useTaskPolling } from '@/hooks/useTaskPolling';
 import { prefetchGLB } from '../lib/glbCache';
@@ -416,6 +417,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [assetFilter, setAssetFilter] = useState<string>('all');
    const [deletedAssetIds, setDeletedAssetIds] = useState<Set<string>>(() => new Set());
    const batchJobIdMap = useRef<Record<string, string>>({}); // Maps jobId to batchQueueItemId
+   const batchAbortControllerRef = useRef<AbortController | null>(null);
    const batchPollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
    
    // React Query for System Stats
@@ -1823,7 +1825,8 @@ function dataURLtoFile(dataURL: string, filename: string): File {
   const fitToScreen = useCallback(() => setViewportResetTrigger(prev => prev + 1), []);
 
   const cancelExecution = useCallback(async () => {
-    // a) Call activeAbortControllerRef.current?.abort() to stop in-flight fetches/SSE streams
+    // Batch work uses this same controller only while its task is foreground;
+    // an unrelated task gets its own controller and cannot cancel the batch queue.
     if (activeAbortControllerRef.current) {
       activeAbortControllerRef.current.abort();
       activeAbortControllerRef.current = null;
@@ -1832,16 +1835,18 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     const currentTask = activeTaskRef.current || activeTask;
     const jobId = currentTask?.id;
 
-    // c) Reset execution states cleanly
     setIsExecuting(false);
     setExecutionProgress(0);
     setExecutionStep('Execution cancelled');
+    setExecutionState('cancelled');
 
-    if (!jobId) return;
+    if (!jobId) {
+      toast.info('Operation cancelled');
+      return;
+    }
 
-    // b) If activeTask?.backendJobId or jobsById[jobId]?.backendJobId exists, call backend cancellation
     const backendJobId = currentTask?.backendJobId ||
-      (jobsByIdRef.current[jobId]?.backendJobId) ||
+      jobsByIdRef.current[jobId]?.backendJobId ||
       (!jobId.startsWith('local_') ? jobId : undefined);
 
     if (backendJobId) {
@@ -1851,42 +1856,44 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         if (data?.cancelled || data?.status === 'cancelled') {
           toast.success('Generation job cancelled');
         } else {
-          const message = data?.message || 'Job stop requested.';
-          toast.info('Job cancelled', { description: message });
+          toast.info('Job cancellation requested', { description: data?.message || 'The backend accepted the cancellation request.' });
         }
       } catch (error) {
         try {
-          await fetch(`/api/v1/system/jobs/${encodeURIComponent(backendJobId)}/cancel`, { method: 'POST' });
+          const response = await fetch(`/api/v1/system/jobs/${encodeURIComponent(backendJobId)}/cancel`, { method: 'POST' });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
         } catch (postErr) {
           console.warn('Backend cancel endpoint fallback error:', postErr);
+          toast.error('Backend cancellation could not be confirmed');
         }
-        toast.info('Cancelled locally', { description: 'Cancellation request sent to server' });
       }
     } else {
       toast.info('Operation cancelled');
     }
 
-    setActiveTask(prev => prev ? {
+    setActiveTask(prev => prev && (prev.id === jobId || Boolean(backendJobId && prev.backendJobId === backendJobId)) ? {
       ...prev,
-      status: 'interrupted',
+      status: 'cancelled',
       currentStep: 'Execution cancelled',
       stage: 'cancelled',
-    } : null);
+    } : prev);
 
     setJobsById(prev => {
-      const existing = prev[jobId] || activeTaskRef.current;
+      const activeTaskMatches = activeTaskRef.current && (activeTaskRef.current.id === jobId || Boolean(backendJobId && activeTaskRef.current.backendJobId === backendJobId));
+      const existing = prev[jobId] || Object.values(prev).find(task => task.id === jobId || Boolean(backendJobId && task.backendJobId === backendJobId)) || (activeTaskMatches ? activeTaskRef.current : undefined);
       if (!existing) return prev;
+      const taskKey = Object.keys(prev).find(key => prev[key] === existing) || jobId;
       const updated: ActiveTask = {
         ...existing,
-        status: 'interrupted',
+        status: 'cancelled',
         currentStep: 'Execution cancelled',
         stage: 'cancelled',
       };
-      const next = { ...prev, [jobId]: updated };
+      const next = { ...prev, [taskKey]: updated };
       jobsByIdRef.current = next;
       return next;
     });
-  }, [activeTask, getApiClient]);
+  }, [activeTask, getApiClient, setExecutionState, setIsExecuting, completeTask]);
 
   const startTask = useCallback((type: ActiveTask['type'], title: string, _promptId?: string, provider?: string, inputImage?: string, inputImageName?: string, comparisonGroupId?: string, sourceModelUrl?: string) => {
     // Every execution gets its own task identity. Workspace and backend job
@@ -2303,7 +2310,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         error_message: message,
         provider: generationSettings.aiModel || '',
       } as any);
-      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message, diagnostic } : null);
+      setActiveTask(prev => prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message, diagnostic } : null);
       toast.error('Generation failed', { description: message });
     }
   }, [
@@ -2392,10 +2399,10 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       setExecutionState('failed');
       setExecutionStep(message);
       setJobsById(prev => prev[localTaskId]
-        ? { ...prev, [localTaskId]: { ...prev[localTaskId], status: 'failed', currentStep: message, errorMessage: message } }
+        ? { ...prev, [localTaskId]: { ...prev[localTaskId], status: 'failed' as const, currentStep: message, errorMessage: message } }
         : prev);
       setActiveTask(prev => prev?.id === localTaskId
-        ? { ...prev, status: 'failed', currentStep: message, errorMessage: message }
+        ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message }
         : prev);
       toast.error('Regeneration failed', { description: message });
       throw error;
@@ -2505,7 +2512,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const message = error instanceof Error ? error.message : 'Remesh submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
-      setActiveTask((prev) => (prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null));
+      setActiveTask((prev) => (prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null));
       toast.error('Remesh failed', { description: message });
     }
   }, [remeshSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId, addAsset, selectAsset, setViewportResetTrigger]);
@@ -2518,7 +2525,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const message = 'No mesh selected. Please select a 3D mesh to texture.';
       setIsExecuting(false);
       setExecutionStep(message);
-      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
+      setActiveTask(prev => prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null);
       toast.error(message);
       return;
     }
@@ -2569,7 +2576,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         error_message: message,
         provider: textureSettings.modelId || '',
       } as any);
-      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message, diagnostic } : null);
+      setActiveTask(prev => prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message, diagnostic } : null);
       toast.error('Texture generation failed', { description: message });
     }
   }, [textureSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
@@ -2642,7 +2649,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const message = error instanceof Error ? error.message : 'UV unwrapping submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
-      setActiveTask((prev) => (prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null));
+      setActiveTask((prev) => (prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null));
       toast.error('UV unwrapping failed', { description: message });
     }
   }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId, addAsset, selectAsset, setViewportResetTrigger]);
@@ -2717,7 +2724,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const message = error instanceof Error ? error.message : 'Segmentation submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
-      setActiveTask((prev) => (prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null));
+      setActiveTask((prev) => (prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null));
       toast.error('Segmentation failed', { description: message });
     }
   }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
@@ -2767,7 +2774,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const message = error instanceof Error ? error.message : 'Auto-rigging submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
-      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
+      setActiveTask(prev => prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null);
       toast.error('Auto-rigging failed', { description: message });
     }
   }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
@@ -2816,7 +2823,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const message = error instanceof Error ? error.message : 'Motion generation submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
-      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
+      setActiveTask(prev => prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null);
       toast.error('Motion generation failed', { description: message });
     }
   }, [startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
@@ -2825,219 +2832,252 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     const processBatchQueue = useCallback(async () => {
       const appStore = useAppStore.getState();
       const { batchGenerationEnabled, batchQueue } = appStore;
-     
-     if (!batchGenerationEnabled) {
-       toast.error('Batch generation disabled', { description: 'Enable batch generation in settings to process the queue.' });
-       return;
-     }
 
-     // Find queued batch queue items that haven't been processed yet
-     const queuedItems = batchQueue.filter(item => 
-       item.status === 'queued' && !item.jobId
-     );
+      if (!batchGenerationEnabled) {
+        toast.error('Batch generation disabled', { description: 'Enable batch generation in settings to process the queue.' });
+        return;
+      }
+      if (batchAbortControllerRef.current) {
+        toast.info('Batch processing is already running or stopping.');
+        return;
+      }
 
-     if (queuedItems.length === 0) {
-       toast.info('No items to process', { description: 'The batch queue is empty or all items have been processed.' });
-       return;
-     }
+      const queuedItems = batchQueue.filter(item => item.status === 'queued' && !item.jobId);
+      if (queuedItems.length === 0) {
+        toast.info('No items to process', { description: 'The batch queue is empty or all items have been processed.' });
+        return;
+      }
 
-     // Process each queued item
-     for (const batchItem of queuedItems) {
-       try {
-         // Validate that we have the necessary information
-         if (!batchItem.imageFileId) {
-           throw new Error('Missing image file ID for batch item');
-         }
+      const batchController = new AbortController();
+      batchAbortControllerRef.current = batchController;
+      let submittedCount = 0;
 
-         // Create a temporary GenerationSettings object from the batch item
-         const batchTexQuality = batchItem.textureQuality as string | undefined;
-         const batchTexRes: '512' | '1K' | '2K' | '4K' | '8K' =
-           batchItem.texture_resolution ??
-           batchItem.textureResolution ??
-           (batchTexQuality === '8k' ? '8K' : batchTexQuality === 'ultra' ? '4K' : batchTexQuality === 'high' ? '2K' : '1K');
-         const batchSettings: GenerationSettings = {
-           mode: 'image-to-3d',
-           image: null, // We'll use imageFileId instead
-           imageFileId: batchItem.imageFileId,
-           aiModel: batchItem.aiModel,
-           textureQuality: (batchItem.textureQuality as any) ?? 'high',
-           texture_resolution: batchTexRes,
-           textureResolution: batchTexRes,
-           quadTopology: batchItem.quadTopology ?? false,
-           topologyMode: batchItem.topologyMode ?? 'triangle',
-            seed: batchItem.seed ?? (Math.floor(Math.random() * 900000) + 100000),
-            removeBackground: batchItem.removeBackground ?? true,
-            autoOptimizeSettings: batchItem.autoOptimizeSettings ?? { targetPolycount: 0 },
-            generateTexture: batchItem.generateTexture ?? true,
-            highResolutionNormalBaking: batchItem.highResolutionNormalBaking ?? true,
-            generateLOD: batchItem.generateLOD ?? false,
-            lodPreset: batchItem.lodPreset ?? 'high',
-            lodCount: batchItem.lodCount ?? 4,
-            candidateCount: batchItem.candidateCount ?? 1,
-            partCountRange: batchItem.partCountRange ?? '1',
-            rigType: batchItem.rigType ?? 'none',
-            exportFormats: batchItem.exportFormats ?? ['glb'],
-            slicerHandoff: batchItem.slicerHandoff ?? false,
-            generateCollision: batchItem.generateCollision ?? true,
-            preprocessingArtifactId: batchItem.preprocessingArtifactId,
-            preprocessingReviewOverride: batchItem.preprocessingReviewOverride ?? false,
-            preprocessingPreviewUrl: null,
-            preprocessingMetadata: batchItem.preprocessingMetadata,
-            enhancementEnabled: batchItem.enhancementEnabled ?? false,
-            enablePrintabilityCheck: batchItem.enablePrintabilityCheck ?? false,
-            enableAutoRepair: batchItem.enableAutoRepair ?? false,
-            enableAutoRig: batchItem.enableAutoRig ?? false,
-            autoRigMode: batchItem.autoRigMode ?? 'full',
-            enablePostprocess: batchItem.enablePostprocess ?? true,
-         };
+      try {
+        for (const batchItem of queuedItems) {
+          if (batchController.signal.aborted) break;
+          let localTaskId: string | null = null;
 
-          // Create a local task for tracking
-          const localTaskId = startTask(
-            'image-to-3d',
-            `Batch Item ${batchItem.id.slice(-6)}`,
-            undefined,
-             batchItem.aiModel || '',
-             undefined,
-             undefined,
-             comparisonGroupId ?? undefined
-           );
+          try {
+            if (!batchItem.imageFileId) throw new Error('Missing image file ID for batch item');
 
-          // Batch and single submissions use the same manifest-declared model capabilities.
-          const effectiveSettings = batchSettings;
-          const effectiveModelId = effectiveSettings.aiModel || '';
-          const selectedCapabilities = modelDetails[effectiveModelId]?.capabilities || {};
-          const modelCapabilities = resolveGenerationModelCapabilities(effectiveModelId, selectedCapabilities);
-          const { endpoint, body } = buildGenerationParameters(effectiveSettings, modelCapabilities);
+            const batchTexQuality = batchItem.textureQuality as string | undefined;
+            const batchTexRes: '512' | '1K' | '2K' | '4K' | '8K' =
+              batchItem.texture_resolution ??
+              batchItem.textureResolution ??
+              (batchTexQuality === '8k' ? '8K' : batchTexQuality === 'ultra' ? '4K' : batchTexQuality === 'high' ? '2K' : '1K');
+            const batchSettings: GenerationSettings = {
+              mode: 'image-to-3d',
+              image: null,
+              imageFileId: batchItem.imageFileId,
+              aiModel: batchItem.aiModel,
+              textureQuality: (batchItem.textureQuality as any) ?? 'high',
+              texture_resolution: batchTexRes,
+              textureResolution: batchTexRes,
+              quadTopology: batchItem.quadTopology ?? false,
+              topologyMode: batchItem.topologyMode ?? 'triangle',
+              seed: batchItem.seed ?? (Math.floor(Math.random() * 900000) + 100000),
+              removeBackground: batchItem.removeBackground ?? true,
+              autoOptimizeSettings: batchItem.autoOptimizeSettings ?? { targetPolycount: 0 },
+              generateTexture: batchItem.generateTexture ?? true,
+              highResolutionNormalBaking: batchItem.highResolutionNormalBaking ?? true,
+              generateLOD: batchItem.generateLOD ?? false,
+              lodPreset: batchItem.lodPreset ?? 'high',
+              lodCount: batchItem.lodCount ?? 4,
+              candidateCount: batchItem.candidateCount ?? 1,
+              partCountRange: batchItem.partCountRange ?? '1',
+              rigType: batchItem.rigType ?? 'none',
+              exportFormats: batchItem.exportFormats ?? ['glb'],
+              slicerHandoff: batchItem.slicerHandoff ?? false,
+              generateCollision: batchItem.generateCollision ?? true,
+              preprocessingArtifactId: batchItem.preprocessingArtifactId,
+              preprocessingReviewOverride: batchItem.preprocessingReviewOverride ?? false,
+              preprocessingPreviewUrl: null,
+              preprocessingMetadata: batchItem.preprocessingMetadata,
+              enhancementEnabled: batchItem.enhancementEnabled ?? false,
+              enablePrintabilityCheck: batchItem.enablePrintabilityCheck ?? false,
+              enableAutoRepair: batchItem.enableAutoRepair ?? false,
+              enableAutoRig: batchItem.enableAutoRig ?? false,
+              autoRigMode: batchItem.autoRigMode ?? 'full',
+              enablePostprocess: batchItem.enablePostprocess ?? true,
+            };
 
-         // Submit the job to the backend
-         const res = await fetch(endpoint, {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify(body),
-           signal: activeAbortControllerRef.current?.signal,
-         });
-         if (!res.ok) throw await parseApiError(res);
-         const data = await parseApiData<{ job_id?: string; id?: string; status?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
-         const jobId = data.job_id ?? data.id;
-         if (!jobId) throw new Error('Backend did not return a generation job ID');
+            localTaskId = startTask(
+              'image-to-3d',
+              `Batch Item ${batchItem.id.slice(-6)}`,
+              undefined,
+              batchItem.aiModel || '',
+              undefined,
+              undefined,
+              comparisonGroupId ?? undefined
+            );
+            activeAbortControllerRef.current = batchController;
 
-         // Store the mapping from jobId to batchQueueItemId for polling
-         batchJobIdMap.current[jobId] = batchItem.id;
+            const effectiveModelId = batchSettings.aiModel || '';
+            const selectedCapabilities = modelDetails[effectiveModelId]?.capabilities || {};
+            const modelCapabilities = resolveGenerationModelCapabilities(effectiveModelId, selectedCapabilities);
+            const { endpoint, body } = buildGenerationParameters(batchSettings, modelCapabilities);
+            const res = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+              signal: batchController.signal,
+            });
+            if (!res.ok) throw await parseApiError(res);
 
-         // Update the batch queue item with the job ID and mark as submitted/running
-         updateBatchItem(batchItem.id, {
-           jobId,
-           status: 'running',
-           progress: 0,
-           startedAt: new Date(),
-         });
+            const data = await parseApiData<{ job_id?: string; id?: string; status?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
+            const jobId = data.job_id ?? data.id;
+            if (!jobId) throw new Error('Backend did not return a generation job ID');
 
-         // Bind the backend job to our local task for tracking
-         bindBackendJob(localTaskId, jobId, {
-           status: 'queued',
-           currentStep: 'Queued on backend',
-           provider: effectiveSettings.aiModel || '',
-         }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
-         
-       } catch (error) {
-         const message = error instanceof Error ? error.message : 'Batch item processing failed';
-         console.error('Failed to process batch item:', error);
-         
-         // Update the batch queue item to reflect the failure
-         updateBatchItem(batchItem.id, {
-           status: 'failed',
-           error: message,
-           completedAt: new Date(),
-         });
-         
-         // Show toast for the error but continue processing other items
-         toast.error(`Batch item failed: ${message}`);
-       }
-     }
+            batchJobIdMap.current[jobId] = batchItem.id;
+            bindBackendJob(localTaskId, jobId, {
+              status: 'queued',
+              currentStep: 'Queued on backend',
+              provider: batchSettings.aiModel || '',
+            }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
 
-      // Show completion toast
-      toast.success('Batch processing started', { description: `${queuedItems.length} items submitted for processing.` });
-    }, [modelDetails, startTask, bindBackendJob, getApiClient, parseApiError, parseApiData, buildGenerationParameters, toast]);
+            if (batchController.signal.aborted) {
+              updateBatchItem(batchItem.id, { jobId, status: 'cancelled', progress: 0, completedAt: new Date() });
+              try {
+                await getApiClient().cancelGenerationJob(jobId);
+              } catch (cancelError) {
+                try {
+                  const response = await fetch(`/api/v1/system/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+                  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                } catch (fallbackError) {
+                  console.warn(`Failed to cancel newly accepted batch job ${jobId}:`, fallbackError || cancelError);
+                }
+              }
+              completeTask(jobId, 'cancelled');
+              setJobsById(prev => {
+                const existing = prev[localTaskId!];
+                if (!existing) return prev;
+                const next = { ...prev, [localTaskId!]: { ...existing, status: 'cancelled' as const, currentStep: 'Batch execution cancelled', stage: 'cancelled' } };
+                jobsByIdRef.current = next;
+                return next;
+              });
+              setActiveTask(prev => prev?.id === localTaskId ? { ...prev, status: 'cancelled' as const, currentStep: 'Batch execution cancelled', stage: 'cancelled' } : prev);
+              if (activeTaskRef.current?.id === localTaskId) setExecutionState('cancelled');
+              delete batchJobIdMap.current[jobId];
+              break;
+            }
+
+            updateBatchItem(batchItem.id, { jobId, status: 'running', progress: 0, startedAt: new Date() });
+            submittedCount += 1;
+          } catch (error) {
+            if (batchController.signal.aborted) {
+              updateBatchItem(batchItem.id, { status: 'cancelled', completedAt: new Date() });
+              if (localTaskId) {
+                setJobsById(prev => {
+                  const existing = prev[localTaskId!];
+                  if (!existing) return prev;
+                  const next = { ...prev, [localTaskId!]: { ...existing, status: 'cancelled' as const, currentStep: 'Batch execution cancelled', stage: 'cancelled' } };
+                  jobsByIdRef.current = next;
+                  return next;
+                });
+                setActiveTask(prev => prev?.id === localTaskId ? { ...prev, status: 'cancelled' as const, currentStep: 'Batch execution cancelled', stage: 'cancelled' } : prev);
+                if (activeTaskRef.current?.id === localTaskId) {
+                  setIsExecuting(false);
+                  setExecutionProgress(0);
+                  setExecutionStep('Batch execution cancelled');
+                  setExecutionState('cancelled');
+                }
+              }
+              break;
+            }
+
+            const message = error instanceof Error ? error.message : 'Batch item processing failed';
+            console.error('Failed to process batch item:', error);
+            updateBatchItem(batchItem.id, { status: 'failed', error: message, completedAt: new Date() });
+            if (localTaskId) {
+              setJobsById(prev => {
+                const existing = prev[localTaskId!];
+                if (!existing) return prev;
+                const next = { ...prev, [localTaskId!]: { ...existing, status: 'failed' as const, currentStep: message, errorMessage: message } };
+                jobsByIdRef.current = next;
+                return next;
+              });
+              setActiveTask(prev => prev?.id === localTaskId ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : prev);
+              if (activeTaskRef.current?.id === localTaskId) {
+                setIsExecuting(false);
+                setExecutionProgress(0);
+                setExecutionStep(message);
+                setExecutionState('failed');
+              }
+            }
+            toast.error(`Batch item failed: ${message}`);
+          }
+        }
+
+        if (!batchController.signal.aborted) {
+          toast.success('Batch processing started', { description: `${submittedCount} items submitted for processing.` });
+        }
+      } finally {
+        if (batchAbortControllerRef.current === batchController) batchAbortControllerRef.current = null;
+        if (activeAbortControllerRef.current === batchController) activeAbortControllerRef.current = null;
+      }
+    }, [modelDetails, startTask, bindBackendJob, getApiClient, parseApiError, parseApiData, buildGenerationParameters, completeTask, setExecutionState, setIsExecuting, setExecutionProgress, setExecutionStep, toast]);
 
    // Cancel batch processing function
    const cancelBatchProcessing = useCallback(async () => {
+     const batchController = batchAbortControllerRef.current;
+     if (batchController) batchController.abort();
+     if (activeAbortControllerRef.current === batchController) activeAbortControllerRef.current = null;
+
      const appStore = useAppStore.getState();
      const { batchQueue, updateBatchItem } = appStore;
-     
-     // Get all batch queue items that are currently running or queued
-     const itemsToCancel = batchQueue.filter(item => 
-       item.status === 'running' || item.status === 'queued'
-     );
-     
+     const itemsToCancel = batchQueue.filter(item => item.status === 'running' || item.status === 'queued');
+
      if (itemsToCancel.length === 0) {
        toast.info('No items to cancel', { description: 'There are no running or queued batch items to cancel.' });
        return;
      }
-     
-     // Cancel each item's job if it has a jobId
+
      for (const item of itemsToCancel) {
-       if (item.jobId) {
-         const bJobId = item.jobId;
+       if (!item.jobId) {
+         updateBatchItem(item.id, { status: 'cancelled', completedAt: new Date() });
+         continue;
+       }
+
+       const backendJobId = item.jobId;
+       try {
+         await getApiClient().cancelGenerationJob(backendJobId);
+       } catch (error) {
          try {
-           await getApiClient().cancelGenerationJob(bJobId);
-         } catch (err) {
-           try {
-             await fetch(`/api/v1/system/jobs/${encodeURIComponent(bJobId)}`, {
-               method: 'DELETE',
-             });
-           } catch (delErr) {
-             console.warn('Failed to cancel job via backend:', delErr);
-           }
+           const response = await fetch(`/api/v1/system/jobs/${encodeURIComponent(backendJobId)}/cancel`, { method: 'POST' });
+           if (!response.ok) throw new Error(`HTTP ${response.status}`);
+         } catch (fallbackError) {
+           console.warn('Failed to cancel batch job via backend:', fallbackError);
          }
-         
-         // Update the batch queue item to cancelled
-         updateBatchItem(item.id, {
-           status: 'cancelled',
-           completedAt: new Date(),
-         });
-         
-         // Clean up the job ID map
-         delete batchJobIdMap.current[bJobId];
+       }
 
-         // Synchronize jobsById so the background poller does not revive cancelled batch jobs
-         setJobsById(prev => {
-           const existing = prev[bJobId];
-           if (!existing) return prev;
-           const updated: ActiveTask = {
-             ...existing,
-             status: 'interrupted',
-             currentStep: 'Batch execution cancelled',
-             stage: 'cancelled',
-           };
-           const next = { ...prev, [bJobId]: updated };
-           jobsByIdRef.current = next;
-           return next;
-         });
+       updateBatchItem(item.id, { status: 'cancelled', completedAt: new Date() });
+       delete batchJobIdMap.current[backendJobId];
+       completeTask(backendJobId, 'cancelled');
 
-         // If this batch item was the active foreground task, clear executing state
-         if (activeTaskRef.current?.id === bJobId) {
-           setIsExecuting(false);
-           setExecutionProgress(0);
-           setExecutionStep('Batch execution cancelled');
-           setActiveTask(prev => prev && prev.id === bJobId ? {
-             ...prev,
-             status: 'interrupted',
-             currentStep: 'Batch execution cancelled',
-             stage: 'cancelled',
-           } : null);
-         }
-       } else {
-         // If the item doesn't have a jobId, it's probably still queued and hasn't been processed yet
-         updateBatchItem(item.id, {
-           status: 'cancelled',
-         });
+       const isForegroundTask = activeTaskRef.current?.id === backendJobId ||
+         activeTaskRef.current?.backendJobId === backendJobId;
+       setJobsById(prev => {
+         const taskKey = findTaskKeyForBackendJob(prev, backendJobId);
+         if (!taskKey) return prev;
+         const existing = prev[taskKey];
+         const next = { ...prev, [taskKey]: { ...existing, status: 'cancelled' as const, currentStep: 'Batch execution cancelled', stage: 'cancelled' } };
+         jobsByIdRef.current = next;
+         return next;
+       });
+
+       if (isForegroundTask) {
+         setIsExecuting(false);
+         setExecutionProgress(0);
+         setExecutionStep('Batch execution cancelled');
+         setExecutionState('cancelled');
+         setActiveTask(prev => prev && (prev.id === backendJobId || prev.backendJobId === backendJobId)
+           ? { ...prev, status: 'cancelled' as const, currentStep: 'Batch execution cancelled', stage: 'cancelled' }
+           : prev);
        }
      }
-     
-      toast.success('Batch processing cancelled', { description: `${itemsToCancel.length} items cancelled.` });
-    }, [useAppStore]);
 
-    // Retry failed batch items function
+     toast.success('Batch processing cancelled', { description: `${itemsToCancel.length} items cancelled.` });
+   }, [getApiClient, completeTask, setExecutionState, setIsExecuting, setExecutionProgress, setExecutionStep, toast]);    // Retry failed batch items function
     const retryFailedBatchItems = useCallback(async () => {
       const appStore = useAppStore.getState();
       const { batchQueue, updateBatchItem } = appStore;
@@ -3061,28 +3101,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
            error: undefined,
            startedAt: undefined,
            completedAt: undefined,
-           // Clear stored generation settings so they get current values when re-queued
-           textureQuality: undefined,
-           quadTopology: undefined,
-           topologyMode: undefined,
-           seed: undefined,
-           removeBackground: undefined,
-           autoOptimizeSettings: undefined,
-           generateTexture: undefined,
-           texture_resolution: undefined,
-           textureResolution: undefined,
-           highResolutionNormalBaking: undefined,
-           generateLOD: undefined,
-           lodPreset: undefined,
-           lodCount: undefined,
-           candidateCount: undefined,
-           preprocessingReviewOverride: undefined,
-           enhancementEnabled: undefined,
-           generateCollision: undefined,
-           enablePrintabilityCheck: undefined,
-           enableAutoRepair: undefined,
-           enableAutoRig: undefined,
-           autoRigMode: undefined,
+           // Preserve the original per-item settings snapshot for deterministic retry.
          });
          
          // Clean up the job ID map for this item

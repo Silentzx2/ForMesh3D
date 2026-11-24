@@ -136,13 +136,12 @@ The checked-in CI commands are documented in [CONTRIBUTING.md](../CONTRIBUTING.m
 **Validation:** source changes are committed as one dev update. TypeScript, lint, Bun tests, production build and browser interaction must be verified by CI after push; no GPU/inference code changed.
 
 ## 15. Desktop inspector and asset controls — 2026-11-24
-- Restored persisted expand/collapse behavior for the Generator context accordion; tool changes auto-expand it only until the user manually overrides it.
-- Added per-asset favorite toggling with persistence in the existing app-state store; stable backend file identity keeps favorites across upload/history aliases.
-- Cleared stale viewer statistics at selection start while keeping the previous mesh rendered until the new loader completes.
-- Geometry health and UV metrics now show unknown when source metadata is absent; removed fabricated manifold, chart-count and UV-channel claims.
-- Kept this pass desktop-only; no mobile layout or navigation changes.
+- Persisted Generator accordion state and per-asset Favorites; tool changes auto-expand only until manual override, and favorites use stable asset identity.
+- Cleared stale geometry stats during selection while retaining the previous rendered mesh; unavailable manifold/UV metrics remain unknown. Desktop only; mobile unchanged.
 
 ## 16. PartField merge-tree label stability — 2026-11-24
-- Assign output labels by first source-face occurrence instead of internal merge-node IDs.
-- Partial cuts now preserve intuitive, deterministic face-order labels without changing merge ancestry or the requested part count.
-- Regression covers a single-cut tree where the surviving leaf ID sorts before the merged parent ID.
+- Labels follow first source-face occurrence, preserving deterministic partial-cut order without changing merge ancestry or requested part count; regression covers leaf-versus-parent internal ID ordering.
+
+## 17. Task cancellation, batch retries and polling — 2026-11-24
+- Explicit cancellation records `cancelled`, aborts pending batch submissions, resolves local/backend task IDs, and uses `/cancel` rather than destructive job deletion.
+- Batch retries retain original settings; polling ignores stale terminal-state responses and stops scheduling when no backend jobs remain.

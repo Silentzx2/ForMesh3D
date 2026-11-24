@@ -2,6 +2,7 @@ import { useEffect, useCallback, useRef, useState } from 'react';
 import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
 import { useAppStore } from '@/stores/useAppStore';
 import type { JobStatus, JobInfo } from '@/types/api';
+import { canApplyPolledTaskUpdate, hasActiveBackendTasks, isPollableBackendTask } from './taskPollingState';
 
 export interface UseTaskPollingOptions {
   initialInterval?: number; // default: 1500 (1.5s)
@@ -9,10 +10,6 @@ export interface UseTaskPollingOptions {
   backoffDelayMs?: number;  // default: 120000 (2 minutes)
   enabled?: boolean;
 }
-
-// Backend job IDs may be UUIDs or canonical <slug>_<6-8 hex> workspace IDs.
-// This excludes frontend task keys and local placeholder IDs.
-const BACKEND_JOB_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9][a-z0-9-]{0,39}_[a-f0-9]{6,8})$/i;
 
 const BACKEND_STATUS: Record<JobStatus, 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'> = {
   queued: 'queued',
@@ -40,6 +37,7 @@ export const useTaskPolling = (options: UseTaskPollingOptions = {}) => {
   } = options;
 
   const tasks = useAppStore((state) => state.tasks);
+  const hasActiveTasks = hasActiveBackendTasks(tasks);
   const setTask = useAppStore((state) => state.setTask);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pollingStatus, setPollingStatus] = useState<PollingLifecycleStatus>('idle');
@@ -48,7 +46,7 @@ export const useTaskPolling = (options: UseTaskPollingOptions = {}) => {
   const pollingStartTimeRef = useRef<number | null>(null);
 
   const pollTaskStatus = useCallback(async (task: (typeof tasks)[string]) => {
-    if (!task.id || task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
+    if (!task.id || !canApplyPolledTaskUpdate(task.status)) {
       return;
     }
 
@@ -127,6 +125,10 @@ export const useTaskPolling = (options: UseTaskPollingOptions = {}) => {
         updatedTask.metadata = { ...updatedTask.metadata, error: 'Task failed during processing' };
       }
 
+      // A poll started before Cancel may finish after the local task has become terminal.
+      // Never let that stale response resurrect a cancelled/completed/failed task.
+      const latestTask = useAppStore.getState().tasks[task.id];
+      if (!canApplyPolledTaskUpdate(latestTask?.status)) return;
       setTask(updatedTask);
     } catch (error) {
       console.error('[TaskPolling] Failed to poll task status:', error);
@@ -145,9 +147,7 @@ export const useTaskPolling = (options: UseTaskPollingOptions = {}) => {
     const currentTasks = useAppStore.getState().tasks;
     const activeTasks = Object.values(currentTasks).filter(
       (task) =>
-        task.id &&
-        BACKEND_JOB_ID_RE.test(task.id) &&
-        (task.status === 'queued' || task.status === 'running')
+        isPollableBackendTask(task)
     );
 
     if (activeTasks.length === 0) {
@@ -171,9 +171,7 @@ export const useTaskPolling = (options: UseTaskPollingOptions = {}) => {
       isPollingRef.current = false;
       const remainingTasks = Object.values(useAppStore.getState().tasks).filter(
         (task) =>
-          task.id &&
-          BACKEND_JOB_ID_RE.test(task.id) &&
-          (task.status === 'queued' || task.status === 'running')
+          isPollableBackendTask(task)
       );
       if (remainingTasks.length === 0) {
         pollingStartTimeRef.current = null;
@@ -184,11 +182,13 @@ export const useTaskPolling = (options: UseTaskPollingOptions = {}) => {
 
   // Adaptive scheduling loop with tab visibility awareness
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || !hasActiveTasks) {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
+      pollingStartTimeRef.current = null;
+      setPollingStatus(enabled ? 'idle' : 'stopped');
       return;
     }
 
@@ -236,7 +236,7 @@ export const useTaskPolling = (options: UseTaskPollingOptions = {}) => {
         document.removeEventListener('visibilitychange', handleVisibilityChange);
       }
     };
-  }, [enabled, initialInterval, backoffInterval, backoffDelayMs, pollAllActiveTasks]);
+  }, [enabled, hasActiveTasks, initialInterval, backoffInterval, backoffDelayMs, pollAllActiveTasks]);
 
   return {
     isPolling,

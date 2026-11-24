@@ -7,6 +7,7 @@
 - Made shared GLB fetches independently cancellable per consumer and added focused regression tests.
 - Fixed desktop Generator accordion state, added persisted Favorites toggling, and stopped stale or fabricated geometry metrics from appearing during asset selection.
 - Stabilized PartField merge-tree labels by first source-face occurrence, fixing the partial-cut cluster ordering regression.
+- Corrected cancellation terminal states, batch task identity mapping and abort behavior; batch cancellation no longer calls the destructive job-deletion endpoint.
 
 ## 2026-11-24 — Workspace-Scoped Derived Operation Storage
 - Prevented retopology, UV, segmentation and rigging jobs from creating duplicate `storage/<job_id>/` directories.

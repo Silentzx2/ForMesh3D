@@ -118,3 +118,10 @@ Use only the currently exported shared presets. Prefer local CSS transitions for
 - Viewer statistics are cleared when a new asset selection begins, preventing the still-visible previous mesh from supplying stale metrics to the new selection. The old mesh remains rendered until the replacement load succeeds.
 - Geometry health and UV chart counts display unknown when no measured or backend metadata exists; do not substitute assumed manifold status, chart counts or UV-channel labels.
 - `glbCache.ts` shares network work while keeping cancellation per consumer; the underlying fetch is aborted only after the final subscriber leaves.
+
+## 12. Task execution and cancellation
+
+- Explicit user cancellation is terminal `cancelled`; `interrupted` is reserved for work interrupted by process/runtime failure.
+- Batch submission has a single-run guard and one abort controller; cancellation stops pending submissions and cancels accepted jobs through the dedicated `/cancel` endpoint.
+- Batch cancellation resolves local task keys through their backend job identity. Retrying a failed batch item preserves its original input and settings snapshot.
+- Adaptive polling runs only while backend jobs are queued/running and ignores responses that arrive after a task has entered a terminal state.
