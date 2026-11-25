@@ -369,73 +369,40 @@ class StableFast3DAdapter(BaseModel):
                 device_type="cuda", dtype=autocast_dtype
             )
 
-        # On pre-Ampere GPUs (sm < 80, e.g. T4), triplane sequence length (12288 tokens)
-        # causes PyTorch SDPA Math fallback to allocate 5.09 GiB all at once, causing OOM.
-        # We wrap scaled_dot_product_attention strictly for pre-Ampere devices with
-        # chunked SDPA (chunk_size=1024), preserving 100% native upstream execution on sm >= 80.
-        sdpa_orig = getattr(torch.nn.functional, "scaled_dot_product_attention", None) if torch is not None else None
-
-        def _guarded_pre_ampere_sdpa(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None):
-            token_dim = 2 if q.ndim == 4 else 1
-            num_tokens = q.shape[token_dim]
-            chunk_size = 1024
-            if num_tokens <= chunk_size or dropout_p > 0.0 or is_causal or sdpa_orig is None:
-                return sdpa_orig(q, k, v, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal, scale=scale)
-
-            sdpa_kwargs = {}
-            if scale is not None:
-                sdpa_kwargs["scale"] = scale
-
-            chunks = []
-            for i in range(0, num_tokens, chunk_size):
-                if token_dim == 2:
-                    qc = q[:, :, i : i + chunk_size, :]
-                else:
-                    qc = q[:, i : i + chunk_size, :]
-                if attn_mask is not None:
-                    mc = (
-                        attn_mask[..., i : i + chunk_size, :]
-                        if (attn_mask.ndim >= 2 and attn_mask.shape[-2] == num_tokens)
-                        else attn_mask
-                    )
-                    chunks.append(sdpa_orig(qc, k, v, attn_mask=mc, **sdpa_kwargs))
-                else:
-                    chunks.append(sdpa_orig(qc, k, v, **sdpa_kwargs))
-            return torch.cat(chunks, dim=token_dim).contiguous()
+        # The workaround is isolated in this model's worker-scoped patcher.
+        # sm >= 80 never patches SDPA and follows the native upstream path.
+        from patcher.stable_fast_3d.attention import pre_ampere_chunked_sdpa
 
         if is_pre_ampere and torch is not None and torch.cuda.is_available():
             torch.cuda.empty_cache()
 
         try:
-            if is_pre_ampere and sdpa_orig is not None:
-                torch.nn.functional.scaled_dot_product_attention = _guarded_pre_ampere_sdpa
-            with torch.no_grad(), autocast_context:
-                try:
-                    mesh, _global_info = pipeline.run_image(
-                        image,
-                        bake_resolution=texture_resolution,
-                        remesh=remesh_option,
-                        vertex_count=target_vertex_count,
-                    )
-                except Exception as remesh_exc:
-                    if remesh_option != "none":
-                        logger.warning(
-                            "SF3D remesh (%s, vertex_count=%d) failed: %s; falling back to raw mesh (none)",
-                            remesh_option,
-                            target_vertex_count,
-                            remesh_exc,
-                        )
+            with pre_ampere_chunked_sdpa(torch, enabled=is_pre_ampere, chunk_size=1024):
+                with torch.no_grad(), autocast_context:
+                    try:
                         mesh, _global_info = pipeline.run_image(
                             image,
                             bake_resolution=texture_resolution,
-                            remesh="none",
-                            vertex_count=-1,
+                            remesh=remesh_option,
+                            vertex_count=target_vertex_count,
                         )
-                    else:
-                        raise
+                    except Exception as remesh_exc:
+                        if remesh_option != "none":
+                            logger.warning(
+                                "SF3D remesh (%s, vertex_count=%d) failed: %s; falling back to raw mesh (none)",
+                                remesh_option,
+                                target_vertex_count,
+                                remesh_exc,
+                            )
+                            mesh, _global_info = pipeline.run_image(
+                                image,
+                                bake_resolution=texture_resolution,
+                                remesh="none",
+                                vertex_count=-1,
+                            )
+                        else:
+                            raise
         finally:
-            if is_pre_ampere and sdpa_orig is not None:
-                torch.nn.functional.scaled_dot_product_attention = sdpa_orig
             if is_pre_ampere and torch is not None and torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
@@ -458,7 +425,7 @@ class StableFast3DAdapter(BaseModel):
 
         output_dir: Path | None = None
         try:
-            output_dir = Path(tempfile.mkdtemp(prefix="sf3d_"))
+            output_dir = self._create_temporary_output_dir("stable_fast_3d")
             output_path = output_dir / f"stable_fast_3d_{uuid.uuid4().hex[:12]}.glb"
             mesh.export(str(output_path), include_normals=True)
             if not output_path.is_file() or output_path.stat().st_size < 12:

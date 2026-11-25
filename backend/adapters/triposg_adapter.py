@@ -149,7 +149,7 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
         if not isinstance(mesh, trimesh.Trimesh):
             mesh = trimesh.Trimesh(vertices=mesh.vertices, faces=mesh.faces, process=False)
 
-        temp_dir = Path(tempfile.mkdtemp(prefix="triposg_"))
+        temp_dir = self._create_temporary_output_dir("triposg")
         out = temp_dir / f"triposg_{seed}.glb"
         mesh.export(str(out))
 

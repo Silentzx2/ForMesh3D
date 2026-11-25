@@ -217,7 +217,7 @@ class TaoFlowForgeImageToRawMeshAdapter(BaseModel):
         if native_target_polycount:
             logger.info("TaoFlowForge received native_target_polycount=%d (upstream pipeline has no direct face-count control; preserved native output)", native_target_polycount)
 
-        request_workdir = Path(tempfile.mkdtemp(prefix=f"taoflowforge_{seed}_"))
+        request_workdir = self._create_temporary_output_dir("taoflowforge")
         request_workdir.mkdir(parents=True, exist_ok=True)
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()

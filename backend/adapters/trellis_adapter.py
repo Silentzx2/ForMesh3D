@@ -232,7 +232,8 @@ class _TrellisBaseAdapter(BaseModel):
         import trimesh
         import tempfile
 
-        out = Path(tempfile.mkdtemp()) / f"trellis_{seed}.glb"
+        out_dir = self._create_temporary_output_dir("trellis")
+        out = out_dir / f"trellis_{seed}.glb"
         # MeshExtractResult has vertices/faces as torch tensors, no .export() method
         tmesh = trimesh.Trimesh(
             vertices=mesh.vertices.cpu().numpy(),
@@ -317,7 +318,7 @@ class _TrellisBaseAdapter(BaseModel):
                 textured = self._paint_pipeline(
                     self._paint_app_rep, mesh, texture_size=texture_resolution
                 )
-                textured_out = Path(tempfile.mkdtemp()) / f"trellis_textured_{seed}.glb"
+                textured_out = out_dir / f"trellis_textured_{seed}.glb"
                 if hasattr(textured, "export"):
                     textured.export(str(textured_out))
                     return {

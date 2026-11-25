@@ -360,7 +360,8 @@ class TriFlowRetopologyAdapter(BaseModel):
             elif inputs.get("output_mesh_path"):
                 out_file = Path(inputs["output_mesh_path"]).resolve()
             else:
-                out_dir = Path(inputs.get("output_dir") or tempfile.mkdtemp())
+                out_dir_value = inputs.get("output_dir")
+                out_dir = Path(out_dir_value) if out_dir_value else self._create_temporary_output_dir("triflow")
                 out_dir.mkdir(parents=True, exist_ok=True)
                 stem = Path(mesh_path).stem
                 out_file = out_dir / f"{stem}_triflow.{output_format}"
@@ -435,7 +436,8 @@ class TriFlowRetopologyAdapter(BaseModel):
         elif inputs.get("output_mesh_path"):
             out_file = Path(inputs["output_mesh_path"]).resolve()
         else:
-            out_dir = Path(inputs.get("output_dir") or tempfile.mkdtemp())
+            out_dir_value = inputs.get("output_dir")
+            out_dir = Path(out_dir_value) if out_dir_value else self._create_temporary_output_dir("triflow")
             out_dir.mkdir(parents=True, exist_ok=True)
             stem = Path(mesh_path).stem
             out_file = out_dir / f"{stem}_retopo.{output_format}"

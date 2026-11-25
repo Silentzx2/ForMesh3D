@@ -184,7 +184,8 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
 
         import tempfile
 
-        out = Path(tempfile.mkdtemp()) / f"hunyuan3d_mini_{seed}.glb"
+        out_dir = self._create_temporary_output_dir("hunyuan3d_mini")
+        out = out_dir / f"hunyuan3d_mini_{seed}.glb"
         mesh.export(str(out))
 
         return {
@@ -195,10 +196,10 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
             "actual_vertex_count": len(mesh.vertices),
             "generation_info": {
                 "seed": seed,
-                "num_inference_steps": 20,
-                "guidance_scale": 5.0,
-                "octree_resolution": 380,
-                "num_chunks": 20000,
+                "num_inference_steps": num_inference_steps,
+                "guidance_scale": guidance_scale,
+                "octree_resolution": octree_resolution,
+                "num_chunks": num_chunks,
                 "native_target_polycount": native_target_polycount or None,
                 "remesh_option": remesh_option,
             },

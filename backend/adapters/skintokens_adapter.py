@@ -119,58 +119,78 @@ class SkinTokensAdapter(BaseModel):
             )
         finally:
             os.chdir(_orig_cwd)
-        demo.wait_for_bpy_server()
-
-        # Resolve weights and call official upstream model loader
-        weights_dir = get_model_weights_dir(self.MODEL_KEY)
-        ckpt_path = self._resolve_checkpoint(weights_dir, skintokens_root)
-        self._ckpt_path = ckpt_path
-
-        # Ensure TokenRig locates local Qwen3-0.6B LLM config
-        for qcand in [weights_dir / "models" / "Qwen3-0.6B", skintokens_root / "models" / "Qwen3-0.6B", Path("models/Qwen3-0.6B")]:
-            if qcand.is_dir():
-                try:
-                    import src.model.tokenrig as tokenrig_mod
-                    tokenrig_mod.LLM_LOCAL_DIR = qcand
-                except Exception:
-                    pass
-                break
-
-        logger.info("Loading SkinTokens model from %s", ckpt_path or "default")
         try:
-            demo.load_model(model_ckpt=ckpt_path or "", hf_path=None)
-        except RuntimeError as e:
-            if "model_ckpt is empty" in str(e):
-                raise RuntimeError(
-                    "SkinTokens model load failed: no checkpoint found. "
-                    "Download SkinTokens weights (manager.sh option 11 or "
-                    "backend/scripts/download_models.sh skintokens), then retry."
-                ) from e
-            raise RuntimeError(
-                "SkinTokens model load failed: the Michelangelo encoder source "
-                "is not vendored in backend/thirdparty/SkinTokens/. "
-                "Vendor src/model/michelangelo/models/ there, then retry. "
-                f"Original error: {e}"
-            ) from e
+            demo.wait_for_bpy_server()
 
-        self.model = demo.model
-        if getattr(self.model, "_skintokens_stub", False):
-            raise RuntimeError(
-                "SkinTokens loaded a stub model because the Michelangelo encoder "
-                "source is not vendored. "
-                "Vendor backend/thirdparty/SkinTokens/src/model/michelangelo/models/"
-                " (from upstream NeuralCarver/Michelangelo) and retry."
-            )
-        return self.model
+            # Resolve weights and call official upstream model loader.
+            weights_dir = get_model_weights_dir(self.MODEL_KEY)
+            ckpt_path = self._resolve_checkpoint(weights_dir, skintokens_root)
+            self._ckpt_path = ckpt_path
 
-    def _unload_model(self) -> None:
-        if self._server_proc is not None:
+            # Ensure TokenRig locates local Qwen3-0.6B LLM config.
+            for qcand in [weights_dir / "models" / "Qwen3-0.6B", skintokens_root / "models" / "Qwen3-0.6B", Path("models/Qwen3-0.6B")]:
+                if qcand.is_dir():
+                    try:
+                        import src.model.tokenrig as tokenrig_mod
+                        tokenrig_mod.LLM_LOCAL_DIR = qcand
+                    except Exception:
+                        pass
+                    break
+
+            logger.info("Loading SkinTokens model from %s", ckpt_path or "default")
             try:
-                self._server_proc.terminate()
+                demo.load_model(model_ckpt=ckpt_path or "", hf_path=None)
+            except RuntimeError as e:
+                if "model_ckpt is empty" in str(e):
+                    raise RuntimeError(
+                        "SkinTokens model load failed: no checkpoint found. "
+                        "Download SkinTokens weights (manager.sh option 11 or "
+                        "backend/scripts/download_models.sh skintokens), then retry."
+                    ) from e
+                raise RuntimeError(
+                    "SkinTokens model load failed: the Michelangelo encoder source "
+                    "is not vendored in backend/thirdparty/SkinTokens/. "
+                    "Vendor src/model/michelangelo/models/ there, then retry. "
+                    f"Original error: {e}"
+                ) from e
+
+            self.model = demo.model
+            if getattr(self.model, "_skintokens_stub", False):
+                raise RuntimeError(
+                    "SkinTokens loaded a stub model because the Michelangelo encoder "
+                    "source is not vendored. "
+                    "Vendor backend/thirdparty/SkinTokens/src/model/michelangelo/models/"
+                    " (from upstream NeuralCarver/Michelangelo) and retry."
+                )
+            return self.model
+        except Exception:
+            self._stop_bpy_server()
+            raise
+
+    def _stop_bpy_server(self) -> None:
+        """Terminate and reap the companion Blender-Python server process."""
+        process = self._server_proc
+        self._server_proc = None
+        if process is None:
+            return
+        try:
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        except ProcessLookupError:
+            try:
+                process.wait(timeout=1)
             except Exception:
                 pass
-            self._server_proc = None
+        except Exception:
+            logger.warning("Could not reap SkinTokens bpy_server process", exc_info=True)
 
+    def _unload_model(self) -> None:
+        self._stop_bpy_server()
         self.model = None
 
     @staticmethod
@@ -193,7 +213,7 @@ class SkinTokensAdapter(BaseModel):
             return {"success": False, "error": f"Mesh file not found: {mesh_path}"}
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
-        workdir = Path(tempfile.mkdtemp(prefix=f"skintokens_{seed}_"))
+        workdir = self._create_temporary_output_dir("skintokens")
         out_file = workdir / f"{Path(mesh_path).stem}_rigged.glb"
 
         # Direct execution of official upstream inference function

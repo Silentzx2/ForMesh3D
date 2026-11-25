@@ -92,7 +92,7 @@ class TripoSRAdapter(BaseModel):
 
     def _export_mesh(self, mesh: trimesh.Trimesh, baked: Dict[str, Any] | None,
                      resolution: int, prefix: str):
-        temp = Path(tempfile.mkdtemp(prefix=prefix))
+        temp = self._create_temporary_output_dir(prefix.removeprefix("triposr_") or "triposr")
         output = temp / "triposr_output.glb"
         try:
             if baked is None:

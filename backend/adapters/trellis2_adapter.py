@@ -273,7 +273,8 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
         import tempfile
         import trimesh
 
-        out = Path(tempfile.mkdtemp()) / f"trellis2_{used_seed}.glb"
+        out_dir = self._create_temporary_output_dir("trellis2")
+        out = out_dir / f"trellis2_{used_seed}.glb"
         # Validate model-native arrays before trimesh processing can hide invalid geometry.
         vertices = mesh.vertices.detach().cpu().numpy()
         faces = mesh.faces.detach().cpu().numpy()
@@ -319,7 +320,7 @@ class Trellis2ImageToRawMeshAdapter(BaseModel):
                         seed=seed,
                     )
 
-                textured_out = Path(tempfile.mkdtemp()) / f"trellis2_textured_{used_seed}.glb"
+                textured_out = out_dir / f"trellis2_textured_{used_seed}.glb"
                 if hasattr(textured, "export"):
                     textured.export(str(textured_out))
                     return {
@@ -444,7 +445,8 @@ class Trellis2ImageMeshPaintingAdapter(Trellis2ImageToRawMeshAdapter):
 
         import tempfile
 
-        out = Path(tempfile.mkdtemp()) / f"trellis2_paint_{seed}.glb"
+        out_dir = self._create_temporary_output_dir("trellis2_paint")
+        out = out_dir / f"trellis2_paint_{seed}.glb"
         if hasattr(textured, "export"):
             textured.export(str(out))
         else:

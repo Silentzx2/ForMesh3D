@@ -2923,33 +2923,47 @@ class MultiprocessModelScheduler:
     def _cleanup_adapter_temporary_output(
         self, result: Any, *, nested: bool = True
     ) -> None:
-        """Remove an adapter-owned temporary output directory after persistence."""
+        """Remove explicitly marked adapter-owned temp dirs after durable persistence."""
         if not isinstance(result, dict):
             return
         payload = result.get("result") if nested else result
         if not isinstance(payload, dict):
             return
-        directory_value = payload.pop("_temporary_output_dir", None)
-        if not directory_value:
+
+        directories = payload.pop("_temporary_output_dirs", None)
+        legacy_directory = payload.pop("_temporary_output_dir", None)
+        if legacy_directory:
+            directories = list(directories or []) if isinstance(directories, (list, tuple)) else []
+            directories.append(legacy_directory)
+        if not directories:
             return
-        try:
-            temp_root = Path(tempfile.gettempdir()).resolve()
-            output_dir = Path(directory_value).resolve(strict=True)
-            if output_dir.parent != temp_root or not output_dir.name.startswith("sf3d_"):
+        if isinstance(directories, (str, Path)):
+            directories = [directories]
+
+        temp_root = Path(tempfile.gettempdir()).resolve()
+        for directory_value in directories:
+            try:
+                candidate = Path(directory_value)
+                if candidate.is_symlink():
+                    logger.warning("Refusing to clean symlinked adapter output: %s", candidate)
+                    continue
+                output_dir = candidate.resolve(strict=True)
+                allowed_prefix = output_dir.name.startswith(("formesh3d_", "sf3d_", "triposr_"))
+                if not output_dir.is_dir() or output_dir.parent != temp_root or not allowed_prefix:
+                    logger.warning(
+                        "Refusing to clean untrusted adapter temporary output directory: %s",
+                        directory_value,
+                    )
+                    continue
+                shutil.rmtree(output_dir)
+            except FileNotFoundError:
+                continue
+            except Exception:
                 logger.warning(
-                    "Refusing to clean untrusted SF3D temporary output directory: %s",
+                    "Could not clean adapter temporary output directory %s",
                     directory_value,
+                    exc_info=True,
                 )
-                return
-            shutil.rmtree(output_dir)
-        except FileNotFoundError:
-            return
-        except Exception:
-            logger.warning(
-                "Could not clean SF3D temporary output directory %s",
-                directory_value,
-                exc_info=True,
-            )
 
     def _register_managed_input_dir(self, directory: Path) -> None:
         """Register an app-managed temporary input directory for safe cleanup."""

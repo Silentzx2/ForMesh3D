@@ -502,10 +502,10 @@ text_mesh_painting:
   ## ============================================================================
   trellis_text_mesh_painting:
     alias_of: trellis_image_mesh_painting
-    name: "TRELLIS Text Paint"
-    label: "Text Paint"
-    description: "Prompt-guided material and texture synthesis"
-    enabled: true
+    name: "TRELLIS Text Paint (Unsupported)"
+    label: "Unsupported"
+    description: "Disabled: ForMesh3D supports image-conditioned TRELLIS only; text-to-3D and text-guided mesh painting are not implemented."
+    enabled: false
 
     default_parameters:
       ss_sampling_steps: 12

@@ -139,7 +139,8 @@ class ArdyMotionGenerationAdapter(BaseModel):
         import numpy as np
         import tempfile
 
-        out = Path(tempfile.mkdtemp()) / f"ardy_{seed}.npz"
+        out_dir = self._create_temporary_output_dir("ardy")
+        out = out_dir / f"ardy_{seed}.npz"
         arrays = {k: np.asarray(v) for k, v in output.items()}
         arrays["fps"] = float(fps)
         arrays["text"] = prompt

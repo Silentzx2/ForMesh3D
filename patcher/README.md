@@ -73,6 +73,9 @@ patcher/
 ├── __init__.py           # Re-exports GPUDoctor, GPUInfo, DoctorConfig, ModelProfile, DoctorReport, StageRecord
 ├── README.md             # This architecture documentation
 ├── doctor.py             # Central GPU Doctor engine (hardware planner, chunked SDPA, recovery)
+├── stable_fast_3d/       # Stable Fast 3D worker-only compatibility patch
+│   ├── __init__.py
+│   └── attention.py      # T4/pre-Ampere chunked SDPA; restores native SDPA on exit
 ├── taoflowforge/         # TaoFlowForge model-specific patcher
 │   └── __init__.py       # Pre-Ampere SDPA attention router and compute dtype guard
 └── triposg/              # TripoSG model-specific patcher
@@ -108,6 +111,10 @@ Built-in profiles are registered for:
 ---
 
 ## 5. Model-Specific Patchers
+
+### `patcher/stable_fast_3d/`
+- **Problem addressed**: Long triplane attention sequences can exhaust memory on pre-Ampere GPUs (sm < 80).
+- **Fix applied**: A model-scoped context manager temporarily chunks SDPA queries only during Stable Fast 3D inference on pre-Ampere hardware, then restores the original function. Modern GPUs (sm >= 80) do not patch SDPA.
 
 ### `patcher/taoflowforge/`
 - **Problem addressed**: Pre-Ampere GPUs (`sm < 80`) lack hardware FlashAttention 2/3. PyTorch's default SDPA falls back to `SDPBackend.MATH` during Stage 1 refinement (15,000+ tokens), allocating a 10.06 GiB dense attention matrix and causing immediate CUDA OOM crashes.

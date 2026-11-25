@@ -192,7 +192,8 @@ class Hunyuan3DV20PaintImageMeshPaintingAdapter(BaseModel):
 
         import tempfile
 
-        out = Path(tempfile.mkdtemp()) / f"hunyuan3d_v20_paint_{seed}.glb"
+        out_dir = self._create_temporary_output_dir("hunyuan3d_v20_paint")
+        out = out_dir / f"hunyuan3d_v20_paint_{seed}.glb"
         if hasattr(textured, "export"):
             textured.export(str(out))
         else:

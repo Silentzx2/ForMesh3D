@@ -49,6 +49,16 @@ jobs:
       - name: Run TripoSR unified generation and painting adapter tests
         run: python -m pytest -q backend/tests/test_triposr_adapter.py
 
+      - name: Run selected adapter correctness and resource-lifecycle regressions
+        run: >-
+          python -m pytest -q
+          backend/tests/test_model_adapter_regressions.py
+          backend/tests/test_temporary_output_lifecycle.py
+          backend/tests/test_stable_fast_3d_patcher.py
+          backend/tests/test_skintokens_process_lifecycle.py
+          backend/tests/test_hunyuan21_metadata.py
+          backend/tests/test_trellis_text_capability.py
+
       - name: Run workspace lifecycle, regeneration, and API integration contracts
         run: >-
           python -m pytest -q

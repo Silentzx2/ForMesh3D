@@ -260,7 +260,8 @@ class Pixal3DImageToRawMeshAdapter(BaseModel):
             mesh = trimesh.Trimesh(
                 vertices=mesh.vertices, faces=mesh.faces, process=False
             )
-        out = Path(tempfile.mkdtemp()) / f"pixal3d_{seed}.glb"
+        out_dir = self._create_temporary_output_dir("pixal3d")
+        out = out_dir / f"pixal3d_{seed}.glb"
         mesh.export(str(out))
 
         return {

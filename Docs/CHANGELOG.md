@@ -2,4 +2,4 @@
 
 **2026‑11‑25** – Completed comprehensive adapter audit. Added detailed Task Report, risk scores, line‑count statistics, and a refactoring vision. Updated documentation to explain why adapters should delegate to upstream model code and how shared helpers will be centralised.
 
-* No functional code changes have been made yet – a backup of the original adapters is stored in `backend/adapters_backup/`.
+* 2026-11-25 – Implemented the selected adapter fixes: full PartUV UV pipeline, tracked temporary-output cleanup, SkinTokens process reaping, live Hunyuan generation metadata, SF3D worker-scoped pre-Ampere patching, and disabled the unsupported TRELLIS text-paint alias. Removed the obsolete `backend/adapters_backup/` directory. Runtime GPU validation remains required.

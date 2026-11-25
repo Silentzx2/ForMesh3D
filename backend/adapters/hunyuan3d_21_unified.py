@@ -244,7 +244,8 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
             with ctx:
                 textured = pipeline(mesh=mesh, image=image)
 
-            out = Path(tempfile.mkdtemp()) / f"hunyuan3d_21_paint_{seed}.glb"
+            out_dir = self._create_temporary_output_dir("hunyuan3d21_paint")
+            out = out_dir / f"hunyuan3d_21_paint_{seed}.glb"
             if hasattr(textured, "export"):
                 textured.export(str(out))
             else:
@@ -310,7 +311,8 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
 
         mesh = meshes[0]
 
-        out = Path(tempfile.mkdtemp()) / f"hunyuan3d_21_{seed}.glb"
+        out_dir = self._create_temporary_output_dir("hunyuan3d21")
+        out = out_dir / f"hunyuan3d_21_{seed}.glb"
         mesh.export(str(out))
 
         # ── Texture autochain: paint on the raw mesh using already-loaded weights ──
@@ -323,7 +325,7 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
                     ref_image = Image.open(texture_image_path)
                     with ctx:
                         textured = self._paint_pipeline(mesh=mesh, image=ref_image)
-                    textured_out = Path(tempfile.mkdtemp()) / f"hunyuan3d_21_textured_{seed}.glb"
+                    textured_out = out_dir / f"hunyuan3d_21_textured_{seed}.glb"
                     if hasattr(textured, "export"):
                         textured.export(str(textured_out))
                         return {
@@ -334,10 +336,10 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
                             "texture_enabled": True,
                             "generation_info": {
                                 "seed": seed,
-                                "num_inference_steps": 50,
-                                "guidance_scale": 7.5,
-                                "octree_resolution": 512,
-                                "num_chunks": 8000,
+                                "num_inference_steps": num_inference_steps,
+                                "guidance_scale": guidance_scale,
+                                "octree_resolution": octree_resolution,
+                                "num_chunks": num_chunks,
                                 "texture_enabled": True,
                                 "feature_type": "image_to_raw_mesh",
                             },
@@ -358,10 +360,10 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
             "mesh_path": str(out),
             "generation_info": {
                 "seed": seed,
-                "num_inference_steps": 50,
-                "guidance_scale": 7.5,
-                "octree_resolution": 512,
-                "num_chunks": 8000,
+                "num_inference_steps": num_inference_steps,
+                "guidance_scale": guidance_scale,
+                "octree_resolution": octree_resolution,
+                "num_chunks": num_chunks,
                 "texture_enabled": False,
                 "feature_type": "image_to_raw_mesh",
             },
