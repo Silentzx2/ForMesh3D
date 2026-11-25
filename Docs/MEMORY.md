@@ -19,7 +19,7 @@
 ## 3. UI, Tools & Contracts
 - `ModelsTab.tsx`, `GeneratePanel.tsx`, and `TexturePanel.tsx` load dynamically from `/api/v1/system/models` (`constants/models.ts` deleted); VRAM badges round `vram_requirement / 1024`.
 - Retopology = TriFlow AI (`_pair_triangles_to_quads` for quads), UV = PartUV AI, Segmentation = PartField AI, Rigging = SkinTokens AI, Motion = ARDY. No script fallback engine exists.
-- `MeshViewer.tsx` renders local GLBs with hardware `setScissorTest` split comparison, 3-step Wireframe (`off` -> `overlay` -> `xray`), `ThinkingGenerationCard` (`bottom-32`), restored `Execution Progress Bar` (`bottom-20`), 3D waiting hologram, and ~0.95s `THREE.Plane` scan reveal.
+- `MeshViewer.tsx` renders local GLBs with hardware `setScissorTest` split comparison, 3-step Wireframe (`off` -> `overlay` -> `xray`), the simple `Execution Progress Bar` (`bottom-20`) and ~0.95s `THREE.Plane` scan reveal.
 - `multiprocess_scheduler.py` and `system.py` normalize and serve durable workspace paths (`mesh/mesh.glb`) rather than `/tmp`.
 
 ## 4. Verification Baseline

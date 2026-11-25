@@ -6,7 +6,7 @@
 ForMesh3D is a self-hosted 3D asset studio (Next.js + FastAPI) for generating, inspecting, and processing 3D meshes in a single-user local/VPS deployment:
 1. Upload an image or mesh in `/workspace/generate/<workspace_id>`.
 2. Pick a model from `models.yaml`-backed dropdowns and run generation or specialist tools.
-3. Track live progress (`ThinkingGenerationCard`, progress bar, 3D hologram) and inspect the resulting GLB in the local Three.js viewport.
+3. Track generation with the viewport's simple progress bar and inspect the resulting GLB in the local Three.js viewport.
 
 ## Active Surfaces & Models
 - **Generation:** `hunyuan3d_shape_v21_image_to_raw_mesh`, `hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh`, `triposg_image_to_raw_mesh`, `triposr_image_to_raw_mesh`, `trellis_image_to_3d`, `stable_fast_3d_image_to_textured_mesh`.
