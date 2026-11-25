@@ -165,6 +165,8 @@ class TripoSRAdapter(BaseModel):
                 if not meshes or not isinstance(meshes[0], trimesh.Trimesh) or not len(meshes[0].faces):
                     raise RuntimeError("Official TripoSR mesh extraction returned no valid mesh")
                 mesh = meshes[0]
+                # Ensure consistent outward winding so Three.js never back-face-culls half the mesh.
+                mesh.fix_normals()
                 logger.info("[TRIPOSR] Mesh decoding completed elapsed=%.2fs faces=%d", __import__("time").perf_counter() - t_mc, len(mesh.faces))
                 if texture_enabled:
                     logger.info("[TRIPOSR] Baking UV base-color atlas (resolution=%d)...", resolution)
