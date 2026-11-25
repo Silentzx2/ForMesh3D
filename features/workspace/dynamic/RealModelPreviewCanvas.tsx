@@ -333,27 +333,33 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
     invalidateRenderRef.current();
   }, [viewAngle, orbitYaw]);
 
-  // 5. Throttled Pointer Handler
-  const isRaycastingRef = useRef(false);
-  const handlePointer = useCallback((e: React.MouseEvent<HTMLDivElement>, isClick: boolean) => {
+  // 5. rAF-Throttled Pointer Handler (reuses Raycaster & Vector2)
+  const raycasterRef = useRef<THREE.Raycaster | null>(null);
+  const pointerVecRef = useRef<THREE.Vector2 | null>(null);
+  const hoverRafRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (hoverRafRef.current !== null) cancelAnimationFrame(hoverRafRef.current);
+  }, []);
+
+  const runRaycast = useCallback((clientX: number, clientY: number, isClick: boolean) => {
     const el = containerRef.current;
     const camera = cameraRef.current;
     if (!el || !camera || interactivesRef.current.length === 0) return;
 
-    if (!isClick && isRaycastingRef.current) return;
-    if (!isClick) isRaycastingRef.current = true;
-
     const rect = el.getBoundingClientRect();
-    const mouse = new THREE.Vector2(
-      ((e.clientX - rect.left) / rect.width) * 2 - 1,
-      -((e.clientY - rect.top) / rect.height) * 2 + 1
-    );
+    if (!rect.width || !rect.height) return;
+    if (!pointerVecRef.current) pointerVecRef.current = new THREE.Vector2();
+    if (!raycasterRef.current) raycasterRef.current = new THREE.Raycaster();
 
-    const ray = new THREE.Raycaster();
-    ray.setFromCamera(mouse, camera);
+    pointerVecRef.current.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1
+    );
+    raycasterRef.current.setFromCamera(pointerVecRef.current, camera);
 
     const meshObjects = interactivesRef.current.map((i) => i.obj);
-    const hits = ray.intersectObjects(meshObjects, true);
+    const hits = raycasterRef.current.intersectObjects(meshObjects, true);
 
     if (hits.length > 0) {
       const hit = hits[0].object;
@@ -365,7 +371,6 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
           setHovered(found.id);
           onHoverIdRef.current?.(found.id);
         }
-        isRaycastingRef.current = false;
         return;
       }
     }
@@ -373,14 +378,35 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
     if (!isClick) {
       setHovered(null);
       onHoverIdRef.current?.(null);
-      isRaycastingRef.current = false;
     }
   }, []);
+
+  const handlePointer = useCallback((e: React.MouseEvent<HTMLDivElement>, isClick: boolean) => {
+    const { clientX, clientY } = e;
+    if (isClick) {
+      runRaycast(clientX, clientY, true);
+      return;
+    }
+    if (hoverRafRef.current !== null) return;
+    hoverRafRef.current = requestAnimationFrame(() => {
+      hoverRafRef.current = null;
+      runRaycast(clientX, clientY, false);
+    });
+  }, [runRaycast]);
+
+  const pointerDownPosRef = useRef<{ x: number; y: number } | null>(null);
 
   return (
     <div
       ref={containerRef}
-      onClick={(e) => handlePointer(e, true)}
+      onPointerDown={(e) => {
+        pointerDownPosRef.current = { x: e.clientX, y: e.clientY };
+      }}
+      onClick={(e) => {
+        const down = pointerDownPosRef.current;
+        if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) return;
+        handlePointer(e, true);
+      }}
       onMouseMove={(e) => handlePointer(e, false)}
       className={`relative w-full aspect-square max-h-[220px] rounded-xl overflow-hidden border border-white/[0.08] bg-[hsl(var(--surface-0))] ${
         hovered ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'

@@ -1130,7 +1130,7 @@ export const UVPanel: React.FC = () => {
             <button
               type="button"
               onClick={handleRunUV}
-              disabled={!currentAsset && !generationSettings.image}
+              disabled={!currentAsset || isMeshUploading}
               className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Grid3X3 className="w-3.5 h-3.5 text-black" />

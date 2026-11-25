@@ -171,7 +171,6 @@ class TriFlowRetopologyAdapter(BaseModel):
                 "get_cond": get_cond_fn,
                 "triflow_root": triflow_root,
             }
-            self.status = ModelStatus.LOADED
 
             logger.info("[TRIFLOW LOAD] Successfully loaded TriFlow pipeline.")
             return self.pipeline_components
@@ -195,7 +194,6 @@ class TriFlowRetopologyAdapter(BaseModel):
 
         if torch is not None and torch.cuda.is_available():
             torch.cuda.empty_cache()
-        self.status = ModelStatus.UNLOADED
         logger.info("[TRIFLOW UNLOAD] Pipeline unloaded and CUDA cache emptied.")
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:

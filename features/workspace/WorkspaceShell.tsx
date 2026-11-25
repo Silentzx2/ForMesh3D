@@ -321,16 +321,15 @@ export const WorkspaceShell: React.FC = () => {
     handleInitialResponsiveLayout();
   }, [setIsLeftPanelOpen, setIsRightPanelOpen]);
 
-  // Ensure mobile nav resets on desktop resize
+  // Ensure mobile nav resets when crossing desktop breakpoint
   useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 768 && isMobileNavOpen) {
-        setIsMobileNavOpen(false);
-      }
+    const mq = window.matchMedia('(min-width: 768px)');
+    const onChange = (e: MediaQueryListEvent) => {
+      if (e.matches) setIsMobileNavOpen(false);
     };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [isMobileNavOpen]);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
 
 

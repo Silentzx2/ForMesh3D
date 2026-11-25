@@ -68,7 +68,7 @@ const SortableAssetCard: React.FC<SortableAssetCardProps> = ({ asset, onSelect }
     <div
       ref={setNodeRef}
       style={style}
-      className="group relative overflow-hidden rounded-xl border border-white/[0.08] bg-[hsl(var(--surface-1))] text-left hover:border-primary/60 hover:bg-[hsl(var(--surface-2))] transition-all flex flex-col shadow-lg select-none"
+      className="cv-card group relative overflow-hidden rounded-xl border border-white/[0.08] bg-[hsl(var(--surface-1))] text-left hover:border-primary/60 hover:bg-[hsl(var(--surface-2))] transition-all flex flex-col shadow-lg select-none"
     >
       <div 
         {...attributes} 
@@ -174,9 +174,10 @@ export const OutputsPage: React.FC = () => {
   // Storage breakdown & cleanup state
   const [storageData, setStorageData] = useState<any>(null);
   const [isStorageLoading, setIsStorageLoading] = useState(false);
-  const [isCleanupOpen, setIsCleanupOpen] = useState(false);
+  const [cleanupState, setCleanupState] = useState<'closed' | 'confirming' | 'cleaning'>('closed');
+  const isCleanupOpen = cleanupState !== 'closed';
+  const isCleaning = cleanupState === 'cleaning';
   const [cleanupDays, setCleanupDays] = useState(7);
-  const [isCleaning, setIsCleaning] = useState(false);
   const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
 
   const loadStorage = React.useCallback(async () => {
@@ -198,7 +199,8 @@ export const OutputsPage: React.FC = () => {
   }, [loadStorage]);
 
   const handleRunCleanup = async () => {
-    setIsCleaning(true);
+    if (cleanupState === 'cleaning') return;
+    setCleanupState('cleaning');
     setCleanupStatus(null);
     try {
       const res = await getApiClient().cleanupStorage(cleanupDays, false);
@@ -209,7 +211,7 @@ export const OutputsPage: React.FC = () => {
     } catch (e: any) {
       setCleanupStatus(e.message || 'Cleanup failed.');
     } finally {
-      setIsCleaning(false);
+      setCleanupState('confirming');
     }
   };
 
@@ -298,7 +300,7 @@ export const OutputsPage: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => { setIsCleanupOpen(true); setCleanupStatus(null); }}
+                onClick={() => { if (!isCleaning) { setCleanupState('confirming'); setCleanupStatus(null); } }}
                 className="px-3 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.1] text-zinc-200 hover:text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
               >
                 <HugeiconsIcon icon={BrushCleaningIcon} size={14} className="w-3.5 h-3.5 text-primary" />
@@ -350,8 +352,9 @@ export const OutputsPage: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setIsCleanupOpen(false)}
-                  className="p-1 rounded-md text-zinc-400 hover:text-white cursor-pointer"
+                  onClick={() => setCleanupState('closed')}
+                  disabled={isCleaning}
+                  className="p-1 rounded-md text-zinc-400 hover:text-white cursor-pointer disabled:opacity-50"
                 >
                   <HugeiconsIcon icon={Cancel} size={14} className="w-3.5 h-3.5" />
                 </button>
@@ -382,8 +385,9 @@ export const OutputsPage: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setIsCleanupOpen(false)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold text-zinc-400 hover:text-white cursor-pointer"
+                    onClick={() => setCleanupState('closed')}
+                    disabled={isCleaning}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold text-zinc-400 hover:text-white cursor-pointer disabled:opacity-50"
                   >
                     Cancel
                   </button>

@@ -910,7 +910,7 @@ export const AnimationPanel: React.FC = () => {
             <button
               type="button"
               onClick={handleApplyAnimation}
-              disabled={!currentAsset || !motionPrompt.trim() || isSubmitting}
+              disabled={!currentAsset || !motionPrompt.trim() || isSubmitting || isExecuting}
               className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Film className="w-3.5 h-3.5 text-black" />

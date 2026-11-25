@@ -738,9 +738,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   const [executionStatus, setExecutionStatus] = useState<WorkspaceExecutionStatus>('idle');
-  const [isExecuting, setIsExecutingState] = useState(false);
+  const isExecuting = executionStatus === 'running';
   const setIsExecuting = useCallback((executing: boolean) => {
-    setIsExecutingState(executing);
     setExecutionStatus(executing ? 'running' : 'idle');
   }, []);
   const [executionProgress, setExecutionProgress] = useState(0);
@@ -1993,7 +1992,6 @@ function dataURLtoFile(dataURL: string, filename: string): File {
 
     setExecutionState(plan.executionState);
     setPersistenceState(plan.persistenceState);
-    setIsExecutingState(plan.executionState === 'queued' || plan.executionState === 'running');
     setExecutionStatus(plan.executionState === 'running' || plan.executionState === 'queued' ? 'running' : 'idle');
     setExecutionProgress(0);
     setExecutionStep('');

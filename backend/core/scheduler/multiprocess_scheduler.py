@@ -1364,6 +1364,7 @@ class MultiprocessModelScheduler:
 
         # Scheduler state
         self.running = False
+        self._lifecycle_state = "stopped"
         self._background_tasks: set[asyncio.Task] = set()
         self.response_handler_thread: Optional[threading.Thread] = None
         self.pending_results: Dict[str, asyncio.Future] = {}
@@ -1562,10 +1563,11 @@ class MultiprocessModelScheduler:
 
     async def start(self):
         """Start the scheduler - no workers created initially"""
-        if self.running:
-            logger.warning("Scheduler is already running")
+        if self._lifecycle_state in ("starting", "running"):
+            logger.warning("Scheduler is already starting or running")
             return
 
+        self._lifecycle_state = "starting"
         self.running = True
         # Store reference to main event loop
         self.main_event_loop = asyncio.get_event_loop()
@@ -1599,12 +1601,14 @@ class MultiprocessModelScheduler:
             logger.info("Scheduler started - workers will be created on demand")
         else:
             logger.info("Scheduler started in queue-only mode (no job processing)")
+        self._lifecycle_state = "running"
 
     async def stop(self):
         """Stop the scheduler and cleanup worker processes"""
-        if not self.running:
+        if self._lifecycle_state in ("stopping", "stopped"):
             return
 
+        self._lifecycle_state = "stopping"
         self.running = False
         logger.info("Stopping multiprocess model scheduler")
 
@@ -1654,6 +1658,7 @@ class MultiprocessModelScheduler:
         self.worker_last_used.clear()
         self.model_selection_counter.clear()
         self.main_event_loop = None
+        self._lifecycle_state = "stopped"
 
         logger.info("Multiprocess scheduler stopped")
 

@@ -156,7 +156,6 @@ class SkinTokensAdapter(BaseModel):
                 "Vendor backend/thirdparty/SkinTokens/src/model/michelangelo/models/"
                 " (from upstream NeuralCarver/Michelangelo) and retry."
             )
-        self.status = ModelStatus.LOADED
         return self.model
 
     def _unload_model(self) -> None:
@@ -168,7 +167,6 @@ class SkinTokensAdapter(BaseModel):
             self._server_proc = None
 
         self.model = None
-        self.status = ModelStatus.UNLOADED
 
     @staticmethod
     def _resolve_checkpoint(weights_dir: Path, skintokens_root: Path) -> str | None:

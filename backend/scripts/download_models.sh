@@ -762,7 +762,7 @@ download_triposr() {
 
     print_info "Downloading stabilityai/TripoSR config.yaml and model.ckpt..."
     if ! hf_download stabilityai/TripoSR \
-        --include "config.yaml" "model.ckpt" \
+        config.yaml model.ckpt \
         --local-dir "$model_dir"; then
         print_error "Failed to download TripoSR checkpoint"
         return 1

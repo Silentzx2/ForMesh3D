@@ -516,13 +516,6 @@ export const SegmentationPanel: React.FC = () => {
             <span className="text-[9px] text-zinc-500 font-mono mt-0.5">
               Size ≤ 150MB
             </span>
-            <input
-              ref={meshInputRef}
-              type="file"
-              accept=".glb,.gltf,.obj,.fbx,.stl,.ply"
-              className="hidden"
-              onChange={handleMeshUpload}
-            />
           </div>
         </div>
 
@@ -855,7 +848,7 @@ export const SegmentationPanel: React.FC = () => {
             <button
               type="button"
               onClick={handleRunSegmentation}
-              disabled={!currentAsset || partFieldReadiness.status !== 'ready'}
+              disabled={!currentAsset || isMeshUploading || isExecuting || partFieldReadiness.status !== 'ready'}
               className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Scissors className="w-3.5 h-3.5 text-black" />

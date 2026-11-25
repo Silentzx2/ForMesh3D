@@ -245,9 +245,15 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const loadedModelUrl = useViewerStore((state) => state.loadedModelUrl);
   const selectionRequestId = useViewerStore((state) => state.selectionRequestId);
 
-  const [modelLoadStatus, setModelLoadStatus] = useState<'empty' | 'loading' | 'loaded' | 'error'>('empty');
-  const [hasModel, setHasModel] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadState, setLoadState] = useState<
+    | { status: 'empty'; hasModel: false; error: null }
+    | { status: 'loading'; hasModel: boolean; error: null }
+    | { status: 'loaded'; hasModel: true; error: null }
+    | { status: 'error'; hasModel: false; error: string }
+  >({ status: 'empty', hasModel: false, error: null });
+  const modelLoadStatus = loadState.status;
+  const hasModel = loadState.hasModel;
+  const loadError = loadState.error;
   const [retryKey, setRetryKey] = useState(0);
   const [isComparisonLoading, setIsComparisonLoading] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -255,7 +261,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const [webglInitKey, setWebglInitKey] = useState(0);
 
   const handleRetryLoad = useCallback(() => {
-    setLoadError(null);
+    setLoadState((prev) => ({ status: 'empty', hasModel: false, error: null }));
     setRetryKey((prev) => prev + 1);
   }, []);
 
@@ -980,10 +986,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     }
   }, [getUVCheckerTexture]);
 
-  const effectiveShadingMode: ShadingMode =
-    shadingMode === 'uv-checker' || (activeTool === 'uv' && (shadingMode === 'textured' || !shadingMode))
-      ? 'uv-checker'
-      : shadingMode;
+  const effectiveShadingMode: ShadingMode = shadingMode || 'textured';
 
   useEffect(() => {
     [modelGroupRef.current, comparisonBeforeGroupRef.current].forEach((group) => {
@@ -1277,9 +1280,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     const tracksSelection = selectionState.assetSelectionState === 'loading';
     if (!modelUrl || !modelGroupRef.current) {
       if (!modelUrl && tracksSelection) selectionState.failAssetLoad(requestId, 'Selected asset has no renderable model URL.');
-      setModelLoadStatus('empty');
-      setHasModel(false);
-      setLoadError(null);
+      setLoadState({ status: 'empty', hasModel: false, error: null });
       const group = modelGroupRef.current;
       if (group) {
         while (group.children.length > 0) {
@@ -1300,8 +1301,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
     const abortController = new AbortController();
     let isCancelled = false;
-    setModelLoadStatus('loading');
-    setLoadError(null);
+    setLoadState((prev) => ({ status: 'loading', hasModel: prev.hasModel, error: null }));
 
     // Clear previous model from scene
     const group = modelGroupRef.current;
@@ -1383,15 +1383,12 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       useViewerStore.getState().setActiveModelObject(object);
       fitCameraToModel(object);
       invalidateRenderRef.current();
-      setModelLoadStatus('loaded');
-      setHasModel(true);
+      setLoadState({ status: 'loaded', hasModel: true, error: null });
     };
 
     const handleLoadFailure = (msg: string) => {
       if (!isCancelled) {
-        setModelLoadStatus('error');
-        setHasModel(false);
-        setLoadError(msg);
+        setLoadState({ status: 'error', hasModel: false, error: msg });
         if (tracksSelection) useViewerStore.getState().failAssetLoad(requestId, msg);
       }
     };
@@ -1502,22 +1499,25 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     // Parse part index from id like "p1" -> 0, "p2" -> 1, etc.
     const match = hoveredPartId.match(/^p(\d+)$/);
     if (!match) return;
-    const meshIndex = parseInt(match[1], 1) - 1;
+    const meshIndex = parseInt(match[1], 10) - 1;
 
     let meshCount = 0;
+    const hoverMaterials: THREE.Material[] = [];
     group.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         if (meshCount === meshIndex) {
           if (!child.userData.__hoverOriginalMaterial) {
             child.userData.__hoverOriginalMaterial = child.material;
           }
-          child.material = new THREE.MeshStandardMaterial({
+          const hoverMat = new THREE.MeshStandardMaterial({
             color: 0xf9cf00,
             emissive: 0xf9cf00,
             emissiveIntensity: 0.5,
             roughness: 0.2,
             metalness: 0.1,
           });
+          hoverMaterials.push(hoverMat);
+          child.material = hoverMat;
         }
         meshCount++;
       }
@@ -1531,6 +1531,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           delete child.userData.__hoverOriginalMaterial;
         }
       });
+      hoverMaterials.forEach((m) => m.dispose());
     };
   }, [hoveredPartId]);
 

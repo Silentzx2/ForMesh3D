@@ -149,26 +149,49 @@ export const DynamicSegmentationInspector: React.FC = () => {
     return { realParts: computed, isRealModelData: true };
   }, [activeModelObject]);
 
-  const fallbackParts: SegmentPart[] = useMemo(
-    () => [
-      { id: 'p1', name: 'Head & Helmet', color: '#3B82F6', faces: 2840, volumePercent: 14.2, visible: true },
-      { id: 'p2', name: 'Torso & Armor', color: '#10B981', faces: 6420, volumePercent: 32.5, visible: true },
-      { id: 'p3', name: 'Left Upper Arm', color: '#F59E0B', faces: 1220, volumePercent: 6.8, visible: true },
-      { id: 'p4', name: 'Right Upper Arm', color: '#EF4444', faces: 1240, volumePercent: 6.9, visible: true },
-      { id: 'p5', name: 'Left Lower Limb', color: '#8B5CF6', faces: 3100, volumePercent: 15.4, visible: true },
-      { id: 'p6', name: 'Right Lower Limb', color: '#EC4899', faces: 3080, volumePercent: 15.2, visible: true },
-    ],
-    []
-  );
-
-  const [parts, setParts] = useState<SegmentPart[]>(fallbackParts);
+  const [parts, setParts] = useState<SegmentPart[]>([]);
+  const [explodeAmount, setExplodeAmount] = useState(0);
 
   React.useEffect(() => {
+    setExplodeAmount(0);
     if (realParts && realParts.length > 0) {
       setParts(realParts);
       setSelectedPartId(realParts[0]?.id || null);
+    } else {
+      setParts([]);
+      setSelectedPartId(null);
     }
   }, [realParts]);
+
+  React.useEffect(() => {
+    if (!activeModelObject) return;
+    const meshes: THREE.Mesh[] = [];
+    activeModelObject.traverse((c) => {
+      if (c instanceof THREE.Mesh && c.geometry) meshes.push(c);
+    });
+    if (meshes.length < 2) return;
+
+    const modelBox = new THREE.Box3().setFromObject(activeModelObject);
+    const modelCenter = modelBox.getCenter(new THREE.Vector3());
+    const radius = modelBox.getSize(new THREE.Vector3()).length() * 0.35;
+
+    meshes.forEach((m) => {
+      if (!m.userData.__origPos) {
+        m.userData.__origPos = m.position.clone();
+      }
+      const orig = m.userData.__origPos as THREE.Vector3;
+      if (explodeAmount === 0) {
+        m.position.copy(orig);
+      } else {
+        const partCenter = new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3());
+        const dir = partCenter.sub(modelCenter);
+        if (dir.lengthSq() < 1e-6) dir.set(0, 1, 0);
+        dir.normalize();
+        m.position.copy(orig).addScaledVector(dir, (explodeAmount / 100) * radius);
+      }
+    });
+    invalidateViewportRender();
+  }, [activeModelObject, explodeAmount]);
 
   const totalFaces = useMemo(() => parts.reduce((acc, p) => acc + p.faces, 0), [parts]);
   const visibleCount = useMemo(() => parts.filter((p) => p.visible).length, [parts]);
@@ -355,22 +378,65 @@ export const DynamicSegmentationInspector: React.FC = () => {
         </div>
       </div>
 
+      {/* Explode / Separate Parts Slider */}
+      {parts.length > 1 && (
+        <div className="p-2 rounded-lg bg-[hsl(var(--surface-0))] border border-white/[0.06] space-y-1">
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-zinc-400 font-semibold uppercase tracking-wider">Explode Parts</span>
+            <span className="font-mono text-[hsl(var(--primary))]">{explodeAmount}%</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={explodeAmount}
+            onChange={(e) => setExplodeAmount(Number(e.target.value))}
+            aria-label="Explode Parts"
+            className="w-full h-1.5 accent-[#F9CF00] cursor-pointer"
+          />
+        </div>
+      )}
+
       {/* Part Hierarchy List */}
       <div className="space-y-1">
         <div className="flex items-center justify-between px-0.5">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
             Part Hierarchy
           </span>
-          <button
-            type="button"
-            onClick={toggleAllVisibility}
-            className="text-[10px] text-[hsl(var(--primary))] hover:underline cursor-pointer font-semibold"
-          >
-            {visibleCount === parts.length ? 'Hide All' : 'Show All'}
-          </button>
+          <div className="flex items-center gap-2">
+            {selectedPartId && parts.length > 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setParts((prev) => prev.map((p) => ({ ...p, visible: p.id === selectedPartId })));
+                  if (activeModelObject) {
+                    const idx = parts.findIndex((p) => p.id === selectedPartId);
+                    let mIdx = 0;
+                    activeModelObject.traverse((n) => {
+                      if (n instanceof THREE.Mesh) {
+                        n.visible = mIdx === idx;
+                        mIdx++;
+                      }
+                    });
+                    invalidateViewportRender();
+                  }
+                }}
+                className="text-[10px] text-zinc-300 hover:text-white cursor-pointer font-semibold"
+              >
+                Isolate
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={toggleAllVisibility}
+              className="text-[10px] text-[hsl(var(--primary))] hover:underline cursor-pointer font-semibold"
+            >
+              {visibleCount === parts.length ? 'Hide All' : 'Show All'}
+            </button>
+          </div>
         </div>
 
-        <div className="space-y-1 max-h-[140px] overflow-hidden pr-0.5 no-scrollbar">
+        <div className="space-y-1 max-h-[200px] overflow-y-auto pr-0.5">
           {parts.map((part) => {
             const isSelected = selectedPartId === part.id;
             return (

@@ -176,7 +176,6 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
 
         self._shape_pipeline = shape_pipeline
         self.model = shape_pipeline
-        self.status = ModelStatus.LOADED
 
         # ── Load paint pipeline (needed for texture autochain / paint page) ──
         try:
@@ -207,7 +206,6 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
         self._shape_pipeline = None
         self._paint_pipeline = None
         self.model = None
-        self.status = ModelStatus.UNLOADED
 
     # ── inference ──────────────────────────────────────────────────────
 

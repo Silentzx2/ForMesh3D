@@ -73,3 +73,8 @@ CI does not download model weights or prove GPU inference. Report those checks o
 - Retopology: TriFlow AI only. UV: PartUV AI only. Segmentation: PartField AI only. Rigging: SkinTokens AI only.
 - No Script engine selector, frontend execution bridge, or deterministic script segmentation pipeline is part of the active UI/runtime.
 - PartField can optionally persist each segmented part as a separate workspace mesh asset plus a ZIP archive; the combined colored GLB remains the active mesh.
+
+## 9. State Machines, Tool Fixes & UI Performance (2026-11-25)
+- Unified implicit state machines in `WorkspaceContext`, `MeshViewer`, `RightPropertyPanel`, `OutputsPage`, `AnimationPanel`, `RiggingPanel`, `BaseModel.process()`, `JobRequest`, `RedisJobQueue`, and `MultiprocessScheduler`.
+- Fixed Rigging (`SkeletonHelper` overlay, real `0` unrigged bone count), UV (shared `shadingMode` checker, seam disposal, mesh-only guard), Segmentation (`parseInt` radix `10`, drag guard, **Explode Parts** + **Isolate**), and `download_triposr()`.
+- Added `content-visibility: auto` (`.cv-card`, `.cv-row`), rAF-throttled raycasting in `RealModelPreviewCanvas`, and `matchMedia` in `WorkspaceShell`.

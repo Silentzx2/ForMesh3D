@@ -155,9 +155,9 @@ class BaseModel(ABC):
 
     def process(self, inputs: Dict[str, Any], progress_callback: Optional[Callable[[str, float, str], None]] = None) -> Dict[str, Any]:
         """Process input and return results"""
-        if self.status in [ModelStatus.UNLOADED, ModelStatus.LOADING]:
+        if self.status != ModelStatus.LOADED:
             raise Exception(
-                f"Model {self.model_id} is not loaded, its status {self.status}"
+                f"Model {self.model_id} is not ready for processing, its status is {self.status}"
             )
 
         start_time = time.time()

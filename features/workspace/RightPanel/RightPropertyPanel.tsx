@@ -120,8 +120,18 @@ export const RightPropertyPanel: React.FC = () => {
   };
 
   const [exportFormat, setExportFormat] = useState<'glb' | 'gltf' | 'fbx' | 'obj' | 'stl' | 'ply'>('glb');
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportSuccess, setExportSuccess] = useState(false);
+  const [exportState, setExportState] = useState<'idle' | 'exporting' | 'success'>('idle');
+  const exportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isExporting = exportState === 'exporting';
+  const exportSuccess = exportState === 'success';
+
+  const scheduleExportReset = () => {
+    if (exportTimerRef.current) clearTimeout(exportTimerRef.current);
+    exportTimerRef.current = setTimeout(() => {
+      setExportState('idle');
+      exportTimerRef.current = null;
+    }, 3000);
+  };
 
   // Live 3D object transform synchronized to Three.js model group
   const [transform, setTransform] = useState({
@@ -270,18 +280,18 @@ export const RightPropertyPanel: React.FC = () => {
       }
 
       if (activeModelObject) {
-        setIsExporting(true);
+        if (exportTimerRef.current) clearTimeout(exportTimerRef.current);
+        setExportState('exporting');
         try {
           toast.info(`Generating ${exportFormat.toUpperCase()} in browser...`);
           await triggerClientExport(activeModelObject, exportFormat as ClientSupportedExportFormat, `${assetBaseName}.${exportFormat}`);
-          setExportSuccess(true);
+          setExportState('success');
           toast.success(`${exportFormat.toUpperCase()} exported successfully!`);
-          setTimeout(() => setExportSuccess(false), 3000);
+          scheduleExportReset();
         } catch (err: any) {
           console.error('Client export failed:', err);
           toast.error('Export failed', { description: err?.message || 'Failed to export model' });
-        } finally {
-          setIsExporting(false);
+          setExportState('idle');
         }
         return;
       }
@@ -292,20 +302,21 @@ export const RightPropertyPanel: React.FC = () => {
       return;
     }
 
-    setIsExporting(true);
+    if (exportTimerRef.current) clearTimeout(exportTimerRef.current);
+    setExportState('exporting');
     try {
       await downloadArtifact(sourceUrl, `${assetBaseName}.${exportFormat}`, exportFormat);
-      setExportSuccess(true);
-      setTimeout(() => setExportSuccess(false), 3000);
+      setExportState('success');
+      scheduleExportReset();
     } catch (error) {
       // If remote download fails, attempt client Three.js export fallback
       if (activeModelObject && exportFormat !== 'fbx') {
         try {
           toast.info(`Backend artifact unavailable. Generating ${exportFormat.toUpperCase()} from viewport...`);
           await triggerClientExport(activeModelObject, exportFormat as ClientSupportedExportFormat, `${assetBaseName}.${exportFormat}`);
-          setExportSuccess(true);
+          setExportState('success');
           toast.success(`${exportFormat.toUpperCase()} exported from viewport!`);
-          setTimeout(() => setExportSuccess(false), 3000);
+          scheduleExportReset();
           return;
         } catch (clientErr: any) {
           console.error('Fallback client export failed:', clientErr);
@@ -314,9 +325,7 @@ export const RightPropertyPanel: React.FC = () => {
       console.error(error);
       const msg = error instanceof Error ? error.message : 'Export failed';
       toast.error('Export failed', { description: msg });
-      setExportSuccess(false);
-    } finally {
-      setIsExporting(false);
+      setExportState('idle');
     }
   };
 

@@ -380,7 +380,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({ jobId: propJobId, 
                   <button
                     key={j.id}
                     onClick={() => setSelectedJobId(j.id)}
-                    className={`w-full text-left p-3 transition-colors cursor-pointer flex flex-col gap-1 ${
+                    className={`cv-row w-full text-left p-3 transition-colors cursor-pointer flex flex-col gap-1 ${
                       isSel ? 'bg-primary/10 border-l-2 border-primary' : 'hover:bg-white/[0.03]'
                     }`}
                   >

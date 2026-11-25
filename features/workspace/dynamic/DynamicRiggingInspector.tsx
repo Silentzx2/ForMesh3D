@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { invalidateViewportRender } from '../Viewport/viewportEvents';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
@@ -72,11 +72,33 @@ export const DynamicRiggingInspector: React.FC = () => {
   const [exportError, setExportError] = useState<string | null>(null);
 
   const { isRealRig, realBoneCount } = useMemo(() => {
-    if (!activeModelObject) return { isRealRig: false, realBoneCount: 54 };
+    if (!activeModelObject) return { isRealRig: false, realBoneCount: 0 };
     let count = 0;
     activeModelObject.traverse((c) => { if (c instanceof THREE.Bone) count++; });
-    return { isRealRig: count > 0, realBoneCount: count > 0 ? count : 54 };
+    return { isRealRig: count > 0, realBoneCount: count };
   }, [activeModelObject]);
+
+  useEffect(() => {
+    setBones(CANONICAL_BONES);
+  }, [activeModelObject]);
+
+  useEffect(() => {
+    if (!activeModelObject || !isRealRig || !xrayMode) return;
+    const helper = new THREE.SkeletonHelper(activeModelObject);
+    helper.name = '__rigging_skeleton_helper';
+    const mat = helper.material as THREE.LineBasicMaterial;
+    mat.depthTest = false;
+    mat.transparent = true;
+    mat.opacity = 0.85;
+    activeModelObject.add(helper);
+    invalidateViewportRender();
+    return () => {
+      activeModelObject.remove(helper);
+      helper.geometry.dispose();
+      mat.dispose();
+      invalidateViewportRender();
+    };
+  }, [activeModelObject, isRealRig, xrayMode]);
 
   const selectedBone = bones.find((b) => b.id === selectedBoneId) || bones[0];
 

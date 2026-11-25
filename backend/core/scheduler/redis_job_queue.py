@@ -466,11 +466,18 @@ class RedisJobQueue:
         job.retry_count = int(data.get("retry_count", 0) or 0)
         raw_status = data.get("status")
         if raw_status:
-            if raw_status == "running":
-                job.status = JobStatus.PROCESSING
-            elif raw_status in {"queued", "processing", "completed", "failed", "cancelled"}:
-                job.status = JobStatus(raw_status)
+            job.status = self._normalize_status(raw_status)
         return job
+
+    @staticmethod
+    def _normalize_status(raw_status: Optional[str]) -> JobStatus:
+        """Normalize legacy/external Redis status strings to JobStatus."""
+        if raw_status == "running":
+            return JobStatus.PROCESSING
+        try:
+            return JobStatus(raw_status)
+        except ValueError:
+            return JobStatus.QUEUED
 
     async def update_job_progress(self, job_id: str, progress: float, stage: Optional[str] = None, message: Optional[str] = None):
         """Update job progress and stage"""
@@ -814,7 +821,7 @@ class RedisJobQueue:
                     )
                     job_request.job_id = job_id
                     job_request.created_at = datetime.fromisoformat(job_data["created_at"])
-                    job_request.status = JobStatus.PROCESSING if raw_status == "running" else JobStatus(raw_status)
+                    job_request.status = self._normalize_status(raw_status)
                     job_request.progress = float(job_data.get("progress", 0.0) or 0.0)
                     if job_data.get("error"):
                         job_request.error = job_data["error"]
