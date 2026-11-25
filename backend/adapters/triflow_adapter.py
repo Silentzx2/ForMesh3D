@@ -365,13 +365,13 @@ class TriFlowRetopologyAdapter(BaseModel):
                 stem = Path(mesh_path).stem
                 out_file = out_dir / f"{stem}_triflow.{output_format}"
             out_file.parent.mkdir(parents=True, exist_ok=True)
-            export_mesh_safe(mesh_qem, out_file)
-
-            stats = compute_mesh_stats(mesh_qem)
+            stats, actual_quad_ratio, quad_obj_path = self._export_triflow_output(
+                mesh_qem, out_file, output_format, poly_type, quad_ratio
+            )
             elapsed = round(time.time() - start_time, 2)
             logger.info("[TRIFLOW] Retopology completed in %ss. Output: %s", elapsed, out_file)
 
-            return {
+            res_dict: Dict[str, Any] = {
                 "success": True,
                 "output_mesh_path": str(out_file),
                 "mesh_path": str(out_file),
@@ -379,11 +379,15 @@ class TriFlowRetopologyAdapter(BaseModel):
                 "generation_info": {
                     "engine": "triflow",
                     "target_faces": target_faces,
-                    "quad_ratio": quad_ratio,
+                    "poly_type": poly_type,
+                    "quad_ratio": actual_quad_ratio,
                     "execution_time_s": elapsed,
                     "output_format": output_format,
                 },
             }
+            if quad_obj_path is not None:
+                res_dict["quad_obj_path"] = str(quad_obj_path)
+            return res_dict
 
         except ModuleNotFoundError as e:
             if "pyfqmr_triflow" in str(e):
@@ -436,10 +440,12 @@ class TriFlowRetopologyAdapter(BaseModel):
             stem = Path(mesh_path).stem
             out_file = out_dir / f"{stem}_retopo.{output_format}"
         out_file.parent.mkdir(parents=True, exist_ok=True)
-        export_mesh_safe(simplified, out_file)
-        stats = compute_mesh_stats(simplified)
+        poly_type = str(inputs.get("poly_type", "quad")).lower()
+        stats, actual_quad_ratio, quad_obj_path = self._export_triflow_output(
+            simplified, out_file, output_format, poly_type, quad_ratio
+        )
 
-        return {
+        res_dict: Dict[str, Any] = {
             "success": True,
             "output_mesh_path": str(out_file),
             "mesh_path": str(out_file),
@@ -447,10 +453,96 @@ class TriFlowRetopologyAdapter(BaseModel):
             "generation_info": {
                 "engine": "triflow_fallback",
                 "target_faces": target_faces,
-                "quad_ratio": quad_ratio,
+                "poly_type": poly_type,
+                "quad_ratio": actual_quad_ratio,
                 "execution_time_s": round(time.time() - start_time, 2),
             },
         }
+        if quad_obj_path is not None:
+            res_dict["quad_obj_path"] = str(quad_obj_path)
+        return res_dict
+
+    @staticmethod
+    def _pair_triangles_to_quads(mesh: trimesh.Trimesh, max_angle_deg: float = 45.0):
+        """Greedily pair adjacent co-planar triangles into ordered 4-vertex quads."""
+        faces = np.asarray(mesh.faces)
+        adj = mesh.face_adjacency
+        angles = mesh.face_adjacency_angles
+        max_rad = float(np.deg2rad(max_angle_deg))
+        order = np.argsort(angles)
+        used = np.zeros(len(faces), dtype=bool)
+        mixed_faces = []
+        quad_count = 0
+
+        for idx in order:
+            if angles[idx] > max_rad:
+                break
+            f0, f1 = int(adj[idx, 0]), int(adj[idx, 1])
+            if used[f0] or used[f1]:
+                continue
+            t0, t1 = faces[f0], faces[f1]
+            shared = set(t0.tolist()) & set(t1.tolist())
+            if len(shared) != 2:
+                continue
+            # Rotate t0 so the edge NOT opposite to the shared edge starts at the shared-edge vertex
+            opp0 = next(i for i, v in enumerate(t0) if v not in shared)
+            v_a, v_b, v_c = int(t0[opp0]), int(t0[(opp0 + 1) % 3]), int(t0[(opp0 + 2) % 3])
+            opp1_v = next(int(v) for v in t1 if v not in shared)
+            # Quad winding: v_a -> v_b -> opp1_v -> v_c
+            mixed_faces.append([v_a, v_b, opp1_v, v_c])
+            used[f0] = used[f1] = True
+            quad_count += 1
+
+        tri_count = 0
+        for fi in range(len(faces)):
+            if not used[fi]:
+                mixed_faces.append([int(v) for v in faces[fi]])
+                tri_count += 1
+        return mixed_faces, quad_count, tri_count
+
+    @staticmethod
+    def _write_quad_obj(mesh: trimesh.Trimesh, mixed_faces: list[list[int]], out_path: Path) -> None:
+        """Write vertices and mixed quad/triangle faces to a Wavefront OBJ file."""
+        verts = np.asarray(mesh.vertices)
+        lines = [f"v {x:.6f} {y:.6f} {z:.6f}\n" for x, y, z in verts]
+        for face in mixed_faces:
+            lines.append("f " + " ".join(str(idx + 1) for idx in face) + "\n")
+        out_path.write_text("".join(lines), encoding="utf-8")
+
+    def _export_triflow_output(
+        self,
+        mesh: trimesh.Trimesh,
+        out_file: Path,
+        output_format: str,
+        poly_type: str,
+        quad_ratio: float,
+    ):
+        stats = compute_mesh_stats(mesh)
+        quad_obj_path: Optional[Path] = None
+
+        if poly_type == "quad" and quad_ratio > 0.0:
+            mixed_faces, quad_count, tri_count = self._pair_triangles_to_quads(mesh)
+            total = max(1, quad_count + tri_count)
+            actual_quad_ratio = round(quad_count / total, 4)
+            stats["quad_count"] = quad_count
+            stats["tri_count"] = tri_count
+            stats["topology"] = "Quad-Dominant" if quad_count > 0 else "Triangle"
+            stats["quad_ratio"] = actual_quad_ratio
+            if output_format == "obj":
+                self._write_quad_obj(mesh, mixed_faces, out_file)
+            else:
+                # glTF/GLB only supports triangles; export GLB for viewport + sibling .obj for true quads.
+                export_mesh_safe(mesh, out_file)
+                quad_obj_path = out_file.with_suffix(".obj")
+                self._write_quad_obj(mesh, mixed_faces, quad_obj_path)
+            return stats, actual_quad_ratio, quad_obj_path
+
+        export_mesh_safe(mesh, out_file)
+        stats["quad_count"] = 0
+        stats["tri_count"] = int(len(mesh.faces))
+        stats["topology"] = "Triangle"
+        stats["quad_ratio"] = 0.0
+        return stats, 0.0, None
 
     def get_supported_formats(self) -> Dict[str, list[str]]:
         """Return supported input and output mesh formats."""

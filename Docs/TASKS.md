@@ -1,10 +1,18 @@
-# Tasks — UI Styling, Design Tokens & Dropdown Audit
+# Tasks — Completed Studio Fixes & Backlog
 
-> **Audit date:** 2026-11-25 | **Refs:** `Docs/DESIGN.md`, `assets/colors.jpeg`, `app/globals.css`
+> **Audit date:** 2026-11-25 | **Status:** Pushed to `dev`
 
-| # | Severity | Area | Finding & Fix |
-|---|---:|---|---|
-| 1 | 8/10 | `features/workspace/Panels/*.tsx` (8 files) | Replace hardcoded hexes (`#12131d`, `#0f1019`, `#141524`, `#1c1d2c`, `#161726`, `#F9CF00`, `#ffdb29`) with `hsl(var(--surface-0..2))` and `hsl(var(--primary))` tokens |
-| 2 | 8/10 | `GeneratePanel.tsx:1047-1056`, `TexturePanel.tsx:1115-1118` | Model dropdowns squeeze/truncate `m.label` inline; stack vertically & remove `truncate` on model names |
-| 3 | 7/10 | `TopHeader.tsx:123`, `RightAssetsPanel.tsx:276,453` | Narrow fixed widths (`w-44`/`w-48`) clip dropdown labels; widen to `min-w-[200px] w-max` / `w-52` |
-| 4 | 6/10 | `features/workspace/Panels/*.tsx` | Low-contrast `text-zinc-500` labels upgraded to `text-zinc-400` for WCAG 4.5:1 readability |
+## Completed
+| Area | Summary |
+|---|---|
+| **Viewport Compare** | Straight-vertical hardware `setScissorTest` wipe, bottom `Before`/`After` labels, rotation + `OrbitControls` sync |
+| **Wireframe & Stats** | 2-mode Wireframe cycle (`overlay` solid-surface vs `xray` internal) + top-right Mesh Stats (`Faces`/`Verts`) |
+| **Segment & Rigging** | Cloned preview materials in `RealModelPreviewCanvas` (fixes permanent blue mesh) + in-place X-Ray bone toggle |
+| **Asset Panel** | Deduplicated base meshes only, removed category filter & workspace pill, fixed 3-dot/Delete placement |
+| **TriFlow & Backend** | `_pair_triangles_to_quads()` + quad `.obj` output (`poly_type="quad"`), `download_job_thumbnail` `op_*` fix |
+| **UI Tokens & Dropdowns** | Replaced hardcoded panel hexes with `globals.css` tokens; removed model dropdown truncation |
+
+## Remaining Backlog
+- Forwarding `TexturePanel` PBR/style/dilation/seed controls to `POST /api/v1/texture`.
+- Undoing `MeshViewer` viewport normalization scale/grounding offset on client export + `ExportModal.tsx` ZIP/LOD/FBX handling.
+- Backend on-demand multi-format conversion (`obj`/`stl`/`ply`/`gltf`) & `lod0`–`collision` key handling.

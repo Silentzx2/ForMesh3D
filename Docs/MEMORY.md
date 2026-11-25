@@ -78,3 +78,8 @@ CI does not download model weights or prove GPU inference. Report those checks o
 - Unified implicit state machines in `WorkspaceContext`, `MeshViewer`, `RightPropertyPanel`, `OutputsPage`, `AnimationPanel`, `RiggingPanel`, `BaseModel.process()`, `JobRequest`, `RedisJobQueue`, and `MultiprocessScheduler`.
 - Fixed Rigging (`SkeletonHelper` overlay, real `0` unrigged bone count), UV (shared `shadingMode` checker, seam disposal, mesh-only guard), Segmentation (`parseInt` radix `10`, drag guard, **Explode Parts** + **Isolate**), and `download_triposr()`.
 - Added `content-visibility: auto` (`.cv-card`, `.cv-row`), rAF-throttled raycasting in `RealModelPreviewCanvas`, and `matchMedia` in `WorkspaceShell`.
+
+## 10. Viewport Compare, Wireframe Modes, Asset Library & TriFlow Quads (2026-11-25)
+- `MeshViewer` comparison uses straight-vertical hardware `setScissorTest`, bottom `Before`/`After` labels, and rotation/`OrbitControls` sync; `RealModelPreviewCanvas` clones materials and updates X-Ray in-place.
+- `ViewportToolOverlay` cycles Wireframe (`off` -> `overlay` -> `xray`) and shows top-right Mesh Stats (`Faces`/`Verts`); `RightAssetsPanel` shows deduplicated base meshes only.
+- `triflow_adapter.py` pairs co-planar triangles into quads (`_pair_triangles_to_quads`) for `poly_type="quad"`; `system.py` resolves `op_*` + `mesh/mesh_thumb.png` in `download_job_thumbnail`.

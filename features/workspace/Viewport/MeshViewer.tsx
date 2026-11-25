@@ -210,6 +210,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     setIsComparing,
     shadingMode,
     showWireframe,
+    wireframeMode,
     showGrid,
     isTurntable,
     viewportResetTrigger,
@@ -281,10 +282,12 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const comparisonHandleRef = useRef<HTMLDivElement | null>(null);
   const shadingModeRef = useRef(shadingMode);
   const showWireframeRef = useRef(showWireframe);
+  const wireframeModeRef = useRef(wireframeMode);
   useEffect(() => {
     shadingModeRef.current = shadingMode;
     showWireframeRef.current = showWireframe;
-  }, [shadingMode, showWireframe]);
+    wireframeModeRef.current = wireframeMode;
+  }, [shadingMode, showWireframe, wireframeMode]);
 
   // Three.js instances stored in refs to avoid React re-render overhead
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -506,30 +509,29 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       const beforeGroup = comparisonBeforeGroupRef.current;
       const afterGroup = modelGroupRef.current;
       if (comparisonOpenRef.current && beforeGroup?.children.length && afterGroup?.children.length) {
-        const width = container.clientWidth;
-        const height = container.clientHeight;
         const drawingBufferSize = renderer.getDrawingBufferSize(new THREE.Vector2());
-        comparisonCompositeMaterial.uniforms.uPosition.value = comparisonPositionRef.current / 100;
-        comparisonCompositeMaterial.uniforms.uSlope.value = Math.tan(14 * Math.PI / 180) * height / Math.max(width, 1);
-        const previousClearColor = renderer.getClearColor(new THREE.Color());
-        const previousClearAlpha = renderer.getClearAlpha();
-        renderer.setClearColor(0x000000, 0);
-        renderer.setScissorTest(false);
-        beforeGroup.visible = true;
-        afterGroup.visible = false;
-        renderer.setRenderTarget(comparisonTargetBefore);
-        renderer.clear(true, true, true);
-        renderer.render(scene, camera);
-        beforeGroup.visible = false;
-        afterGroup.visible = true;
-        renderer.setRenderTarget(comparisonTargetAfter);
-        renderer.clear(true, true, true);
-        renderer.render(scene, camera);
+        const bufW = drawingBufferSize.x;
+        const bufH = drawingBufferSize.y;
+        const splitX = Math.max(0, Math.min(bufW, Math.round((comparisonPositionRef.current / 100) * bufW)));
         renderer.setRenderTarget(null);
-        renderer.setViewport(0, 0, drawingBufferSize.x, drawingBufferSize.y);
-        renderer.clear(true, true, true);
-        renderer.render(comparisonCompositeScene, comparisonCompositeCamera);
-        renderer.setClearColor(previousClearColor, previousClearAlpha);
+        renderer.setViewport(0, 0, bufW, bufH);
+        renderer.setScissorTest(true);
+
+        if (splitX > 0) {
+          beforeGroup.visible = true;
+          afterGroup.visible = false;
+          renderer.setScissor(0, 0, splitX, bufH);
+          renderer.clear(true, true, true);
+          renderer.render(scene, camera);
+        }
+        if (splitX < bufW) {
+          beforeGroup.visible = false;
+          afterGroup.visible = true;
+          renderer.setScissor(splitX, 0, bufW - splitX, bufH);
+          renderer.clear(true, true, true);
+          renderer.render(scene, camera);
+        }
+        renderer.setScissorTest(false);
       } else {
         if (beforeGroup) beforeGroup.visible = false;
         if (afterGroup) afterGroup.visible = true;
@@ -926,9 +928,33 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     const orig = mesh.userData.__originalMaterial;
     if (!orig) return;
 
-    // Instant zero-lag wireframe: use pre-compiled unlit MeshBasicMaterial.
-    // Avoids re-compiling heavy PBR/Standard shaders at 1M faces (no main-thread freeze).
-    if (wireframe || mode === 'wireframe') {
+    const activeWireMode = wireframe ? (wireframeModeRef.current === 'xray' ? 'xray' : 'overlay') : 'off';
+
+    // Manage surface wireframe overlay child (solid mesh stays visible underneath; internal faces hidden)
+    let overlayChild = mesh.children.find((c) => c.userData?.__isWireframeOverlay) as THREE.Mesh | undefined;
+    if (activeWireMode === 'overlay' && mode !== 'wireframe') {
+      if (!overlayChild) {
+        const overlayMat = new THREE.MeshBasicMaterial({
+          color: 0xf9cf00,
+          wireframe: true,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
+          transparent: true,
+          opacity: 0.45,
+        });
+        overlayChild = new THREE.Mesh(mesh.geometry, overlayMat);
+        overlayChild.userData.__isWireframeOverlay = true;
+        overlayChild.raycast = () => {};
+        mesh.add(overlayChild);
+      }
+      overlayChild.visible = true;
+    } else if (overlayChild) {
+      overlayChild.visible = false;
+    }
+
+    // Full internal X-ray wireframe mode
+    if (activeWireMode === 'xray' || mode === 'wireframe') {
       if (!mesh.userData.__wireMaterial) {
         mesh.userData.__wireMaterial = new THREE.MeshBasicMaterial({
           color: 0x00ffcc,
@@ -991,16 +1017,16 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   useEffect(() => {
     [modelGroupRef.current, comparisonBeforeGroupRef.current].forEach((group) => {
       group?.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
+        if (child instanceof THREE.Mesh && !child.userData?.__isWireframeOverlay) {
           applyShadingToMesh(child, effectiveShadingMode, Boolean(showWireframe));
         }
       });
     });
     if (keyLightRef.current) {
-      keyLightRef.current.castShadow = !showWireframe;
+      keyLightRef.current.castShadow = wireframeMode !== 'xray';
     }
     invalidateRenderRef.current();
-  }, [showWireframe, effectiveShadingMode, applyShadingToMesh]);
+  }, [showWireframe, wireframeMode, effectiveShadingMode, applyShadingToMesh]);
 
   // 3. Reset Camera / Fit to screen helper
   const fitCameraToModel = useCallback((object: THREE.Object3D) => {
@@ -1133,6 +1159,10 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     if (isComparing && comparisonDividerRef.current) {
       comparisonDividerRef.current.style.left = `${comparisonPositionRef.current}%`;
     }
+    if (controlsRef.current) {
+      controlsRef.current.enabled = true;
+      controlsRef.current.update();
+    }
     invalidateRenderRef.current();
   }, [isComparing]);
 
@@ -1213,6 +1243,9 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           applyShadingToMesh(child, isTextureShadingComparison ? 'clay' : shadingModeRef.current, isTextureShadingComparison ? false : Boolean(showWireframeRef.current));
         }
       });
+      if (modelGroupRef.current) {
+        comparisonBeforeGroupRef.current.rotation.copy(modelGroupRef.current.rotation);
+      }
       comparisonBeforeGroupRef.current.add(original);
       comparisonBeforeGroupRef.current.visible = true;
       setIsComparisonLoading(false);
@@ -1694,18 +1727,18 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
       {viewportStatus === 'comparing' && (
         <div className="absolute inset-0 z-10 pointer-events-none">
-          <div className="absolute top-3 left-3 px-2 py-1 rounded-md bg-black/65 border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white">
-            {isTextureShadingComparison ? 'Clay / Untextured' : activeTool === 'remesh' ? 'Original Mesh' : activeTool === 'uv' ? 'Before UV' : activeTool === 'segment' ? 'Original' : 'Before'}
+          <div className="absolute bottom-20 left-3 px-2 py-1 rounded bg-black/75 border border-white/15 text-[10px] font-semibold uppercase tracking-wider text-white shadow">
+            {isTextureShadingComparison ? 'Before · Clay' : activeTool === 'remesh' ? 'Before · Original' : activeTool === 'uv' ? 'Before UV' : activeTool === 'segment' ? 'Before · Original' : 'Before'}
           </div>
-          <div className="absolute top-3 right-3 px-2 py-1 rounded-md bg-black/65 border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white">
-            {isTextureShadingComparison ? 'PBR / Textured' : activeTool === 'remesh' ? 'Remeshed' : activeTool === 'uv' ? 'After UV' : activeTool === 'segment' ? 'Segmented' : 'After'}
+          <div className="absolute bottom-20 right-3 px-2 py-1 rounded bg-black/75 border border-white/15 text-[10px] font-semibold uppercase tracking-wider text-white shadow">
+            {isTextureShadingComparison ? 'After · Textured' : activeTool === 'remesh' ? 'After · Remeshed' : activeTool === 'uv' ? 'After UV' : activeTool === 'segment' ? 'After · Segmented' : 'After'}
           </div>
           <div
             ref={comparisonDividerRef}
             className="absolute top-0 bottom-0"
-            style={{ left: `${comparisonPositionRef.current}%`, transform: 'translateX(-50%) rotate(-14deg)' }}
+            style={{ left: `${comparisonPositionRef.current}%`, transform: 'translateX(-50%)' }}
           >
-            <div className="absolute inset-y-0 left-0 w-px -translate-x-1/2 bg-[#F9CF00] shadow-[0_0_10px_rgba(249,207,0,0.7)]" />
+            <div className="absolute inset-y-0 left-0 w-px -translate-x-1/2 bg-[hsl(var(--primary))] shadow-[0_0_8px_hsl(var(--primary)/0.6)]" />
             <div
               ref={comparisonHandleRef}
               role="slider"
@@ -1741,9 +1774,9 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
                   updateComparisonPosition(containerRef.current?.getBoundingClientRect().right ?? 0);
                 }
               }}
-              className="pointer-events-auto absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 rotate-[14deg] w-10 h-12 rounded-full bg-[#171821]/95 border border-[#F9CF00] shadow-lg flex items-center justify-center cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-[#F9CF00]"
+              className="pointer-events-auto absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-10 rounded-md bg-[hsl(var(--surface-1))]/95 border border-[hsl(var(--primary))] shadow-lg flex items-center justify-center cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))]"
             >
-              <span className="flex items-center gap-0.5 text-[#F9CF00]">
+              <span className="flex items-center gap-0.5 text-[hsl(var(--primary))]">
                 <span className="w-0.5 h-3 rounded-full bg-current" />
                 <span className="w-0.5 h-3 rounded-full bg-current" />
               </span>

@@ -85,6 +85,8 @@ interface WorkspaceContextType {
   setShadingMode: (mode: ShadingMode) => void;
   showWireframe: boolean;
   setShowWireframe: (show: boolean) => void;
+  wireframeMode: 'off' | 'overlay' | 'xray';
+  setWireframeMode: (mode: 'off' | 'overlay' | 'xray') => void;
   showGrid: boolean;
   setShowGrid: (show: boolean) => void;
   showBones: boolean;
@@ -709,7 +711,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [pathname, setWorkspaceId]);
 
   const [shadingMode, setShadingModeState] = useState<ShadingMode>('textured');
-  const [showWireframe, setShowWireframeState] = useState(false);
+  const [wireframeMode, setWireframeMode] = useState<'off' | 'overlay' | 'xray'>('off');
+  const showWireframe = wireframeMode !== 'off';
   const [showGrid, setShowGridState] = useState(false);
   const [showBones, setShowBonesState] = useState(false);
   const [isTurntable, setIsTurntableState] = useState(autoRotatePreference ?? false);
@@ -1234,7 +1237,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [pathname, loadCompletedJobResult, setWorkspaceId, addAsset, setActiveMeshAssetId, setPersistenceState]);
 
   useEffect(() => {
-    if (activeTool === 'remesh') setShowWireframeState(true);
+    if (activeTool === 'remesh') setWireframeMode('overlay');
   }, [activeTool]);
 
   const setActiveTool = useCallback((tool: ToolType) => {
@@ -1250,10 +1253,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setViewerShadingMode(shadingModeToPreset(mode));
   }, [setViewerShadingMode]);
 
-  const setShowWireframe = useCallback((show: boolean) => {
-    setShowWireframeState(show);
-    useViewerStore.setState({ wireframeOverlay: show });
+  const setWireframeModeAndSync = useCallback((mode: 'off' | 'overlay' | 'xray') => {
+    setWireframeMode(mode);
+    useViewerStore.setState({ wireframeOverlay: mode !== 'off' });
   }, []);
+
+  const setShowWireframe = useCallback((show: boolean) => {
+    setWireframeModeAndSync(show ? 'overlay' : 'off');
+  }, [setWireframeModeAndSync]);
 
   const setShowGrid = useCallback((show: boolean) => {
     setShowGridState(show);
@@ -2012,7 +2019,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     viewer.setActiveMeshAssetId(plan.activeMeshAssetId);
 
     setShadingModeState(presetToShadingMode(plan.viewer.shadingMode) as ShadingMode);
-    setShowWireframeState(plan.viewer.wireframeOverlay);
+    setWireframeMode(plan.viewer.wireframeOverlay ? 'overlay' : 'off');
     setIsComparingState(plan.viewer.compareMode);
     setComparisonMode(plan.viewer.compareMode ? 'split_screen' : 'off');
 
@@ -3197,12 +3204,12 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   // Split context value into smaller memos to reduce re-render scope.
   // Each memo only recalculates when its specific dependencies change.
   const viewportValue = useMemo(() => ({
-    shadingMode, setShadingMode, showWireframe, setShowWireframe,
+    shadingMode, setShadingMode, showWireframe, setShowWireframe, wireframeMode, setWireframeMode: setWireframeModeAndSync,
     showGrid, setShowGrid, showBones, setShowBones,
     isTurntable, setIsTurntable,
     activeTransformTool, setActiveTransformTool,
     viewportResetTrigger, resetCamera, fitToScreen,
-  }), [shadingMode, setShadingMode, showWireframe, setShowWireframe,
+  }), [shadingMode, setShadingMode, showWireframe, setShowWireframe, wireframeMode, setWireframeModeAndSync,
     showGrid, setShowGrid, showBones, setShowBones,
     isTurntable, setIsTurntable,
     activeTransformTool, setActiveTransformTool,

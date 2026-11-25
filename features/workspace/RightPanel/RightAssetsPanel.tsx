@@ -126,25 +126,41 @@ export const RightAssetsPanel: React.FC = () => {
   };
 
   const scopedBaseAssets = React.useMemo(() => {
-    const withFavorites = assets.map((asset) => {
-      const favoriteKey = asset.isLocalDuplicate
-        ? asset.id
-        : asset.id.startsWith('local_')
-          ? (asset.source?.fileId || asset.fileId || asset.id).replace(/^job-/, '')
-          : asset.id.replace(/^(?:hist_|upload_)/, '');
-      return assetFavorites[favoriteKey] === undefined
-        ? asset
-        : { ...asset, isFavorite: assetFavorites[favoriteKey] };
-    });
-    if (!workspaceId) return withFavorites;
-    return withFavorites.filter((asset) =>
-      asset.workspace_id === workspaceId ||
-      asset.id === `local_${workspaceId}` ||
-      asset.id === workspaceId ||
-      asset.fileId === workspaceId ||
-      asset.source?.fileId === workspaceId
-    );
-  }, [assets, assetFavorites, workspaceId]);
+    const DERIVED_CATEGORIES = new Set(['retopology', 'remesh', 'uv', 'segmentation', 'rigging', 'animation']);
+    const isDerivedToolAsset = (asset: typeof assets[number]) => {
+      if (asset.isLocalDuplicate) return false;
+      if (asset.is_base_mesh === false) return true;
+      const cat = String(asset.category || '').toLowerCase();
+      if (DERIVED_CATEGORIES.has(cat)) return true;
+      return false;
+    };
+
+    const withFavorites = assets
+      .filter((asset) => !asset.id.startsWith('preview_') && !isDerivedToolAsset(asset))
+      .map((asset) => {
+        const favoriteKey = asset.isLocalDuplicate
+          ? asset.id
+          : asset.id.startsWith('local_')
+            ? (asset.source?.fileId || asset.fileId || asset.id).replace(/^job-/, '')
+            : asset.id.replace(/^(?:hist_|upload_)/, '');
+        return assetFavorites[favoriteKey] === undefined
+          ? asset
+          : { ...asset, isFavorite: assetFavorites[favoriteKey] };
+      });
+
+    // Deduplicate base meshes across local/history/upload sources while keeping local duplicates distinct
+    const seen = new Map<string, typeof withFavorites[number]>();
+    for (const asset of withFavorites) {
+      const key = asset.isLocalDuplicate
+        ? `dup:${asset.id}`
+        : (asset.workspace_id || asset.source?.fileId || asset.fileId || asset.id.replace(/^(?:hist_|upload_|local_|job-)/, ''));
+      const existing = seen.get(key);
+      if (!existing || (asset.is_base_mesh && !existing.is_base_mesh) || (asset.thumbnail && !existing.thumbnail)) {
+        seen.set(key, asset);
+      }
+    }
+    return Array.from(seen.values());
+  }, [assets, assetFavorites]);
 
   const filteredAssets = scopedBaseAssets.filter(a => {
     if (showFavoritesOnly && !a.isFavorite) return false;
@@ -212,58 +228,6 @@ export const RightAssetsPanel: React.FC = () => {
               </button>
             </SimpleTooltip>
 
-            {/* Category Filter */}
-            <div className="relative" ref={filterMenuRef}>
-              <SimpleTooltip label="Filter by Type">
-                <button
-                  type="button"
-                  aria-label="Filter by Type"
-                  onClick={() => setFilterMenuOpen(!filterMenuOpen)}
-                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                    assetFilter !== 'all'
-                      ? 'bg-white/10 text-[#F9CF00]'
-                      : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-                  }`}
-                >
-                  <HugeiconsIcon icon={FilterIcon} size={15} />
-                </button>
-              </SimpleTooltip>
-
-              {filterMenuOpen && (
-                <div className="absolute top-full left-0 mt-1.5 w-36 py-1.5 rounded-xl bg-[#242428] border border-white/[0.1] shadow-2xl z-50 text-xs font-medium animate-in fade-in zoom-in-95 duration-100">
-                  <button
-                    type="button"
-                    onClick={() => { setAssetFilter('all'); setFilterMenuOpen(false); }}
-                    className="w-full text-left px-3 py-1.5 hover:bg-white/5 text-zinc-200 cursor-pointer flex items-center justify-between"
-                  >
-                    <span>All Assets</span>
-                    {assetFilter === 'all' && <HugeiconsIcon icon={CheckIcon} size={14} className="text-[#F9CF00]" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setAssetFilter('models'); setFilterMenuOpen(false); }}
-                    className="w-full text-left px-3 py-1.5 hover:bg-white/5 text-zinc-200 cursor-pointer flex items-center justify-between"
-                  >
-                    <span>3D Models</span>
-                    {assetFilter === 'models' && <HugeiconsIcon icon={CheckIcon} size={14} className="text-[#F9CF00]" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setAssetFilter('textures'); setFilterMenuOpen(false); }}
-                    className="w-full text-left px-3 py-1.5 hover:bg-white/5 text-zinc-200 cursor-pointer flex items-center justify-between"
-                  >
-                    <span>PBR Textures</span>
-                    {assetFilter === 'textures' && <HugeiconsIcon icon={CheckIcon} size={14} className="text-[#F9CF00]" />}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {workspaceId && (
-              <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-primary/10 border border-primary/30 text-primary font-bold">
-                Workspace
-              </span>
-            )}
           </div>
 
           <div className="relative" ref={collectionMenuRef}>

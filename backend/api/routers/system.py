@@ -2342,11 +2342,8 @@ async def download_job_thumbnail(
             ws = db.get_workspace(job_id)
             if not ws:
                 op = db.get_operation(job_id)
-                if op:
-                    if op.output_asset_id:
-                        asset = db.get_asset(op.output_asset_id)
-                    if not asset and op.workspace_id:
-                        ws = db.get_workspace(op.workspace_id)
+                if op and op.workspace_id:
+                    ws = db.get_workspace(op.workspace_id)
             if not asset and ws:
                 if ws.active_mesh_asset_id:
                     asset = db.get_asset(ws.active_mesh_asset_id)

@@ -184,6 +184,11 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
     let meshIdx = 0;
     root.traverse((node) => {
       if (node instanceof THREE.Mesh && node.geometry) {
+        if (node.material) {
+          node.material = Array.isArray(node.material)
+            ? node.material.map((m) => m.clone())
+            : node.material.clone();
+        }
         node.userData.__meshIndex = meshIdx;
 
         interactivesRef.current.push({ obj: node, id: `p${meshIdx + 1}` });
@@ -206,6 +211,7 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
       root.traverse((n) => { if (n instanceof THREE.Bone) realBones.push(n); });
       if (realBones.length > 0) {
         const skel = new THREE.SkeletonHelper(root);
+        skel.name = '__preview_skeleton_helper';
         (skel.material as THREE.LineBasicMaterial).depthTest = !xrayBones;
         (skel.material as THREE.LineBasicMaterial).color = new THREE.Color(0xf9cf00);
         skel.renderOrder = xrayBones ? 999 : 0;
@@ -213,7 +219,21 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
       }
     }
     invalidateRenderRef.current();
-  }, [activeModel, mode, xrayBones]);
+  }, [activeModel, mode]);
+
+  // Update X-ray bone helper in-place without rebuilding the entire scene
+  useEffect(() => {
+    const group = modelGroupRef.current;
+    if (!group || mode !== 'rigging') return;
+    const skel = group.getObjectByName('__preview_skeleton_helper') as THREE.SkeletonHelper | undefined;
+    if (skel) {
+      const mat = skel.material as THREE.LineBasicMaterial;
+      mat.depthTest = !xrayBones;
+      mat.needsUpdate = true;
+      skel.renderOrder = xrayBones ? 999 : 0;
+      invalidateRenderRef.current();
+    }
+  }, [mode, xrayBones]);
 
   // 3. Build expensive edge geometry only when the user enables seam/boundary highlighting.
   // This keeps segmentation page mount lightweight for dense production meshes.
