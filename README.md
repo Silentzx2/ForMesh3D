@@ -88,7 +88,7 @@ The TRELLIS text-paint entry reuses the existing TRELLIS checkpoint and adapter 
 - **Frontend:** Next.js 16, React 19, TypeScript, Three.js, Zustand, and TanStack Query.
 - **Backend:** FastAPI, Python 3.10, Pydantic, and SQLite-backed workspace/job persistence.
 - **Model manifest:** <code>backend/config/models.yaml</code> is the single source for enabled model IDs, VRAM budgets, supported formats, model paths, and capabilities.
-- **Adapter registration:** each enabled model ID must be registered in both <code>backend/core/scheduler/model_factory.py</code> and <code>backend/adapters/__init__.py</code>.
+- **Adapter registration:** enabled model IDs live in <code>backend/core/scheduler/model_factory.py</code> (and <code>backend/adapters/__init__.py</code> derives <code>_ADAPTER_MAP</code> from it).
 - **Workspace route:** <code>/workspace/generate/&lt;workspace_id&gt;</code>.
 - **Persistent storage:** <code>backend/storage/</code>, including <code>backend/storage/job_queue.db</code> for the single-worker workspace flow.
 - **Third-party code:** pinned Git submodule at <code>backend/thirdparty</code>.
@@ -190,7 +190,6 @@ ForMesh3D/
 
 - [Architecture](Docs/ARCHITECTURE.md)
 - [Product requirements](Docs/PRD.md)
-- [System blueprint](Docs/SYSTEM-BLUEPRINT.md)
 - [API documentation](Docs/api-documentation.md)
 - [Current implementation and verification notes](Docs/MEMORY.md)
 - [Tasks and engineering notes](Docs/TASKS.md)

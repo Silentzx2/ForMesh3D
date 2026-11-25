@@ -411,7 +411,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setComparisonMode(open ? 'split_screen' : 'off');
   }, []);
   const [mainNav, setMainNavState] = useState<MainNavRoute>('workspace');
-  const [activeRightTab, setActiveRightTab] = useState<'assets' | 'property' | 'properties'>('properties');
+  const [activeRightTab, setActiveRightTab] = useState<'assets' | 'property' | 'properties'>('assets');
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [leftPanelWidth, setLeftPanelWidth] = useState(320);

@@ -286,14 +286,7 @@ export const TexturePanel: React.FC = () => {
         feat === 'mesh_painting'
       );
     });
-    const fallbackIds = [
-      'hunyuan3d_paint_v21_image_mesh_painting',
-      'trellis_image_mesh_painting',
-      'hunyuan3d_v20_paint_image_mesh_painting',
-      'triposr_image_mesh_painting',
-    ];
-    const pool = candidatePool.length > 0 ? candidatePool : fallbackIds;
-    const uniqueCandidates = Array.from(new Set(pool));
+    const uniqueCandidates = Array.from(new Set(candidatePool));
 
     return uniqueCandidates
       .filter((mid) => {
@@ -304,16 +297,16 @@ export const TexturePanel: React.FC = () => {
         const detail = modelDetails[mid];
         return {
           id: mid,
-          label: detail?.ui_label || detail?.model_name || mid,
-          tag: detail?.ui_tag || 'Ready',
-          note: detail?.ui_note || '',
-          badge: detail?.ui_badge || '',
+          label: detail?.name || detail?.ui_label || detail?.model_name || mid,
+          tag: detail?.label || detail?.ui_tag || 'Ready',
+          note: detail?.description || detail?.ui_note || '',
+          badge: detail?.ui_badge || (detail?.vram_requirement ? `${Math.round(detail.vram_requirement / 1024)}GB VRAM` : ''),
         };
       });
   }, [modelDetails, weightsStatus]);
 
   const defaultTextureModel = useMemo(() => {
-    return textureModels[0]?.id || 'hunyuan3d_paint_v21_image_mesh_painting';
+    return textureModels[0]?.id || '';
   }, [textureModels]);
 
   const [selectedModel, setSelectedModel] = useState(defaultTextureModel);

@@ -13,19 +13,7 @@ export const RightWorkspacePanel: React.FC = () => {
   const {
     rightPanelMode,
     setRightPanelMode,
-    activeTool,
-    currentAsset,
   } = useWorkspace();
-
-  // Context-aware auto-switching:
-  // When Smart UV tool is selected -> automatically load properties inspector
-  const prevActiveTool = React.useRef(activeTool);
-  useEffect(() => {
-    if (activeTool === 'uv' && prevActiveTool.current !== 'uv') {
-      setRightPanelMode('properties');
-    }
-    prevActiveTool.current = activeTool;
-  }, [activeTool, setRightPanelMode]);
 
   const currentActiveTab = rightPanelMode === 'assets' ? 'assets' : 'properties';
 

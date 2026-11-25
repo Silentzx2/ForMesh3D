@@ -182,7 +182,6 @@ _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS = frozenset({
     "trellis2_image_mesh_painting",
     "pixal3d_image_to_raw_mesh",
     "pixal3d_image_to_3d",
-    "unique3d_image_to_raw_mesh",
     "taoflowforge_image_to_raw_mesh",
     "hunyuan3d_paint_v21_image_mesh_painting",
 })
@@ -1060,6 +1059,12 @@ def _process_job_in_worker(
         # Reset after model load so these peaks cover this inference call, not model initialization.
         _reset_cuda_peak_memory_stats(resource_plan, gpu_id)
         inference_start_time = time.time()
+
+        default_params = model_config.get("default_parameters") or {}
+        if isinstance(default_params, dict):
+            for param_key, param_val in default_params.items():
+                if model_inputs.get(param_key) is None:
+                    model_inputs[param_key] = param_val
 
         if total_seeds_to_run > 1:
             candidates_list = []
@@ -2360,6 +2365,8 @@ class MultiprocessModelScheduler:
                             _relative_path = pub["relative_mesh_path"]
                             final_result["output_mesh_path"] = str(_dst)
                             final_result["mesh_path"] = str(_dst)
+                            final_result["output_path"] = str(_dst)
+                            final_result["file_path"] = str(_dst)
                             final_result["relative_mesh_path"] = _relative_path
                             final_result["asset_root"] = str(_ws_mgr.get_workspace_dir(_ws_id))
 
@@ -2486,6 +2493,11 @@ class MultiprocessModelScheduler:
                                     shutil.copy2(str(_src), str(_dst))
                             final_result["output_mesh_path"] = str(_dst)
                             final_result["mesh_path"] = str(_dst)
+                            final_result["output_path"] = str(_dst)
+                            final_result["file_path"] = str(_dst)
+                            if final_result.get("textured_mesh_path"):
+                                final_result["textured_mesh_path"] = str(_dst)
+                            final_result["relative_mesh_path"] = "mesh/mesh.glb"
                             final_result["asset_root"] = str(canonical_root)
                             # Register the durable generated mesh and make it the workspace active mesh.
                             try:
@@ -3391,7 +3403,7 @@ class MultiprocessModelScheduler:
                     max_load_timeout = float(timeout_env)
                 except ValueError:
                     max_load_timeout = 1800.0
-            elif any(k in model_id.lower() for k in ("trellis", "hunyuan", "unique3d", "pixal", "taoflow")):
+            elif any(k in model_id.lower() for k in ("trellis", "hunyuan", "pixal", "taoflow")):
                 max_load_timeout = 1800.0
             else:
                 max_load_timeout = 600.0

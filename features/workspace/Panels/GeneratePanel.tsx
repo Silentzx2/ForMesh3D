@@ -302,16 +302,7 @@ export const GeneratePanel: React.FC = () => {
         feat === 'image-to-textured-mesh'
       );
     });
-    // Fallback if modelDetails not loaded yet
-    const fallbackIds = [
-      'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh',
-      'triposg_image_to_raw_mesh',
-      'hunyuan3d_shape_v21_image_to_raw_mesh',
-      'trellis_image_to_raw_mesh',
-      'trellis_image_to_3d',
-    ];
-    const pool = candidatePool.length > 0 ? candidatePool : fallbackIds;
-    const uniqueCandidates = Array.from(new Set(pool));
+    const uniqueCandidates = Array.from(new Set(candidatePool));
 
     return uniqueCandidates
       .filter((mid) => {
@@ -322,27 +313,24 @@ export const GeneratePanel: React.FC = () => {
         const detail = modelDetails[mid];
         return {
           id: mid,
-          label: detail?.ui_label || detail?.model_name || mid,
-          tag: detail?.ui_tag || 'Ready',
-          note: detail?.ui_note || '',
-          badge: detail?.ui_badge || '',
+          label: detail?.name || detail?.ui_label || detail?.model_name || mid,
+          tag: detail?.label || detail?.ui_tag || 'Ready',
+          note: detail?.description || detail?.ui_note || '',
+          badge: detail?.ui_badge || (detail?.vram_requirement ? `${Math.round(detail.vram_requirement / 1024)}GB VRAM` : ''),
         };
       });
   }, [modelDetails, weightsStatus]);
 
   const defaultMeshModel = useMemo(() => {
-    return meshModels[0]?.id || 'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh';
+    return meshModels[0]?.id || '';
   }, [meshModels]);
 
   const [selectedModel, setSelectedModel] = useState(defaultMeshModel);
 
-  // Keep selectedModel synced with available models.
-  // Only reset to the first available model when there is no explicit selection;
-  // never override a user-chosen model (e.g. TripoSG) just because weightsStatus
-  // re-computes meshModels — that silently switched the request to Hunyuan Mini.
+  // Keep selectedModel synced with available models from models.yaml.
   useEffect(() => {
-    if (!selectedModel || selectedModel.trim() === '') {
-      setSelectedModel(meshModels.length > 0 ? meshModels[0].id : 'hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh');
+    if ((!selectedModel || selectedModel.trim() === '') && meshModels.length > 0) {
+      setSelectedModel(meshModels[0].id);
     }
   }, [meshModels, selectedModel]);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
@@ -1006,7 +994,7 @@ export const GeneratePanel: React.FC = () => {
             <div
               role="listbox"
               aria-label="Available AI models"
-              className="absolute top-full mt-1 left-0 right-0 rounded-xl bg-[#1a1b26] border border-white/10 shadow-2xl p-1 z-40 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
+              className="absolute top-full mt-1 left-0 right-0 max-h-64 overflow-y-auto rounded-xl bg-[#1a1b26] border border-white/10 shadow-2xl p-1 z-40 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
             >
               {meshModels.length === 0 ? (
                 <div className="px-3 py-2 text-center text-zinc-400 text-[11px]">
@@ -1014,7 +1002,9 @@ export const GeneratePanel: React.FC = () => {
                 </div>
               ) : (
                 meshModels.map((m) => {
-                  const capability = getNativeTargetCapability(m.id);
+                  const baseCap = getNativeTargetCapability(m.id);
+                  const yamlCap = modelDetails[m.id]?.capabilities?.native_target_capability as NativeTargetCapability | undefined;
+                  const capability = yamlCap ? { ...baseCap, capability: yamlCap } : baseCap;
                   const capabilityColors: Record<NativeTargetCapability, string> = {
                     NATIVE_EXACT_TARGET: 'text-emerald-400',
                     NATIVE_TARGET_APPROXIMATE: 'text-emerald-300',
@@ -1056,7 +1046,12 @@ export const GeneratePanel: React.FC = () => {
                         </div>
                         <span className="text-[9px] opacity-75 leading-tight">{m.note}</span>
                       </div>
-                      <span className="text-[9px] font-mono opacity-65 flex-shrink-0">{m.tag}</span>
+                      <div className="flex flex-col items-end flex-shrink-0 gap-0.5">
+                        {m.badge && (
+                          <span className="text-[9px] font-mono font-semibold opacity-85">{m.badge}</span>
+                        )}
+                        <span className="text-[8px] opacity-60">{m.tag}</span>
+                      </div>
                     </button>
                   );
                 })

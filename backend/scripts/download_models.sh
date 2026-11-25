@@ -5,7 +5,7 @@
 # 
 # Available models:
 #   hunyuan2mini, hunyuan21, trellis, trellis-text, trellis2,
-#   skintokens, partuv, triposg, triposr, ardy, unique3d, pixal3d, taoflowforge, misc, all
+#   skintokens, partuv, triposg, triposr, ardy, pixal3d, taoflowforge, misc, all
 #
 # Options:
 #   -h, --help              Show this help message
@@ -119,7 +119,7 @@ VERIFY_ONLY=false
 FORCE_DOWNLOAD=false
 
 # Available models
-AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "stable_fast_3d" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "triflow" "partfield" "triposg" "triposr" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
+AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "stable_fast_3d" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "triflow" "partfield" "triposg" "triposr" "ardy" "pixal3d" "taoflowforge" "misc" "all")
 
 show_help() {
     cat << EOF
@@ -149,7 +149,6 @@ Available models:
     triposg            - TripoSG and RMBG models
     triposr            - TripoSR geometry + optional base-color atlas
     ardy               - ARDY motion generation models
-    unique3d           - Unique3D high-fidelity single-image to 3D model
     hunyuan3d_v20_paint       - Hunyuan3D-2 (v2.0) Paint model (texture weights only)
     stable_fast_3d            - Stable Fast 3D — single image to textured mesh (~0.5s, ~6GB VRAM, HF-gated weights)
     pixal3d            - Pixal3D pixel-aligned image to 3D generation model
@@ -800,51 +799,6 @@ download_ardy() {
     fi
 }
 
-# Function to download Unique3D models
-download_unique3d() {
-    print_info "========================================"
-    print_info "Downloading Unique3D Model"
-    print_info "========================================"
-
-    # Download to Unique3D root, not ckpt subdir - HF repo has ckpt/ prefix
-    local model_dir="$PRETRAINED_DIR/Unique3D"
-    
-    if [ "$FORCE_DOWNLOAD" = false ] && \
-       verify_file "$model_dir/ckpt/controlnet-tile/diffusion_pytorch_model.safetensors" 100000000 && \
-       verify_file "$model_dir/ckpt/image2normal/unet/diffusion_pytorch_model.safetensors" 100000000 && \
-       verify_file "$model_dir/ckpt/img2mvimg/unet/diffusion_pytorch_model.safetensors" 100000000 && \
-       verify_file "$model_dir/ckpt/realesrgan-x4.onnx" 50000000 && \
-       verify_file "$model_dir/ckpt/v1-inference.yaml" 1000; then
-        print_info "Unique3D model already exists and verified"
-        return 0
-    fi
-
-    mkdir -p "$model_dir" 2>/dev/null || true
-    ensure_writable_model_dir "$model_dir" || return 1
-
-    # Download all Unique3D checkpoints recursively from Wuvin/Unique3D space
-    print_info "Downloading Unique3D checkpoints (including UNet, VAE, ControlNet, ONNX)..."
-    if ! hf_download --repo-type space Wuvin/Unique3D \
-        --include "ckpt/*" \
-        --include "ckpt/**/*" \
-        --local-dir "$model_dir"; then
-        print_error "Failed to download Unique3D checkpoints"
-        return 1
-    fi
-
-    # Clean up legacy misplaced ckpt symlink in project root if present
-    if [ -L "$PROJECT_ROOT/ckpt" ]; then
-        rm -f "$PROJECT_ROOT/ckpt" 2>/dev/null || true
-    fi
-
-    # Symlink ckpt to Unique3D thirdparty dir for direct script compatibility
-    if [ -d "$THIRDPARTY_DIR/Unique3D" ]; then
-        ln -sfn "$model_dir/ckpt" "$THIRDPARTY_DIR/Unique3D/ckpt" 2>/dev/null || true
-    fi
-
-    print_success "Unique3D model downloaded successfully"
-}
-
 # Function to download Pixal3D models
 pixal3d_checkpoint_complete() {
     local model_dir="$1"
@@ -1161,13 +1115,6 @@ verify_all_models() {
     print_info "Checking TRELLIS.2-4B..."
     verify_directory "$PRETRAINED_DIR/TRELLIS.2/TRELLIS.2-4B" 5 || all_verified=false
 
-    print_info "Checking Unique3D..."
-    verify_file "$PRETRAINED_DIR/Unique3D/ckpt/controlnet-tile/diffusion_pytorch_model.safetensors" 100000000 || all_verified=false
-    verify_file "$PRETRAINED_DIR/Unique3D/ckpt/image2normal/unet/diffusion_pytorch_model.safetensors" 100000000 || all_verified=false
-    verify_file "$PRETRAINED_DIR/Unique3D/ckpt/img2mvimg/unet/diffusion_pytorch_model.safetensors" 100000000 || all_verified=false
-    verify_file "$PRETRAINED_DIR/Unique3D/ckpt/realesrgan-x4.onnx" 50000000 || all_verified=false
-    verify_file "$PRETRAINED_DIR/Unique3D/ckpt/v1-inference.yaml" 1000 || all_verified=false
-    
     print_info "Checking TripoSG..."
     verify_directory "$PRETRAINED_DIR/TripoSG" 2 || all_verified=false
 
@@ -1301,9 +1248,6 @@ for model in "${MODELS_ARRAY[@]}"; do
         "ardy")
             download_ardy
             ;;
-        "unique3d")
-            download_unique3d
-            ;;
         "pixal3d")
             download_pixal3d
             ;;
@@ -1329,7 +1273,6 @@ for model in "${MODELS_ARRAY[@]}"; do
             download_triposg
             download_triposr
             download_ardy
-            download_unique3d
             download_pixal3d
             download_misc
             ;;

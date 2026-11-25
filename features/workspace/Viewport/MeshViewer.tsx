@@ -20,6 +20,7 @@ import { collectMeshStats } from './meshStats';
 import { loadGLBWithProgress } from '../lib/glbCache';
 import { getAssetComparisonPair } from '../lib/assetComparison';
 import { getDiagonalComparisonSlope } from '../lib/comparisonGeometry';
+import { ThinkingGenerationCard } from './ThinkingGenerationCard';
 
 import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
@@ -217,6 +218,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     isExecuting,
     executionProgress,
     executionStep,
+    generationSettings,
     environmentSettings,
     hoveredPartId,
     setHoveredPartId,
@@ -283,11 +285,22 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const shadingModeRef = useRef(shadingMode);
   const showWireframeRef = useRef(showWireframe);
   const wireframeModeRef = useRef(wireframeMode);
+  const isExecutingRef = useRef(isExecuting);
+  const reducedMotionRef = useRef(reducedMotion);
+  const scanRevealRef = useRef<{ active: boolean; startMs: number; minY: number; maxY: number }>({
+    active: false,
+    startMs: 0,
+    minY: 0,
+    maxY: 2.0,
+  });
   useEffect(() => {
     shadingModeRef.current = shadingMode;
     showWireframeRef.current = showWireframe;
     wireframeModeRef.current = wireframeMode;
-  }, [shadingMode, showWireframe, wireframeMode]);
+    isExecutingRef.current = isExecuting;
+    reducedMotionRef.current = reducedMotion;
+    invalidateRenderRef.current();
+  }, [shadingMode, showWireframe, wireframeMode, isExecuting, reducedMotion]);
 
   // Three.js instances stored in refs to avoid React re-render overhead
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -432,6 +445,32 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     comparisonBeforeGroupRef.current = comparisonBeforeGroup;
     scene.add(comparisonBeforeGroup);
 
+    // Lightweight 3D generation hologram (point cloud + wireframe icosahedron, zero extra WebGL context)
+    const hologramGroup = new THREE.Group();
+    hologramGroup.position.y = 1.0;
+    hologramGroup.visible = false;
+    const holoGeo = new THREE.IcosahedronGeometry(0.75, 2);
+    const holoWire = new THREE.LineSegments(
+      new THREE.WireframeGeometry(holoGeo),
+      new THREE.LineBasicMaterial({ color: 0xf5c542, transparent: true, opacity: 0.25 })
+    );
+    const holoPoints = new THREE.Points(
+      holoGeo,
+      new THREE.PointsMaterial({ color: 0xffd866, size: 0.035, transparent: true, opacity: 0.85 })
+    );
+    hologramGroup.add(holoWire, holoPoints);
+    scene.add(hologramGroup);
+
+    // Real-mesh bottom-to-top scan reveal plane & glowing gold ring
+    const revealPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 10);
+    const scanRing = new THREE.Mesh(
+      new THREE.TorusGeometry(1.05, 0.012, 8, 64),
+      new THREE.MeshBasicMaterial({ color: 0xf5c542, transparent: true, opacity: 0.85 })
+    );
+    scanRing.rotation.x = Math.PI / 2;
+    scanRing.visible = false;
+    scene.add(scanRing);
+
     // Diagonal comparison is composited from two passes of this same renderer.
     // Render targets keep the scene/camera/lights shared; only model visibility changes.
     const comparisonTargetBefore = new THREE.WebGLRenderTarget(width, height, {
@@ -504,6 +543,60 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           comparisonBeforeGroupRef.current.rotation.y = modelGroupRef.current.rotation.y;
         }
         keepAnimating = true;
+      }
+
+      // Waiting hologram while generating
+      if (isExecutingRef.current) {
+        hologramGroup.visible = true;
+        if (!reducedMotionRef.current) {
+          hologramGroup.rotation.y += 0.015;
+          hologramGroup.rotation.x = Math.sin(performance.now() * 0.001) * 0.12;
+          keepAnimating = true;
+        }
+      } else {
+        hologramGroup.visible = false;
+      }
+
+      // ~0.95s bottom-to-top scan reveal on newly loaded mesh
+      const reveal = scanRevealRef.current;
+      if (reveal.active && modelGroupRef.current && !reducedMotionRef.current) {
+        const t = Math.min(1, (performance.now() - reveal.startMs) / 950);
+        const y = reveal.minY + (reveal.maxY - reveal.minY) * t;
+        renderer.localClippingEnabled = true;
+        revealPlane.constant = y;
+        scanRing.visible = t < 1;
+        scanRing.position.y = y;
+        modelGroupRef.current.traverse((c) => {
+          if (c instanceof THREE.Mesh && c.material) {
+            const mats = Array.isArray(c.material) ? c.material : [c.material];
+            mats.forEach((m) => {
+              if (!m.clippingPlanes || m.clippingPlanes[0] !== revealPlane) {
+                m.clippingPlanes = [revealPlane];
+                m.needsUpdate = true;
+              }
+            });
+          }
+        });
+        if (t >= 1) {
+          reveal.active = false;
+          scanRing.visible = false;
+          renderer.localClippingEnabled = false;
+          modelGroupRef.current.traverse((c) => {
+            if (c instanceof THREE.Mesh && c.material) {
+              const mats = Array.isArray(c.material) ? c.material : [c.material];
+              mats.forEach((m) => {
+                if (m.clippingPlanes) {
+                  m.clippingPlanes = null;
+                  m.needsUpdate = true;
+                }
+              });
+            }
+          });
+        } else {
+          keepAnimating = true;
+        }
+      } else {
+        scanRing.visible = false;
       }
 
       const beforeGroup = comparisonBeforeGroupRef.current;
@@ -581,6 +674,12 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         renderer.domElement.parentElement.removeChild(renderer.domElement);
       }
       disposeObject3D(scene);
+      holoGeo.dispose();
+      holoWire.geometry.dispose();
+      (holoWire.material as THREE.Material).dispose();
+      (holoPoints.material as THREE.Material).dispose();
+      scanRing.geometry.dispose();
+      (scanRing.material as THREE.Material).dispose();
       comparisonTargetBefore.dispose();
       comparisonTargetAfter.dispose();
       comparisonCompositeQuad.geometry.dispose();
@@ -1313,6 +1412,8 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     const tracksSelection = selectionState.assetSelectionState === 'loading';
     if (!modelUrl || !modelGroupRef.current) {
       if (!modelUrl && tracksSelection) selectionState.failAssetLoad(requestId, 'Selected asset has no renderable model URL.');
+      scanRevealRef.current.active = false;
+      if (rendererRef.current) rendererRef.current.localClippingEnabled = false;
       setLoadState({ status: 'empty', hasModel: false, error: null });
       const group = modelGroupRef.current;
       if (group) {
@@ -1415,6 +1516,15 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       group.add(object);
       useViewerStore.getState().setActiveModelObject(object);
       fitCameraToModel(object);
+      if (!reducedMotionRef.current) {
+        const box = new THREE.Box3().setFromObject(object);
+        scanRevealRef.current = {
+          active: true,
+          startMs: performance.now(),
+          minY: Number.isFinite(box.min.y) ? box.min.y - 0.05 : 0,
+          maxY: Number.isFinite(box.max.y) ? box.max.y + 0.05 : 2.0,
+        };
+      }
       invalidateRenderRef.current();
       setLoadState({ status: 'loaded', hasModel: true, error: null });
     };
@@ -1708,21 +1818,30 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         </div>
       )}
 
-      {/* Execution Progress Bar — bottom center */}
+      {/* AI Thinking & 4-Stage Pipeline Shimmer Card */}
       {isExecuting && (
-        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-          <div className="w-64 h-1.5 rounded-full bg-white/10 border border-white/5">
-            <div
-              className="h-full rounded-full transition-all duration-300 bg-white"
-              style={{
-                width: `${Math.max(0, Math.min(100, Math.round(executionProgress)))}%`,
-              }}
-            />
+        <>
+          <ThinkingGenerationCard
+            progress={executionProgress}
+            step={executionStep}
+            referenceImage={generationSettings?.image}
+            reducedMotion={reducedMotion}
+          />
+          {/* Execution Progress Bar — bottom center */}
+          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+            <div className="w-64 h-1.5 rounded-full bg-white/10 border border-white/5">
+              <div
+                className="h-full rounded-full transition-all duration-300 bg-white"
+                style={{
+                  width: `${Math.max(0, Math.min(100, Math.round(executionProgress)))}%`,
+                }}
+              />
+            </div>
+            <p className="text-[10px] text-white font-mono mt-1 text-center">
+              {Math.round(executionProgress)}%
+            </p>
           </div>
-          <p className="text-[10px] text-white font-mono mt-1 text-center">
-            {Math.round(executionProgress)}%
-          </p>
-        </div>
+        </>
       )}
 
       {viewportStatus === 'comparing' && (

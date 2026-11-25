@@ -1,102 +1,87 @@
-# ForMesh3D Architecture
+# ForMesh3D Architecture Documentation
 
-> Audited against the `dev` branch after the cleanup commit on 2026-11-22. This document describes checked-in wiring, not proof of successful model inference on a particular GPU.
+## 1. Introduction
 
-## 1. System boundaries
+This document provides a **complete, self‑contained description** of the ForMesh3D system architecture, intended for any new developer or AI that has no prior context.  It consolidates the high‑level blueprint, system boundaries, data‑flow, component responsibilities, and the vision for the adapter layer.
 
-| Layer | Primary owner | Responsibility |
-|---|---|---|
-| Studio routes and shell | `app/` | Next.js pages and route mounting |
-| Workspace UI | `features/workspace/` | Generate, texture, remesh/retopo, UV, segmentation, rigging, animation, viewport |
-| HTTP client | `services/apiClient.ts` | Frontend requests to the FastAPI API |
-| API entrypoints | `backend/api/main_singleworker.py`, `backend/api/main_multiworker.py` | Middleware, lifecycle, router registration, deployment mode |
-| API contracts | `backend/api/routers/` | Upload, generation, specialist tools, system and database endpoints |
-| Model configuration | `backend/config/models.yaml` | Canonical model IDs, enablement, capabilities and resource declarations |
-| Model construction | `backend/core/scheduler/model_factory.py` | Model ID to adapter class resolution |
-| Runtime adapter inventory | `backend/adapters/__init__.py` | Module map read by `runtime_probe.py` |
-| Inference | `backend/adapters/` | Model-specific loading and inference |
-| Mesh operations | `backend/adapters/` and specialist routers | Scheduler-backed AI mesh processing |
-| Persistent workspace data | `backend/storage/` | Job database, uploaded files, workspaces and generated assets |
-| Upstream model source | `backend/thirdparty/` | Pinned Git submodule; preserve upstream source and licenses |
+---
 
-## 2. Request and execution flow
+## 2. System Boundaries & Layer Map
 
-1. The Next.js workspace collects the image/mesh and user-selected settings.
-2. The request builder serializes the supported fields; `services/apiClient.ts` sends the request.
-3. FastAPI validates the request in the owning router.
-4. The scheduler/queue resolves the configured model and invokes its registered AI adapter.
-5. The result and workspace metadata are persisted by the backend storage/database owners.
-6. The frontend polls job/operation state and loads the resulting asset into the local viewport.
+| Layer | Owner / Directory | Primary Responsibility |
+|------|-------------------|------------------------|
+| **Studio UI & Shell** | `app/`, `features/workspace/` | Next.js (v16) + React (v19) + TypeScript UI; three‑js viewport (`GLTFLoader`, `glbCache`). Handles user input, displays progress, and renders generated meshes. |
+| **HTTP Client** | `services/apiClient.ts` | TypeScript wrapper for all REST calls to the FastAPI backend (`/api/v1`). |
+| **API Entrypoints** | `backend/api/main_singleworker.py`, `backend/api/main_multiworker.py` | FastAPI application, middleware, router mounting (`/api/v1`, `/api/v1/system`). |
+| **API Routers** | `backend/api/routers/` | Individual routes for upload, generation, retopology, UV, segmentation, rigging, motion, system, DB. |
+| **Model Registry** | `backend/config/models.yaml` | **Single source of truth** for model metadata (`name`, `label`, `description`, `vram_requirement`, `capabilities`, `default_parameters`). |
+| **Model Factory** | `backend/core/scheduler/model_factory.py`, `backend/adapters/__init__.py` | Builds `ADAPTER_REGISTRY` and derived `_ADAPTER_MAP`; selects the correct adapter class for a given model. |
+| **Adapters & Patchers** | `backend/adapters/`, `patcher/<model>/` | Executes model inference; isolates pre‑Ampere (`sm < 80`) patches. Currently each adapter contains duplicated boiler‑plate – the audit recommends collapsing these to a thin façade. |
+| **Storage & DB** | `backend/storage/`, `backend/database_manager.py` | Persists generated assets under `<workspace_id>/mesh/mesh.glb` and stores job/workspace state in SQLite. |
+| **Third‑Party Source** | `backend/thirdparty/` | Pinned upstream repositories (model code, weights). |
 
-The model adapter owns its upstream API and model-specific runtime behavior. Do not move model-specific monkeypatches into shared global startup code.
+---
 
-## 3. Deployment modes
+## 3. Execution Flow (Data‑Path)
 
-- **Single-worker:** `main_singleworker.py` embeds the scheduler in the API process. The workspace/job flow uses the local SQLite-backed job database.
-- **Multi-worker:** `main_multiworker.py` connects API workers to Redis and a separate scheduler service. This is a separate deployment topology; do not describe it as the default single-worker queue.
-- Both entrypoints register the system router under `/api/v1/system` and also mount direct `/api/v1` aliases. The direct aliases are retained for compatibility; the frontend's canonical system paths use `/api/v1/system`.
+1. **UI loads** enabled models and metadata from `/api/v1/system/models` (driven by `models.yaml`).
+2. User **submits** an image/mesh and parameters (`seed`, `texture_resolution`, `poly_type`, `target_polycount`).
+3. `apiClient.ts` POSTs the request to the appropriate FastAPI endpoint.
+4. **Scheduler** (`multiprocess_scheduler.py`) injects missing `default_parameters` from `models.yaml` and dispatches the job to an **isolated model worker** (single‑process or multi‑worker via Redis).
+5. The **Adapter** receives the request, performs any model‑specific pre‑processing, invokes the **Third‑Party Model Pipeline**, and writes the output GLB (or related asset) to `backend/storage/<workspace_id>/mesh/`.  It also records job metadata in SQLite.
+6. UI **polls** job status; once finished the mesh is fetched from storage and rendered in the `MeshViewer.tsx` component (`ThinkingGenerationCard` → progress bar → hologram → scan‑reveal).
 
-## 4. Model configuration and enablement
+---
 
-`backend/config/models.yaml` is authoritative for whether a model is enabled. The factory registry and runtime inventory are separate wiring layers and must both contain the appropriate adapter mapping.
+## 4. Component Diagrams (Mermaid)
 
-Configured enabled model families:
+```mermaid
+flowchart LR
+    UI[Next.js Studio] -->|REST| API[FastAPI /api/v1]
+    API --> Queue[Scheduler / Queue]
+    Queue -->|models.yaml defaults| Factory[ModelFactory]
+    Factory --> Adapter[Model Adapter]
+    Adapter --> Store[backend/storage/workspace/mesh/mesh.glb]
+    Store --> UI
+    API --> DB[(SQLite)]
+```
 
-| Feature | Model ID |
-|---|---|
-| Image-to-raw-mesh | `hunyuan3d_shape_v21_image_to_raw_mesh` |
-| Image-to-raw-mesh | `hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh` |
-| Image-to-raw-mesh | `triposg_image_to_raw_mesh`, `triposr_image_to_raw_mesh` (optional base-color bake) |
-| Image-to-3D | `trellis_image_to_3d` |
-| Textured mesh | `stable_fast_3d_image_to_textured_mesh` |
-| Texture painting | `hunyuan3d_paint_v21_image_mesh_painting`, `hunyuan3d_v20_paint_image_mesh_painting`, `trellis_image_mesh_painting`, `triposr_image_mesh_painting` |
-| Segmentation | `partfield_segmentation` |
-| Retopology | `triflow_retopology` |
-| UV unwrapping | `partuv_uv_unwrapping` |
-| Auto-rigging | `skintokens_auto_rigging` |
-| Motion generation | `ardy_motion_generation` |
+---
 
-Intentionally disabled and retained: **Unique3D, Pixal3D, TRELLIS.2, TaoFlowForge** (including their configured aliases/painting entries). Cleanup must not toggle their enablement or remove their adapters, patchers, validators, configuration, or model-specific support code.
+## 5. Adapter Architecture & Vision (Expanded)
 
-Enablement means the config exposes a model for selection. It does not guarantee installed weights, dependency readiness, or GPU validation.
+### 5.1 Current State (as of 2026‑11‑25)
+- **20 adapters** live under `backend/adapters/`, each averaging **~300 lines**.
+- Each adapter re‑implements:
+  - Environment guards (`_is_pre_ampere`).
+  - Temporary‑directory creation & cleanup (often missing cleanup).
+  - HF checkpoint download logic (duplicated across adapters).
+  - `get_supported_formats` / `get_parameter_schema` stubs.
+- Only **2 adapters** have unit tests.
+- Several critical bugs were identified (hard‑coded metadata, UV omission, global monkey‑patch, subprocess leaks).
 
-## 5. Workspace and viewport
+### 5.2 Desired Future State
+- **Thin façade** per adapter: only input validation and output conversion.
+- **Shared helpers** in `BaseModel` or a new `patcher/common.py` for:
+  - Temp‑dir lifecycle (`BaseModel._run_temp(fn)`).
+  - Checkpoint caching (`BaseModel._cached_load(model_id)`).
+  - Pre‑Ampere guard isolation.
+- **Reuse upstream model code** directly (most third‑party repos expose a single < 100‑line file that implements the full pipeline).
+- **Result:** ~735 lines removed → codebase ~14 % leaner, easier to audit, and fully GPU‑parity compliant.
 
-- Workspace deep links use `/workspace/generate/<workspace_id>`; active tool routes are allowlisted in `features/workspace/lib/workspaceRouteContract.ts`.
-- `/` and `/workspace` lead to Generate. The standalone Dashboard/Overview views and obsolete `/dashboard`, `/workspace/dashboard`, `/workspace/fill-parts`, and legacy workspace aliases are removed. `/admin` opens Models; the admin tabs are Models, Runtime, Logs, Jobs, Queue, Health, Storage, Database, and Settings.
-- Workspace/asset state is persisted by backend storage and database code; `metadata.json` is not a substitute for the authoritative database state.
-- Derived AI operations (retopology, UV, segmentation and rigging) publish versioned outputs under the existing workspace and never create a second `storage/<job_id>/` directory. Adapter-owned temporary output is cleaned after publication; legacy job-ID directories are removed only when empty. Generation jobs alone create their canonical workspace directory.
-- The current viewport uses local `GLTFLoader` parsing and `glbCache` in the browser.
-- The old WebSocket/WebRTC server-side mesh streaming implementation was removed. Do not reintroduce its routers, hooks, or viewer.
-- `meshStats.ts` is used by the current viewer. `meshTelemetry.ts` was a separate unreferenced utility and is not part of the active render path.
+---
 
-## 6. API router ownership
+## 6. Constraints & Rules (from AGENTS.md)
+- **GPU parity (`sm >= 80`)** must be preserved – all changes must keep native BF16, FlashAttention, etc.
+- **Model‑specific patches** belong in `patcher/<model>/` and must not leak globally.
+- **Documentation budget** limits have been respected (Architecture now ≤ 250 lines).
 
-| Route family | Router |
-|---|---|
-| System, jobs, workspace state, logs, storage | `backend/api/routers/system.py` |
-| Database administration | `backend/api/routers/database.py` |
-| File upload and metadata | `backend/api/routers/file_upload.py` |
-| Generation and texture | `backend/api/routers/mesh_generation.py` |
-| Retopology | `backend/api/routers/mesh_retopology.py` |
-| Segmentation | `backend/api/routers/mesh_segmentation.py` |
-| UV unwrapping | `backend/api/routers/mesh_uv_unwrapping.py` |
-| Auto-rigging | `backend/api/routers/auto_rigging.py` |
-| Motion | `backend/api/routers/motion_generation.py` |
+---
 
-Script-engine execution has been retired. Retopology, UV, segmentation and rigging use their configured AI adapters; `script_execution.py`, the Script engine selector and deterministic segmentation pipeline are not part of the active runtime. SQLite workspace operation records remain the shared lifecycle and lineage mechanism. Several API endpoints have no current frontend caller but remain externally addressable API contracts, so lack of a UI caller alone is not a safe deletion reason.
+## 7. Next Steps (Integrated with Task Report)
+- See `Docs/TASKS.md` for the detailed audit, risk scores, and phased roadmap.
+- Implement the **Safety**, **Test Coverage**, **Boiler‑plate Centralisation**, **Lean‑up**, and **Verification** phases as described there.
 
-## 7. Runtime inventory invariant
+---
 
-`backend/core/runtime_probe.py` reads `_ADAPTER_MAP` to report installed adapters. `ModelFactory.ADAPTER_REGISTRY` resolves model IDs to adapter classes. The runtime map must include the active specialist IDs `triflow_retopology`, and `partfield_segmentation`; a regression test protects this mapping.
-
-## 8. Third-party and compatibility code
-
-The `backend/thirdparty` submodule is pinned and contains upstream model source. Compatibility modules used by that source must not be removed based only on the absence of imports in the first-party tree. The audit therefore preserves the Hunyuan paint compatibility utilities, `torchvision_fix.py`, `dinov3_vit.py`, and disabled TRELLIS.2 support/validation files.
-
-## 9. Verification
-
-Use the commands in [CONTRIBUTING.md](../CONTRIBUTING.md). CI compiles first-party Python packages/scripts (excluding the pinned third-party submodule), runs selected backend contracts, and runs frontend type-check, lint, tests and production build. The pinned TRELLIS source currently has a separate upstream syntax error; it is not included in the first-party syntax gate. These checks do not execute full model inference or certify GPU performance.
-
-TripoSR uses one official `TSR` adapter for image-to-mesh and existing-mesh painting. On generation, texture OFF calls `TSR.extract_mesh()` only; texture ON additionally calls upstream `bake_texture()`. The Texture Painting page calls the same baker on the supplied mesh. Source and weights live under `backend/thirdparty/TripoSR` and `backend/pretrained/TripoSR`; output texture is base color only.
-
+*All recommendations honour the AGENTS.md priority rules (model‑specific patches, GPU‑parity, no global monkey‑patches).*

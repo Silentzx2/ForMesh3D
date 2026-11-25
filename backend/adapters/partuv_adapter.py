@@ -147,7 +147,7 @@ class PartUVUnwrappingAdapter(BaseModel):
             return {"success": False, "error": f"mesh not found: {mesh_path}"}
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
-        distortion_threshold = float(inputs.get("distortion_threshold", 1.25))
+        distortion_threshold = float(inputs["distortion_threshold"])
         output_format = str(inputs.get("output_format", "glb")).lower().lstrip(".")
         if output_format not in {"glb", "obj"}:
             raise ValueError("PartUV output_format must be 'glb' or 'obj'")

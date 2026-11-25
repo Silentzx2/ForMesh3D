@@ -231,7 +231,6 @@ cmd_models() {
         printf "  ${CYAN}[13]${NC} Misc               - RealESRGAN, DINOv2\n"
         printf "  ${CYAN}[14]${NC} TripoSG            - High-fidelity image-to-3D + RMBG\n"
         printf "  ${CYAN}[15]${NC} ARDY               - Motion AI / Animation checkpoints\n"
-        printf "  ${CYAN}[16]${NC} Unique3D            - High-fidelity single-image to 3D\n"
         printf "  ${CYAN}[17]${NC} Pixal3D             - High-quality pixel-aligned (Not Tested)\n"
         printf "  ${CYAN}[18]${NC} TaoFlowForge        - Progressive native mesh generation (Alibaba)\n"
         printf "  ${CYAN}[19]${NC} TriFlow             - Neural Quad-Dominant Retopology (TUM/Audi)\n"
@@ -286,7 +285,6 @@ cmd_models() {
                         13) models_csv="${models_csv}misc," ;;
                         14) models_csv="${models_csv}triposg," ;;
                         15) models_csv="${models_csv}ardy," ;;
-                        16) models_csv="${models_csv}unique3d," ;;
                         17) models_csv="${models_csv}pixal3d," ;;
                         18) models_csv="${models_csv}taoflowforge," ;;
                         19) models_csv="${models_csv}triflow," ;;

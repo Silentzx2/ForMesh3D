@@ -113,14 +113,6 @@ const NATIVE_TARGET_REGISTRY: Record<string, NativeTargetMappingEx> = {
     reachesUpstream: false,
     evidence: 'TRELLIS.2 upstream path exposes no direct generation-time face-count control.',
   },
-  unique3d_image_to_raw_mesh: {
-    capability: 'UNSUPPORTED',
-    parameterName: null,
-    parameterUnit: null,
-    semantics: 'No native face-count parameter; target is logged only, never enforced.',
-    reachesUpstream: false,
-    evidence: 'Unique3D upstream path exposes no direct generation-time face-count control.',
-  },
   taoflowforge_image_to_raw_mesh: {
     capability: 'UNVERIFIED',
     parameterName: null,

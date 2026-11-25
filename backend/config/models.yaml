@@ -1,13 +1,24 @@
-# Canonical runtime model manifest.
-# Keep model IDs in sync with ModelFactory.ADAPTER_REGISTRY and backend.adapters._ADAPTER_MAP.
-# Only enabled entries are exposed to the scheduler; model weights must be installed separately.
+# ==============================================================================
+# ForMesh3D — Single Source of Truth Model Registry (models.yaml)
+# ==============================================================================
+# - Metadata (`name`, `label`, `description`, `vram_requirement`) drives UI
+#   dropdowns, admin catalog, and /api/v1/system/models directly.
+# - `default_parameters` are injected at runtime by `multiprocess_scheduler.py`
+#   before inference whenever a key is omitted or None (UI values never overwritten).
+# - UI-owned parameters (`seed`, `texture_resolution`, `poly_type`, `remesh_option`,
+#   `target_polycount`, `target_vertex_count`) stay out of `default_parameters`.
+# - Keep model IDs in sync with ModelFactory.ADAPTER_REGISTRY & backend.adapters.
+# ==============================================================================
+
 image_to_raw_mesh:
+
+  ## ============================================================================
+  ## HY 2.1 (Shape + Optional PBR)
+  ## ============================================================================
   hunyuan3d_shape_v21_image_to_raw_mesh:
-    model_name: "Hunyuan3D-2.1 Unified \u2014 Image to Raw Mesh + Texture Paint"
-    ui_label: Hunyuan3D-2.1 Unified
-    ui_tag: Shape + Paint
-    ui_note: "10GB VRAM \xB7 50 steps \xB7 512 octree \xB7 autochain texture"
-    ui_badge: 10GB VRAM
+    name: "HY 2.1"
+    label: "Shape + PBR"
+    description: "High-detail 3D shape generation with optional PBR texture"
     enabled: true
     vram_requirement: 10240
     max_workers: 1
@@ -45,12 +56,19 @@ image_to_raw_mesh:
       multi_gpu: true
       multi_gpu_strategy: accelerate_component_dispatch
     model_type: mesh
+    default_parameters:
+      num_inference_steps: 50
+      guidance_scale: 7.5
+      octree_resolution: 512
+      num_chunks: 8000
+
+  ## ============================================================================
+  ## HY 2.0 Mini Turbo (Fast Low-VRAM Shape)
+  ## ============================================================================
   hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh:
-    model_name: "Hunyuan3D Mini Turbo \u2014 Image to Raw Mesh"
-    ui_label: Hunyuan3D-2 Mini Turbo
-    ui_tag: Fast Geometry
-    ui_note: "Fast Geometry \xB7 Official locked profile"
-    ui_badge: 6GB VRAM
+    name: "HY 2.0 Mini"
+    label: "Fast Shape"
+    description: "Fast 0.6B turbo geometry generation for low VRAM"
     enabled: true
     vram_requirement: 6144
     max_workers: 1
@@ -73,12 +91,19 @@ image_to_raw_mesh:
       high_fidelity_geometry: true
       multi_gpu: false
     model_type: mesh
+    default_parameters:
+      num_inference_steps: 5
+      guidance_scale: 5.0
+      octree_resolution: 512
+      num_chunks: 8000
+
+  ## ============================================================================
+  ## TripoSR (Fast Single-Image Mesh)
+  ## ============================================================================
   triposr_image_to_raw_mesh:
-    model_name: "TripoSR — Image to Raw Mesh + Optional Base Color"
-    ui_label: TripoSR
-    ui_tag: Image to Mesh + Paint
-    ui_note: "6GB VRAM · raw geometry by default · optional 1K–4K base-color atlas"
-    ui_badge: 6GB VRAM
+    name: "TripoSR"
+    label: "Fast Shape"
+    description: "Fast single-image 3D mesh reconstruction"
     enabled: true
     vram_requirement: 6144
     max_workers: 1
@@ -104,12 +129,18 @@ image_to_raw_mesh:
       default_topology: Triangle
       multi_gpu: false
     model_type: mesh
+    default_parameters:
+      mc_resolution: 256
+      chunk_size: 8192
+      foreground_ratio: 0.85
+
+  ## ============================================================================
+  ## TripoSG (Hierarchical SDF Shape)
+  ## ============================================================================
   triposg_image_to_raw_mesh:
-    model_name: "TripoSG \u2014 Image to Raw Mesh"
-    ui_label: TripoSG
-    ui_tag: Hierarchical Geometry
-    ui_note: "Stable \xB7 1024 resolution"
-    ui_badge: 8GB VRAM
+    name: "TripoSG"
+    label: "Sharp Shape"
+    description: "Hierarchical SDF geometry reconstruction"
     enabled: true
     vram_requirement: 8192
     max_workers: 1
@@ -133,12 +164,18 @@ image_to_raw_mesh:
       multi_gpu: true
       multi_gpu_strategy: accelerate_component_dispatch
     model_type: mesh
+    default_parameters:
+      num_inference_steps: 50
+      guidance_scale: 7.0
+      faces: -1
+
+  ## ============================================================================
+  ## TRELLIS (Structured Latent 3D)
+  ## ============================================================================
   trellis_image_to_3d:
-    model_name: "TRELLIS \u2014 Image to 3D"
-    ui_label: TRELLIS
-    ui_tag: Stable
-    ui_note: 50-step inference
-    ui_badge: 12GB VRAM
+    name: "TRELLIS"
+    label: "Structured 3D"
+    description: "Structured latent 3D mesh and appearance generation"
     enabled: true
     vram_requirement: 11776
     max_workers: 1
@@ -167,33 +204,20 @@ image_to_raw_mesh:
       multi_gpu: true
       multi_gpu_strategy: accelerate_component_dispatch
     model_type: mesh
-  unique3d_image_to_raw_mesh:
-    model_name: "Unique3D \u2014 Image to Raw Mesh"
-    ui_label: Unique3D
-    ui_tag: Legacy
-    ui_note: Deprecated model
-    ui_badge: 10GB VRAM
-    enabled: false
-    vram_requirement: 10240
-    max_workers: 1
-    supported_inputs:
-      - image
-    supported_outputs:
-      - glb
-      - obj
-    model_path: backend/pretrained/Unique3D
-    capabilities:
-      raw_mesh: true
-      texture_generation: false
-      image_to_3d: true
-      output_resolution: 1024
-    model_type: mesh
+    default_parameters:
+      ss_sampling_steps: 12
+      ss_guidance_strength: 7.5
+      slat_sampling_steps: 12
+      slat_guidance_strength: 3.0
+      simplify: 0.95
+
+  ## ============================================================================
+  ## Pixal3D (Disabled)
+  ## ============================================================================
   pixal3d_image_to_raw_mesh:
-    model_name: "Pixal3D \u2014 Image to Raw Mesh"
-    ui_label: Pixal3D
-    ui_tag: Experimental
-    ui_note: Disabled per user direction
-    ui_badge: 18GB VRAM
+    name: "Pixal3D"
+    label: "Camera-Aware Shape"
+    description: "Camera-aware single-image 3D shape generation"
     enabled: false
     vram_requirement: 18432
     max_workers: 1
@@ -208,12 +232,16 @@ image_to_raw_mesh:
       texture_generation: false
       image_to_3d: true
     model_type: mesh
+    default_parameters:
+      resolution: 1024
+
+  ## ============================================================================
+  ## TRELLIS.2 (Disabled)
+  ## ============================================================================
   trellis2_image_to_3d:
-    model_name: "TRELLIS.2 \u2014 Image to 3D"
-    ui_label: TRELLIS.2
-    ui_tag: Not Stable
-    ui_note: Disabled per user direction
-    ui_badge: 24GB VRAM
+    name: "TRELLIS.2"
+    label: "Cascade 3D"
+    description: "Cascaded FlexiDualGrid 3D geometry and texture generation"
     enabled: false
     vram_requirement: 23552
     max_workers: 1
@@ -228,12 +256,16 @@ image_to_raw_mesh:
       texture_generation: false
       image_to_3d: true
     model_type: mesh
+    default_parameters:
+      pipeline_type: "1536_cascade"
+
+  ## ============================================================================
+  ## TaoFlowForge (Disabled)
+  ## ============================================================================
   taoflowforge_image_to_raw_mesh:
-    model_name: "TaoFlowForge \u2014 Progressive Native Mesh Generation"
-    ui_label: TaoFlowForge
-    ui_tag: Experimental
-    ui_note: Disabled per user direction
-    ui_badge: 20GB VRAM
+    name: "TaoFlowForge"
+    label: "Flow-Matching"
+    description: "Progressive flow-matching native 3D mesh generation"
     enabled: false
     vram_requirement: 20480
     max_workers: 1
@@ -248,13 +280,16 @@ image_to_raw_mesh:
       texture_generation: false
       image_to_3d: true
     model_type: mesh
+
 image_to_textured_mesh:
+
+  ## ============================================================================
+  ## Stable Fast 3D (Instant PBR Mesh)
+  ## ============================================================================
   stable_fast_3d_image_to_textured_mesh:
-    model_name: "Stable Fast 3D \u2014 Image to Textured Mesh"
-    ui_label: Stable Fast 3D
-    ui_tag: Fast Textured Mesh
-    ui_note: "Fast 0.5s inference \xB7 Native Quad & PBR"
-    ui_badge: 6GB VRAM
+    name: "Stable Fast 3D"
+    label: "Instant PBR"
+    description: "Sub-second single-image textured mesh generation"
     enabled: true
     vram_requirement: 6144
     max_workers: 1
@@ -283,13 +318,19 @@ image_to_textured_mesh:
       low_vram_supported: true
       multi_gpu: false
     model_type: mesh
+    default_parameters:
+      foreground_ratio: 0.85
+      estimate_illumination: false
+
 image_mesh_painting:
+
+  ## ============================================================================
+  ## HY 2.1 Paint (Multi-View PBR)
+  ## ============================================================================
   hunyuan3d_paint_v21_image_mesh_painting:
-    model_name: "Hunyuan3D-2.1 Unified \u2014 Image Mesh Painting"
-    ui_label: Hunyuan3D-2.1 Paint
-    ui_tag: PBR Multi-view
-    ui_note: "Multi-view projection & full PBR maps (paint page / standalone)"
-    ui_badge: 12GB VRAM
+    name: "HY 2.1 Paint"
+    label: "PBR Texture"
+    description: "Multi-view PBR texture painting for existing meshes"
     enabled: true
     vram_requirement: 12000
     max_workers: 1
@@ -319,12 +360,15 @@ image_mesh_painting:
       multi_gpu_strategy: accelerate_component_dispatch
       cpu_offload: true
     model_type: texture
+    default_parameters: {}
+
+  ## ============================================================================
+  ## HY 2.0 Paint (Lightweight Texture)
+  ## ============================================================================
   hunyuan3d_v20_paint_image_mesh_painting:
-    model_name: "Hunyuan3D-2 (v2.0) \u2014 Image Mesh Painting"
-    ui_label: Hunyuan3D-2 (v2.0) Paint
-    ui_tag: Lightweight Texture
-    ui_note: Fast PBR texture painting, ~11GB VRAM
-    ui_badge: 11GB VRAM
+    name: "HY 2.0 Paint"
+    label: "Fast Texture"
+    description: "Lightweight multi-view texture painting"
     enabled: true
     vram_requirement: 11000
     max_workers: 1
@@ -355,12 +399,15 @@ image_mesh_painting:
       multi_gpu_strategy: accelerate_component_dispatch
       cpu_offload: true
     model_type: texture
+    default_parameters: {}
+
+  ## ============================================================================
+  ## TripoSR Paint (UV Base Color)
+  ## ============================================================================
   triposr_image_mesh_painting:
-    model_name: "TripoSR — Image Mesh Painting"
-    ui_label: TripoSR Paint
-    ui_tag: Base Color Atlas
-    ui_note: "Existing mesh + reference image · official TripoSR UV baker · base color only"
-    ui_badge: 6GB VRAM
+    name: "TripoSR Paint"
+    label: "Base Color"
+    description: "Fast UV base-color baking from reference image"
     enabled: true
     vram_requirement: 6144
     max_workers: 1
@@ -384,12 +431,18 @@ image_mesh_painting:
       default_texture_resolution: 2K
       multi_gpu: false
     model_type: texture
+    default_parameters:
+      mc_resolution: 256
+      chunk_size: 8192
+      foreground_ratio: 0.85
+
+  ## ============================================================================
+  ## TRELLIS Paint (Structured Texture)
+  ## ============================================================================
   trellis_image_mesh_painting:
-    model_name: "TRELLIS \u2014 Image Mesh Painting"
-    ui_label: TRELLIS Paint
-    ui_tag: Sharp Texture
-    ui_note: Structured 2048 texture atlas
-    ui_badge: 11GB VRAM
+    name: "TRELLIS Paint"
+    label: "Sharp Texture"
+    description: "Image-guided structured texture painting"
     enabled: true
     vram_requirement: 11776
     max_workers: 1
@@ -412,12 +465,19 @@ image_mesh_painting:
       multi_gpu: true
       multi_gpu_strategy: accelerate_component_dispatch
     model_type: texture
+    default_parameters:
+      ss_sampling_steps: 12
+      ss_guidance_strength: 7.5
+      slat_sampling_steps: 12
+      slat_guidance_strength: 3.0
+
+  ## ============================================================================
+  ## TRELLIS.2 Paint (Disabled)
+  ## ============================================================================
   trellis2_image_mesh_painting:
-    model_name: "TRELLIS.2 \u2014 Image Mesh Painting"
-    ui_label: TRELLIS.2 Paint
-    ui_tag: Disabled
-    ui_note: Disabled per user direction
-    ui_badge: 24GB VRAM
+    name: "TRELLIS.2 Paint"
+    label: "Cascade Texture"
+    description: "Cascaded FlexiDualGrid PBR texture painting for existing meshes"
     enabled: false
     vram_requirement: 23552
     max_workers: 1
@@ -432,23 +492,36 @@ image_mesh_painting:
       texture_generation: true
       texture_refine: true
     model_type: texture
+    default_parameters:
+      pipeline_type: "1024_cascade"
+
 text_mesh_painting:
+
+  ## ============================================================================
+  ## TRELLIS Text Paint (Prompt Material)
+  ## ============================================================================
   trellis_text_mesh_painting:
     alias_of: trellis_image_mesh_painting
-    model_name: "TRELLIS — Text Mesh Painting"
-    ui_label: TRELLIS Text Paint
-    ui_tag: Text-guided Painting
-    ui_note: Prompt-guided material generation
-    ui_badge: 11GB VRAM
+    name: "TRELLIS Text Paint"
+    label: "Text Paint"
+    description: "Prompt-guided material and texture synthesis"
     enabled: true
 
+    default_parameters:
+      ss_sampling_steps: 12
+      ss_guidance_strength: 7.5
+      slat_sampling_steps: 12
+      slat_guidance_strength: 3.0
+
 mesh_segmentation:
+
+  ## ============================================================================
+  ## PartField (AI 3D Part Segmentation)
+  ## ============================================================================
   partfield_segmentation:
-    model_name: "PartField — 3D Feature Fields for Part Segmentation"
-    ui_label: PartField AI Segmentation
-    ui_tag: Segmentation
-    ui_note: Trained PartField feature fields with agglomerative part clustering
-    ui_badge: 8GB VRAM
+    name: "PartField"
+    label: "Segmentation"
+    description: "AI 3D part feature clustering and segmentation"
     enabled: true
     vram_requirement: 8192
     max_workers: 1
@@ -459,13 +532,26 @@ mesh_segmentation:
     supported_outputs:
       - glb
       - obj
+    default_parameters:
+      num_parts: 8
+      method: "semantic"
+      min_face_island_threshold: 50
+      colorize_preview: true
+      save_individual_parts: false
+      hierarchical: false
+      output_format: "glb"
+      sample_on_faces: 10
+      sample_batch_size: 8192
+
 auto_rig:
+
+  ## ============================================================================
+  ## SkinTokens (Autoregressive Auto-Rig)
+  ## ============================================================================
   skintokens_auto_rigging:
-    model_name: "SkinTokens \u2014 Unified Autoregressive Rigging"
-    ui_label: SkinTokens Auto-Rig
-    ui_tag: Auto-Rig
-    ui_note: Discrete skin tokens & humanoid skeleton
-    ui_badge: 14GB VRAM
+    name: "SkinTokens"
+    label: "Auto-Rig"
+    description: "Autoregressive skeleton and skinning weight prediction"
     enabled: true
     vram_requirement: 14336
     low_vram_requirement: 8192
@@ -484,13 +570,25 @@ auto_rig:
       low_vram_supported: true
       cpu_offload: true
     model_type: rigging
+    default_parameters:
+      top_k: 5
+      top_p: 0.95
+      temperature: 1.0
+      repetition_penalty: 2.0
+      num_beams: 10
+      use_skeleton: false
+      use_transfer: true
+      use_postprocess: false
+
 mesh_retopology:
+
+  ## ============================================================================
+  ## TriFlow (Quad-Dominant Retopology)
+  ## ============================================================================
   triflow_retopology:
-    model_name: "TriFlow — Neural Quad-Dominant Retopology"
-    ui_label: TriFlow
-    ui_tag: Retopology
-    ui_note: Dynamic target face budget with artist-like quad flow
-    ui_badge: 10GB VRAM
+    name: "TriFlow"
+    label: "Retopology"
+    description: "Quad-dominant neural retopology"
     enabled: true
     vram_requirement: 10240
     max_workers: 1
@@ -512,13 +610,24 @@ mesh_retopology:
       multi_gpu: true
       multi_gpu_strategy: accelerate_auto_device_map
     model_type: retopology
+    default_parameters:
+      quad_ratio: 0.95
+      qem_threshold: 12.0
+      preserve_features: true
+      watertight: false
+      adaptive: true
+      num_inference_steps: 50
+      output_format: "glb"
+
 uv_unwrapping:
+
+  ## ============================================================================
+  ## PartUV (Low-Distortion UV Unwrap)
+  ## ============================================================================
   partuv_uv_unwrapping:
-    model_name: "PartUV \u2014 UV Unwrapping"
-    ui_label: PartUV
-    ui_tag: UV Unwrap
-    ui_note: Low-distortion atlas packing
-    ui_badge: 7GB VRAM
+    name: "PartUV"
+    label: "UV Unwrap"
+    description: "Low-distortion part-aware UV unwrapping"
     enabled: true
     vram_requirement: 7168
     max_workers: 1
@@ -532,13 +641,21 @@ uv_unwrapping:
     capabilities:
       uv_unwrap: true
     model_type: uv
+    default_parameters:
+      distortion_threshold: 1.25
+      output_format: "glb"
+      sample_on_faces: 10
+      sample_batch_size: 100000
+
 motion_generation:
+
+  ## ============================================================================
+  ## ARDY (CPU Text-to-Motion)
+  ## ============================================================================
   ardy_motion_generation:
-    model_name: "ARDY \u2014 Motion Generation"
-    ui_label: ARDY Motion
-    ui_tag: Animation
-    ui_note: Core-RP humanoid motion synthesis
-    ui_badge: CPU Only
+    name: "ARDY"
+    label: "Motion"
+    description: "Text-to-motion humanoid animation synthesis"
     enabled: true
     vram_requirement: 0
     max_workers: 1
@@ -552,3 +669,8 @@ motion_generation:
       motion_generation: true
       cpu_only: true
     model_type: motion
+    default_parameters:
+      duration: 4.0
+      num_denoising_steps: 50
+      cfg_weight: 2.0
+      checkpoint: "ARDY-Core-RP-20FPS-Horizon40"

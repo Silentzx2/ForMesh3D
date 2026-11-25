@@ -75,12 +75,12 @@ class TripoSRAdapter(BaseModel):
         self._remove_background = self._resize_foreground = None
         self._rembg_session = self._bake_texture = None
 
-    def _prepare_image(self, image_path: Path) -> Image.Image:
+    def _prepare_image(self, image_path: Path, foreground_ratio: float = 0.85) -> Image.Image:
         with Image.open(image_path) as source:
             rgba = self._remove_background(source.convert("RGBA"), self._rembg_session)
         if rgba is None:
             raise RuntimeError("TripoSR background removal returned no image")
-        rgba = self._resize_foreground(rgba.convert("RGBA"), 0.85)
+        rgba = self._resize_foreground(rgba.convert("RGBA"), foreground_ratio)
         pixels = np.asarray(rgba, dtype=np.float32) / 255.0
         rgb = pixels[..., :3] * pixels[..., 3:4] + (1.0 - pixels[..., 3:4]) * 0.5
         return Image.fromarray(np.rint(np.clip(rgb, 0.0, 1.0) * 255.0).astype(np.uint8))
@@ -128,10 +128,12 @@ class TripoSRAdapter(BaseModel):
             raise FileNotFoundError("TripoSR requires a valid reference image")
         painting = self.feature_type == "image_mesh_painting"
         texture_enabled = True if painting else self._texture_enabled(inputs)
-        resolution = int(inputs.get("texture_resolution", 2048))
+        resolution = int(inputs.get("texture_resolution") or 2048)
         if texture_enabled and resolution not in TEXTURE_RESOLUTIONS:
             raise ValueError(f"texture_resolution must be one of {TEXTURE_RESOLUTIONS}")
-        image = self._prepare_image(image_path)
+        foreground_ratio = float(inputs["foreground_ratio"])
+        mc_resolution = int(inputs["mc_resolution"])
+        image = self._prepare_image(image_path, foreground_ratio=foreground_ratio)
         logger.info("[TRIPOSR] Encoding image into 3D triplane representation (device=%s)...", self.device)
         t_stage = __import__("time").perf_counter()
         with torch.no_grad():
@@ -158,10 +160,10 @@ class TripoSRAdapter(BaseModel):
                 output_mesh, temp = self._export_mesh(mesh, baked, resolution, "triposr_paint_")
                 geometry_generated, mode = False, "image_mesh_painting"
             else:
-                logger.info("[TRIPOSR] Extracting 3D mesh via Marching Cubes (resolution=%d)...", MARCHING_CUBES_RESOLUTION)
+                logger.info("[TRIPOSR] Extracting 3D mesh via Marching Cubes (resolution=%d)...", mc_resolution)
                 t_mc = __import__("time").perf_counter()
                 meshes = self.model.extract_mesh(scene_codes, not texture_enabled,
-                                                  resolution=MARCHING_CUBES_RESOLUTION)
+                                                  resolution=mc_resolution)
                 if not meshes or not isinstance(meshes[0], trimesh.Trimesh) or not len(meshes[0].faces):
                     raise RuntimeError("Official TripoSR mesh extraction returned no valid mesh")
                 mesh = meshes[0]

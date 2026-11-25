@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict
@@ -98,8 +99,10 @@ class ArdyMotionGenerationAdapter(BaseModel):
             return {"success": False, "error": "ARDY requires a text prompt"}
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
-        duration = float(inputs.get("duration", 4.0))
-        checkpoint = inputs.get("checkpoint", "ARDY-Core-RP-20FPS-Horizon40")
+        duration = float(inputs["duration"])
+        num_denoising_steps = int(inputs["num_denoising_steps"])
+        cfg_weight = float(inputs["cfg_weight"])
+        checkpoint = inputs["checkpoint"]
 
         from ardy.tools import seed_everything
 
@@ -121,7 +124,6 @@ class ArdyMotionGenerationAdapter(BaseModel):
             # motion_mask: all ones (no joints masked out), observed_motion: zeros (no conditioning)
             motion_mask = torch.ones(1, num_frames, model.motion_rep.n_joints * 3, device=device)
             observed_motion = torch.zeros(1, num_frames, model.motion_rep.n_joints * 3, device=device)
-            num_denoising_steps = 50
             motion = model(
                 texts,
                 num_frames,
@@ -130,7 +132,7 @@ class ArdyMotionGenerationAdapter(BaseModel):
                 first_heading_angle=first_heading_angle,
                 motion_mask=motion_mask,
                 observed_motion=observed_motion,
-                cfg_weight=2.0,
+                cfg_weight=cfg_weight,
             )
             output = model.motion_rep.inverse(motion, is_normalized=True)
 

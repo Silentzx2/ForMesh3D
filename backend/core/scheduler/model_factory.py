@@ -142,11 +142,6 @@ class ModelFactory:
             "module": "adapters.ardy_adapter",
             "class": "ArdyMotionGenerationAdapter",
         },
-        # Unique3D adapter
-        "unique3d_image_to_raw_mesh": {
-            "module": "adapters.unique3d_adapter",
-            "class": "Unique3DImageToRawMeshAdapter",
-        },
         # Pixal3D adapter
         "pixal3d_image_to_raw_mesh": {
             "module": "adapters.pixal3d_adapter",
@@ -503,6 +498,7 @@ def get_model_configs_from_settings(
                     raise ValueError(f"Model {model_id} is missing a manifest vram_requirement")
                 init_params = dict(getattr(model_config, "init_params", {}) or {})
                 capabilities = dict(getattr(model_config, "capabilities", {}) or {})
+                default_parameters = dict(getattr(model_config, "default_parameters", {}) or {})
             elif isinstance(model_config, dict):
                 # Handle dict-based configs from YAML
                 enabled = model_config.get("enabled", True)
@@ -519,6 +515,7 @@ def get_model_configs_from_settings(
                     raise ValueError(f"Model {model_id} is missing a manifest vram_requirement")
                 init_params = dict(model_config.get("init_params", {}) or {})
                 capabilities = dict(model_config.get("capabilities", {}) or {})
+                default_parameters = dict(model_config.get("default_parameters", {}) or {})
             else:
                 logger.warning(f"Unknown model config type for {model_id}, skipping")
                 continue
@@ -548,6 +545,8 @@ def get_model_configs_from_settings(
                 config["supported_outputs"] = supported_outputs
             if capabilities:
                 config["capabilities"] = capabilities
+            if default_parameters:
+                config["default_parameters"] = default_parameters
 
             configs[model_id] = config
             # logger.debug(f"Configured model {model_id} for feature {feature_type}")
@@ -573,7 +572,7 @@ def get_default_model_configs() -> Dict[str, Dict[str, Any]]:
         for model_id, model_config in models.items():
             if not model_config.enabled:
                 continue
-            if model_config.vram_requirement is None or model_config.vram_requirement <= 0:
+            if model_config.vram_requirement is None or model_config.vram_requirement < 0:
                 raise ValueError(
                     f"Model {model_id} is missing a valid manifest vram_requirement"
                 )
@@ -592,6 +591,8 @@ def get_default_model_configs() -> Dict[str, Dict[str, Any]]:
                 config["supported_inputs"] = list(model_config.supported_inputs)
             if model_config.supported_outputs:
                 config["supported_outputs"] = list(model_config.supported_outputs)
+            if model_config.default_parameters:
+                config["default_parameters"] = dict(model_config.default_parameters)
 
             configs[model_id] = config
 

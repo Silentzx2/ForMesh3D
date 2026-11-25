@@ -240,6 +240,9 @@ export interface SchedulerStatus {
 export interface ModelRuntimeDetails {
   id: string;
   feature: string;
+  name?: string;
+  label?: string;
+  description?: string;
   model_name?: string;
   model_type?: 'mesh' | 'texture' | 'rigging' | 'retopology' | 'uv' | 'motion' | string;
   ui_label?: string;

@@ -326,7 +326,7 @@ def _model_supports_download(model_id: str) -> bool:
         token in model_id
         for token in (
             "trellis", "triposg", "hunyuan",
-            "unique3d", "taoflowforge", "pixal3d",
+            "taoflowforge", "pixal3d",
             "skintokens", "unirig", "partuv", "ardy"
         )
     )
@@ -355,15 +355,23 @@ async def list_models(
             weights_ok = bool(cfg and _is_model_weights_available(cfg))
             weights_status[mid] = weights_ok
             downloadable = _model_supports_download(mid)
+            display_name = getattr(cfg, "name", None) or getattr(cfg, "ui_label", None) or getattr(cfg, "model_name", None) or mid
+            display_label = getattr(cfg, "label", None) or getattr(cfg, "ui_tag", None) or "Ready"
+            display_desc = getattr(cfg, "description", None) or getattr(cfg, "ui_note", None) or ""
+            vram_req = getattr(cfg, "vram_requirement", None) or 0
+            vram_badge = getattr(cfg, "ui_badge", None) or (f"{round(vram_req / 1024)}GB VRAM" if vram_req else "CPU Only")
             model_details[mid] = {
                 "id": mid,
                 "feature": feat,
-                "model_name": getattr(cfg, "model_name", None) or mid,
+                "name": display_name,
+                "label": display_label,
+                "description": display_desc,
+                "model_name": display_name,
                 "model_type": getattr(cfg, "model_type", None) or ("mesh" if "mesh" in feat and "paint" not in feat else "texture" if "paint" in feat else "other"),
-                "ui_label": getattr(cfg, "ui_label", None) or getattr(cfg, "model_name", None) or mid,
-                "ui_tag": getattr(cfg, "ui_tag", None) or "Ready",
-                "ui_note": getattr(cfg, "ui_note", None) or "",
-                "ui_badge": getattr(cfg, "ui_badge", None) or (f"{cfg.vram_requirement // 1024}GB VRAM" if getattr(cfg, "vram_requirement", None) else ""),
+                "ui_label": display_name,
+                "ui_tag": display_label,
+                "ui_note": display_desc,
+                "ui_badge": vram_badge,
                 "enabled": getattr(cfg, "enabled", True) if cfg else True,
                 "status": (
                     "weights_missing" if not weights_ok
@@ -1904,18 +1912,6 @@ async def download_job_result(
                                         )
                     except Exception:
                         pass
-                mgr = get_workspace_storage_manager()
-                temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / job_id)
-                temp_dir = temp_dir.resolve()
-                if temp_dir.is_dir():
-                    candidates = sorted([*temp_dir.glob("*.glb"), *temp_dir.glob("*.obj")], key=lambda p: p.name)
-                    for cand in candidates:
-                        if cand.is_file() and not cand.is_symlink():
-                            return FileResponse(
-                                path=str(cand),
-                                filename=filename or cand.name,
-                                media_type=get_content_type_for_file(str(cand)),
-                            )
                 if op.workspace_id:
                     op_ws = db.get_workspace(op.workspace_id)
                     if op_ws and op_ws.active_mesh_asset_id:
@@ -1935,6 +1931,18 @@ async def download_job_result(
                             filename=filename or "mesh.glb",
                             media_type=get_content_type_for_file(str(direct_base)),
                         )
+                mgr = get_workspace_storage_manager()
+                temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / job_id)
+                temp_dir = temp_dir.resolve()
+                if temp_dir.is_dir():
+                    candidates = sorted([*temp_dir.glob("*.glb"), *temp_dir.glob("*.obj")], key=lambda p: p.name)
+                    for cand in candidates:
+                        if cand.is_file() and not cand.is_symlink():
+                            return FileResponse(
+                                path=str(cand),
+                                filename=filename or cand.name,
+                                media_type=get_content_type_for_file(str(cand)),
+                            )
             # Direct fallback: generated mesh is saved at <workspace_id>/mesh/mesh.glb
             # by the scheduler. asset_root/output_mesh_path may not be in Redis when
             # job_id is actually a workspace_id (frontend passes workspace_id as job_id).
@@ -2126,7 +2134,6 @@ async def download_job_result(
             feature_name = job_status.get("feature")
             is_tool_job = (
                 feature_name in {"auto_rig", "uv_unwrapping", "mesh_retopology", "mesh_segmentation"}
-                or bool(result.get("operation_id"))
                 or (isinstance(result.get("artifacts"), dict) and "rigged" in result["artifacts"])
             )
             if not is_tool_job and canonical_format in {"glb", "gltf", "obj", "stl", "ply", "quad_obj"}:

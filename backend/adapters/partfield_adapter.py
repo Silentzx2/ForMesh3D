@@ -284,11 +284,11 @@ class PartFieldSegmentationAdapter(BaseModel):
                 "use Script mode for geometric or connected-component decomposition."
             )
 
-        target_parts = max(2, min(32, int(inputs.get("num_parts", 8))))
-        min_face_island = max(0, int(inputs.get("min_face_island_threshold", 50)))
-        colorize = bool(inputs.get("colorize_preview", True))
-        save_individual = bool(inputs.get("save_individual_parts", False))
-        hierarchical = bool(inputs.get("hierarchical", False))
+        target_parts = max(2, min(32, int(inputs["num_parts"])))
+        min_face_island = max(0, int(inputs["min_face_island_threshold"]))
+        colorize = bool(inputs["colorize_preview"])
+        save_individual = bool(inputs["save_individual_parts"])
+        hierarchical = bool(inputs["hierarchical"])
         logger.info(
             "[PARTFIELD] save_individual_parts=%s num_parts=%d min_face_island=%d",
             save_individual, target_parts, min_face_island,
@@ -313,9 +313,11 @@ class PartFieldSegmentationAdapter(BaseModel):
             progress("Extracting trained PartField feature fields", 15, "inference")
         seed = int(inputs.get("seed", 42))
         sampling_started = time.perf_counter()
+        sample_on_faces = int(inputs["sample_on_faces"])
+        sample_batch_size = int(inputs["sample_batch_size"])
         logger.info(
             "[PARTFIELD] Sampling face features: samples_per_face=%d batch_size=%d seed=%d",
-            10, 8192, seed,
+            sample_on_faces, sample_batch_size, seed,
         )
         tree, _root_node, _normalized_mesh = self.model.process_face(
             str(source_file),
@@ -326,8 +328,8 @@ class PartFieldSegmentationAdapter(BaseModel):
             save_features=False,
             save_segmentation=False,
             seed=seed,
-            sample_on_faces=10,
-            sample_batch_size=8192,
+            sample_on_faces=sample_on_faces,
+            sample_batch_size=sample_batch_size,
             pca_dim=None,
         )
         logger.info(

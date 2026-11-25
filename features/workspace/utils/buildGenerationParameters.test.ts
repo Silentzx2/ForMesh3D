@@ -248,12 +248,6 @@ describe('buildGenerationParameters', () => {
       assert.equal(cap.reachesUpstream, false);
     });
 
-    it('classifies Unique3D as UNSUPPORTED', () => {
-      const cap = getNativeTargetCapability('unique3d_image_to_raw_mesh');
-      assert.equal(cap.capability, 'UNSUPPORTED');
-      assert.equal(cap.reachesUpstream, false);
-    });
-
     it('classifies Pixal3D as NATIVE_INDIRECT_CONTROL', () => {
       const cap = getNativeTargetCapability('pixal3d_image_to_raw_mesh');
       assert.equal(cap.capability, 'NATIVE_INDIRECT_CONTROL');

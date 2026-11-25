@@ -231,7 +231,7 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
                 return {"success": False, "error": f"image not found: {image_path}"}
 
             seed = int(inputs.get("seed", DEFAULT_SEED))
-            texture_resolution = int(inputs.get("texture_resolution", 2048) or 2048)
+            texture_resolution = int(inputs.get("texture_resolution") or 2048)
             texture_resolution = max(512, min(4096, texture_resolution))
 
             import trimesh
@@ -276,6 +276,10 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
             return {"success": False, "error": f"image not found: {image_path}"}
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
+        num_inference_steps = int(inputs["num_inference_steps"])
+        guidance_scale = float(inputs["guidance_scale"])
+        octree_resolution = int(inputs["octree_resolution"])
+        num_chunks = int(inputs["num_chunks"])
 
         import trimesh
 
@@ -292,10 +296,10 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
         with ctx:
             outputs = pipeline(
                 image=image_path,
-                num_inference_steps=50,
-                guidance_scale=7.5,
-                octree_resolution=512,
-                num_chunks=8000,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=guidance_scale,
+                octree_resolution=octree_resolution,
+                num_chunks=num_chunks,
                 output_type="trimesh",
                 generator=generator,
             )

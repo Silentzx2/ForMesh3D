@@ -31,6 +31,11 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict
 
+try:
+    import torch
+except ImportError:  # pragma: no cover
+    torch = None
+
 from backend.core.models.base import BaseModel, ModelStatus
 from backend.loader import get_model_weights_dir
 from patcher.skintokens import apply_patch, bpy_server_popen_args
@@ -194,18 +199,28 @@ class SkinTokensAdapter(BaseModel):
         # Direct execution of official upstream inference function
         import demo
         import time as _time
-        logger.info("[SKINTOKENS] Sampling skeleton tokens and predicting skinning weights (seed=%d, beams=%d)...", seed, int(inputs.get("num_beams", 10)))
+        if torch is not None:
+            torch.manual_seed(seed)
+        top_k = int(inputs["top_k"])
+        top_p = float(inputs["top_p"])
+        temperature = float(inputs["temperature"])
+        repetition_penalty = float(inputs["repetition_penalty"])
+        num_beams = int(inputs["num_beams"])
+        use_skeleton = bool(inputs["use_skeleton"])
+        use_transfer = bool(inputs["use_transfer"])
+        use_postprocess = bool(inputs["use_postprocess"])
+        logger.info("[SKINTOKENS] Sampling skeleton tokens and predicting skinning weights (seed=%d, beams=%d)...", seed, num_beams)
         t_rig = _time.perf_counter()
         demo.run_rig(
             filepaths=[Path(mesh_path)],
-            top_k=int(inputs.get("top_k", 5)),
-            top_p=float(inputs.get("top_p", 0.95)),
-            temperature=float(inputs.get("temperature", 1.0)),
-            repetition_penalty=float(inputs.get("repetition_penalty", 2.0)),
-            num_beams=int(inputs.get("num_beams", 10)),
-            use_skeleton=bool(inputs.get("use_skeleton", False)),
-            use_transfer=bool(inputs.get("use_transfer", True)),
-            use_postprocess=bool(inputs.get("use_postprocess", False)),
+            top_k=top_k,
+            top_p=top_p,
+            temperature=temperature,
+            repetition_penalty=repetition_penalty,
+            num_beams=num_beams,
+            use_skeleton=use_skeleton,
+            use_transfer=use_transfer,
+            use_postprocess=use_postprocess,
             output_paths=[out_file],
             model_ckpt=self._ckpt_path or "",
             hf_path=None,
@@ -221,14 +236,14 @@ class SkinTokensAdapter(BaseModel):
             "mesh_path": str(out_file),
             "generation_info": {
                 "seed": seed,
-                "top_k": inputs.get("top_k", 5),
-                "top_p": inputs.get("top_p", 0.95),
-                "temperature": inputs.get("temperature", 1.0),
-                "repetition_penalty": inputs.get("repetition_penalty", 2.0),
-                "num_beams": inputs.get("num_beams", 10),
-                "use_skeleton": inputs.get("use_skeleton", False),
-                "use_transfer": inputs.get("use_transfer", True),
-                "use_postprocess": inputs.get("use_postprocess", False),
+                "top_k": top_k,
+                "top_p": top_p,
+                "temperature": temperature,
+                "repetition_penalty": repetition_penalty,
+                "num_beams": num_beams,
+                "use_skeleton": use_skeleton,
+                "use_transfer": use_transfer,
+                "use_postprocess": use_postprocess,
             },
         }
 

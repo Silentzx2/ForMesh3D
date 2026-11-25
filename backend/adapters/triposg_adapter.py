@@ -109,14 +109,14 @@ class TripoSGImageToRawMeshAdapter(BaseModel):
             return {"success": False, "error": f"image not found: {image_path}"}
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
-        steps = int(inputs.get("num_inference_steps", 50))
-        guidance = float(inputs.get("guidance_scale", 7.0))
+        steps = int(inputs["num_inference_steps"])
+        guidance = float(inputs["guidance_scale"])
         native_target_polycount = int(
             inputs.get("native_target_polycount")
             or inputs.get("target_polycount")
             or 0
         )
-        faces = int(inputs.get("faces", -1))
+        faces = int(inputs["faces"])
         # native_target_polycount is read for honest requested-vs-actual reporting only.
         # It is NOT applied as a count-forcing post-process (Part I §7, Batch 2.2/2.5).
         remesh_option = str(inputs.get("remesh_option", "none") or "none").strip().lower()
