@@ -1793,10 +1793,10 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       const target = resolveAssetDeletionTarget(asset);
       if (target.kind === 'job') {
         const response = await fetch(`/api/v1/system/jobs/${encodeURIComponent(target.id)}`, { method: 'DELETE' });
-        if (!response.ok) throw new Error(`Job deletion failed (HTTP ${response.status}).`);
+        if (!response.ok && response.status !== 404) throw new Error(`Job deletion failed (HTTP ${response.status}).`);
       } else if (target.kind === 'upload') {
         const response = await fetch(`/api/v1/file-upload/${encodeURIComponent(target.id)}`, { method: 'DELETE' });
-        if (!response.ok) throw new Error(`Upload deletion failed (HTTP ${response.status}).`);
+        if (!response.ok && response.status !== 404) throw new Error(`Upload deletion failed (HTTP ${response.status}).`);
       }
     } catch (error) {
       console.warn('Asset deletion failed:', error);

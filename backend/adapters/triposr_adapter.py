@@ -41,6 +41,8 @@ class TripoSRAdapter(BaseModel):
         if str(SOURCE_ROOT) not in sys.path:
             sys.path.insert(0, str(SOURCE_ROOT))
         try:
+            from patcher.triposr import ensure_torchmcubes
+            ensure_torchmcubes()
             from tsr.system import TSR
             from tsr.utils import remove_background, resize_foreground
             import rembg

@@ -47,7 +47,6 @@ export const RightAssetsPanel: React.FC = () => {
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
   const [collectionMenuOpen, setCollectionMenuOpen] = useState(false);
-  const [scopeToWorkspace, setScopeToWorkspace] = useState(true);
   const [failedThumbnails, setFailedThumbnails] = useState<Set<string>>(() => new Set());
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [activeMenuAssetId, setActiveMenuAssetId] = useState<string | null>(null);
@@ -64,7 +63,7 @@ export const RightAssetsPanel: React.FC = () => {
 
   useEffect(() => {
     setActivePage(1);
-  }, [assetFilter, showFavoritesOnly, selectedCollection, scopeToWorkspace, workspaceId]);
+  }, [assetFilter, showFavoritesOnly, selectedCollection, workspaceId]);
 
   // Handle outside click and Escape key for dropdown menus
   useEffect(() => {
@@ -137,7 +136,7 @@ export const RightAssetsPanel: React.FC = () => {
         ? asset
         : { ...asset, isFavorite: assetFavorites[favoriteKey] };
     });
-    if (!scopeToWorkspace || !workspaceId) return withFavorites;
+    if (!workspaceId) return withFavorites;
     return withFavorites.filter((asset) =>
       asset.workspace_id === workspaceId ||
       asset.id === `local_${workspaceId}` ||
@@ -145,7 +144,7 @@ export const RightAssetsPanel: React.FC = () => {
       asset.fileId === workspaceId ||
       asset.source?.fileId === workspaceId
     );
-  }, [assets, assetFavorites, scopeToWorkspace, workspaceId]);
+  }, [assets, assetFavorites, workspaceId]);
 
   const filteredAssets = scopedBaseAssets.filter(a => {
     if (showFavoritesOnly && !a.isFavorite) return false;
@@ -260,20 +259,10 @@ export const RightAssetsPanel: React.FC = () => {
               )}
             </div>
 
-            {/* Workspace Scope Toggle */}
             {workspaceId && (
-              <button
-                type="button"
-                onClick={() => setScopeToWorkspace(!scopeToWorkspace)}
-                className={`px-2 py-0.5 rounded-md text-[10px] font-mono transition-colors border cursor-pointer ${
-                  scopeToWorkspace
-                    ? 'bg-primary/10 border-primary/30 text-primary font-bold'
-                    : 'bg-white/[0.04] border-white/[0.08] text-zinc-400 hover:text-white'
-                }`}
-                title={scopeToWorkspace ? 'Showing current workspace assets only. Click to show all.' : 'Showing all assets. Click to scope to this workspace.'}
-              >
-                {scopeToWorkspace ? 'Workspace' : 'All'}
-              </button>
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-primary/10 border border-primary/30 text-primary font-bold">
+                Workspace
+              </span>
             )}
           </div>
 
@@ -298,7 +287,7 @@ export const RightAssetsPanel: React.FC = () => {
       </div>
 
       {/* Main Asset Body */}
-      <div className="flex-1 min-h-0 overflow-hidden p-3 space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
         <MeshUploadStatus state={meshUploadState} onDismiss={resetMeshUpload} />
 
         {/* Upload 3D Model Dropzone Card - Matching Studio Reference */}
@@ -371,7 +360,7 @@ export const RightAssetsPanel: React.FC = () => {
                   e.dataTransfer.effectAllowed = 'copyMove';
                 }}
                 onClick={() => setCurrentAsset(asset)}
-                className={`group relative rounded-xl overflow-hidden cursor-grab active:cursor-grabbing transition-all aspect-square flex flex-col ${
+                className={`group relative rounded-xl cursor-grab active:cursor-grabbing transition-all aspect-square flex flex-col ${
                   isSelected
                     ? 'ring-2 ring-[hsl(var(--primary))] bg-[hsl(var(--surface-2))] shadow-md shadow-[hsl(var(--primary))]/15'
                     : 'border border-white/[0.08] bg-[hsl(var(--surface-0))] hover:border-white/[0.2] hover:bg-[#1A1B1F]'
@@ -379,7 +368,7 @@ export const RightAssetsPanel: React.FC = () => {
                 title={`Click or drag "${asset.name}" into 3D Viewport`}
               >
                 {/* 3D Asset Thumbnail */}
-                <div className="relative w-full flex-1 bg-[#121316] overflow-hidden">
+                <div className="relative w-full flex-1 bg-[#121316] overflow-hidden rounded-t-xl">
                   {asset.thumbnail && !failedThumbnails.has(`${asset.id}:${asset.thumbnail}`) ? (
                     <img
                       src={asset.thumbnail}
@@ -426,7 +415,7 @@ export const RightAssetsPanel: React.FC = () => {
                 </div>
 
                 {/* Bottom Asset Label */}
-                <div className="px-2 py-1.5 bg-[hsl(var(--surface-1))] border-t border-white/[0.06] flex items-center justify-between gap-1">
+                <div className="px-2 py-1.5 bg-[hsl(var(--surface-1))] border-t border-white/[0.06] rounded-b-xl flex items-center justify-between gap-1">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className={`text-xs truncate font-medium ${isSelected ? 'text-primary font-bold' : 'text-zinc-200'}`}>
                       {asset.name}
@@ -435,7 +424,7 @@ export const RightAssetsPanel: React.FC = () => {
                   </div>
 
                   {/* 3-Dots Menu */}
-                  <div className="relative flex items-center gap-0.5" data-asset-menu={asset.id}>
+                  <div className="relative flex items-center gap-1 flex-shrink-0" data-asset-menu={asset.id}>
                     <button
                       type="button"
                       aria-label={`Delete ${asset.name}`}
@@ -443,10 +432,10 @@ export const RightAssetsPanel: React.FC = () => {
                         e.stopPropagation();
                         deleteAsset(asset.id);
                       }}
-                      className="p-1 rounded-md text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer opacity-0 group-hover:opacity-100"
+                      className="p-1 rounded-md text-zinc-300 bg-white/[0.05] hover:text-rose-400 hover:bg-rose-500/15 border border-white/[0.06] transition-colors cursor-pointer"
                       title="Delete asset"
                     >
-                      <HugeiconsIcon icon={Trash2} size={15} className="w-3.5 h-3.5" />
+                      <HugeiconsIcon icon={Trash2} size={14} className="w-3.5 h-3.5" />
                     </button>
                     <button
                       type="button"
@@ -455,9 +444,9 @@ export const RightAssetsPanel: React.FC = () => {
                         e.stopPropagation();
                         setActiveMenuAssetId(activeMenuAssetId === asset.id ? null : asset.id);
                       }}
-                      className="p-1 rounded-md text-zinc-400 hover:text-white hover:bg-[hsl(var(--surface-2))] transition-colors cursor-pointer"
+                      className="p-1 rounded-md text-zinc-300 bg-white/[0.05] hover:text-white hover:bg-white/[0.12] border border-white/[0.06] transition-colors cursor-pointer"
                     >
-                      <HugeiconsIcon icon={MoreVerticalIcon} size={16} className="w-3.5 h-3.5" />
+                      <HugeiconsIcon icon={MoreVerticalIcon} size={14} className="w-3.5 h-3.5" />
                     </button>
 
                       {activeMenuAssetId === asset.id && (

@@ -7,11 +7,11 @@ type DownloadOptions = {
 
 const EXPECTED_CONTENT_TYPES: Record<ArtifactFormat, string[]> = {
   glb: ['model/gltf-binary', 'application/octet-stream'],
-  gltf: ['model/gltf+json'],
+  gltf: ['model/gltf+json', 'application/json'],
   fbx: ['model/fbx', 'application/octet-stream'],
   obj: ['application/wavefront-obj', 'model/obj', 'text/plain', 'application/octet-stream'],
-  stl: ['model/stl', 'application/octet-stream'],
-  ply: ['model/ply', 'application/octet-stream'],
+  stl: ['model/stl', 'text/plain', 'application/octet-stream'],
+  ply: ['model/ply', 'text/plain', 'application/octet-stream'],
   zip: ['application/zip', 'application/x-zip-compressed'],
 };
 

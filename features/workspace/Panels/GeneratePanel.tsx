@@ -525,10 +525,10 @@ export const GeneratePanel: React.FC = () => {
         ...prev,
         imageFileId: res.file_id,
       }));
-      setImageUploadProgress({ ...imageUploadProgress, percent: 100, uploading: false });
+      setImageUploadProgress((prev) => ({ ...prev, percent: 100, uploading: false, error: null }));
       toast.success(`Image uploaded: ${file.name}`);
     } catch (err: any) {
-      setImageUploadProgress({ ...imageUploadProgress, uploading: false, error: err?.message || 'Image upload failed' });
+      setImageUploadProgress((prev) => ({ ...prev, uploading: false, error: err?.message || 'Image upload failed' }));
       toast.error(`Image upload failed: ${err?.message || 'Unknown error'}`);
     }
   };
@@ -624,7 +624,8 @@ export const GeneratePanel: React.FC = () => {
     e?.stopPropagation();
     setHasFailedAttempt(false);
     setImagePreview(null);
-    setGenerationSettings((prev) => ({ ...prev, image: null, imageName: undefined }));
+    setImageUploadProgress({ loaded: 0, total: 0, percent: 0, uploading: false, error: null });
+    setGenerationSettings((prev) => ({ ...prev, image: null, imageName: undefined, imageFileId: undefined }));
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }

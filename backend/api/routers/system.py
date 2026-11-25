@@ -1776,6 +1776,8 @@ async def download_job_result(
         FileResponse for direct download or JSON with base64 data
     """
     try:
+        if job_id.startswith("preview_"):
+            job_id = job_id[len("preview_"):]
         requested_artifact_format = artifact_format.strip().lower() if isinstance(artifact_format, str) else "glb"
         scheduler = await get_scheduler(request)
         job_status = await scheduler.get_job_status(job_id)
@@ -2324,6 +2326,8 @@ async def download_job_thumbnail(
         FileResponse for direct download or JSON with base64 data
     """
     try:
+        if job_id.startswith("preview_"):
+            job_id = job_id[len("preview_"):]
         raw_status = scheduler.get_job_status(job_id)
         if asyncio.iscoroutine(raw_status):
             job_status = await raw_status
@@ -2333,39 +2337,39 @@ async def download_job_thumbnail(
         if job_status is None:
             from core.scheduler.database_manager import DatabaseManager
             db = DatabaseManager()
+            storage_base = get_storage_base_dir().resolve()
+            asset = None
             ws = db.get_workspace(job_id)
-            if ws and ws.active_mesh_asset_id:
-                asset = db.get_asset(ws.active_mesh_asset_id)
-            elif ws and ws.source_asset_id:
-                asset = db.get_asset(ws.source_asset_id)
-                if asset and asset.thumbnail_path:
-                    storage_base = get_storage_base_dir().resolve()
-                    thumb_path = (storage_base / ws.workspace_id / asset.thumbnail_path).resolve()
-                    if thumb_path.is_file() and thumb_path.is_relative_to(storage_base):
-                        return FileResponse(
-                            path=str(thumb_path),
-                            filename=filename or f"{job_id}_thumb.png",
-                            media_type="image/png",
-                        )
-            asset = db.get_asset(job_id)
+            if not ws:
+                op = db.get_operation(job_id)
+                if op:
+                    if op.output_asset_id:
+                        asset = db.get_asset(op.output_asset_id)
+                    if not asset and op.workspace_id:
+                        ws = db.get_workspace(op.workspace_id)
+            if not asset and ws:
+                if ws.active_mesh_asset_id:
+                    asset = db.get_asset(ws.active_mesh_asset_id)
+                elif ws.source_asset_id:
+                    asset = db.get_asset(ws.source_asset_id)
+            if not asset:
+                asset = db.get_asset(job_id)
             if asset:
-                storage_base = get_storage_base_dir().resolve()
+                candidates = []
                 if asset.thumbnail_path:
-                    thumb_path = (storage_base / asset.workspace_id / asset.thumbnail_path).resolve()
+                    candidates.append(storage_base / asset.workspace_id / asset.thumbnail_path)
+                candidates.extend([
+                    storage_base / asset.workspace_id / "mesh" / "mesh_thumb.png",
+                    storage_base / asset.workspace_id / "mesh" / "thumbnail.png",
+                ])
+                for cand in candidates:
+                    thumb_path = cand.resolve()
                     if thumb_path.is_file() and thumb_path.is_relative_to(storage_base):
                         return FileResponse(
                             path=str(thumb_path),
                             filename=filename or f"{job_id}_thumb.png",
                             media_type="image/png",
                         )
-                # If asset has no thumbnail, check workspace active mesh or thumbnail dir
-                cand_thumb = (storage_base / asset.workspace_id / "mesh" / "thumbnail.png").resolve()
-                if cand_thumb.is_file() and cand_thumb.is_relative_to(storage_base):
-                    return FileResponse(
-                        path=str(cand_thumb),
-                        filename=filename or f"{job_id}_thumb.png",
-                        media_type="image/png",
-                    )
                 # Fallback to default SVG placeholder
                 svg_bytes = DEFAULT_MESH_THUMBNAIL_SVG.encode("utf-8")
                 return Response(

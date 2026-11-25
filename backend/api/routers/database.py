@@ -537,7 +537,7 @@ async def clear_all_jobs(
     meshes_root = _storage_root()
     if meshes_root.is_dir():
         for child in meshes_root.iterdir():
-            if not child.is_dir():
+            if not child.is_dir() or child.name == "uploads":
                 continue
             error = _delete_tree(child, meshes_root)
             if error:

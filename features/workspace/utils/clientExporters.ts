@@ -6,6 +6,29 @@ import { PLYExporter } from 'three/examples/jsm/exporters/PLYExporter.js';
 
 export type ClientSupportedExportFormat = 'glb' | 'gltf' | 'obj' | 'stl' | 'ply';
 
+function sanitizeObjectForExport(object: THREE.Object3D): THREE.Object3D {
+  const clone = object.clone(true);
+  const toRemove: THREE.Object3D[] = [];
+  clone.traverse((node) => {
+    if (node.name === '__rigging_skeleton_helper' || node.userData?.__isSeamLine) {
+      toRemove.push(node);
+      return;
+    }
+    if (node instanceof THREE.Mesh) {
+      if (node.userData?.__hoverOriginalMaterial) {
+        node.material = node.userData.__hoverOriginalMaterial;
+      } else if (node.userData?.__originalMaterial) {
+        node.material = node.userData.__originalMaterial;
+      }
+      if (node.userData?.__origPos instanceof THREE.Vector3) {
+        node.position.copy(node.userData.__origPos);
+      }
+    }
+  });
+  toRemove.forEach((n) => n.parent?.remove(n));
+  return clone;
+}
+
 /**
  * Exports a Three.js Object3D into a binary or text Blob directly in the browser.
  */
@@ -14,11 +37,12 @@ export async function exportThreeObject(
   format: ClientSupportedExportFormat
 ): Promise<Blob> {
   const normFormat = format.toLowerCase() as ClientSupportedExportFormat;
+  const exportTarget = sanitizeObjectForExport(object);
 
   switch (normFormat) {
     case 'glb': {
       const exporter = new GLTFExporter();
-      const gltf = await exporter.parseAsync(object, { binary: true });
+      const gltf = await exporter.parseAsync(exportTarget, { binary: true });
       if (gltf instanceof ArrayBuffer) {
         return new Blob([gltf], { type: 'model/gltf-binary' });
       }
@@ -27,20 +51,20 @@ export async function exportThreeObject(
 
     case 'gltf': {
       const exporter = new GLTFExporter();
-      const gltf = await exporter.parseAsync(object, { binary: false });
+      const gltf = await exporter.parseAsync(exportTarget, { binary: false });
       const jsonStr = typeof gltf === 'string' ? gltf : JSON.stringify(gltf, null, 2);
       return new Blob([jsonStr], { type: 'application/json' });
     }
 
     case 'obj': {
       const exporter = new OBJExporter();
-      const output = exporter.parse(object);
+      const output = exporter.parse(exportTarget);
       return new Blob([output], { type: 'text/plain' });
     }
 
     case 'stl': {
       const exporter = new STLExporter();
-      const output = exporter.parse(object, { binary: true });
+      const output = exporter.parse(exportTarget, { binary: true });
       if (typeof output === 'string') {
         return new Blob([output], { type: 'text/plain' });
       }
@@ -62,7 +86,7 @@ export async function exportThreeObject(
             }
           };
 
-          const direct = exporter.parse(object, doneHandler, { binary: true });
+          const direct = exporter.parse(exportTarget, doneHandler, { binary: true });
           if (direct && !resolved) {
             doneHandler(direct);
           }

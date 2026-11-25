@@ -289,7 +289,7 @@ export const RemeshPanel: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const meshInputRef = useRef<HTMLInputElement>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [inputTab, setInputTab] = useState<'image' | 'mesh'>('image');
+  const [inputTab, setInputTab] = useState<'image' | 'mesh'>('mesh');
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
 
@@ -630,13 +630,6 @@ export const RemeshPanel: React.FC = () => {
               <span className="text-[9px] text-zinc-500 font-mono mt-0.5">
                 Size ≤ 150MB
               </span>
-              <input
-                ref={meshInputRef}
-                type="file"
-                accept=".obj,.fbx,.stl,.glb,.ply,.gltf"
-                className="hidden"
-                onChange={handleMeshUpload}
-              />
             </div>
           )}
         </div>
@@ -1007,7 +1000,7 @@ export const RemeshPanel: React.FC = () => {
             <button
               type="button"
               onClick={handleRunRetopo}
-              disabled={!currentAsset && !generationSettings.image}
+              disabled={!currentAsset || isMeshUploading || isExecuting}
               className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RefreshCw className="w-3.5 h-3.5 text-black" />
