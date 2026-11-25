@@ -75,23 +75,10 @@ The checked-in CI commands are documented in [CONTRIBUTING.md](../CONTRIBUTING.m
 - Right-panel comparison UI, orphan viewer, and persisted picker state removed; viewport wipe remains the only model comparison surface.
 - Segmentation is AI-only through PartField. The run action is gated by CUDA, checkpoint, vendored inference source and dependency readiness; no geometric/connected-components Script fallback is exposed.
 - Backend readiness/API contracts, PartField adapter tests and UI/API docs were updated. Frontend and backend runtime contract CI passed on the implementation commit; GPU inference smoke test remains environment-dependent.
-## 10. Unified viewport comparison — plan and implementation record (2026-11-23)
-
-**Reference:** uploaded `1903.jpg`: same dragon, textured/PBR on one side and neutral white clay on the other, with a draggable diagonal boundary. Use only `MeshViewer.tsx` and `ViewportToolOverlay.tsx`; never restore Right Panel comparison or add another renderer.
-
-**Invariants:** reuse existing Three.js scene, camera, lights, render loop, `isComparing` state and comparison-before group. Comparison is read-only. Load the before copy only while enabled; cancel stale loads and dispose comparison-owned resources on close/error/unmount. Do not dispose active-model resources. Keep alignment, camera, turntable, lighting and exposure consistent. Enable only for a renderable mesh and valid source/result lineage; never infer a predecessor from a filename or unrelated asset.
-
-**Modes:** Texture/PBR = same mesh URL twice, clay override on before copy, textured active after copy. Retopo, Remesh and Segmentation = persisted source mesh versus completed processed mesh. UV = compare only when output is a distinct renderable mesh; atlas/metadata-only output is not comparable. Other tools use generic labels only with verified source/result URLs. Labels: Clay / Untextured ↔ PBR / Textured; Before Retopo ↔ After Retopo; Original Mesh ↔ Remeshed; Before UV ↔ After UV; Original ↔ Segmented.
-
-**Phase 1 — Core contract:** resolve mode, URLs, labels and availability from active tool + asset lineage. Texture uses same URL and clay override; geometry uses distinct verified URLs. Running/failed/missing pairs are unavailable. Cancel stale loads and safely dispose comparison-owned resources.
-
-**Phase 2 — Tool support:** trace existing persisted sourceAssetId/source artifact for Retopo, Remesh, UV and Segmentation. Use only actual mesh outputs; preserve alignment and never fabricate UV geometry.
-
-**Phase 3 — Rail and interaction:** one viewport toggle, mode-specific tooltip/labels, pointer/touch/keyboard drag, no orbit while dragging. Renderer currently uses rectangular WebGL scissor; retain truthful vertical wipe until real diagonal polygon/stencil clipping is implemented and tested. A decorative diagonal over a vertical split is not acceptable.
-
-**Phase 4 — Regression and delivery:** test texture URL availability, missing/equal geometry URLs, failed/running jobs, atlas-only UV, labels, asset/tool switch, stale-load cancellation and cleanup. Run TypeScript, lint, focused tests and production build; backend tests only if backend contracts change. Update design/task docs to shipped behavior.
-
-**Implementation record:** [x] Reference inspected. [x] Texture/PBR same-mesh clay-vs-textured path wired to existing source-group loader. [x] Tool rail enables compare for a loaded Texture/PBR mesh without a separate predecessor. [x] Retopo/Remesh/UV/Segmentation labels use active tool when verified lineage exists. [x] True diagonal wipe implemented with two render-target passes and a full-screen composite shader in the existing WebGLRenderer; divider angle and shader boundary share the same 14-degree geometry. [x] Render targets resize with the viewport and are disposed with the renderer. [x] Frontend CI passed: TypeScript, ESLint, all Bun tests, and production build. [x] Backend Runtime Contract CI passed: Python compile, regression, workspace/API integration, and resolver checks. The shader boundary and divider geometry have deterministic unit coverage; no manual interactive-browser/WebGL visual result is claimed because this session has no running browser.
+## 10. Unified viewport comparison — 2026-11-23
+- Reused the existing MeshViewer scene, camera, renderer and source-lineage contract.
+- Implemented a real 14-degree diagonal wipe with two render-target passes and mode-aware labels.
+- Added deterministic shader/geometry coverage; frontend and backend runtime CI passed. No manual browser visual run is claimed.
 
 ## 11. Desktop workspace controls — 2026-11-23
 - Header popovers are mutually exclusive to prevent dropdown/resource-panel stacking.
@@ -117,23 +104,9 @@ The checked-in CI commands are documented in [CONTRIBUTING.md](../CONTRIBUTING.m
 - Added a regression guard ensuring tool operations cannot create job-scoped roots while generation still can.
 
 ## 14. Asset library, selection and viewer lifecycle — 2026-11-24
-
-**Scope:** fix the audited Asset panel and direct workspace/viewer/cache dependencies only. Preserve the current Next.js, React, Zustand, TanStack Query, FastAPI and Three.js architecture; no new dependency, parallel store, backend schema or asset-copy pipeline.
-
-1. **Selection:** all selection entry points (`setCurrentAsset` and ID-based `selectAsset`) share `idle → selecting → verifying → loading`; `MeshViewer` commits `ready` or `error` from the actual loader. Request IDs reject stale outcomes. Retry starts a new request; route changes and deselection invalidate pending work.
-2. **Identity:** return the normalized ID from `addAsset` and select that ID. Preserve intentional local duplicates while deduplicating true UUID/URL duplicates. Scope filename dedupe to a known workspace.
-3. **Deletion:** resolve only validated job UUIDs, explicit workspace job IDs, or uploaded UUID/`ast_<12 hex>` IDs. Duplicates are local aliases and never delete their source. Do not infer destructive job deletion from category/tag alone. Check HTTP status before removing UI state; on success select another renderable asset or clear viewer, on failure retain the card.
-4. **Workspace filter:** `Workspace` means exact workspace matches and stays empty if no workspace assets exist; never fall back to global assets. Include only exact workspace/asset/file identity matches.
-5. **Collections:** persist collection names and asset assignments in the existing Zustand localStorage store. Expose a working collection filter; assignment/removal/new membership update UI and persisted mapping.
-6. **Pagination/thumbnails:** reset page on category/favorite/collection/scope/workspace changes and clamp after list shrink. Key thumbnail failure by asset ID plus URL.
-7. **Upload contract:** display GLB, GLTF, OBJ, FBX, STL and PLY, with the shared 200 MiB frontend/backend cap.
-8. **GLB requests:** each caller has an independent abort subscription. Abort the shared controller only after the last consumer leaves; keep timeout active through body consumption and clean timers/listeners/maps on all exits.
-9. **Tests:** cover legal/stale selection transitions, safe delete-target resolution and single-consumer versus last-consumer cancellation; validate filter/persistence/pagination behavior where pure logic is exposed.
-10. **Delivery:** update task, UI design and changelog docs; run project frontend checks and inspect GitHub CI. Do not claim browser/WebGL or GPU validation unless actually run.
-
-**Implementation record:** selection transitions share viewer loader outcomes; deletion targets are ownership-aware and response-checked; duplicates remain local aliases; workspace scope is strict; collections persist and filter; pagination and thumbnail retry are keyed; upload hints match validation; GLB cancellation is subscriber-aware. Focused Node/Bun regression tests were added.
-
-**Validation:** source changes are committed as one dev update. TypeScript, lint, Bun tests, production build and browser interaction must be verified by CI after push; no GPU/inference code changed.
+- Unified selection with actual loader completion/error handling and stale-request protection.
+- Made deletion ownership-aware; persisted Collections/Favorites; enforced exact workspace filtering.
+- Fixed pagination, thumbnail retry identity, upload guidance and per-consumer GLB cancellation with focused regressions.
 
 ## 15. Desktop inspector and asset controls — 2026-11-24
 - Persisted Generator accordion state and per-asset Favorites; tool changes auto-expand only until manual override, and favorites use stable asset identity.
@@ -145,3 +118,13 @@ The checked-in CI commands are documented in [CONTRIBUTING.md](../CONTRIBUTING.m
 ## 17. Task cancellation, batch retries and polling — 2026-11-24
 - Explicit cancellation records `cancelled`, aborts pending batch submissions, resolves local/backend task IDs, and uses `/cancel` rather than destructive job deletion.
 - Batch retries retain original settings; polling ignores stale terminal-state responses and stops scheduling when no backend jobs remain.
+
+## 18. TripoSR unified image-to-mesh, optional texture and mesh painting — 2026-11-25
+**Plan/implementation:** one adapter imports the official `TSR` pipeline and serves both `image_to_raw_mesh` and `image_mesh_painting`. The generation UI's texture switch controls the official pipeline branch; the Texture Painting page supplies an existing mesh plus a reference image.
+**Texture OFF:** call upstream `TSR.extract_mesh(scene_codes, True, resolution=256)`, export raw GLB, and do not import or invoke `tsr.bake_texture`.
+**Texture ON:** call upstream `TSR.extract_mesh(scene_codes, False, resolution=256)`, then official `tsr.bake_texture.bake_texture(generated_mesh, model, scene_code, resolution)`; export one GLB with a base-color atlas.
+**Texture Painting page:** call official `bake_texture(existing_mesh, model, scene_code, resolution)` and preserve the supplied mesh geometry. No normal, roughness, metallic or AO maps are claimed.
+**Compatibility:** upstream `positions_to_colors` is patched per TripoSR worker to move query chunks onto the scene-code device and return colors to CPU. Upstream mesh extraction, atlas generation, rasterization and baking remain unchanged.
+**Dependencies:** `torchmcubes` comes from the released CPython 3.10 wheel via install.sh's existing wheelhouse helper; it is not installed from Git. `moderngl` stays model-only and the baker is lazy-imported only when texture is requested.
+**Third-party prerequisite:** upstream source is expected at `backend/thirdparty/TripoSR`; checkpoints at `backend/pretrained/TripoSR`. The third-party submodule is not edited here.
+**Verification:** tests cover texture-off extraction without baker import, texture-on extraction+baking, existing-mesh painting, geometry preservation, device-safe queries, registry and wheelhouse contracts. GPU visual quality still requires source/checkpoints and a real GPU smoke test.

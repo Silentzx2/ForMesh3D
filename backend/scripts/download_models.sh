@@ -5,7 +5,7 @@
 # 
 # Available models:
 #   hunyuan2mini, hunyuan21, trellis, trellis-text, trellis2,
-#   skintokens, partuv, triposg, ardy, unique3d, pixal3d, taoflowforge, misc, all
+#   skintokens, partuv, triposg, triposr, ardy, unique3d, pixal3d, taoflowforge, misc, all
 #
 # Options:
 #   -h, --help              Show this help message
@@ -119,7 +119,7 @@ VERIFY_ONLY=false
 FORCE_DOWNLOAD=false
 
 # Available models
-AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "stable_fast_3d" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "triflow" "partfield" "triposg" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
+AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "stable_fast_3d" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "triflow" "partfield" "triposg" "triposr" "ardy" "unique3d" "pixal3d" "taoflowforge" "misc" "all")
 
 show_help() {
     cat << EOF
@@ -147,6 +147,7 @@ Available models:
     partuv             - PartUV model
     triflow            - TriFlow neural quad-dominant retopology model
     triposg            - TripoSG and RMBG models
+    triposr            - TripoSR geometry + optional base-color atlas
     ardy               - ARDY motion generation models
     unique3d           - Unique3D high-fidelity single-image to 3D model
     hunyuan3d_v20_paint       - Hunyuan3D-2 (v2.0) Paint model (texture weights only)
@@ -743,6 +744,38 @@ download_triposg() {
     print_success "TripoSG models ready"
 }
 
+# Function to download TripoSR weights (source code is vendored separately).
+download_triposr() {
+    print_info "========================================"
+    print_info "Downloading TripoSR Checkpoint"
+    print_info "========================================"
+
+    local model_dir="$PRETRAINED_DIR/TripoSR"
+    mkdir -p "$model_dir"
+    ensure_writable_model_dir "$model_dir" || return 1
+
+    if [ "$FORCE_DOWNLOAD" = false ] && \
+       [ -s "$model_dir/config.yaml" ] && [ -s "$model_dir/model.ckpt" ]; then
+        print_info "TripoSR checkpoint already exists and verified"
+        return 0
+    fi
+
+    print_info "Downloading stabilityai/TripoSR config.yaml and model.ckpt..."
+    if ! hf_download stabilityai/TripoSR \
+        --include "config.yaml" "model.ckpt" \
+        --local-dir "$model_dir"; then
+        print_error "Failed to download TripoSR checkpoint"
+        return 1
+    fi
+
+    if [ ! -s "$model_dir/config.yaml" ] || [ ! -s "$model_dir/model.ckpt" ]; then
+        print_error "TripoSR download is incomplete; expected config.yaml and model.ckpt"
+        return 1
+    fi
+
+    print_success "TripoSR checkpoint is ready"
+}
+
 # Function to download ARDY checkpoints
 download_ardy() {
     print_info "========================================"
@@ -1138,6 +1171,10 @@ verify_all_models() {
     print_info "Checking TripoSG..."
     verify_directory "$PRETRAINED_DIR/TripoSG" 2 || all_verified=false
 
+    print_info "Checking TripoSR..."
+    [ -s "$PRETRAINED_DIR/TripoSR/config.yaml" ] || all_verified=false
+    [ -s "$PRETRAINED_DIR/TripoSR/model.ckpt" ] || all_verified=false
+
     print_info "Checking ARDY..."
     verify_directory "$PRETRAINED_DIR/ardy" 1 || all_verified=false
 
@@ -1258,6 +1295,9 @@ for model in "${MODELS_ARRAY[@]}"; do
         "triposg")
             download_triposg
             ;;
+        "triposr")
+            download_triposr
+            ;;
         "ardy")
             download_ardy
             ;;
@@ -1287,6 +1327,7 @@ for model in "${MODELS_ARRAY[@]}"; do
             download_partfield
             download_triflow
             download_triposg
+            download_triposr
             download_ardy
             download_unique3d
             download_pixal3d

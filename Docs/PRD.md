@@ -35,10 +35,10 @@ The API documentation is a route guide. Generated OpenAPI at `/openapi.json` and
 
 | Feature | Model ID(s) |
 |---|---|
-| Image-to-raw-mesh | `hunyuan3d_shape_v21_image_to_raw_mesh`, `hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh`, `triposg_image_to_raw_mesh` |
+| Image-to-raw-mesh | `hunyuan3d_shape_v21_image_to_raw_mesh`, `hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh`, `triposg_image_to_raw_mesh`, `triposr_image_to_raw_mesh` |
 | Image-to-3D | `trellis_image_to_3d` |
 | Textured mesh | `stable_fast_3d_image_to_textured_mesh` |
-| Texture painting | `hunyuan3d_paint_v21_image_mesh_painting`, `hunyuan3d_v20_paint_image_mesh_painting`, `trellis_image_mesh_painting` |
+| Texture painting | `hunyuan3d_paint_v21_image_mesh_painting`, `hunyuan3d_v20_paint_image_mesh_painting`, `trellis_image_mesh_painting`, `triposr_image_mesh_painting` |
 | Segmentation | `partfield_segmentation` |
 | Retopology | `triflow_retopology` |
 | UV | `partuv_uv_unwrapping` |
@@ -62,3 +62,5 @@ Unique3D, Pixal3D, TRELLIS.2, and TaoFlowForge are disabled in configuration and
 ## Explicit non-goals for this document
 
 Do not treat old README/API prose about LOD bundles, physics/collision packaging, arbitrary FBX conversion, V4K FastMesh, server-side mesh streaming, or multi-view endpoints as current product guarantees unless the implementation and tests are re-verified.
+
+TripoSR uses one official pipeline in both generation and painting. On the Generate page, texture OFF produces raw geometry and does not run the baker; texture ON extracts geometry then bakes a base-color atlas. On the Texture Painting page, it bakes the reference image onto the supplied mesh without generating replacement geometry. It does not produce additional PBR maps.

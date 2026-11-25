@@ -37,6 +37,8 @@ _ADAPTER_MAP: dict[str, str] = {
     "trellis2_image_mesh_painting": "backend.adapters.trellis2_adapter",
     "hunyuan3d_paint_v21_image_mesh_painting": "backend.adapters.hunyuan3d_21_unified",
     "hunyuan3d_v20_paint_image_mesh_painting": "backend.adapters.hunyuan3d_v20_paint_adapter",
+    "triposr_image_to_raw_mesh": "backend.adapters.triposr_adapter",
+    "triposr_image_mesh_painting": "backend.adapters.triposr_adapter",
     # ── mesh-retopology ────────────────────────────────────────────────
     "triflow_retopology": "backend.adapters.triflow_adapter",
     # ── mesh-segmentation ──────────────────────────────────────────────

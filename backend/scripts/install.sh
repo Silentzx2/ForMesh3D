@@ -600,6 +600,10 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     echo "[INFO] Installing o-voxel..."
     install_local_wheel "o_voxel-*.whl" "o-voxel" || { echo "[ERROR] o-voxel wheel not found in $WHEEL_DIR"; exit 1; }
 
+    # torchmcubes — TripoSR marching-cubes dependency; use the prebuilt release wheel.
+    echo "[INFO] Installing torchmcubes..."
+    install_local_wheel "torchmcubes-*.whl" "torchmcubes" || { echo "[ERROR] torchmcubes wheel not found in $WHEEL_DIR"; exit 1; }
+
     # custom_rasterizer — Hunyuan3D-2 differentiable rasterizer CUDA extension.
     # Prebuilt wheel only, no source build. Required by hunyuan3d_v20_paint_image_mesh_painting.
     echo "[INFO] Installing custom_rasterizer..."

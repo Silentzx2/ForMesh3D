@@ -76,6 +76,10 @@ xformers                    # [UNIQUE3D]
 
 # ── TripoSG (packages not in core) ────────────────────────────
 
+# ── TripoSR (VAST-AI-Research/TripoSR) ─────────────────────────
+moderngl==5.10.0            # [TRIPOSR] OpenGL rasterization for UV texture-atlas baking
+# torchmcubes is installed from the prebuilt ForMesh3D Wheels release in install.sh.
+
 # ── SkinTokens (Unified Autoregressive Rigging) ────────────────
 lightning                   # [SKINTOKENS]
 python-box                  # [SKINTOKENS]

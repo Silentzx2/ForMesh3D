@@ -30,7 +30,7 @@ flowchart LR
 
 `backend/config/models.yaml` controls model enablement and capabilities. `ModelFactory.ADAPTER_REGISTRY` maps model IDs to adapter modules/classes. `backend/adapters/_ADAPTER_MAP` supplies the runtime probe's installed-adapter inventory.
 
-Enabled configured model families include Hunyuan3D Shape v2.1, Hunyuan3D DiT Mini Turbo, TripoSG, TRELLIS, Stable Fast 3D, Hunyuan3D Paint v2.0/v2.1, PartField, TriFlow, PartUV, SkinTokens, and ARDY.
+Enabled configured model families include Hunyuan3D Shape v2.1, Hunyuan3D DiT Mini Turbo, TripoSG, TripoSR, TRELLIS, Stable Fast 3D, Hunyuan3D Paint v2.0/v2.1, PartField, TriFlow, PartUV, SkinTokens, and ARDY.
 
 Disabled but retained: Unique3D, Pixal3D, TRELLIS.2, and TaoFlowForge. Keep their config and support code unchanged during cleanup. Configured enablement does not imply installed weights or verified inference.
 
@@ -54,3 +54,5 @@ Both FastAPI entrypoints mount the system router at `/api/v1/system` and at `/ap
 4. Keep SQLite/storage ownership centralized; do not add parallel metadata files or stores.
 5. Compile first-party Python packages, patchers and scripts separately from the pinned third-party submodule; upstream syntax failures must be tracked independently.
 6. Treat static checks and CPU CI as contract checks only; GPU inference needs a suitable host and installed checkpoints.
+
+TripoSR uses one adapter for triposr_image_to_raw_mesh and triposr_image_mesh_painting. Texture OFF uses official TSR.extract_mesh() only; texture ON additionally calls official bake_texture() on the generated mesh; the Texture Painting page calls the same baker on the supplied mesh. Only a base-color atlas is produced. Source and weights are expected at backend/thirdparty/TripoSR and backend/pretrained/TripoSR.

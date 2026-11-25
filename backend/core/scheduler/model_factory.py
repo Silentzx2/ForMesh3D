@@ -171,6 +171,14 @@ class ModelFactory:
             "module": "adapters.hunyuan3d_v20_paint_adapter",
             "class": "Hunyuan3DV20PaintImageMeshPaintingAdapter",
         },
+        "triposr_image_to_raw_mesh": {
+            "module": "adapters.triposr_adapter",
+            "class": "TripoSRAdapter",
+        },
+        "triposr_image_mesh_painting": {
+            "module": "adapters.triposr_adapter",
+            "class": "TripoSRAdapter",
+        },
     }
 
     LEGACY_IMAGE_TO_RAW_ALIASES = {

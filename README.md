@@ -31,7 +31,7 @@ ForMesh3D brings image-to-3D generation and practical mesh-production tools into
 |---|---|
 | **Image to 3D** | Generate raw 3D geometry from a reference image with Hunyuan3D, TripoSG, and TRELLIS adapters. |
 | **Textured mesh generation** | Generate a textured mesh from an image with Stable Fast 3D. |
-| **Texture painting** | Apply image-guided or text-guided materials to an existing mesh using the configured painting adapters. |
+| **Texture painting** | Apply image-guided or text-guided materials to an existing mesh with Hunyuan3D, TRELLIS, and TripoSR Paint. TripoSR produces base color only. |
 | **Segmentation** | Split a mesh into semantic parts with the PartField adapter. |
 | **Retopology** | Rebuild mesh topology with TriFlow. |
 | **UV unwrapping** | Generate UV layouts with PartUV. |
@@ -71,9 +71,9 @@ The enabled model manifest currently covers these tools:
 
 | Workspace tool | Configured models |
 |---|---|
-| Image-to-raw-mesh | Hunyuan3D-2.1 Shape, Hunyuan3D-2 Mini Turbo, TripoSG, TRELLIS |
+| Image-to-raw-mesh | Hunyuan3D-2.1 Shape, Hunyuan3D-2 Mini Turbo, TripoSG, TripoSR, TRELLIS |
 | Image-to-textured-mesh | Stable Fast 3D |
-| Image-guided texture painting | Hunyuan3D-Paint v2.1, Hunyuan3D-Paint v2.0, TRELLIS Paint |
+| Image-guided texture painting | Hunyuan3D-Paint v2.1, Hunyuan3D-Paint v2.0, TRELLIS Paint, TripoSR Paint |
 | Text-guided texture painting | TRELLIS Text Paint |
 | Mesh segmentation | PartField |
 | Retopology | TriFlow |
@@ -204,3 +204,5 @@ ForMesh3D/
 ForMesh3D is a personal self-hosted project. Model adapters, checkpoints, and hardware requirements vary; a configured model may be unavailable until its dependencies and weights are installed. Treat the live API schema and current code as authoritative when behavior differs from historical screenshots or design notes.
 
 Before changing code, read [AGENTS.md](AGENTS.md). Keep changes focused, trace callers and adapter registration end to end, preserve disabled model states, and update tests/documentation with the implementation.
+
+TripoSR uses one official TSR Python pipeline for image-to-mesh and image-guided mesh painting. On the Generate page, Texture OFF extracts raw geometry without loading the baker; Texture ON extracts geometry and calls official `bake_texture()` to create a base-color atlas. On the Texture Painting page, the same baker applies the reference image to the supplied mesh while preserving its geometry. It does not generate additional PBR maps. Source is expected at `backend/thirdparty/TripoSR`; weights are downloaded to `backend/pretrained/TripoSR` with `bash backend/scripts/download_models.sh -m triposr`.

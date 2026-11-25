@@ -73,6 +73,37 @@ image_to_raw_mesh:
       high_fidelity_geometry: true
       multi_gpu: false
     model_type: mesh
+  triposr_image_to_raw_mesh:
+    model_name: "TripoSR — Image to Raw Mesh + Optional Base Color"
+    ui_label: TripoSR
+    ui_tag: Image to Mesh + Paint
+    ui_note: "6GB VRAM · raw geometry by default · optional 1K–4K base-color atlas"
+    ui_badge: 6GB VRAM
+    enabled: true
+    vram_requirement: 6144
+    max_workers: 1
+    supported_inputs:
+      - image
+    supported_outputs:
+      - glb
+    model_path: backend/pretrained/TripoSR
+    capabilities:
+      raw_mesh: true
+      texture_generation: true
+      image_to_3d: true
+      supports_pbr: false
+      texture_maps:
+        - base_color
+      supported_texture_resolutions:
+        - 1K
+        - 2K
+        - 4K
+      default_texture_resolution: 2K
+      output_resolution: 256
+      supports_quad_topology: false
+      default_topology: Triangle
+      multi_gpu: false
+    model_type: mesh
   triposg_image_to_raw_mesh:
     model_name: "TripoSG \u2014 Image to Raw Mesh"
     ui_label: TripoSG
@@ -323,6 +354,35 @@ image_mesh_painting:
       multi_gpu: true
       multi_gpu_strategy: accelerate_component_dispatch
       cpu_offload: true
+    model_type: texture
+  triposr_image_mesh_painting:
+    model_name: "TripoSR — Image Mesh Painting"
+    ui_label: TripoSR Paint
+    ui_tag: Base Color Atlas
+    ui_note: "Existing mesh + reference image · official TripoSR UV baker · base color only"
+    ui_badge: 6GB VRAM
+    enabled: true
+    vram_requirement: 6144
+    max_workers: 1
+    supported_inputs:
+      - mesh
+      - image
+    supported_outputs:
+      - glb
+    model_path: backend/pretrained/TripoSR
+    capabilities:
+      texture_generation: true
+      texture_refine: true
+      supports_pbr: false
+      supports_delighting: false
+      texture_maps:
+        - base_color
+      supported_texture_resolutions:
+        - 1K
+        - 2K
+        - 4K
+      default_texture_resolution: 2K
+      multi_gpu: false
     model_type: texture
   trellis_image_mesh_painting:
     model_name: "TRELLIS \u2014 Image Mesh Painting"

@@ -46,10 +46,10 @@ Configured enabled model families:
 |---|---|
 | Image-to-raw-mesh | `hunyuan3d_shape_v21_image_to_raw_mesh` |
 | Image-to-raw-mesh | `hunyuan3d_dit_v2_mini_turbo_image_to_raw_mesh` |
-| Image-to-raw-mesh | `triposg_image_to_raw_mesh` |
+| Image-to-raw-mesh | `triposg_image_to_raw_mesh`, `triposr_image_to_raw_mesh` (optional base-color bake) |
 | Image-to-3D | `trellis_image_to_3d` |
 | Textured mesh | `stable_fast_3d_image_to_textured_mesh` |
-| Texture painting | `hunyuan3d_paint_v21_image_mesh_painting`, `hunyuan3d_v20_paint_image_mesh_painting`, `trellis_image_mesh_painting` |
+| Texture painting | `hunyuan3d_paint_v21_image_mesh_painting`, `hunyuan3d_v20_paint_image_mesh_painting`, `trellis_image_mesh_painting`, `triposr_image_mesh_painting` |
 | Segmentation | `partfield_segmentation` |
 | Retopology | `triflow_retopology` |
 | UV unwrapping | `partuv_uv_unwrapping` |
@@ -97,3 +97,6 @@ The `backend/thirdparty` submodule is pinned and contains upstream model source.
 ## 9. Verification
 
 Use the commands in [CONTRIBUTING.md](../CONTRIBUTING.md). CI compiles first-party Python packages/scripts (excluding the pinned third-party submodule), runs selected backend contracts, and runs frontend type-check, lint, tests and production build. The pinned TRELLIS source currently has a separate upstream syntax error; it is not included in the first-party syntax gate. These checks do not execute full model inference or certify GPU performance.
+
+TripoSR uses one official `TSR` adapter for image-to-mesh and existing-mesh painting. On generation, texture OFF calls `TSR.extract_mesh()` only; texture ON additionally calls upstream `bake_texture()`. The Texture Painting page calls the same baker on the supplied mesh. Source and weights live under `backend/thirdparty/TripoSR` and `backend/pretrained/TripoSR`; output texture is base color only.
+

@@ -146,6 +146,28 @@ describe('buildGenerationParameters', () => {
     assert.equal(result.body.generate_texture, false);
   });
 
+  it('routes TripoSR generation to raw geometry when texture is disabled', () => {
+    const result = buildGenerationParameters({
+      ...baseSettings, aiModel: 'triposr_image_to_raw_mesh',
+      generateTexture: false, texture_enabled: false,
+    }, { raw_mesh: true, supports_texture: true });
+    assert.equal(result.endpoint, '/api/v1/generate');
+    assert.equal(result.body.model_preference, 'triposr_image_to_raw_mesh');
+    assert.equal(result.body.texture_enabled, false);
+    assert.equal(result.body.texture_resolution, undefined);
+  });
+
+  it('routes TripoSR generation to the optional bake path when texture is enabled', () => {
+    const result = buildGenerationParameters({
+      ...baseSettings, aiModel: 'triposr_image_to_raw_mesh',
+      generateTexture: true, texture_enabled: true, textureResolution: '2K',
+    }, { raw_mesh: true, supports_texture: true });
+    assert.equal(result.endpoint, '/api/v1/generate');
+    assert.equal(result.body.model_preference, 'triposr_image_to_raw_mesh');
+    assert.equal(result.body.texture_enabled, true);
+    assert.equal(result.body.texture_resolution, 2048);
+  });
+
   it('uses the canonical generation endpoint for textured-only models (SF3D)', () => {
     const settings: GenerationSettings = {
       ...baseSettings,

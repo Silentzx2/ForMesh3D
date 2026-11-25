@@ -1,4 +1,9 @@
 # ForMesh3D Changelog
+## 2026-11-25 — TripoSR Unified Raw, Textured and Painting Modes
+- Added TripoSR to image-to-raw-mesh generation with the UI texture toggle controlling the official upstream bake step.
+- Texture OFF runs official mesh extraction only and does not import or call the texture baker; Texture ON bakes a base-color atlas onto the generated mesh.
+- Kept the Texture Painting page path for painting an existing user mesh from a reference image using the same adapter and model pipeline.
+- Classified texture-enabled generation as a textured workspace operation for correct asset/version lifecycle.
 
 ## 2026-11-24 — Asset Library and Viewer Lifecycle Reliability
 - Connected selection requests to actual Three.js load completion/failure and protected newer selections from stale responses.
@@ -13,7 +18,3 @@
 - Prevented retopology, UV, segmentation and rigging jobs from creating duplicate `storage/<job_id>/` directories.
 - Kept durable outputs and thumbnails under the existing workspace operation folders; legacy empty job directories are removed conservatively.
 
-## 2026-11-24 — PartField Multipart Persistence & AI-Only Tool Modes
-- Persisted individual PartField part meshes in versioned workspace storage and registered each part as a mesh asset.
-- Added a workspace-backed ZIP archive for the actual individual part files; combined colored GLB remains the active result.
-- Removed obsolete Script-engine selectors and deterministic script segmentation execution while preserving the PartField island-merging utility.

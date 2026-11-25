@@ -41,3 +41,16 @@ describe('buildTextureGenerationParameters', () => {
     );
   });
 });
+
+  it('routes TripoSR Paint with both existing mesh and reference image', () => {
+    const result = buildTextureGenerationParameters(
+      { modelId: 'triposr_image_mesh_painting', resolution: '2K' },
+      { mesh_file_id: 'ast_mesh_123456789abc' },
+      { fileId: 'img_reference_123456789abc' },
+    );
+    assert.equal(result.endpoint, '/api/v1/texture');
+    assert.equal(result.modelPreference, 'triposr_image_mesh_painting');
+    assert.equal(result.body.mesh_file_id, 'ast_mesh_123456789abc');
+    assert.equal(result.body.image_file_id, 'img_reference_123456789abc');
+    assert.equal(result.body.texture_resolution, 2048);
+  });

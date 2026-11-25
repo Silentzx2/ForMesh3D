@@ -290,6 +290,7 @@ export const TexturePanel: React.FC = () => {
       'hunyuan3d_paint_v21_image_mesh_painting',
       'trellis_image_mesh_painting',
       'hunyuan3d_v20_paint_image_mesh_painting',
+      'triposr_image_mesh_painting',
     ];
     const pool = candidatePool.length > 0 ? candidatePool : fallbackIds;
     const uniqueCandidates = Array.from(new Set(pool));
@@ -345,6 +346,8 @@ export const TexturePanel: React.FC = () => {
   // Dynamic Model Capability Mapping for TexturePanel (from models.yaml API metadata)
   const selectedModelDetail = modelDetails[selectedModel];
   const modelCapabilities = selectedModelDetail?.capabilities || {};
+  const supportsPbr = modelCapabilities.supports_pbr !== false;
+  const supportsDelighting = modelCapabilities.supports_delighting !== false;
   const supportedResolutions: ('512' | '1K' | '2K' | '4K')[] =
     (modelCapabilities.supported_texture_resolutions as any) || ['1K', '2K'];
 
@@ -390,10 +393,10 @@ export const TexturePanel: React.FC = () => {
       maps: {
         ...prev.maps,
         albedo: true,
-        normal: enablePbr && bakeNormal,
-        roughness: enablePbr && bakeRoughness,
-        metallic: enablePbr && bakeMetallic,
-        ao: enablePbr && bakeAo,
+        normal: supportsPbr && enablePbr && bakeNormal,
+        roughness: supportsPbr && enablePbr && bakeRoughness,
+        metallic: supportsPbr && enablePbr && bakeMetallic,
+        ao: supportsPbr && enablePbr && bakeAo,
       },
     }));
 
@@ -403,8 +406,8 @@ export const TexturePanel: React.FC = () => {
       textureResolution: textureQuality,
       texture_resolution: textureQuality,
       textureQuality: textureQuality === '4K' ? 'high' : textureQuality === '1K' ? 'low' : 'medium',
-      removeBackground: removeLighting,
-      highResolutionNormalBaking: enablePbr,
+      removeBackground: supportsDelighting && removeLighting,
+      highResolutionNormalBaking: supportsPbr && enablePbr,
       seed: seed === '' ? undefined : seed,
       image: imagePreview || prev.image,
     }));
@@ -420,6 +423,8 @@ export const TexturePanel: React.FC = () => {
     bakeAo,
     removeLighting,
     seed,
+    supportsPbr,
+    supportsDelighting,
     setTextureSettings,
     setGenerationSettings,
   ]);
@@ -1201,6 +1206,7 @@ export const TexturePanel: React.FC = () => {
             </div>
 
             {/* Parameter 1: Remove Lighting (Delight) */}
+            {supportsDelighting && (
             <div className="flex items-center justify-between py-0.5">
               <div className="space-y-0.5 pr-2">
                 <div className="flex items-center gap-1.5">
@@ -1224,61 +1230,71 @@ export const TexturePanel: React.FC = () => {
                   }`}
                 />
               </button>
-            </div>
-
-            {/* Parameter 2: Bake PBR Maps Master Switch */}
-            <div className="flex items-center justify-between py-0.5 border-t border-white/[0.06] pt-1.5">
-              <div className="space-y-0.5 pr-2">
-                <div className="flex items-center gap-1.5">
-                  <Layers className="w-3 h-3 text-indigo-400" />
-                  <span className="text-[11px] text-zinc-200 font-medium">Bake PBR Maps</span>
-                </div>
-                <p className="text-[8.5px] text-zinc-400">Normal, Roughness, Metallic &amp; AO</p>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={enablePbr}
-                onClick={() => setEnablePbr((prev) => !prev)}
-                className={`w-7.5 h-4 rounded-full p-0.5 transition-colors cursor-pointer flex-shrink-0 ${
-                  enablePbr ? 'bg-[#6366F1]' : 'bg-white/15'
-                }`}
-              >
-                <div
-                  className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${
-                    enablePbr ? 'translate-x-3.5' : 'translate-x-0'
+            )}
+            {supportsPbr ? (
+              <>
+              {/* Parameter 2: Bake PBR Maps Master Switch */}
+              <div className="flex items-center justify-between py-0.5 border-t border-white/[0.06] pt-1.5">
+                <div className="space-y-0.5 pr-2">
+                  <div className="flex items-center gap-1.5">
+                    <Layers className="w-3 h-3 text-indigo-400" />
+                    <span className="text-[11px] text-zinc-200 font-medium">Bake PBR Maps</span>
+                  </div>
+                  <p className="text-[8.5px] text-zinc-400">Normal, Roughness, Metallic &amp; AO</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={enablePbr}
+                  onClick={() => setEnablePbr((prev) => !prev)}
+                  className={`w-7.5 h-4 rounded-full p-0.5 transition-colors cursor-pointer flex-shrink-0 ${
+                    enablePbr ? 'bg-[#6366F1]' : 'bg-white/15'
                   }`}
-                />
-              </button>
-            </div>
-
-            {/* PBR Individual Channels */}
-            {enablePbr && (
-              <div className="space-y-1 p-1.5 rounded-xl bg-black/30 border border-white/[0.04]">
-                <span className="text-[9px] text-zinc-400 font-medium block">PBR Channels:</span>
-                <div className="grid grid-cols-2 gap-1">
-                  {[
-                    { key: 'normal', label: 'Normal Map', state: bakeNormal, set: setBakeNormal },
-                    { key: 'roughness', label: 'Roughness', state: bakeRoughness, set: setBakeRoughness },
-                    { key: 'metallic', label: 'Metallic', state: bakeMetallic, set: setBakeMetallic },
-                    { key: 'ao', label: 'Ambient AO', state: bakeAo, set: setBakeAo },
-                  ].map((ch) => (
-                    <button
-                      key={ch.key}
-                      type="button"
-                      onClick={() => ch.set(!ch.state)}
-                      className={`h-5.5 px-1.5 rounded-lg text-[9.5px] font-bold flex items-center justify-between transition-all cursor-pointer ${
-                        ch.state
-                          ? 'bg-[#3b3577] text-white border border-[#6366F1]'
-                          : 'bg-white/[0.04] text-zinc-500 hover:text-zinc-300 border border-transparent'
-                      }`}
-                    >
-                      <span>{ch.label}</span>
-                      <span className="text-[8px]">{ch.state ? '✓' : '—'}</span>
-                    </button>
-                  ))}
-                </div>
+                >
+                  <div
+                    className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${
+                      enablePbr ? 'translate-x-3.5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
               </div>
+
+              {/* PBR Individual Channels */}
+              {enablePbr && (
+                <div className="space-y-1 p-1.5 rounded-xl bg-black/30 border border-white/[0.04]">
+                  <span className="text-[9px] text-zinc-400 font-medium block">PBR Channels:</span>
+                  <div className="grid grid-cols-2 gap-1">
+                    {[
+                      { key: 'normal', label: 'Normal Map', state: bakeNormal, set: setBakeNormal },
+                      { key: 'roughness', label: 'Roughness', state: bakeRoughness, set: setBakeRoughness },
+                      { key: 'metallic', label: 'Metallic', state: bakeMetallic, set: setBakeMetallic },
+                      { key: 'ao', label: 'Ambient AO', state: bakeAo, set: setBakeAo },
+                    ].map((ch) => (
+                      <button
+                        key={ch.key}
+                        type="button"
+                        onClick={() => ch.set(!ch.state)}
+                        className={`h-5.5 px-1.5 rounded-lg text-[9.5px] font-bold flex items-center justify-between transition-all cursor-pointer ${
+                          ch.state
+                            ? 'bg-[#3b3577] text-white border border-[#6366F1]'
+                            : 'bg-white/[0.04] text-zinc-500 hover:text-zinc-300 border border-transparent'
+                        }`}
+                      >
+                        <span>{ch.label}</span>
+                        <span className="text-[8px]">{ch.state ? '✓' : '—'}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+
+              </>
+            ) : (
+              <p className="text-[9px] text-zinc-400 rounded-lg bg-black/25 border border-white/[0.05] px-2 py-1.5">
+                This model produces a base-color texture atlas only; extra PBR maps are not available.
+              </p>
             )}
 
             {/* Parameter 3: UV Atlas Gutter Dilation */}

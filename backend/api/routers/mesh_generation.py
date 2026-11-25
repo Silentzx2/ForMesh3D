@@ -1161,10 +1161,11 @@ async def image_to_raw_mesh(
             "quality_mode": mesh_request.quality_mode,
             "target_polycount": target_polycount,
             "model_preference": model_id,
+            "texture_enabled": texture_enabled,
         }
         operation_type = (
             "generate_textured_mesh"
-            if feature == "image_to_textured_mesh"
+            if feature == "image_to_textured_mesh" or texture_enabled
             else "generate_raw_mesh"
         )
         _validate_regeneration_parent(
