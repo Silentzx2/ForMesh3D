@@ -530,6 +530,20 @@ def model_worker_process(
                     job_request, result_callback_id = job_data
                     logger.info(f"Worker {worker_id} received job {job_request.job_id}")
 
+                    def _worker_progress_cb(stage: str, fraction: float, message: str) -> None:
+                        try:
+                            response_queue.put((
+                                "__progress__",
+                                {
+                                    "job_id": job_request.job_id,
+                                    "stage": stage,
+                                    "progress": float(fraction),
+                                    "message": message,
+                                },
+                            ))
+                        except Exception:
+                            pass
+
                     # Process job
                     result, loaded_model, processing_job = _process_job_in_worker(
                         job_request,
@@ -538,6 +552,7 @@ def model_worker_process(
                         processing_job,
                         gpu_id,
                         worker_config.resource_plan,
+                        progress_callback=_worker_progress_cb,
                     )
                     status_str = "SUCCESS" if result.get("success") else "FAILED"
                     logger.info(
@@ -860,6 +875,7 @@ def _process_job_in_worker(
     processing_job: Optional[str],
     gpu_id: Optional[int],
     resource_plan: Optional[Dict[str, Any]] = None,
+    progress_callback: Optional[Callable[[str, float, str], None]] = None,
 ) -> Tuple[Dict[str, Any], Optional[BaseModel], Optional[str]]:
     """Process a job in the worker process - simplified for single model"""
     try:
@@ -1102,7 +1118,7 @@ def _process_job_in_worker(
                             except Exception:
                                 pass
         else:
-            result = loaded_model.process(model_inputs)
+            result = loaded_model.process(model_inputs, progress_callback=progress_callback)
 
         effective_info = result.get("generation_info") if isinstance(result, dict) else None
         if isinstance(effective_info, dict):
@@ -3721,6 +3737,19 @@ class MultiprocessModelScheduler:
                 for worker_id, response_queue in self.worker_response_queues.items():
                     try:
                         callback_id, result = response_queue.get_nowait()
+                        if callback_id == "__progress__" and isinstance(result, dict):
+                            if self.main_event_loop and result.get("job_id"):
+                                scaled = max(0.15, min(0.74, 0.15 + float(result.get("progress", 0.0)) * 0.59))
+                                asyncio.run_coroutine_threadsafe(
+                                    self.job_queue.update_job_progress(
+                                        result["job_id"],
+                                        scaled,
+                                        stage=result.get("stage"),
+                                        message=result.get("message"),
+                                    ),
+                                    self.main_event_loop,
+                                )
+                            continue
                         success = bool(result.get("success")) if isinstance(result, dict) else False
                         logger.info(
                             f"Worker {worker_id} response received: callback_id={callback_id} success={success}"

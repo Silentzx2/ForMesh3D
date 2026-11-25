@@ -132,9 +132,12 @@ class TripoSRAdapter(BaseModel):
         if texture_enabled and resolution not in TEXTURE_RESOLUTIONS:
             raise ValueError(f"texture_resolution must be one of {TEXTURE_RESOLUTIONS}")
         image = self._prepare_image(image_path)
+        logger.info("[TRIPOSR] Encoding image into 3D triplane representation (device=%s)...", self.device)
+        t_stage = __import__("time").perf_counter()
         with torch.no_grad():
             scene_codes = self.model([image], device=self.device)
             scene_code = scene_codes[0]
+            logger.info("[TRIPOSR] Triplane sampling completed elapsed=%.2fs", __import__("time").perf_counter() - t_stage)
             if painting:
                 mesh_path = Path(inputs.get("mesh_path") or "").expanduser()
                 if not mesh_path.is_file():
@@ -148,16 +151,28 @@ class TripoSRAdapter(BaseModel):
                 radius = float(self.model.renderer.cfg.radius)
                 sample_mesh = mesh.copy()
                 sample_mesh.vertices = (np.asarray(mesh.vertices) - mesh.bounds.mean(axis=0)) * (1.7 * radius / extent)
+                logger.info("[TRIPOSR] Baking reference texture onto mesh (resolution=%d)...", resolution)
+                t_bake = __import__("time").perf_counter()
                 baked = self._get_texture_baker()(sample_mesh, self.model, scene_code, resolution)
+                logger.info("[TRIPOSR] Texture baking completed elapsed=%.2fs", __import__("time").perf_counter() - t_bake)
                 output_mesh, temp = self._export_mesh(mesh, baked, resolution, "triposr_paint_")
                 geometry_generated, mode = False, "image_mesh_painting"
             else:
+                logger.info("[TRIPOSR] Extracting 3D mesh via Marching Cubes (resolution=%d)...", MARCHING_CUBES_RESOLUTION)
+                t_mc = __import__("time").perf_counter()
                 meshes = self.model.extract_mesh(scene_codes, not texture_enabled,
                                                   resolution=MARCHING_CUBES_RESOLUTION)
                 if not meshes or not isinstance(meshes[0], trimesh.Trimesh) or not len(meshes[0].faces):
                     raise RuntimeError("Official TripoSR mesh extraction returned no valid mesh")
                 mesh = meshes[0]
-                baked = self._get_texture_baker()(mesh, self.model, scene_code, resolution) if texture_enabled else None
+                logger.info("[TRIPOSR] Mesh decoding completed elapsed=%.2fs faces=%d", __import__("time").perf_counter() - t_mc, len(mesh.faces))
+                if texture_enabled:
+                    logger.info("[TRIPOSR] Baking UV base-color atlas (resolution=%d)...", resolution)
+                    t_bake = __import__("time").perf_counter()
+                    baked = self._get_texture_baker()(mesh, self.model, scene_code, resolution)
+                    logger.info("[TRIPOSR] Texture baking completed elapsed=%.2fs", __import__("time").perf_counter() - t_bake)
+                else:
+                    baked = None
                 output_mesh, temp = self._export_mesh(
                     mesh, baked, resolution, "triposr_textured_" if texture_enabled else "triposr_raw_")
                 geometry_generated = True

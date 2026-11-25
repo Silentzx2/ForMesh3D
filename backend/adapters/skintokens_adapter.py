@@ -193,6 +193,9 @@ class SkinTokensAdapter(BaseModel):
 
         # Direct execution of official upstream inference function
         import demo
+        import time as _time
+        logger.info("[SKINTOKENS] Sampling skeleton tokens and predicting skinning weights (seed=%d, beams=%d)...", seed, int(inputs.get("num_beams", 10)))
+        t_rig = _time.perf_counter()
         demo.run_rig(
             filepaths=[Path(mesh_path)],
             top_k=int(inputs.get("top_k", 5)),
@@ -207,6 +210,7 @@ class SkinTokensAdapter(BaseModel):
             model_ckpt=self._ckpt_path or "",
             hf_path=None,
         )
+        logger.info("[SKINTOKENS] Rig decoding and GLB export completed elapsed=%.2fs output=%s", _time.perf_counter() - t_rig, out_file.name)
 
         if not out_file.is_file() or out_file.stat().st_size == 0:
             return {"success": False, "error": "SkinTokens produced no output file"}
