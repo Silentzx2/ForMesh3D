@@ -273,7 +273,7 @@ export const RightAssetsPanel: React.FC = () => {
               <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} className="text-zinc-400" />
               <span>{selectedCollection || 'Collections'}</span>
             </button>
-            {collectionMenuOpen && <div className="absolute right-0 top-full mt-1.5 w-48 max-h-56 overflow-y-auto rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.1] shadow-2xl z-50 py-1 text-xs">
+            {collectionMenuOpen && <div className="absolute right-0 top-full mt-1.5 w-52 max-h-56 overflow-y-auto rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.1] shadow-2xl z-50 py-1 text-xs">
               <button type="button" onClick={() => { setSelectedCollection(null); setCollectionMenuOpen(false); }} className="w-full px-3 py-2 text-left text-zinc-200 hover:bg-white/[0.06] flex items-center justify-between">
                 <span>All collections</span>{!selectedCollection && <HugeiconsIcon icon={CheckIcon} size={13} className="text-primary" />}
               </button>
@@ -390,26 +390,39 @@ export const RightAssetsPanel: React.FC = () => {
                     </div>
                   )}
 
-{asset.thumbnail && (
+                  {asset.thumbnail && (
                     <div
-                      className="absolute top-1.5 left-1.5 z-20 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="absolute top-1.5 left-1.5 z-20"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <a
                         href={asset.thumbnail}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-1 rounded-md bg-black/70 hover:bg-black text-zinc-300 hover:text-primary border border-white/20 shadow transition-colors"
+                        className="inline-flex p-1 rounded-md bg-black/75 hover:bg-black text-zinc-200 hover:text-primary border border-white/15 shadow transition-colors"
                         title="Zoom preview"
                       >
-                        <HugeiconsIcon icon={ZoomInIcon} size={16} className="w-3 h-3" />
+                        <HugeiconsIcon icon={ZoomInIcon} size={14} className="w-3.5 h-3.5" />
                       </a>
                     </div>
                   )}
 
+                  <button
+                    type="button"
+                    aria-label={`Delete ${asset.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteAsset(asset.id);
+                    }}
+                    className="absolute top-1.5 right-1.5 z-20 p-1 rounded-md bg-black/75 hover:bg-black text-zinc-200 hover:text-rose-400 border border-white/15 shadow transition-colors cursor-pointer"
+                    title="Delete asset"
+                  >
+                    <HugeiconsIcon icon={Trash2} size={14} className="w-3.5 h-3.5" />
+                  </button>
+
                   {isSelected && (
-                    <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-primary flex items-center justify-center text-black shadow">
-                      <HugeiconsIcon icon={CheckIcon} size={16} className="w-2.5 h-2.5 stroke-[3]" />
+                    <div className="absolute bottom-1.5 right-1.5 z-10 w-5 h-5 rounded-full bg-primary flex items-center justify-center text-black shadow-md">
+                      <HugeiconsIcon icon={CheckIcon} size={14} className="w-3 h-3 stroke-[3]" />
                     </div>
                   )}
                 </div>
@@ -424,19 +437,7 @@ export const RightAssetsPanel: React.FC = () => {
                   </div>
 
                   {/* 3-Dots Menu */}
-                  <div className="relative flex items-center gap-1 flex-shrink-0" data-asset-menu={asset.id}>
-                    <button
-                      type="button"
-                      aria-label={`Delete ${asset.name}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteAsset(asset.id);
-                      }}
-                      className="p-1 rounded-md text-zinc-300 bg-white/[0.05] hover:text-rose-400 hover:bg-rose-500/15 border border-white/[0.06] transition-colors cursor-pointer"
-                      title="Delete asset"
-                    >
-                      <HugeiconsIcon icon={Trash2} size={14} className="w-3.5 h-3.5" />
-                    </button>
+                  <div className="relative flex items-center flex-shrink-0" data-asset-menu={asset.id}>
                     <button
                       type="button"
                       aria-label={`Options for ${asset.name}`}
@@ -450,7 +451,7 @@ export const RightAssetsPanel: React.FC = () => {
                     </button>
 
                       {activeMenuAssetId === asset.id && (
-                        <div className="absolute right-0 bottom-full mb-1 w-44 py-1.5 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.1] shadow-2xl z-50 text-xs font-medium animate-in fade-in zoom-in-95 duration-100">
+                        <div className="absolute right-0 top-full mt-1 w-52 py-1.5 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.1] shadow-2xl z-50 text-xs font-medium animate-in fade-in zoom-in-95 duration-100">
                           <button
                             type="button"
                             aria-pressed={Boolean(asset.isFavorite)}

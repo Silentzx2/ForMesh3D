@@ -104,7 +104,7 @@ export const StudioToolTemplate: React.FC<StudioToolConfig> = ({
     <div className="flex flex-col h-full w-full bg-[hsl(var(--surface-1))] text-[hsl(var(--foreground))] overflow-y-auto overflow-x-hidden p-3.5 space-y-4">
       {/* 1. Tool Header */}
       <div className="flex items-center gap-2 pb-1 border-b border-[hsl(var(--border))]">
-        <HugeiconsIcon icon={ToolIcon} size={18} className="text-[#F9CF00]" />
+        <HugeiconsIcon icon={ToolIcon} size={18} className="text-[hsl(var(--primary))]" />
         <h2 className="text-xs font-bold text-[hsl(var(--foreground))] tracking-wide uppercase">{title}</h2>
       </div>
 
@@ -124,8 +124,8 @@ export const StudioToolTemplate: React.FC<StudioToolConfig> = ({
         onClick={() => !isUploading && fileInputRef.current?.click()}
         className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-center justify-center gap-3 relative overflow-hidden shadow-sm ${
           isDragOver
-            ? 'border-[#F9CF00] bg-[#1e2038] ring-2 ring-[#F9CF00]/40 scale-[1.01]'
-            : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:border-[#F9CF00]/40'
+            ? 'border-[hsl(var(--primary))] bg-[#1e2038] ring-2 ring-[hsl(var(--primary))]/40 scale-[1.01]'
+            : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:border-[hsl(var(--primary))]/40'
         }`}
       >
         {/* Left Input Graphic */}
@@ -137,31 +137,31 @@ export const StudioToolTemplate: React.FC<StudioToolConfig> = ({
         </div>
 
         {/* Arrow */}
-        <div className="p-1 rounded-full bg-[hsl(var(--surface-3))] text-[#F9CF00]">
+        <div className="p-1 rounded-full bg-[hsl(var(--surface-3))] text-[hsl(var(--primary))]">
           <HugeiconsIcon icon={ArrowRight01Icon} size={16} />
         </div>
 
         {/* Right Output Graphic */}
         <div className="flex flex-col items-center gap-1.5">
-          <div className="w-14 h-14 rounded-xl bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] shadow-lg shadow-[#F9CF00]/5">
+          <div className="w-14 h-14 rounded-xl bg-[hsl(var(--primary))]/10 border border-[hsl(var(--primary))]/30 flex items-center justify-center text-[hsl(var(--primary))] shadow-lg shadow-[hsl(var(--primary))]/5">
             <HugeiconsIcon icon={ToolIcon} size={28} />
           </div>
-          <span className="text-[10px] text-[#F9CF00] font-semibold">Processed</span>
+          <span className="text-[10px] text-[hsl(var(--primary))] font-semibold">Processed</span>
         </div>
       </div>
 
       {/* 3. Instruction Callout with #F9CF00 Highlights matching Reference */}
       <div className="text-center px-2 py-1">
         <p className="text-xs text-zinc-300 leading-relaxed">
-          <span className="text-[#F9CF00] font-bold">Select</span> a model from Assets on the right or{' '}
+          <span className="text-[hsl(var(--primary))] font-bold">Select</span> a model from Assets on the right or{' '}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="text-[#F9CF00] font-bold underline cursor-pointer hover:opacity-80 bg-transparent p-0 border-0 inline font-inherit"
+            className="text-[hsl(var(--primary))] font-bold underline cursor-pointer hover:opacity-80 bg-transparent p-0 border-0 inline font-inherit"
           >
             upload your own
           </button>{' '}
-          for <span className="text-[#F9CF00] font-bold">{title}</span>
+          for <span className="text-[hsl(var(--primary))] font-bold">{title}</span>
         </p>
       </div>
 
@@ -179,7 +179,7 @@ export const StudioToolTemplate: React.FC<StudioToolConfig> = ({
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={isUploading}
-          className="px-5 py-2.5 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-bold text-xs flex items-center gap-2 shadow-md shadow-[#F9CF00]/10 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+          className="px-5 py-2.5 rounded-full bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 text-black font-bold text-xs flex items-center gap-2 shadow-md shadow-[hsl(var(--primary))]/10 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
         >
           <HugeiconsIcon icon={UploadIcon} size={15} className="stroke-[2.5]" />
           <span>{isUploading ? 'Uploading...' : 'Upload 3D Model'}</span>
@@ -260,8 +260,8 @@ export const StudioToolTemplate: React.FC<StudioToolConfig> = ({
           disabled={!currentAsset || isExecuting}
           className={`w-full py-3 rounded-full font-extrabold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
             currentAsset && !isExecuting
-              ? 'bg-[#F9CF00] hover:bg-[#e5be00] text-black shadow-lg shadow-[#F9CF00]/10 active:scale-[0.98]'
-              : 'bg-white/10 text-zinc-500 cursor-not-allowed'
+              ? 'bg-[hsl(var(--primary))] hover:bg-[#e5be00] text-black shadow-lg shadow-[hsl(var(--primary))]/10 active:scale-[0.98]'
+              : 'bg-white/10 text-zinc-400 cursor-not-allowed'
           }`}
         >
           {isExecuting ? (

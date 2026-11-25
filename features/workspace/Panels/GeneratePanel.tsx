@@ -177,8 +177,8 @@ export const QualityBadge: React.FC<QualityBadgeProps> = React.memo(({
     Sharp: {
       label: 'Sharp',
       icon: SparklesIcon,
-      style: 'bg-[#F9CF00]/15 text-[#F9CF00] border-[#F9CF00]/30 shadow-[0_0_8px_rgba(249,207,0,0.15)]',
-      dotStyle: 'bg-[#F9CF00]',
+      style: 'bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] border-[hsl(var(--primary))]/30 shadow-[0_0_8px_rgba(249,207,0,0.15)]',
+      dotStyle: 'bg-[hsl(var(--primary))]',
     },
     Clean: {
       label: 'Clean',
@@ -225,7 +225,7 @@ export const QualityBadge: React.FC<QualityBadgeProps> = React.memo(({
         </div>
         <div className="flex justify-between gap-4 text-zinc-300">
           <span>Feature Edge Retention</span>
-          <span className="font-mono text-[#F9CF00] font-bold">{retentionDisplay}</span>
+          <span className="font-mono text-[hsl(var(--primary))] font-bold">{retentionDisplay}</span>
         </div>
       </div>
       {warnings.length > 0 && (
@@ -664,7 +664,7 @@ export const GeneratePanel: React.FC = () => {
       {/* 1. Header: Centered Generate Model */}
       <div className="flex items-center justify-center py-2 border-b border-[hsl(var(--border))] px-4 flex-shrink-0">
         <div className="flex items-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5 text-[#F9CF00]" />
+          <Sparkles className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
           <h2 className="text-xs font-bold text-[hsl(var(--foreground))] tracking-wide uppercase">Generate Model</h2>
         </div>
       </div>
@@ -691,8 +691,8 @@ export const GeneratePanel: React.FC = () => {
         <div
           className={`p-2 rounded-2xl border transition-colors space-y-2 flex-shrink-0 ${
             isDragOver
-              ? 'border-[#F9CF00] ring-1 ring-[#F9CF00]/40 bg-[#161726]'
-              : 'border-white/[0.08] bg-[#12131d]'
+              ? 'border-[hsl(var(--primary))] ring-1 ring-[hsl(var(--primary))]/40 bg-[hsl(var(--surface-2))]'
+              : 'border-white/[0.08] bg-[hsl(var(--surface-1))]'
           }`}
           onDragOver={handleCardDragOver}
           onDragEnter={handleCardDragEnter}
@@ -715,7 +715,7 @@ export const GeneratePanel: React.FC = () => {
               }`}
               title="Image to 3D"
             >
-              <ImageIcon className="w-3.5 h-3.5 text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
+              <ImageIcon className="w-3.5 h-3.5 text-[hsl(var(--primary))] group-hover:text-[hsl(var(--primary))] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
               <span>Image</span>
             </button>
             <button
@@ -732,7 +732,7 @@ export const GeneratePanel: React.FC = () => {
               }`}
               title="Upload 3D Mesh"
             >
-              <Box className="w-3.5 h-3.5 text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
+              <Box className="w-3.5 h-3.5 text-[hsl(var(--primary))] group-hover:text-[hsl(var(--primary))] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
               <span>3D Mesh</span>
             </button>
           </div>
@@ -789,14 +789,14 @@ export const GeneratePanel: React.FC = () => {
                 }}
                 className={`relative group w-full h-[200px] workspace-upload-dropzone rounded-xl border border-dashed transition-all p-2 flex flex-col items-center justify-between cursor-pointer shadow-inner ${
                   isDragOver
-                    ? 'border-[#F9CF00] bg-[#1c1d2c] ring-1 ring-[#F9CF00]/40'
-                    : 'border-white/[0.12] hover:border-white/25 bg-[#0f1019]'
+                    ? 'border-[hsl(var(--primary))] bg-[hsl(var(--surface-2))] ring-1 ring-[hsl(var(--primary))]/40'
+                    : 'border-white/[0.12] hover:border-white/25 bg-[hsl(var(--surface-0))]'
                 } [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:16px_16px] [background-position:0_0,0_8px,8px_-8px,-8px_0px]`}
               >
                 {/* Top Right Tip Lightbulb */}
                 <div className="w-full flex justify-end">
-                  <span className="p-0.5 text-zinc-300 hover:text-[#F9CF00] transition-colors" title="Image prompt tips">
-                    <Lightbulb className="w-3.5 h-3.5 text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
+                  <span className="p-0.5 text-zinc-300 hover:text-[hsl(var(--primary))] transition-colors" title="Image prompt tips">
+                    <Lightbulb className="w-3.5 h-3.5 text-[hsl(var(--primary))] group-hover:text-[hsl(var(--primary))] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
                   </span>
                 </div>
 
@@ -804,7 +804,7 @@ export const GeneratePanel: React.FC = () => {
                 <div className="flex flex-col items-center text-center -mt-1">
                   <ImageIcon
                     className={`w-7 h-7 mb-1 transition-all ${
-                      isDragOver ? 'text-[#F9CF00] scale-110' : 'text-zinc-200 group-hover:text-white group-hover:scale-105'
+                      isDragOver ? 'text-[hsl(var(--primary))] scale-110' : 'text-zinc-200 group-hover:text-white group-hover:scale-105'
                     }`}
                   />
                   <span className="text-xs font-bold text-white tracking-wide">
@@ -838,18 +838,18 @@ export const GeneratePanel: React.FC = () => {
               }}
               className={`relative group w-full h-[195px] workspace-upload-dropzone rounded-xl border border-dashed transition-all p-3 flex flex-col items-center justify-center text-center cursor-pointer shadow-inner ${
                 isDragOver
-                  ? 'border-[#F9CF00] bg-[#1c1d2c] ring-1 ring-[#F9CF00]/40'
-                  : 'border-white/[0.12] hover:border-white/25 bg-[#0f1019]'
+                  ? 'border-[hsl(var(--primary))] bg-[hsl(var(--surface-2))] ring-1 ring-[hsl(var(--primary))]/40'
+                  : 'border-white/[0.12] hover:border-white/25 bg-[hsl(var(--surface-0))]'
               } [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:16px_16px] [background-position:0_0,0_8px,8px_-8px,-8px_0px]`}
             >
               <div
                 className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-transform mb-2 ${
                   isDragOver
-                    ? 'bg-[#F9CF00] text-black scale-110 shadow-[#F9CF00]/30'
+                    ? 'bg-[hsl(var(--primary))] text-black scale-110 shadow-[hsl(var(--primary))]/30'
                     : 'bg-gradient-to-br from-[#6366F1] to-[#8B5CF6] text-white shadow-indigo-500/25 group-hover:scale-105'
                 }`}
               >
-                <Box className="w-5 h-5 text-white group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" strokeWidth={2} />
+                <Box className="w-5 h-5 text-white group-hover:text-[hsl(var(--primary))] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" strokeWidth={2} />
               </div>
               <span className="text-xs font-bold text-white tracking-wide">
                 {isDragOver ? 'Drop 3D Mesh Here' : isMeshUploading ? 'Uploading Mesh...' : 'Upload 3D Mesh'}
@@ -857,7 +857,7 @@ export const GeneratePanel: React.FC = () => {
               <span className="text-[10px] text-zinc-400 mt-1 font-medium">
                 OBJ, FBX, STL, GLB, PLY
               </span>
-              <span className="text-[9px] text-zinc-500 font-mono mt-0.5">
+              <span className="text-[9px] text-zinc-400 font-mono mt-0.5">
                 Size ≤ 150MB
               </span>
             </div>
@@ -866,22 +866,22 @@ export const GeneratePanel: React.FC = () => {
 
         {/* Live Upload Progress Bar with Real Speed & Remaining Time */}
         {isMeshUploading && (
-          <div className="p-2 rounded-xl bg-black/40 border border-[#F9CF00]/30 space-y-1.5 animate-in fade-in">
+          <div className="p-2 rounded-xl bg-black/40 border border-[hsl(var(--primary))]/30 space-y-1.5 animate-in fade-in">
             <div className="flex items-center justify-between text-[10px]">
               <div className="flex items-center gap-1.5 min-w-0 pr-2">
-                <div className="w-2.5 h-2.5 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <div className="w-2.5 h-2.5 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin flex-shrink-0" />
                 <span className="font-semibold text-white truncate text-[10px]">
                   {meshUploadState.fileName || 'Uploading 3D Mesh...'}
                 </span>
               </div>
-              <span className="font-mono font-bold text-[#F9CF00] text-[10px] flex-shrink-0">
+              <span className="font-mono font-bold text-[hsl(var(--primary))] text-[10px] flex-shrink-0">
                 {meshUploadState.percent ?? 50}%
               </span>
             </div>
 
             <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-200 rounded-full"
+                className="h-full bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--primary))]/80 transition-all duration-200 rounded-full"
                 style={{ width: `${Math.max(4, Math.min(100, meshUploadState.percent ?? 50))}%` }}
               />
             </div>
@@ -907,21 +907,21 @@ export const GeneratePanel: React.FC = () => {
 
         {/* Live Image Upload Progress Bar */}
         {imageUploadProgress.uploading && (
-          <div className="p-2 rounded-xl bg-black/40 border border-[#F9CF00]/30 space-y-1.5 animate-in fade-in">
+          <div className="p-2 rounded-xl bg-black/40 border border-[hsl(var(--primary))]/30 space-y-1.5 animate-in fade-in">
             <div className="flex items-center justify-between text-[10px]">
               <div className="flex items-center gap-1.5 min-w-0 pr-2">
-                <div className="w-2.5 h-2.5 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <div className="w-2.5 h-2.5 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin flex-shrink-0" />
                 <span className="font-semibold text-white truncate text-[10px]">
                   {`Uploading ${generationSettings.imageName || 'image'}...`}
                 </span>
               </div>
-              <span className="font-mono font-bold text-[#F9CF00] text-[10px] flex-shrink-0">
+              <span className="font-mono font-bold text-[hsl(var(--primary))] text-[10px] flex-shrink-0">
                 {imageUploadProgress.percent}%
               </span>
             </div>
             <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-200 rounded-full"
+                className="h-full bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--primary))]/80 transition-all duration-200 rounded-full"
                 style={{ width: `${Math.max(4, Math.min(100, imageUploadProgress.percent))}%` }}
               />
             </div>
@@ -978,8 +978,8 @@ export const GeneratePanel: React.FC = () => {
             className="w-full h-8 px-2 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] flex items-center justify-between text-left transition-all cursor-pointer shadow-sm"
           >
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-5 h-5 rounded-md bg-[#F9CF00]/10 border border-[#F9CF00]/25 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-                <ThumbsUp className="w-3 h-3 text-[#F9CF00]" />
+              <div className="w-5 h-5 rounded-md bg-[hsl(var(--primary))]/10 border border-[hsl(var(--primary))]/25 flex items-center justify-center text-[hsl(var(--primary))] flex-shrink-0">
+                <ThumbsUp className="w-3 h-3 text-[hsl(var(--primary))]" />
               </div>
               <div className="min-w-0 flex items-baseline gap-1.5">
                 <p className="text-[11px] font-bold text-[hsl(var(--foreground))] truncate">
@@ -1040,19 +1040,21 @@ export const GeneratePanel: React.FC = () => {
                       onClick={() => handleModelSelect(m.id)}
                       className={`w-full text-left px-2 py-1.5 rounded-lg text-[11px] transition-all cursor-pointer flex items-center justify-between ${
                         selectedModel === m.id
-                          ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
+                          ? 'bg-[hsl(var(--primary))] text-black font-bold shadow-sm'
                           : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
                       }`}
                     >
-                      <div className="min-w-0 pr-1 flex items-center gap-1.5">
-                        <span className="block font-semibold truncate leading-tight">{m.label}</span>
-                        <span className="text-[9px] opacity-70 block truncate leading-tight">{m.note}</span>
-                        <span
-                          className={`px-1.5 py-0.5 text-[8px] font-mono rounded ${capabilityColors[capability.capability]}`}
-                          title={capability.semantics}
-                        >
-                          {capabilityLabels[capability.capability]}
-                        </span>
+                      <div className="min-w-0 pr-2 flex flex-col gap-0.5 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-semibold leading-tight break-words">{m.label}</span>
+                          <span
+                            className={`px-1.5 py-0.5 text-[8px] font-mono rounded flex-shrink-0 ${capabilityColors[capability.capability]}`}
+                            title={capability.semantics}
+                          >
+                            {capabilityLabels[capability.capability]}
+                          </span>
+                        </div>
+                        <span className="text-[9px] opacity-75 leading-tight">{m.note}</span>
                       </div>
                       <span className="text-[9px] font-mono opacity-65 flex-shrink-0">{m.tag}</span>
                     </button>
@@ -1074,8 +1076,8 @@ export const GeneratePanel: React.FC = () => {
           <div className="flex items-center justify-between py-0.5">
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-zinc-200 font-medium">Enable Texture</span>
-              <span title="Generate PBR texture map on output mesh" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
+              <span title="Generate PBR texture map on output mesh" className="text-zinc-400 hover:text-zinc-300 transition-colors">
+                <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[hsl(var(--primary))] group-hover:text-[hsl(var(--primary))] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
               </span>
             </div>
             <button
@@ -1108,8 +1110,8 @@ export const GeneratePanel: React.FC = () => {
             <div className="space-y-1 pt-0.5">
               <div className="flex items-center gap-1.5">
                 <span className="text-[11px] text-zinc-300 font-medium">Texture Quality</span>
-                <span title="Texture map resolution based on model pipeline" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                  <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[#F9CF00] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
+                <span title="Texture map resolution based on model pipeline" className="text-zinc-400 hover:text-zinc-300 transition-colors">
+                  <HugeiconsIcon icon={HelpCircleIcon} size={12} className="text-[hsl(var(--primary))] group-hover:text-[hsl(var(--primary))] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.5)] transition-colors" />
                 </span>
               </div>
               <div className={`grid gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06] ${
@@ -1203,7 +1205,7 @@ export const GeneratePanel: React.FC = () => {
       <div className="p-2.5 pt-2 border-t border-white/[0.06] bg-[hsl(var(--surface-1))] flex-shrink-0 space-y-2">
         {/* Execution progress — single source of truth from useWorkspace; no duplicated state here. */}
         {isExecuting && (
-          <div className="p-3 rounded-2xl bg-[#141524] border border-[#F9CF00]/30 shadow-xl space-y-2 animate-in fade-in">
+          <div className="p-3 rounded-2xl bg-[hsl(var(--surface-1))] border border-[hsl(var(--primary))]/30 shadow-xl space-y-2 animate-in fade-in">
             <JobProgressStage
               label={executionStep || 'Generating 3D model...'}
               status={executionStatus === 'completed' ? 'completed' : executionStatus === 'failed' || executionStatus === 'interrupted' ? 'error' : 'loading'}
@@ -1236,7 +1238,7 @@ export const GeneratePanel: React.FC = () => {
             className={`w-full h-10 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
               hasFailedAttempt
                 ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-500/25 active:scale-[0.98]'
-                : 'bg-[#F9CF00] hover:bg-[#F9CF00]/90 text-black shadow-lg shadow-[#F9CF00]/25 active:scale-[0.98]'
+                : 'bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 text-black shadow-lg shadow-[hsl(var(--primary))]/25 active:scale-[0.98]'
             } disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none`}
           >
             {hasFailedAttempt ? (

@@ -150,8 +150,8 @@ export const QualityBadge: React.FC<QualityBadgeProps> = React.memo(({
     Sharp: {
       label: 'Sharp',
       icon: SparklesIcon,
-      style: 'bg-[#F9CF00]/15 text-[#F9CF00] border-[#F9CF00]/30 shadow-[0_0_8px_rgba(249,207,0,0.15)]',
-      dotStyle: 'bg-[#F9CF00]',
+      style: 'bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] border-[hsl(var(--primary))]/30 shadow-[0_0_8px_rgba(249,207,0,0.15)]',
+      dotStyle: 'bg-[hsl(var(--primary))]',
     },
     Clean: {
       label: 'Clean',
@@ -198,7 +198,7 @@ export const QualityBadge: React.FC<QualityBadgeProps> = React.memo(({
         </div>
         <div className="flex justify-between gap-4 text-zinc-300">
           <span>Feature Edge Retention</span>
-          <span className="font-mono text-[#F9CF00] font-bold">{retentionDisplay}</span>
+          <span className="font-mono text-[hsl(var(--primary))] font-bold">{retentionDisplay}</span>
         </div>
       </div>
       {warnings.length > 0 && (
@@ -446,7 +446,7 @@ export const SegmentationPanel: React.FC = () => {
       {/* 1. Header: Clean Mesh Part Segmentation Title */}
       <div className="flex items-center justify-center py-2 border-b border-[hsl(var(--border))] px-8 flex-shrink-0">
         <div className="flex items-center gap-1.5">
-          <Scissors className="w-3.5 h-3.5 text-[#F9CF00]" />
+          <Scissors className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
           <h2 className="text-[11px] font-bold text-[hsl(var(--foreground))] tracking-wide uppercase truncate">
             Mesh Segmentation
           </h2>
@@ -468,8 +468,8 @@ export const SegmentationPanel: React.FC = () => {
         <div
           className={`p-2 rounded-2xl border transition-colors space-y-2 flex-shrink-0 ${
             isDragOver
-              ? 'border-[#F9CF00] ring-1 ring-[#F9CF00]/40 bg-[#161726]'
-              : 'border-white/[0.08] bg-[#12131d]'
+              ? 'border-[hsl(var(--primary))] ring-1 ring-[hsl(var(--primary))]/40 bg-[hsl(var(--surface-2))]'
+              : 'border-white/[0.08] bg-[hsl(var(--surface-1))]'
           }`}
           onDragOver={handleCardDragOver}
           onDragEnter={handleCardDragEnter}
@@ -494,14 +494,14 @@ export const SegmentationPanel: React.FC = () => {
             }}
             className={`relative group w-full h-[195px] workspace-upload-dropzone rounded-xl border border-dashed transition-all p-3 flex flex-col items-center justify-center text-center cursor-pointer shadow-inner ${
               isDragOver
-                ? 'border-[#F9CF00] bg-[#1c1d2c] ring-1 ring-[#F9CF00]/40'
-                : 'border-white/[0.12] hover:border-white/25 bg-[#0f1019]'
+                ? 'border-[hsl(var(--primary))] bg-[hsl(var(--surface-2))] ring-1 ring-[hsl(var(--primary))]/40'
+                : 'border-white/[0.12] hover:border-white/25 bg-[hsl(var(--surface-0))]'
             }`}
           >
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-transform mb-2 ${
                 isDragOver
-                  ? 'bg-[#F9CF00] text-black scale-110 shadow-[#F9CF00]/30'
+                  ? 'bg-[hsl(var(--primary))] text-black scale-110 shadow-[hsl(var(--primary))]/30'
                   : 'bg-gradient-to-br from-[#6366F1] to-[#8B5CF6] text-white shadow-indigo-500/25 group-hover:scale-105'
               }`}
             >
@@ -513,7 +513,7 @@ export const SegmentationPanel: React.FC = () => {
             <span className="text-[10px] text-zinc-400 mt-1 font-medium">
               OBJ, FBX, STL, GLB, PLY
             </span>
-            <span className="text-[9px] text-zinc-500 font-mono mt-0.5">
+            <span className="text-[9px] text-zinc-400 font-mono mt-0.5">
               Size ≤ 150MB
             </span>
           </div>
@@ -521,22 +521,22 @@ export const SegmentationPanel: React.FC = () => {
 
         {/* Live Upload Progress Bar with Real Speed & Remaining Time */}
         {isMeshUploading && (
-          <div className="p-2 rounded-xl bg-black/40 border border-[#F9CF00]/30 space-y-1.5 animate-in fade-in">
+          <div className="p-2 rounded-xl bg-black/40 border border-[hsl(var(--primary))]/30 space-y-1.5 animate-in fade-in">
             <div className="flex items-center justify-between text-[10px]">
               <div className="flex items-center gap-1.5 min-w-0 pr-2">
-                <div className="w-2.5 h-2.5 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <div className="w-2.5 h-2.5 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin flex-shrink-0" />
                 <span className="font-semibold text-white truncate text-[10px]">
                   {meshUploadState.fileName || 'Uploading 3D Mesh...'}
                 </span>
               </div>
-              <span className="font-mono font-bold text-[#F9CF00] text-[10px] flex-shrink-0">
+              <span className="font-mono font-bold text-[hsl(var(--primary))] text-[10px] flex-shrink-0">
                 {meshUploadState.percent ?? 50}%
               </span>
             </div>
 
             <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-200 rounded-full"
+                className="h-full bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--primary))]/80 transition-all duration-200 rounded-full"
                 style={{ width: `${Math.max(4, Math.min(100, meshUploadState.percent ?? 50))}%` }}
               />
             </div>
@@ -562,7 +562,7 @@ export const SegmentationPanel: React.FC = () => {
             <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
               Target Parts
             </span>
-            <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#F9CF00]/15 text-[#F9CF00] font-semibold border border-[#F9CF00]/30 font-mono">
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] font-semibold border border-[hsl(var(--primary))]/30 font-mono">
               {numParts} Parts · SEMANTIC
             </span>
           </div>
@@ -575,7 +575,7 @@ export const SegmentationPanel: React.FC = () => {
                 onClick={() => setNumParts(preset)}
                 className={`h-7.5 rounded-lg text-xs font-semibold flex items-center justify-center transition-all cursor-pointer ${
                   numParts === preset
-                    ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
+                    ? 'bg-[hsl(var(--primary))] text-black shadow-sm font-bold'
                     : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
                 }`}
               >
@@ -594,17 +594,17 @@ export const SegmentationPanel: React.FC = () => {
             onClick={() => setIsAdvancedOpen((prev) => !prev)}
             className={`w-full h-8 px-2.5 rounded-xl border flex items-center justify-between text-left transition-all cursor-pointer shadow-sm ${
               isAdvancedOpen
-                ? 'bg-[#1b1b2f] border-[#F9CF00] text-white ring-1 ring-[#F9CF00]/50'
+                ? 'bg-[#1b1b2f] border-[hsl(var(--primary))] text-white ring-1 ring-[hsl(var(--primary))]/50'
                 : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-[hsl(var(--foreground))]'
             }`}
           >
             <div className="flex items-center gap-2">
-              <SlidersHorizontal className="w-3.5 h-3.5 text-[#F9CF00]" />
+              <SlidersHorizontal className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
               <span className="text-[11px] font-medium text-zinc-200">Advanced Segmentation Settings</span>
             </div>
             <ChevronRight
               className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${
-                isAdvancedOpen ? 'rotate-90 text-[#F9CF00]' : ''
+                isAdvancedOpen ? 'rotate-90 text-[hsl(var(--primary))]' : ''
               }`}
             />
           </button>
@@ -617,7 +617,7 @@ export const SegmentationPanel: React.FC = () => {
             id="segmentation-advanced-flyout"
             role="dialog"
             aria-label="Advanced Segmentation Settings"
-            className="workspace-advanced-flyout p-3.5 rounded-2xl bg-[#141421] border border-[#F9CF00]/50 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-3 animate-in fade-in zoom-in-95 duration-150 pointer-events-auto select-none" style={{ '--workspace-flyout-width': '300px' } as React.CSSProperties}
+            className="workspace-advanced-flyout p-3.5 rounded-2xl bg-[#141421] border border-[hsl(var(--primary))]/50 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-3 animate-in fade-in zoom-in-95 duration-150 pointer-events-auto select-none" style={{ '--workspace-flyout-width': '300px' } as React.CSSProperties}
           >
             {/* Header with Title and Close Button */}
             <div className="flex items-start justify-between pb-1.5 border-b border-white/[0.08]">
@@ -644,7 +644,7 @@ export const SegmentationPanel: React.FC = () => {
             <div className="space-y-1.5 p-2 rounded-xl bg-black/30 border border-white/[0.04]">
               <div className="flex items-center justify-between">
                 <span className="text-[10.5px] text-zinc-300 font-medium">Target Parts Count</span>
-                <span className="text-[9.5px] font-mono text-[#F9CF00] font-bold px-1.5 py-0.5 rounded bg-[#F9CF00]/10 border border-[#F9CF00]/20">
+                <span className="text-[9.5px] font-mono text-[hsl(var(--primary))] font-bold px-1.5 py-0.5 rounded bg-[hsl(var(--primary))]/10 border border-[hsl(var(--primary))]/20">
                   {numParts} Parts
                 </span>
               </div>
@@ -659,7 +659,7 @@ export const SegmentationPanel: React.FC = () => {
                   style={{
                     background: `linear-gradient(to right, #F9CF00 0%, #F9CF00 ${partsPercentage}%, rgba(255, 255, 255, 0.08) ${partsPercentage}%, rgba(255, 255, 255, 0.08) 100%)`,
                   }}
-                  className="w-full h-1.5 rounded-full appearance-none cursor-pointer focus:outline-none transition-all duration-75 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[#F9CF00] [&::-webkit-slider-thumb]:shadow-[0_0_10px_rgba(249,207,0,0.7)] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:hover:scale-125 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-[#F9CF00]"
+                  className="w-full h-1.5 rounded-full appearance-none cursor-pointer focus:outline-none transition-all duration-75 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[hsl(var(--primary))] [&::-webkit-slider-thumb]:shadow-[0_0_10px_rgba(249,207,0,0.7)] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:hover:scale-125 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-[hsl(var(--primary))]"
                 />
                 <div className="flex justify-between text-[8.5px] font-mono text-zinc-400 px-0.5">
                   <span>2 Parts</span>
@@ -699,7 +699,7 @@ export const SegmentationPanel: React.FC = () => {
             <div className="space-y-1.5 p-2 rounded-xl bg-black/30 border border-white/[0.04]">
               <div className="flex items-center justify-between">
                 <span className="text-[10.5px] text-zinc-300 font-medium">Min Face Island Threshold</span>
-                <span className="text-[9.5px] font-mono text-[#F9CF00] font-bold px-1.5 py-0.5 rounded bg-[#F9CF00]/10 border border-[#F9CF00]/20">
+                <span className="text-[9.5px] font-mono text-[hsl(var(--primary))] font-bold px-1.5 py-0.5 rounded bg-[hsl(var(--primary))]/10 border border-[hsl(var(--primary))]/20">
                   {minFaceThreshold} faces
                 </span>
               </div>
@@ -714,7 +714,7 @@ export const SegmentationPanel: React.FC = () => {
                   style={{
                     background: `linear-gradient(to right, #F9CF00 0%, #F9CF00 ${minFacePercentage}%, rgba(255, 255, 255, 0.08) ${minFacePercentage}%, rgba(255, 255, 255, 0.08) 100%)`,
                   }}
-                  className="w-full h-1.5 rounded-full appearance-none cursor-pointer focus:outline-none transition-all duration-75 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[#F9CF00] [&::-webkit-slider-thumb]:shadow-[0_0_10px_rgba(249,207,0,0.7)] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:hover:scale-125 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-[#F9CF00]"
+                  className="w-full h-1.5 rounded-full appearance-none cursor-pointer focus:outline-none transition-all duration-75 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[hsl(var(--primary))] [&::-webkit-slider-thumb]:shadow-[0_0_10px_rgba(249,207,0,0.7)] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:hover:scale-125 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-[hsl(var(--primary))]"
                 />
                 <div className="flex justify-between text-[8.5px] font-mono text-zinc-400 px-0.5">
                   <span>10 (Fine)</span>
@@ -778,7 +778,7 @@ export const SegmentationPanel: React.FC = () => {
             <div className="flex items-center justify-between py-0.5 border-t border-white/[0.06] pt-1.5">
               <div className="space-y-0.5 pr-2">
                 <div className="flex items-center gap-1.5">
-                  <Palette className="w-3 h-3 text-[#F9CF00]" />
+                  <Palette className="w-3 h-3 text-[hsl(var(--primary))]" />
                   <span className="text-[11px] text-zinc-200 font-medium">Colorize Part Preview</span>
                 </div>
                 <p className="text-[9px] text-zinc-400">Assigns distinctive high-contrast colors per segmented part</p>
@@ -789,7 +789,7 @@ export const SegmentationPanel: React.FC = () => {
                 aria-checked={colorizePreview}
                 onClick={() => setColorizePreview(!colorizePreview)}
                 className={`w-7.5 h-4 rounded-full p-0.5 transition-colors cursor-pointer flex-shrink-0 ${
-                  colorizePreview ? 'bg-[#F9CF00]' : 'bg-white/15'
+                  colorizePreview ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'
                 }`}
               >
                 <div
@@ -814,22 +814,22 @@ export const SegmentationPanel: React.FC = () => {
           </div>
         )}
         {isExecuting ? (
-          <div className="p-3 rounded-2xl bg-[#141524] border border-[#F9CF00]/30 shadow-xl space-y-2 animate-in fade-in">
+          <div className="p-3 rounded-2xl bg-[hsl(var(--surface-1))] border border-[hsl(var(--primary))]/30 shadow-xl space-y-2 animate-in fade-in">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-2 min-w-0 pr-2">
-                <div className="w-3.5 h-3.5 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <div className="w-3.5 h-3.5 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin flex-shrink-0" />
                 <span className="font-semibold text-white truncate text-xs">
                   {executionStep || 'Segmenting mesh parts...'}
                 </span>
               </div>
-              <span className="font-mono font-bold text-[#F9CF00] text-xs flex-shrink-0">
+              <span className="font-mono font-bold text-[hsl(var(--primary))] text-xs flex-shrink-0">
                 {Math.round(executionProgress)}%
               </span>
             </div>
 
             <div className="w-full h-1.5 rounded-full bg-black/40 overflow-hidden border border-white/10">
               <div
-                className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-300 rounded-full"
+                className="h-full bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--primary))]/80 transition-all duration-300 rounded-full"
                 style={{ width: `${Math.max(4, Math.min(100, Math.round(executionProgress)))}%` }}
               />
             </div>
@@ -849,7 +849,7 @@ export const SegmentationPanel: React.FC = () => {
               type="button"
               onClick={handleRunSegmentation}
               disabled={!currentAsset || isMeshUploading || isExecuting || partFieldReadiness.status !== 'ready'}
-              className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full h-8 rounded-full bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[hsl(var(--primary))]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Scissors className="w-3.5 h-3.5 text-black" />
               <span>Run AI Segmentation</span>

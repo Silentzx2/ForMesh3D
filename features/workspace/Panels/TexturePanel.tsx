@@ -171,8 +171,8 @@ export const QualityBadge: React.FC<QualityBadgeProps> = React.memo(({
     Sharp: {
       label: 'Sharp',
       icon: SparklesIcon,
-      style: 'bg-[#F9CF00]/15 text-[#F9CF00] border-[#F9CF00]/30 shadow-[0_0_8px_rgba(249,207,0,0.15)]',
-      dotStyle: 'bg-[#F9CF00]',
+      style: 'bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] border-[hsl(var(--primary))]/30 shadow-[0_0_8px_rgba(249,207,0,0.15)]',
+      dotStyle: 'bg-[hsl(var(--primary))]',
     },
     Clean: {
       label: 'Clean',
@@ -219,7 +219,7 @@ export const QualityBadge: React.FC<QualityBadgeProps> = React.memo(({
         </div>
         <div className="flex justify-between gap-4 text-zinc-300">
           <span>Feature Edge Retention</span>
-          <span className="font-mono text-[#F9CF00] font-bold">{retentionDisplay}</span>
+          <span className="font-mono text-[hsl(var(--primary))] font-bold">{retentionDisplay}</span>
         </div>
       </div>
       {warnings.length > 0 && (
@@ -696,7 +696,7 @@ export const TexturePanel: React.FC = () => {
       {/* 1. Header and in-panel Texture / PBR routing */}
       <div className="flex items-center justify-between py-2.5 px-3 border-b border-white/[0.06] flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-5 h-5 rounded-md bg-[#F9CF00]/15 flex items-center justify-center text-[#F9CF00]">
+          <div className="w-5 h-5 rounded-md bg-[hsl(var(--primary))]/15 flex items-center justify-center text-[hsl(var(--primary))]">
             {activeTool === 'pbr' ? <Layers className="w-3 h-3" /> : <Palette className="w-3 h-3" />}
           </div>
           <h2 className="text-xs font-bold text-zinc-100 tracking-normal truncate">
@@ -719,7 +719,7 @@ export const TexturePanel: React.FC = () => {
             onClick={() => navigateToTool('pbr')}
             aria-current={activeTool === 'pbr' ? 'page' : undefined}
             className={`px-2 py-1 rounded-full text-[9px] font-bold transition-colors cursor-pointer ${
-              activeTool === 'pbr' ? 'bg-[#F9CF00] text-black' : 'text-zinc-400 hover:text-white'
+              activeTool === 'pbr' ? 'bg-[hsl(var(--primary))] text-black' : 'text-zinc-400 hover:text-white'
             }`}
           >
             PBR
@@ -749,8 +749,8 @@ export const TexturePanel: React.FC = () => {
         <div
           className={`p-2 rounded-2xl border transition-colors space-y-2 flex-shrink-0 ${
             isDragOver
-              ? 'border-[#F9CF00] ring-1 ring-[#F9CF00]/40 bg-[#161726]'
-              : 'border-white/[0.08] bg-[#12131d]'
+              ? 'border-[hsl(var(--primary))] ring-1 ring-[hsl(var(--primary))]/40 bg-[hsl(var(--surface-2))]'
+              : 'border-white/[0.08] bg-[hsl(var(--surface-1))]'
           }`}
           onDragOver={handleCardDragOver}
           onDragEnter={handleCardDragEnter}
@@ -847,13 +847,13 @@ export const TexturePanel: React.FC = () => {
                 }}
                 className={`relative group w-full h-[200px] workspace-upload-dropzone rounded-xl border border-dashed transition-all p-2 flex flex-col items-center justify-between cursor-pointer shadow-inner ${
                   isDragOver
-                    ? 'border-[#F9CF00] bg-[#1c1d2c] ring-1 ring-[#F9CF00]/40'
-                    : 'border-white/[0.12] hover:border-white/25 bg-[#0f1019]'
+                    ? 'border-[hsl(var(--primary))] bg-[hsl(var(--surface-2))] ring-1 ring-[hsl(var(--primary))]/40'
+                    : 'border-white/[0.12] hover:border-white/25 bg-[hsl(var(--surface-0))]'
                 } [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:16px_16px] [background-position:0_0,0_8px,8px_-8px,-8px_0px]`}
               >
                 {/* Top Right Tip Lightbulb */}
                 <div className="w-full flex justify-end">
-                  <span className="p-0.5 text-zinc-300 hover:text-[#F9CF00] transition-colors" title="Image prompt tips">
+                  <span className="p-0.5 text-zinc-300 hover:text-[hsl(var(--primary))] transition-colors" title="Image prompt tips">
                     <Lightbulb className="w-3.5 h-3.5" />
                   </span>
                 </div>
@@ -862,7 +862,7 @@ export const TexturePanel: React.FC = () => {
                 <div className="flex flex-col items-center text-center -mt-1">
                   <ImageIcon
                     className={`w-7 h-7 mb-1 transition-all ${
-                      isDragOver ? 'text-[#F9CF00] scale-110' : 'text-zinc-200 group-hover:text-white group-hover:scale-105'
+                      isDragOver ? 'text-[hsl(var(--primary))] scale-110' : 'text-zinc-200 group-hover:text-white group-hover:scale-105'
                     }`}
                   />
                   <span className="text-xs font-bold text-white tracking-wide">
@@ -896,14 +896,14 @@ export const TexturePanel: React.FC = () => {
               }}
               className={`relative group w-full h-[195px] workspace-upload-dropzone rounded-xl border border-dashed transition-all p-3 flex flex-col items-center justify-center text-center cursor-pointer shadow-inner ${
                 isDragOver
-                  ? 'border-[#F9CF00] bg-[#1c1d2c] ring-1 ring-[#F9CF00]/40'
-                  : 'border-white/[0.12] hover:border-white/25 bg-[#0f1019]'
+                  ? 'border-[hsl(var(--primary))] bg-[hsl(var(--surface-2))] ring-1 ring-[hsl(var(--primary))]/40'
+                  : 'border-white/[0.12] hover:border-white/25 bg-[hsl(var(--surface-0))]'
               } [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:16px_16px] [background-position:0_0,0_8px,8px_-8px,-8px_0px]`}
             >
               <div
                 className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-transform mb-2 ${
                   isDragOver
-                    ? 'bg-[#F9CF00] text-black scale-110 shadow-[#F9CF00]/30'
+                    ? 'bg-[hsl(var(--primary))] text-black scale-110 shadow-[hsl(var(--primary))]/30'
                     : 'bg-gradient-to-br from-[#6366F1] to-[#8B5CF6] text-white shadow-indigo-500/25 group-hover:scale-105'
                 }`}
               >
@@ -915,7 +915,7 @@ export const TexturePanel: React.FC = () => {
               <span className="text-[10px] text-zinc-400 mt-1 font-medium">
                 OBJ, FBX, STL, GLB, PLY
               </span>
-              <span className="text-[9px] text-zinc-500 font-mono mt-0.5">
+              <span className="text-[9px] text-zinc-400 font-mono mt-0.5">
                 Size ≤ 150MB
               </span>
             </div>
@@ -924,22 +924,22 @@ export const TexturePanel: React.FC = () => {
 
         {/* Live Upload Progress Bar with Real Speed & Remaining Time */}
         {isMeshUploading && (
-          <div className="p-2 rounded-xl bg-black/40 border border-[#F9CF00]/30 space-y-1.5 animate-in fade-in">
+          <div className="p-2 rounded-xl bg-black/40 border border-[hsl(var(--primary))]/30 space-y-1.5 animate-in fade-in">
             <div className="flex items-center justify-between text-[10px]">
               <div className="flex items-center gap-1.5 min-w-0 pr-2">
-                <div className="w-2.5 h-2.5 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <div className="w-2.5 h-2.5 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin flex-shrink-0" />
                 <span className="font-semibold text-white truncate text-[10px]">
                   {meshUploadState.fileName || 'Uploading 3D Mesh...'}
                 </span>
               </div>
-              <span className="font-mono font-bold text-[#F9CF00] text-[10px] flex-shrink-0">
+              <span className="font-mono font-bold text-[hsl(var(--primary))] text-[10px] flex-shrink-0">
                 {meshUploadState.percent ?? 50}%
               </span>
             </div>
 
             <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-200 rounded-full"
+                className="h-full bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--primary))]/80 transition-all duration-200 rounded-full"
                 style={{ width: `${Math.max(4, Math.min(100, meshUploadState.percent ?? 50))}%` }}
               />
             </div>
@@ -981,7 +981,7 @@ export const TexturePanel: React.FC = () => {
                     onClick={() => setTextureQuality(res)}
                     className={`h-7.5 rounded-lg text-xs font-bold flex items-center justify-center transition-all cursor-pointer ${
                       isSelected
-                        ? 'bg-[#F9CF00] text-black shadow-sm font-extrabold'
+                        ? 'bg-[hsl(var(--primary))] text-black shadow-sm font-extrabold'
                         : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
                     }`}
                   >
@@ -1030,17 +1030,17 @@ export const TexturePanel: React.FC = () => {
                 onClick={() => setIsTextureSettingsOpen((prev) => !prev)}
                 className={`w-full h-7.5 px-2.5 rounded-xl border flex items-center justify-between text-left transition-all cursor-pointer shadow-sm ${
                   isTextureSettingsOpen
-                    ? 'bg-[#1b1b2f] border-[#F9CF00] text-white ring-1 ring-[#F9CF00]/50'
+                    ? 'bg-[#1b1b2f] border-[hsl(var(--primary))] text-white ring-1 ring-[hsl(var(--primary))]/50'
                     : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-[hsl(var(--foreground))]'
                 }`}
               >
                 <div className="flex items-center gap-1.5">
-                  <SlidersHorizontal className="w-3 h-3 text-[#F9CF00]" />
+                  <SlidersHorizontal className="w-3 h-3 text-[hsl(var(--primary))]" />
                   <span className="text-[10.5px] font-medium text-zinc-300">Advanced Settings</span>
                 </div>
                 <ChevronRight
                   className={`w-3 h-3 text-zinc-400 transition-transform duration-200 ${
-                    isTextureSettingsOpen ? 'rotate-90 text-[#F9CF00]' : ''
+                    isTextureSettingsOpen ? 'rotate-90 text-[hsl(var(--primary))]' : ''
                   }`}
                 />
               </button>
@@ -1064,8 +1064,8 @@ export const TexturePanel: React.FC = () => {
                 className="w-full h-7.5 px-2 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] flex items-center justify-between text-left transition-all cursor-pointer shadow-sm"
               >
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <div className="w-4 h-4 rounded bg-[#F9CF00]/10 border border-[#F9CF00]/25 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-                    <Cpu className="w-2.5 h-2.5 text-[#F9CF00]" />
+                  <div className="w-4 h-4 rounded bg-[hsl(var(--primary))]/10 border border-[hsl(var(--primary))]/25 flex items-center justify-center text-[hsl(var(--primary))] flex-shrink-0">
+                    <Cpu className="w-2.5 h-2.5 text-[hsl(var(--primary))]" />
                   </div>
                   <div className="min-w-0 flex items-baseline gap-1">
                     <p className="text-[10.5px] font-bold text-[hsl(var(--foreground))] truncate">
@@ -1108,13 +1108,13 @@ export const TexturePanel: React.FC = () => {
                         onClick={() => handleModelSelect(m.id)}
                         className={`w-full text-left px-2 py-1.5 rounded-lg text-[10.5px] transition-all cursor-pointer flex items-center justify-between ${
                           selectedModel === m.id
-                            ? 'bg-[#F9CF00] text-black font-bold shadow-sm'
+                            ? 'bg-[hsl(var(--primary))] text-black font-bold shadow-sm'
                             : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
                         }`}
                       >
-                        <div className="min-w-0 pr-1">
-                          <span className="block font-semibold truncate leading-tight">{m.label}</span>
-                          <span className="text-[8.5px] opacity-70 block truncate leading-tight">{m.note}</span>
+                        <div className="min-w-0 pr-2 flex-1">
+                          <span className="block font-semibold leading-tight break-words">{m.label}</span>
+                          <span className="text-[8.5px] opacity-75 block leading-tight">{m.note}</span>
                         </div>
                         <span className="text-[8.5px] font-mono opacity-75 flex-shrink-0">{m.badge}</span>
                       </button>
@@ -1135,7 +1135,7 @@ export const TexturePanel: React.FC = () => {
                       setSeed('');
                       setGenerationSettings((prev) => ({ ...prev, seed: undefined }));
                     }}
-                    className="text-[8.5px] text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+                    className="text-[8.5px] text-zinc-400 hover:text-zinc-300 transition-colors cursor-pointer"
                   >
                     Reset
                   </button>
@@ -1155,7 +1155,7 @@ export const TexturePanel: React.FC = () => {
                         setGenerationSettings((prev) => ({ ...prev, seed: val === '' ? undefined : val }));
                       }
                     }}
-                    className="w-full bg-transparent text-[11px] text-white placeholder:text-zinc-500 focus:outline-none font-mono py-1 pr-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-full bg-transparent text-[11px] text-white placeholder:text-zinc-400 focus:outline-none font-mono py-1 pr-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
                 <button
@@ -1184,13 +1184,13 @@ export const TexturePanel: React.FC = () => {
             id="texture-settings-flyout"
             role="dialog"
             aria-label="Advanced Texture Settings"
-            className="workspace-advanced-flyout p-3 rounded-2xl bg-[#141421] border border-[#F9CF00]/40 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-2.5 animate-in fade-in zoom-in-95 duration-150 pointer-events-auto select-none" style={{ '--workspace-flyout-width': '280px' } as React.CSSProperties}
+            className="workspace-advanced-flyout p-3 rounded-2xl bg-[#141421] border border-[hsl(var(--primary))]/40 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-2.5 animate-in fade-in zoom-in-95 duration-150 pointer-events-auto select-none" style={{ '--workspace-flyout-width': '280px' } as React.CSSProperties}
           >
             {/* Flyout Header */}
             <div className="flex items-start justify-between pb-1 border-b border-white/[0.08]">
               <div>
                 <h3 className="text-[11px] font-bold text-white tracking-wide flex items-center gap-1.5">
-                  <SlidersHorizontal className="w-3 h-3 text-[#F9CF00]" />
+                  <SlidersHorizontal className="w-3 h-3 text-[hsl(var(--primary))]" />
                   <span>{activeTool === 'pbr' ? 'PBR Settings' : 'Advanced Settings'}</span>
                 </h3>
                 <p className="text-[8.5px] text-zinc-400 mt-0.5">PBR &amp; Lighting controls</p>
@@ -1210,7 +1210,7 @@ export const TexturePanel: React.FC = () => {
             <div className="flex items-center justify-between py-0.5">
               <div className="space-y-0.5 pr-2">
                 <div className="flex items-center gap-1.5">
-                  <Sun className="w-3 h-3 text-[#F9CF00]" />
+                  <Sun className="w-3 h-3 text-[hsl(var(--primary))]" />
                   <span className="text-[11px] text-zinc-200 font-medium">Remove Lighting</span>
                 </div>
                 <p className="text-[8.5px] text-zinc-400">Flat albedo without shadows</p>
@@ -1221,7 +1221,7 @@ export const TexturePanel: React.FC = () => {
                 aria-checked={removeLighting}
                 onClick={() => setRemoveLighting((prev) => !prev)}
                 className={`w-7.5 h-4 rounded-full p-0.5 transition-colors cursor-pointer flex-shrink-0 ${
-                  removeLighting ? 'bg-[#F9CF00]' : 'bg-white/15'
+                  removeLighting ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'
                 }`}
               >
                 <div
@@ -1278,7 +1278,7 @@ export const TexturePanel: React.FC = () => {
                         className={`h-5.5 px-1.5 rounded-lg text-[9.5px] font-bold flex items-center justify-between transition-all cursor-pointer ${
                           ch.state
                             ? 'bg-[#3b3577] text-white border border-[#6366F1]'
-                            : 'bg-white/[0.04] text-zinc-500 hover:text-zinc-300 border border-transparent'
+                            : 'bg-white/[0.04] text-zinc-400 hover:text-zinc-300 border border-transparent'
                         }`}
                       >
                         <span>{ch.label}</span>
@@ -1355,22 +1355,22 @@ export const TexturePanel: React.FC = () => {
       {/* 5. Sticky Bottom Action CTA Button */}
       <div className="p-2.5 pt-2 border-t border-white/[0.08] bg-[hsl(var(--surface-1))] flex-shrink-0 space-y-1.5">
         {isExecuting ? (
-          <div className="p-3 rounded-2xl bg-[#141524] border border-[#F9CF00]/30 shadow-xl space-y-2 animate-in fade-in">
+          <div className="p-3 rounded-2xl bg-[hsl(var(--surface-1))] border border-[hsl(var(--primary))]/30 shadow-xl space-y-2 animate-in fade-in">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-2 min-w-0 pr-2">
-                <div className="w-3.5 h-3.5 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <div className="w-3.5 h-3.5 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin flex-shrink-0" />
                 <span className="font-semibold text-white truncate text-[10.5px]">
                   {executionStep || 'Generating textures...'}
                 </span>
               </div>
-              <span className="font-mono font-bold text-[#F9CF00] text-xs flex-shrink-0">
+              <span className="font-mono font-bold text-[hsl(var(--primary))] text-xs flex-shrink-0">
                 {Math.round(executionProgress)}%
               </span>
             </div>
 
             <div className="w-full h-1.5 rounded-full bg-black/40 overflow-hidden border border-white/10">
               <div
-                className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-300 rounded-full"
+                className="h-full bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--primary))]/80 transition-all duration-300 rounded-full"
                 style={{ width: `${Math.max(4, Math.min(100, Math.round(executionProgress)))}%` }}
               />
             </div>
@@ -1390,12 +1390,12 @@ export const TexturePanel: React.FC = () => {
               type="button"
               onClick={handleGenerate}
               disabled={!generationSettings.image && !imagePreview && !textureSettings.referenceImage}
-              className="w-full py-2.5 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-2.5 rounded-full bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 text-black font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-[hsl(var(--primary))]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Sparkles className="w-3.5 h-3.5 text-black" />
               <span>{activeTool === 'pbr' ? 'Generate PBR Maps' : 'Generate Textures'}</span>
             </button>
-            <div className="flex items-center justify-between text-[8.5px] text-zinc-500 px-1 font-mono">
+            <div className="flex items-center justify-between text-[8.5px] text-zinc-400 px-1 font-mono">
               <span>VRAM ~12 GB</span>
               <span>Atlas: {textureQuality}</span>
             </div>

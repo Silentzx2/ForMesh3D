@@ -34,4 +34,25 @@ def patch_texture_baker(bake_module: Any, *, torch_module: Any, chunk_size: int 
         return rgba.reshape(int(texture_resolution), int(texture_resolution), 4)
 
     bake_module.positions_to_colors = positions_to_colors
+
+    # Headless Linux servers (Colab/VPS) lack an X11 DISPLAY; fall back to EGL/OSMesa.
+    mgl = getattr(bake_module, "moderngl", None)
+    if mgl is not None and not getattr(mgl, "_formesh_headless_patched", False):
+        orig_create_context = mgl.create_context
+
+        def _headless_create_context(*args, **kwargs):
+            try:
+                return orig_create_context(*args, **kwargs)
+            except Exception as exc:
+                if kwargs.get("standalone") and "backend" not in kwargs and "display" in str(exc).lower():
+                    for backend in ("egl", "osmesa"):
+                        try:
+                            return orig_create_context(*args, backend=backend, **kwargs)
+                        except Exception:
+                            continue
+                raise
+
+        mgl.create_context = _headless_create_context
+        mgl._formesh_headless_patched = True
+
     bake_module._formesh_device_safe = True
