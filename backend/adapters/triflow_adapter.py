@@ -418,6 +418,8 @@ class TriFlowRetopologyAdapter(BaseModel):
         (e.g. pyfqmr_triflow Cython extension not compiled)."""
         logger.warning("[TRIFLOW FALLBACK] Applying high-quality quadric decimation fallback.")
         input_mesh = load_mesh_safe(mesh_path)
+        if hasattr(input_mesh, "dump"):
+            input_mesh = input_mesh.dump(concatenate=True)
         try:
             if hasattr(input_mesh, "simplify_quadric_decimation"):
                 simplified = input_mesh.simplify_quadric_decimation(face_count=target_faces)

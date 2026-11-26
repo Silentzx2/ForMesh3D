@@ -63,7 +63,6 @@ export interface ActiveTask {
   diagnostic?: JobDiagnostic | null;
   result?: Record<string, unknown>;
   logs?: { stage: string; progress: number; message: string; level: string; timestamp: string }[];
-  comparisonGroupId?: string;
   /** Asset identity captured with sourceModelUrl when this operation was submitted. */
   sourceAssetId?: string;
   sourceModelUrl?: string;

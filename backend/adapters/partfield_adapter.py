@@ -389,7 +389,24 @@ class PartFieldSegmentationAdapter(BaseModel):
 
         if callable(progress):
             progress("Writing segmented mesh", 90, "export")
-        export_mesh_safe(segmented_mesh, output_path, file_type=output_format)
+        if individual_paths:
+            scene = trimesh.Scene()
+            for part_id in range(actual_parts):
+                part_faces = original_mesh.faces[labels == part_id]
+                if not len(part_faces):
+                    continue
+                part_mesh = trimesh.Trimesh(
+                    vertices=original_mesh.vertices.copy(),
+                    faces=part_faces,
+                    process=False,
+                )
+                part_mesh.remove_unreferenced_vertices()
+                rgb = palette[part_id % len(palette)]
+                part_mesh.visual.face_colors = np.tile(np.array([rgb[0], rgb[1], rgb[2], 255], dtype=np.uint8), (len(part_mesh.faces), 1))
+                scene.add_geometry(part_mesh, node_name=f"part_{part_id + 1:02d}")
+            scene.export(str(output_path), file_type=output_format)
+        else:
+            export_mesh_safe(segmented_mesh, output_path, file_type=output_format)
 
         parts = []
         total_faces = max(1, len(segmented_mesh.faces))

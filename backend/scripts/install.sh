@@ -672,6 +672,16 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
         $UV_PIP install -e backend/thirdparty/triflow/third_party/pyfqmr-triflow || echo "[WARN] pyfqmr-triflow install failed"
     fi
 
+    # PartUV — C++ UV unwrapping extension (backend/thirdparty/PartUV)
+    if [ -d "backend/thirdparty/PartUV" ]; then
+        echo "[INFO] Building PartUV C++ extension..."
+        $UV_PIP install --no-build-isolation -e backend/thirdparty/PartUV || echo "[WARN] PartUV build failed"
+    fi
+
+    # bpy — Blender Python module required by SkinTokens bpy_server (Python 3.10 supports bpy 4.0.x)
+    echo "[INFO] Installing bpy for SkinTokens..."
+    $UV_PIP install "bpy>=4.0,<4.1" || echo "[WARN] bpy install failed"
+
     # PartField — NVIDIA 3D Feature Fields for Part Segmentation (backend/thirdparty/PartField)
     if [ -d "backend/thirdparty/PartField" ]; then
         echo "[INFO] PartField source present at backend/thirdparty/PartField."

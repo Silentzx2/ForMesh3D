@@ -25,7 +25,6 @@ import { apiClient } from '../lib/api';
 import { parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute, mintWorkspaceId } from '../lib/workspaceRouteContract';
 import { captureWorkspacePreviewBaseline, createWorkspacePreviewRestorePlan } from '../lib/workspacePreviewSnapshot';
 import { createWorkspaceRegenerationRequest } from '../lib/workspaceRegeneration';
-import { resolveComparisonSourceAssetId } from '../lib/assetComparison';
 import { resolveAssetDeletionTarget } from '../lib/assetDeletion';
 import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
 import { useAppStore } from '@/stores/useAppStore';
@@ -60,15 +59,10 @@ interface ComparisonGroup {
 }
 
 export type WorkspaceExecutionStatus = 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'interrupted' | 'cancelled';
-export type ComparisonMode = 'off' | 'split_screen';
 
 interface WorkspaceContextType {
   activeTool: ToolType;
   setActiveTool: (tool: ToolType) => void;
-  isComparing: boolean;
-  comparisonMode?: ComparisonMode;
-  setIsComparing: (open: boolean) => void;
-  setComparisonMode?: (mode: ComparisonMode) => void;
   mainNav: MainNavRoute;
   setMainNav: (nav: MainNavRoute) => void;
   assets: ModelAsset[];
@@ -296,21 +290,6 @@ function preferredGenerationPreviewUrl(result?: Record<string, any>): string | u
   return result?.active_model_url || result?.textured_model_url || result?.model_url || result?.mesh_url || result?.url;
 }
 
-function comparisonSourceUrl(asset?: ModelAsset | null): string | undefined {
-  const fileId = asset?.source?.fileId || asset?.fileId;
-  const viewUrl = asset?.source?.viewUrl;
-  if (viewUrl && !viewUrl.startsWith('blob:')) return viewUrl;
-  if (fileId) {
-    const artifactFormat = (asset?.format || 'GLB').toLowerCase();
-    return fileId.startsWith('job-')
-      ? `/api/v1/system/jobs/${encodeURIComponent(fileId.slice(4))}/download?artifact_format=${artifactFormat}`
-      : fileId.startsWith('ast_')
-        ? `/api/v1/system/jobs/${encodeURIComponent(fileId)}/download?artifact_format=${artifactFormat}`
-        : `/api/v1/file-upload/download/${encodeURIComponent(fileId)}`;
-  }
-  return viewUrl || asset?.source?.localUrl;
-}
-
 function preferredPreviewStats(result?: Record<string, any>): Record<string, any> {
   if (!result) return {};
   if (typeof result.actual_face_count === 'number' || typeof result.actual_vertex_count === 'number') {
@@ -404,12 +383,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const pathname = usePathname();
 
   const [activeTool, setActiveToolState] = useState<ToolType>('model');
-  const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('off');
-  const [isComparing, setIsComparingState] = useState(false);
-  const setIsComparing = useCallback((open: boolean) => {
-    setIsComparingState(open);
-    setComparisonMode(open ? 'split_screen' : 'off');
-  }, []);
   const [mainNav, setMainNavState] = useState<MainNavRoute>('workspace');
   const [activeRightTab, setActiveRightTab] = useState<'assets' | 'property' | 'properties'>('assets');
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
@@ -751,7 +724,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [jobsById, setJobsById] = useState<Record<string, ActiveTask>>({});
   const [hoveredPartId, setHoveredPartId] = useState<string | null>(null);
   const [activeComparisonGroup, setActiveComparisonGroup] = useState<string | null>(null);
-  const [nextComparisonGroupId, setNextComparisonGroupId] = useState(1);
   const jobsByIdRef = useRef(jobsById);
   jobsByIdRef.current = jobsById;
   const activeTaskRef = useRef<ActiveTask | null>(activeTask);
@@ -825,8 +797,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       exportFormats: ['glb'],
       slicerHandoff: false,
     }));
- 
-   const [comparisonGroupId, setComparisonGroupId] = useState<string | null>(null);
  
    const [remeshSettings, setRemeshSettings] = useState<RemeshSettings>({
     tab: 'auto', polyType: 'quad', targetPolycount: 50000,
@@ -933,6 +903,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const normUrl = stripQuery(normalized.source?.viewUrl);
       const candUrl = stripQuery(candidate.source?.viewUrl);
       return sameWorkspace && (
+        (normalized.source?.type === 'mesh' && candidate.source?.type === 'mesh') ||
         (normalized.source?.filename && candidate.source?.filename && normalized.source.filename !== 'model.glb' && candidate.source.filename === normalized.source.filename) ||
         (normUrl && candUrl && normUrl === candUrl)
       );
@@ -1051,11 +1022,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         ? rawData.assets.find((asset: any) => asset.asset_id === candidateSourceAssetId)
         : undefined;
       // Generation input_asset_id can be an image. Only a retained mesh is a valid wipe predecessor.
-      const sourceAssetId = resolveComparisonSourceAssetId({
-        taskSourceAssetId: matchingTask?.sourceAssetId,
-        operationInputAssetId: candidateSourceAssetId,
-        operationInputFileType: sourceAssetRecord?.file_type,
-      });
+      const sourceAssetId = undefined;
       const sourceFilename = [sourceAssetRecord?.original_filename, sourceAssetRecord?.relative_path]
         .find((filename: string | undefined) => Boolean(filename && /\.[a-z0-9]+$/i.test(filename))) || '';
       const sourceFormat = sourceFilename.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() || 'glb';
@@ -1904,7 +1871,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     });
   }, [activeTask, getApiClient, setExecutionState, setIsExecuting, completeTask]);
 
-  const startTask = useCallback((type: ActiveTask['type'], title: string, _promptId?: string, provider?: string, inputImage?: string, inputImageName?: string, comparisonGroupId?: string, sourceModelUrl?: string) => {
+  const startTask = useCallback((type: ActiveTask['type'], title: string, _promptId?: string, provider?: string, inputImage?: string, inputImageName?: string, sourceModelUrl?: string) => {
     // Every execution gets its own task identity. Workspace and backend job
     // identities are attached only after the API accepts the operation.
     // Each submission captures its own signal. Starting another task must
@@ -1955,7 +1922,6 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       provider,
       inputImage,
       inputImageName,
-      comparisonGroupId,
       sourceAssetId: sourceModelUrl ? selectedAsset?.id : undefined,
       sourceModelUrl,
     };
@@ -2023,8 +1989,6 @@ function dataURLtoFile(dataURL: string, filename: string): File {
 
     setShadingModeState(presetToShadingMode(plan.viewer.shadingMode) as ShadingMode);
     setWireframeMode(plan.viewer.wireframeOverlay ? 'overlay' : 'off');
-    setIsComparingState(plan.viewer.compareMode);
-    setComparisonMode(plan.viewer.compareMode ? 'split_screen' : 'off');
 
     if (plan.viewer.loadedModelUrl) {
       loadModelInViewer(plan.viewer.loadedModelUrl, plan.viewer.loadedModelName, plan.viewer.selectedAsset);
@@ -2254,7 +2218,6 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       generationSettings.aiModel || undefined,
       inputThumbnail,
       generationSettings.imageName || 'asset',
-      comparisonGroupId ?? undefined
     );
     const signal = activeAbortControllerRef.current?.signal;
 
@@ -2358,7 +2321,6 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       sourceTask.provider,
       sourceTask.inputImage,
       sourceTask.inputImageName,
-      sourceTask.comparisonGroupId,
     );
     setJobsById(prev => prev[localTaskId]
       ? { ...prev, [localTaskId]: { ...prev[localTaskId], submissionSnapshot: sourceTask.submissionSnapshot } }
@@ -2471,10 +2433,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       'Neural Remesh (TriFlow)',
       undefined,
       'triflow_retopology',
-      undefined,
-      undefined,
-      comparisonGroupId ?? undefined,
-      comparisonSourceUrl(currentAsset)
     );
     const signal = activeAbortControllerRef.current?.signal;
     try {
@@ -2523,7 +2481,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       setActiveTask((prev) => (prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null));
       toast.error('Remesh failed', { description: message });
     }
-  }, [remeshSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId, addAsset, selectAsset, setViewportResetTrigger]);
+  }, [remeshSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, addAsset, selectAsset, setViewportResetTrigger]);
 
   const runTextureGeneration = useCallback(async () => {
     // Texture generation is standalone: operates on an existing mesh + reference image.
@@ -2544,7 +2502,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
     const modelPreference = textureSettings.modelId || 'hunyuan3d_paint_v21_image_mesh_painting';
 
-    const localTaskId = startTask('texture', 'Texture generation', undefined, modelPreference, undefined, undefined, comparisonGroupId ?? undefined, comparisonSourceUrl(currentAsset));
+    const localTaskId = startTask('texture', 'Texture generation', undefined, modelPreference);
     const signal = activeAbortControllerRef.current?.signal;
     try {
       const meshRef = await resolveMeshReference(currentAsset, signal);
@@ -2587,7 +2545,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       setActiveTask(prev => prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message, diagnostic } : null);
       toast.error('Texture generation failed', { description: message });
     }
-  }, [textureSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
+  }, [textureSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData]);
 
   const runUVUnwrapGeneration = useCallback(async (customSettings?: {
     distortionThreshold?: number;
@@ -2606,10 +2564,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       'Smart UV Unwrapping (PartUV)',
       undefined,
       'partuv_uv_unwrapping',
-      undefined,
-      undefined,
-      comparisonGroupId ?? undefined,
-      comparisonSourceUrl(currentAsset)
     );
     const signal = activeAbortControllerRef.current?.signal;
     try {
@@ -2660,7 +2614,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       setActiveTask((prev) => (prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null));
       toast.error('UV unwrapping failed', { description: message });
     }
-  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId, addAsset, selectAsset, setViewportResetTrigger]);
+  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, addAsset, selectAsset, setViewportResetTrigger]);
 
   const runSegmentation = useCallback(async (customSettings?: {
     numParts?: number;
@@ -2683,10 +2637,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       'Semantic Part Segmentation (AI)',
       undefined,
       pref || undefined,
-      undefined,
-      undefined,
-      comparisonGroupId ?? undefined,
-      comparisonSourceUrl(currentAsset)
     );
     const signal = activeAbortControllerRef.current?.signal;
     try {
@@ -2735,7 +2685,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       setActiveTask((prev) => (prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null));
       toast.error('Segmentation failed', { description: message });
     }
-  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
+  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData]);
 
   const runAutoRigging = useCallback(async (options?: {
     skeletonTemplate?: string;
@@ -2746,7 +2696,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     customSettings?: Record<string, any>;
   }) => {
     const modelPref = options?.modelPreference || 'skintokens_auto_rigging';
-    const localTaskId = startTask('rigging', 'Auto-Rig Character', undefined, modelPref, undefined, undefined, comparisonGroupId ?? undefined, comparisonSourceUrl(currentAsset));
+    const localTaskId = startTask('rigging', 'Auto-Rig Character', undefined, modelPref);
     const signal = activeAbortControllerRef.current?.signal;
     try {
       const meshRef = await resolveMeshReference(currentAsset, signal);
@@ -2785,7 +2735,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       setActiveTask(prev => prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null);
       toast.error('Auto-rigging failed', { description: message });
     }
-  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
+  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData]);
 
   const runMotionGeneration = useCallback(async (options?: {
     prompt?: string;
@@ -2798,7 +2748,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     customSettings?: Record<string, any>;
   }) => {
     const promptText = options?.prompt || 'Walking motion cycle';
-    const localTaskId = startTask('animation', 'Apply Animation', promptText, 'ardy_motion_generation', undefined, undefined, comparisonGroupId ?? undefined);
+    const localTaskId = startTask('animation', 'Apply Animation', promptText, 'ardy_motion_generation');
     const signal = activeAbortControllerRef.current?.signal;
     try {
       const body: Record<string, unknown> = {
@@ -2834,7 +2784,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       setActiveTask(prev => prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null);
       toast.error('Motion generation failed', { description: message });
     }
-  }, [startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
+  }, [startTask, bindBackendJob, parseApiError, parseApiData]);
 
    // Batch processing function
     const processBatchQueue = useCallback(async () => {
@@ -2914,9 +2864,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
               `Batch Item ${batchItem.id.slice(-6)}`,
               undefined,
               batchItem.aiModel || '',
-              undefined,
-              undefined,
-              comparisonGroupId ?? undefined
             );
             activeAbortControllerRef.current = batchController;
 
@@ -3219,7 +3166,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     viewportResetTrigger, resetCamera, fitToScreen]);
 
   const toolValue = useMemo(() => ({
-    activeTool, setActiveTool, isComparing, comparisonMode, setIsComparing, setComparisonMode, mainNav, setMainNav,
+    activeTool, setActiveTool, mainNav, setMainNav,
     activeRightTab, setActiveRightTab,
     rightPanelMode: activeRightTab, setRightPanelMode: setActiveRightTab,
     isLeftPanelOpen, setIsLeftPanelOpen,
@@ -3229,7 +3176,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     isRightPanelOpen, setIsRightPanelOpen,
     rightPanelOpen: isRightPanelOpen, setRightPanelOpen: setIsRightPanelOpen,
     navigateToTool, navigateToMain, navigateToMainNav: navigateToMain,
-  }), [activeTool, setActiveTool, isComparing, comparisonMode, setIsComparing, setComparisonMode, mainNav, setMainNav,
+  }), [activeTool, setActiveTool, mainNav, setMainNav,
     activeRightTab, setActiveRightTab,
     isLeftPanelOpen, setIsLeftPanelOpen,
     leftPanelWidth, setLeftPanelWidth,

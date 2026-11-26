@@ -12,14 +12,12 @@ import {
   GridIcon,
   HelpCircleIcon,
   LayersIcon,
-  FlipHorizontalIcon,
   RotateCw,
   SettingsIcon,
 } from '@hugeicons/core-free-icons';
 import type { LightTone } from '../types';
 import type { ShadingMode } from '../types';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
-import { getAssetComparisonPair } from '../lib/assetComparison';
 
 interface ViewportToolOverlayProps {
   isRightPanelOpen?: boolean;
@@ -35,8 +33,6 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
     currentAsset,
     activeTool,
     isExecuting,
-    isComparing,
-    setIsComparing,
     showGrid,
     setShowGrid,
     isTurntable,
@@ -84,7 +80,6 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
   const isRightPanelOpen = propRightPanelOpen ?? contextRightPanelOpen ?? false;
   const modelStats = useViewerStore((s) => s.modelStats);
   const hasRenderableMesh = Boolean(currentAsset && currentAsset.category !== 'texture' && currentAsset.format !== 'IMAGE' && currentAsset.format !== 'FILE' && (currentAsset.source?.viewUrl || currentAsset.source?.localUrl || currentAsset.artifacts?.gameReady || currentAsset.artifacts?.source));
-  const canCompare = Boolean(getAssetComparisonPair(currentAsset, isExecuting)) || (!isExecuting && hasRenderableMesh && (activeTool === 'texture' || activeTool === 'pbr'));
 
   const [activePreset, setActivePreset] = useState<'Front' | 'Top' | 'Side' | 'Iso'>('Iso');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -259,26 +254,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
             </button>
           </SimpleTooltip>
 
-          {/* 3. Unified viewport comparison — lineage pair or same-mesh texture shading */}
-          {canCompare && (
-            <SimpleTooltip label={isComparing ? 'Exit Viewport Comparison' : (activeTool === 'texture' || activeTool === 'pbr' ? 'Compare Clay vs Textured' : 'Compare Before / After')} side="left">
-              <button
-                type="button"
-                onClick={() => setIsComparing(!isComparing)}
-                aria-label={isComparing ? 'Exit viewport comparison' : (activeTool === 'texture' || activeTool === 'pbr' ? 'Compare clay and textured model' : 'Compare before and after')}
-                aria-pressed={isComparing}
-                className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-                  isComparing
-                    ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
-                    : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
-                }`}
-              >
-                <HugeiconsIcon icon={FlipHorizontalIcon} size={16} />
-              </button>
-            </SimpleTooltip>
-          )}
-
-          {/* 4. Wireframe 2-mode toggle button (Overlay on surface vs Internal X-Ray) */}
+          {/* 3. Wireframe 2-mode toggle button (Overlay on surface vs Internal X-Ray) */}
           <SimpleTooltip
             label={
               wireframeMode === 'overlay'

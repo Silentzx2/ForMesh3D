@@ -18,8 +18,6 @@ import { useAnimationStore } from '@/stores/useAnimationStore';
 import { getApiClient } from '@/services/apiClient';
 import { collectMeshStats } from './meshStats';
 import { loadGLBWithProgress } from '../lib/glbCache';
-import { getAssetComparisonPair } from '../lib/assetComparison';
-import { getDiagonalComparisonSlope } from '../lib/comparisonGeometry';
 
 import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
@@ -204,10 +202,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
   const {
     currentAsset,
-    assets,
     activeTool,
-    isComparing,
-    setIsComparing,
     shadingMode,
     showWireframe,
     wireframeMode,
@@ -255,7 +250,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const hasModel = loadState.hasModel;
   const loadError = loadState.error;
   const [retryKey, setRetryKey] = useState(0);
-  const [isComparisonLoading, setIsComparisonLoading] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [webglError, setWebglError] = useState<string | null>(null);
   const [webglInitKey, setWebglInitKey] = useState(0);
@@ -273,12 +267,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, []);
-  const comparisonOpenRef = useRef(false);
-  const comparisonPositionRef = useRef(50);
-  const comparisonAssetIdRef = useRef<string | null>(currentAsset?.id ?? null);
-  const comparisonBeforeGroupRef = useRef<THREE.Group | null>(null);
-  const comparisonDividerRef = useRef<HTMLDivElement | null>(null);
-  const comparisonHandleRef = useRef<HTMLDivElement | null>(null);
   const shadingModeRef = useRef(shadingMode);
   const showWireframeRef = useRef(showWireframe);
   const wireframeModeRef = useRef(wireframeMode);
@@ -434,12 +422,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     modelGroupRef.current = modelGroup;
     scene.add(modelGroup);
 
-    const comparisonBeforeGroup = new THREE.Group();
-    comparisonBeforeGroup.name = 'comparison-before';
-    comparisonBeforeGroup.visible = false;
-    comparisonBeforeGroupRef.current = comparisonBeforeGroup;
-    scene.add(comparisonBeforeGroup);
-
     // Real-mesh bottom-to-top scan reveal plane & glowing gold ring
     const revealPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 10);
     const scanRing = new THREE.Mesh(
@@ -449,55 +431,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     scanRing.rotation.x = Math.PI / 2;
     scanRing.visible = false;
     scene.add(scanRing);
-
-    // Diagonal comparison is composited from two passes of this same renderer.
-    // Render targets keep the scene/camera/lights shared; only model visibility changes.
-    const comparisonTargetBefore = new THREE.WebGLRenderTarget(width, height, {
-      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
-      format: THREE.RGBAFormat, depthBuffer: true, stencilBuffer: false,
-    });
-    const comparisonTargetAfter = new THREE.WebGLRenderTarget(width, height, {
-      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
-      format: THREE.RGBAFormat, depthBuffer: true, stencilBuffer: false,
-    });
-    comparisonTargetBefore.texture.colorSpace = THREE.SRGBColorSpace;
-    comparisonTargetAfter.texture.colorSpace = THREE.SRGBColorSpace;
-    const comparisonCompositeScene = new THREE.Scene();
-    const comparisonCompositeCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const comparisonCompositeMaterial = new THREE.ShaderMaterial({
-      uniforms: {
-        uBefore: { value: comparisonTargetBefore.texture },
-        uAfter: { value: comparisonTargetAfter.texture },
-        uPosition: { value: 0.5 },
-        uSlope: { value: getDiagonalComparisonSlope(width, height) },
-      },
-      vertexShader: `varying vec2 vUv;
-        void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
-      fragmentShader: `uniform sampler2D uBefore;
-        uniform sampler2D uAfter;
-        uniform float uPosition;
-        uniform float uSlope;
-        varying vec2 vUv;
-        void main() {
-          float dividerX = uPosition + (0.5 - vUv.y) * uSlope;
-          vec4 color = vUv.x <= dividerX ? texture2D(uBefore, vUv) : texture2D(uAfter, vUv);
-          gl_FragColor = color;
-          #include <tonemapping_fragment>
-          #include <colorspace_fragment>
-        }`,
-      depthTest: false, depthWrite: false, toneMapped: false,
-    });
-    const comparisonCompositeQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), comparisonCompositeMaterial);
-    comparisonCompositeScene.add(comparisonCompositeQuad);
-    const resizeComparisonTargets = (w: number, h: number) => {
-      const pixelRatio = renderer.getPixelRatio();
-      const targetWidth = Math.max(1, Math.round(w * pixelRatio));
-      const targetHeight = Math.max(1, Math.round(h * pixelRatio));
-      comparisonTargetBefore.setSize(targetWidth, targetHeight);
-      comparisonTargetAfter.setSize(targetWidth, targetHeight);
-      comparisonCompositeMaterial.uniforms.uSlope.value = getDiagonalComparisonSlope(w, h);
-    };
-    resizeComparisonTargets(width, height);
 
     // Render on demand. OrbitControls emits "change" while damping settles;
     // imported model animations and the optional turntable keep their own RAF alive.
@@ -518,9 +451,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
       if (modelGroupRef.current && isTurntableRef.current) {
         modelGroupRef.current.rotation.y += 0.008;
-        if (comparisonBeforeGroupRef.current) {
-          comparisonBeforeGroupRef.current.rotation.y = modelGroupRef.current.rotation.y;
-        }
         keepAnimating = true;
       }
 
@@ -566,39 +496,8 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         scanRing.visible = false;
       }
 
-      const beforeGroup = comparisonBeforeGroupRef.current;
-      const afterGroup = modelGroupRef.current;
-      if (comparisonOpenRef.current && beforeGroup?.children.length && afterGroup?.children.length) {
-        const drawingBufferSize = renderer.getDrawingBufferSize(new THREE.Vector2());
-        const bufW = drawingBufferSize.x;
-        const bufH = drawingBufferSize.y;
-        const splitX = Math.max(0, Math.min(bufW, Math.round((comparisonPositionRef.current / 100) * bufW)));
-        renderer.setRenderTarget(null);
-        renderer.setViewport(0, 0, bufW, bufH);
-        renderer.setScissorTest(true);
-
-        if (splitX > 0) {
-          beforeGroup.visible = true;
-          afterGroup.visible = false;
-          renderer.setScissor(0, 0, splitX, bufH);
-          renderer.clear(true, true, true);
-          renderer.render(scene, camera);
-        }
-        if (splitX < bufW) {
-          beforeGroup.visible = false;
-          afterGroup.visible = true;
-          renderer.setScissor(splitX, 0, bufW - splitX, bufH);
-          renderer.clear(true, true, true);
-          renderer.render(scene, camera);
-        }
-        renderer.setScissorTest(false);
-      } else {
-        if (beforeGroup) beforeGroup.visible = false;
-        if (afterGroup) afterGroup.visible = true;
-        renderer.setRenderTarget(null);
-        renderer.setScissorTest(false);
-        renderer.render(scene, camera);
-      }
+      renderer.setRenderTarget(null);
+      renderer.render(scene, camera);
 
       if (keepAnimating) scheduleRender();
     };
@@ -620,7 +519,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           camera.aspect = w / h;
           camera.updateProjectionMatrix();
           renderer.setSize(w, h);
-          resizeComparisonTargets(w, h);
           invalidateRenderRef.current();
         }
       }
@@ -643,17 +541,12 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       disposeObject3D(scene);
       scanRing.geometry.dispose();
       (scanRing.material as THREE.Material).dispose();
-      comparisonTargetBefore.dispose();
-      comparisonTargetAfter.dispose();
-      comparisonCompositeQuad.geometry.dispose();
-      comparisonCompositeMaterial.dispose();
       renderer.dispose();
       sceneRef.current = null;
       cameraRef.current = null;
       rendererRef.current = null;
       controlsRef.current = null;
       modelGroupRef.current = null;
-      comparisonBeforeGroupRef.current = null;
     };
   }, [webglInitKey]);
 
@@ -1077,12 +970,10 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const effectiveShadingMode: ShadingMode = shadingMode || 'textured';
 
   useEffect(() => {
-    [modelGroupRef.current, comparisonBeforeGroupRef.current].forEach((group) => {
-      group?.traverse((child) => {
-        if (child instanceof THREE.Mesh && !child.userData?.__isWireframeOverlay) {
-          applyShadingToMesh(child, effectiveShadingMode, Boolean(showWireframe));
-        }
-      });
+    modelGroupRef.current?.traverse((child) => {
+      if (child instanceof THREE.Mesh && !child.userData?.__isWireframeOverlay) {
+        applyShadingToMesh(child, effectiveShadingMode, Boolean(showWireframe));
+      }
     });
     if (keyLightRef.current) {
       keyLightRef.current.castShadow = wireframeMode !== 'xray';
@@ -1183,191 +1074,10 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     (isMeshAsset ? artifactUrl || assetFileUrl : null) ||
     (currentAsset ? null : loadedModelUrl) ||
     null;
-  const isTextureShadingComparison = (activeTool === 'texture' || activeTool === 'pbr') && Boolean(modelUrl);
-  const comparisonPair = getAssetComparisonPair(currentAsset, isExecuting);
-  // Compare the same mesh twice for Texture/PBR: clay on the left, PBR on the right.
-  const comparisonBeforeUrl = isTextureShadingComparison ? modelUrl : comparisonPair?.beforeUrl || null;
-  const comparisonSourceAsset = currentAsset?.sourceAssetId
-    ? assets.find((asset) =>
-        asset.id === currentAsset.sourceAssetId ||
-        asset.fileId === currentAsset.sourceAssetId ||
-        asset.source?.fileId === currentAsset.sourceAssetId ||
-        asset.id.replace(/^(local_|upload_|hist_)/, '') === currentAsset.sourceAssetId
-      )
-    : undefined;
-  const supportedComparisonFormats = ['glb', 'gltf', 'obj', 'fbx', 'stl', 'ply'];
-  const sourceFilenameExtension = comparisonSourceAsset?.source?.filename
-    ?.split(/[?#]/)[0].split('.').pop()?.toLowerCase();
-  const urlArtifactFormat = comparisonBeforeUrl?.match(/[?&]artifact_format=([^&]+)/i)?.[1]?.toLowerCase();
-  const urlPathExtension = comparisonBeforeUrl?.split(/[?#]/)[0].split('.').pop()?.toLowerCase();
-  const comparisonBeforeFormat = [
-    sourceFilenameExtension,
-    currentAsset?.format?.toLowerCase(),
-    urlArtifactFormat,
-    comparisonSourceAsset?.format?.toLowerCase(),
-    urlPathExtension,
-  ].find((format) => format && supportedComparisonFormats.includes(format)) || 'glb';
-  const canCompareModels = Boolean(comparisonPair) || isTextureShadingComparison;
-
-  useEffect(() => {
-    if (comparisonAssetIdRef.current !== (currentAsset?.id ?? null)) {
-      comparisonAssetIdRef.current = currentAsset?.id ?? null;
-      setIsComparing(false);
-    }
-  }, [currentAsset?.id, setIsComparing]);
-
-  useEffect(() => {
-    comparisonOpenRef.current = isComparing;
-    if (isComparing && comparisonDividerRef.current) {
-      comparisonDividerRef.current.style.left = `${comparisonPositionRef.current}%`;
-    }
-    if (controlsRef.current) {
-      controlsRef.current.enabled = true;
-      controlsRef.current.update();
-    }
-    invalidateRenderRef.current();
-  }, [isComparing]);
-
-  useEffect(() => {
-    if (!canCompareModels && isComparing) setIsComparing(false);
-  }, [canCompareModels, isComparing, setIsComparing]);
 
   useEffect(() => {
     invalidateRenderRef.current();
   }, [isTurntable]);
-
-  // Load the captured predecessor only while comparison is open.
-  // Use the same formats as the primary viewport and dispose every stale result.
-  useEffect(() => {
-    const beforeGroup = comparisonBeforeGroupRef.current;
-    if (!beforeGroup) return;
-
-    if (!isComparing || !canCompareModels || !comparisonBeforeUrl) {
-      beforeGroup.visible = false;
-      while (beforeGroup.children.length) {
-        const child = beforeGroup.children[0];
-        beforeGroup.remove(child);
-        disposeObject3D(child);
-      }
-      setIsComparisonLoading(false);
-      invalidateRenderRef.current();
-      return;
-    }
-
-    const abortController = new AbortController();
-    let isCancelled = false;
-    setIsComparisonLoading(true);
-    beforeGroup.visible = false;
-    while (beforeGroup.children.length) {
-      const child = beforeGroup.children[0];
-      beforeGroup.remove(child);
-      disposeObject3D(child);
-    }
-
-    const failComparisonLoad = (error: unknown) => {
-      if (isCancelled) return;
-      setIsComparisonLoading(false);
-      setIsComparing(false);
-      toast.error('Could not load the original mesh for comparison');
-      console.warn('Original mesh comparison load failed:', error);
-    };
-
-    const handleComparisonLoaded = (original: THREE.Object3D) => {
-      if (isCancelled || !comparisonBeforeGroupRef.current) {
-        disposeObject3D(original);
-        return;
-      }
-      const bounds = new THREE.Box3().setFromObject(original);
-      if (bounds.isEmpty()) {
-        disposeObject3D(original);
-        setIsComparisonLoading(false);
-        setIsComparing(false);
-        return;
-      }
-      const center = bounds.getCenter(new THREE.Vector3());
-      const size = bounds.getSize(new THREE.Vector3());
-      const maxDimension = Math.max(size.x, size.y, size.z);
-      const scale = maxDimension > 0 ? 2 / maxDimension : 1;
-      original.position.sub(center.clone().multiplyScalar(scale));
-      original.position.y += (size.y * scale) / 2;
-      original.scale.setScalar(scale);
-      original.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          const triCount = child.geometry?.index
-            ? child.geometry.index.count / 3
-            : (child.geometry?.attributes?.position?.count || 0) / 3;
-          // High-density meshes (>800k tris) bypass shadow-map rasterization to preserve 60 FPS
-          child.castShadow = triCount < 800_000;
-          child.receiveShadow = true;
-          child.frustumCulled = true;
-          child.matrixAutoUpdate = false;
-          child.updateMatrix();
-          applyShadingToMesh(child, isTextureShadingComparison ? 'clay' : shadingModeRef.current, isTextureShadingComparison ? false : Boolean(showWireframeRef.current));
-        }
-      });
-      if (modelGroupRef.current) {
-        comparisonBeforeGroupRef.current.rotation.copy(modelGroupRef.current.rotation);
-      }
-      comparisonBeforeGroupRef.current.add(original);
-      comparisonBeforeGroupRef.current.visible = true;
-      setIsComparisonLoading(false);
-      invalidateRenderRef.current();
-    };
-
-    if (comparisonBeforeFormat === 'glb' || comparisonBeforeFormat === 'gltf') {
-      void loadGLBWithProgress(comparisonBeforeUrl, undefined, abortController.signal)
-        .then((buffer) => {
-          if (isCancelled || abortController.signal.aborted) return;
-          const basePath = comparisonBeforeUrl.startsWith('blob:') || comparisonBeforeUrl.startsWith('data:')
-            ? ''
-            : new URL('.', new URL(comparisonBeforeUrl, window.location.href)).href;
-          sharedGLTFLoader.parse(
-            buffer,
-            basePath,
-            (gltf) => handleComparisonLoaded(gltf.scene || gltf.scenes?.[0] || new THREE.Group()),
-            failComparisonLoad,
-          );
-        })
-        .catch(failComparisonLoad);
-    } else if (comparisonBeforeFormat === 'obj') {
-      sharedOBJLoader.load(comparisonBeforeUrl, handleComparisonLoaded, undefined, failComparisonLoad);
-    } else if (comparisonBeforeFormat === 'fbx') {
-      sharedFBXLoader.load(comparisonBeforeUrl, handleComparisonLoaded, undefined, failComparisonLoad);
-    } else if (comparisonBeforeFormat === 'stl') {
-      sharedSTLLoader.load(
-        comparisonBeforeUrl,
-        (geometry) => {
-          geometry.computeVertexNormals();
-          handleComparisonLoaded(new THREE.Mesh(
-            geometry,
-            new THREE.MeshStandardMaterial({ color: 0xc8cdd5, roughness: 0.6 }),
-          ));
-        },
-        undefined,
-        failComparisonLoad,
-      );
-    } else if (comparisonBeforeFormat === 'ply') {
-      sharedPLYLoader.load(
-        comparisonBeforeUrl,
-        (geometry) => {
-          geometry.computeVertexNormals();
-          handleComparisonLoaded(new THREE.Mesh(
-            geometry,
-            new THREE.MeshStandardMaterial({ color: 0xc8cdd5, roughness: 0.6 }),
-          ));
-        },
-        undefined,
-        failComparisonLoad,
-      );
-    } else {
-      failComparisonLoad(new Error('Unsupported comparison format: ' + comparisonBeforeFormat));
-    }
-
-    return () => {
-      isCancelled = true;
-      abortController.abort();
-    };
-  }, [isComparing, canCompareModels, comparisonBeforeUrl, comparisonBeforeFormat, isTextureShadingComparison, setIsComparing, applyShadingToMesh]);
 
   useEffect(() => {
     const selectionState = useViewerStore.getState();
@@ -1681,28 +1391,10 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     };
   }, []);
 
-  const updateComparisonPosition = (clientX: number) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect || rect.width <= 0) return;
-    const next = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
-    comparisonPositionRef.current = next;
-    invalidateRenderRef.current();
-    if (comparisonDividerRef.current) comparisonDividerRef.current.style.left = `${next}%`;
-    comparisonHandleRef.current?.setAttribute('aria-valuenow', String(Math.round(next)));
-    comparisonHandleRef.current?.setAttribute('aria-valuetext', `${Math.round(next)} percent before`);
-  };
-
-  const moveComparisonBy = (delta: number) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const next = Math.max(0, Math.min(100, comparisonPositionRef.current + delta));
-    updateComparisonPosition(rect.left + (rect.width * next) / 100);
-  };
-
   // Single source of truth for the viewport UI shell: one mutually exclusive
   // status replaces the previously overlapping JSX conditions (empty, loading,
-  // executing, comparing, or error).
-  type ViewportUIStatus = 'idle' | 'empty' | 'loading' | 'executing' | 'comparing' | 'error';
+  // executing, or error).
+  type ViewportUIStatus = 'idle' | 'empty' | 'loading' | 'executing' | 'error';
   const viewportStatus: ViewportUIStatus = loadError
     ? 'error'
     : isExecuting
@@ -1711,9 +1403,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         ? 'loading'
         : !hasModel
           ? 'empty'
-          : isComparing && canCompareModels
-            ? 'comparing'
-            : 'idle';
+          : 'idle';
 
   return (
     <div
@@ -1795,71 +1485,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           <p className="text-[10px] text-white font-mono mt-1 text-center">
             {Math.round(executionProgress)}%
           </p>
-        </div>
-      )}
-
-      {viewportStatus === 'comparing' && (
-        <div className="absolute inset-0 z-10 pointer-events-none">
-          <div className="absolute bottom-20 left-3 px-2 py-1 rounded bg-black/75 border border-white/15 text-[10px] font-semibold uppercase tracking-wider text-white shadow">
-            {isTextureShadingComparison ? 'Before · Clay' : activeTool === 'remesh' ? 'Before · Original' : activeTool === 'uv' ? 'Before UV' : activeTool === 'segment' ? 'Before · Original' : 'Before'}
-          </div>
-          <div className="absolute bottom-20 right-3 px-2 py-1 rounded bg-black/75 border border-white/15 text-[10px] font-semibold uppercase tracking-wider text-white shadow">
-            {isTextureShadingComparison ? 'After · Textured' : activeTool === 'remesh' ? 'After · Remeshed' : activeTool === 'uv' ? 'After UV' : activeTool === 'segment' ? 'After · Segmented' : 'After'}
-          </div>
-          <div
-            ref={comparisonDividerRef}
-            className="absolute top-0 bottom-0"
-            style={{ left: `${comparisonPositionRef.current}%`, transform: 'translateX(-50%)' }}
-          >
-            <div className="absolute inset-y-0 left-0 w-px -translate-x-1/2 bg-[hsl(var(--primary))] shadow-[0_0_8px_hsl(var(--primary)/0.6)]" />
-            <div
-              ref={comparisonHandleRef}
-              role="slider"
-              tabIndex={0}
-              aria-label={isTextureShadingComparison ? 'Clay and textured comparison split' : 'Before and after comparison split'}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={Math.round(comparisonPositionRef.current)}
-              aria-valuetext={`${Math.round(comparisonPositionRef.current)} percent before`}
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.currentTarget.setPointerCapture(event.pointerId);
-                updateComparisonPosition(event.clientX);
-              }}
-              onPointerMove={(event) => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) updateComparisonPosition(event.clientX);
-              }}
-              onPointerUp={(event) => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
-                  event.preventDefault();
-                  moveComparisonBy(-1);
-                } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
-                  event.preventDefault();
-                  moveComparisonBy(1);
-                } else if (event.key === 'Home') {
-                  event.preventDefault();
-                  updateComparisonPosition(containerRef.current?.getBoundingClientRect().left ?? 0);
-                } else if (event.key === 'End') {
-                  event.preventDefault();
-                  updateComparisonPosition(containerRef.current?.getBoundingClientRect().right ?? 0);
-                }
-              }}
-              className="pointer-events-auto absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-10 rounded-md bg-[hsl(var(--surface-1))]/95 border border-[hsl(var(--primary))] shadow-lg flex items-center justify-center cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))]"
-            >
-              <span className="flex items-center gap-0.5 text-[hsl(var(--primary))]">
-                <span className="w-0.5 h-3 rounded-full bg-current" />
-                <span className="w-0.5 h-3 rounded-full bg-current" />
-              </span>
-            </div>
-          </div>
-          {isComparisonLoading && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg bg-black/70 border border-white/10 text-[10px] text-zinc-200">
-              Loading original mesh…
-            </div>
-          )}
         </div>
       )}
 
