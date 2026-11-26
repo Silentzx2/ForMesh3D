@@ -46,7 +46,55 @@ def apply_patch(gpu_id: Optional[int] = None) -> None:
     register_qwen3_if_missing()
     _patch_dataloader_num_workers()
     _patch_vocab_logits_processor()
+    _patch_tokenrig_generate(gpu_id=gpu_id)
     _patch_attention_and_precision(gpu_id=gpu_id)
+
+
+def _patch_tokenrig_generate(gpu_id: Optional[int] = None) -> None:
+    """Guard TokenRig.generate against T4 bfloat16 NaN and multinomial beam-search asserts."""
+    if torch is None:
+        return
+    try:
+        from src.model.tokenrig import TokenRig
+    except ImportError:
+        return
+    if getattr(TokenRig, "_skintokens_gen_patched", False):
+        return
+
+    is_pre_ampere = GPUDoctor().inspect_gpu(gpu_id).is_pre_ampere
+    orig_generate = TokenRig.generate
+
+    def _safe_generate(self: Any, *args: Any, **kwargs: Any) -> Any:
+        if is_pre_ampere and not getattr(self, "_skintokens_fp32_cast", False):
+            # Avoid bfloat16 emulation NaN/overflow on sm < 80 (T4) during long beam search.
+            self.float()
+            self._skintokens_fp32_cast = True
+
+        orig_multinomial = torch.multinomial
+
+        def _safe_multinomial(input_probs: Any, num_samples: int, replacement: bool = False, **m_kw: Any) -> Any:
+            p = torch.nan_to_num(input_probs.float(), nan=0.0, posinf=1.0, neginf=0.0).clamp(min=0.0)
+            row_sums = p.sum(dim=-1, keepdim=True)
+            zero_rows = row_sums <= 0
+            if zero_rows.any():
+                p = torch.where(zero_rows, torch.ones_like(p), p)
+            if not replacement:
+                min_nonzero = int((p > 0).sum(dim=-1).min().item())
+                if min_nonzero < num_samples:
+                    replacement = True
+            return orig_multinomial(p, num_samples, replacement=replacement, **m_kw)
+
+        torch.multinomial = _safe_multinomial  # type: ignore[assignment]
+        try:
+            if is_pre_ampere:
+                with torch.amp.autocast("cuda", enabled=False):
+                    return orig_generate.__wrapped__(self, *args, **kwargs) if hasattr(orig_generate, "__wrapped__") else orig_generate(self, *args, **kwargs)
+            return orig_generate(self, *args, **kwargs)
+        finally:
+            torch.multinomial = orig_multinomial
+
+    TokenRig.generate = _safe_generate  # type: ignore[method-assign]
+    TokenRig._skintokens_gen_patched = True  # type: ignore[attr-defined]
 
 
 def _patch_vocab_logits_processor() -> None:
