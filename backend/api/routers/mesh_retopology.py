@@ -73,7 +73,7 @@ class MeshRetopologyRequest(BaseModel):
     poly_type: Optional[str] = Field(
         "quad", description="Specification of the polygon type (quad or tri)"
     )
-    output_format: str = Field("glb", description="Output format for retopologized mesh")
+    output_format: str = Field("obj", description="Output format for retopologized mesh")
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")
     model_preference: str = Field(
         "triflow_retopology",
@@ -87,7 +87,7 @@ class MeshRetopologyRequest(BaseModel):
     @field_validator("output_format")
     @classmethod
     def validate_output_format(cls, v):
-        allowed_formats = ["obj", "glb", "ply"]
+        allowed_formats = ["obj", "fbx", "glb", "ply"]
         if v not in allowed_formats:
             raise ValueError(f"Output format must be one of: {allowed_formats}")
         return v
@@ -313,7 +313,7 @@ async def get_supported_formats():
     """
     return {
         "input_formats": ["obj", "glb", "ply", "stl"],
-        "output_formats": ["obj", "glb", "ply"],
+        "output_formats": ["obj", "fbx", "glb", "ply"],
     }
 
 

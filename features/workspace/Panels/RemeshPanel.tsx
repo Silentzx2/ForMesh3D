@@ -278,9 +278,7 @@ export const RemeshPanel: React.FC = () => {
   const [featureAngle, setFeatureAngle] = useState<30 | 45 | 60>(45);
   const [adaptiveDensity, setAdaptiveDensity] = useState(true);
   const [watertightHealing, setWatertightHealing] = useState(true);
-  const [outputFormat, setOutputFormat] = useState<'glb' | 'obj'>(
-    (remeshSettings.polyType || 'quad') === 'quad' ? 'obj' : 'glb'
-  );
+  const [outputFormat, setOutputFormat] = useState<'obj' | 'fbx'>('obj');
 
   // Debounce ref for smooth non-blocking slider interaction
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -681,10 +679,7 @@ export const RemeshPanel: React.FC = () => {
             <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
               <button
                 type="button"
-                onClick={() => {
-                  setPolyType('quad');
-                  setOutputFormat('obj');
-                }}
+                onClick={() => setPolyType('quad')}
                 className={`h-8 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                   polyType === 'quad'
                     ? 'bg-white text-black shadow-sm font-extrabold'
@@ -695,10 +690,7 @@ export const RemeshPanel: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setPolyType('tri');
-                  setOutputFormat('glb');
-                }}
+                onClick={() => setPolyType('tri')}
                 className={`h-8 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                   polyType === 'tri'
                     ? 'bg-white text-black shadow-sm font-extrabold'
@@ -950,7 +942,7 @@ export const RemeshPanel: React.FC = () => {
             <div className="space-y-1.5 pt-2 border-t border-white/[0.06]">
               <span className="text-xs text-zinc-300 font-medium block">Export Format</span>
               <div className="grid grid-cols-2 gap-1.5 p-0.5 rounded-xl bg-black/30 border border-white/[0.06]">
-                {(['glb', 'obj'] as const).map((fmt) => (
+                {(['obj', 'fbx'] as const).map((fmt) => (
                   <button
                     key={fmt}
                     type="button"

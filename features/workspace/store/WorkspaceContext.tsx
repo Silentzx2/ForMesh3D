@@ -2444,7 +2444,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
       // AI Mode Execution
       const body: Record<string, unknown> = {
-        output_format: customSettings?.outputFormat || (polyType === 'quad' ? 'obj' : 'glb'),
+        output_format: customSettings?.outputFormat || 'obj',
         model_preference: 'triflow_retopology',
         target_polycount: targetPoly,
         face_count: targetPoly,

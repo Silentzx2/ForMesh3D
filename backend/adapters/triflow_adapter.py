@@ -219,14 +219,7 @@ class TriFlowRetopologyAdapter(BaseModel):
 
         watertight = bool(inputs.get("watertight") or inputs.get("watertightHealing", False))
         adaptive = bool(inputs.get("adaptive") if "adaptive" in inputs else inputs.get("adaptiveDensity", True))
-        default_format = "obj" if poly_type == "quad" else "glb"
-        output_format = str(inputs.get("output_format") or default_format).lower().lstrip(".")
-        if poly_type == "quad" and quad_ratio > 0.0 and output_format in ("glb", "gltf"):
-            logger.info(
-                "[TRIFLOW] Quad topology requested; exporting .obj instead of .%s (glTF/GLB only supports triangles).",
-                output_format,
-            )
-            output_format = "obj"
+        output_format = str(inputs.get("output_format") or "obj").lower().lstrip(".")
 
         repo_root = Path(__file__).resolve().parents[2]
         triflow_root = _setup_triflow_sys_paths(repo_root)
@@ -532,6 +525,35 @@ class TriFlowRetopologyAdapter(BaseModel):
             lines.append("f " + " ".join(str(idx + 1) for idx in face) + "\n")
         out_path.write_text("".join(lines), encoding="utf-8")
 
+    @staticmethod
+    def _convert_obj_to_fbx(obj_path: Path, fbx_path: Path) -> None:
+        """Convert an OBJ (preserving quads/ngons) to FBX via bpy or Blender."""
+        import importlib.util
+        import subprocess
+        from pipelines.mesh_utils import find_blender_binary
+
+        snippet = (
+            "import bpy, sys\n"
+            "src, dst = sys.argv[-2], sys.argv[-1]\n"
+            "bpy.ops.wm.read_factory_settings(use_empty=True)\n"
+            "if hasattr(bpy.ops.wm, 'obj_import'):\n"
+            "    bpy.ops.wm.obj_import(filepath=src)\n"
+            "else:\n"
+            "    bpy.ops.import_scene.obj(filepath=src)\n"
+            "bpy.ops.export_scene.fbx(filepath=dst, use_selection=False, mesh_smooth_type='FACE')\n"
+        )
+        if importlib.util.find_spec("bpy") is not None:
+            cmd = [sys.executable, "-c", snippet, str(obj_path), str(fbx_path)]
+        else:
+            blender_bin = find_blender_binary()
+            if not blender_bin:
+                raise RuntimeError("FBX export requires bpy or Blender installed")
+            cmd = [blender_bin, "-b", "--python-expr", snippet, "--", str(obj_path), str(fbx_path)]
+
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        if proc.returncode != 0 or not fbx_path.is_file():
+            raise RuntimeError(f"FBX export failed: {proc.stderr.strip() or proc.stdout.strip()}")
+
     def _export_triflow_output(
         self,
         mesh: trimesh.Trimesh,
@@ -553,6 +575,10 @@ class TriFlowRetopologyAdapter(BaseModel):
             stats["quad_ratio"] = actual_quad_ratio
             if output_format == "obj":
                 self._write_quad_obj(mesh, mixed_faces, out_file)
+            elif output_format == "fbx":
+                quad_obj_path = out_file.with_suffix(".obj")
+                self._write_quad_obj(mesh, mixed_faces, quad_obj_path)
+                self._convert_obj_to_fbx(quad_obj_path, out_file)
             else:
                 # glTF/GLB only supports triangles; export GLB for viewport + sibling .obj for true quads.
                 export_mesh_safe(mesh, out_file)
@@ -560,7 +586,15 @@ class TriFlowRetopologyAdapter(BaseModel):
                 self._write_quad_obj(mesh, mixed_faces, quad_obj_path)
             return stats, actual_quad_ratio, quad_obj_path
 
-        export_mesh_safe(mesh, out_file)
+        if output_format == "fbx":
+            tmp_obj = out_file.with_suffix(".obj")
+            export_mesh_safe(mesh, tmp_obj, file_type="obj")
+            try:
+                self._convert_obj_to_fbx(tmp_obj, out_file)
+            finally:
+                tmp_obj.unlink(missing_ok=True)
+        else:
+            export_mesh_safe(mesh, out_file, file_type=output_format)
         stats["quad_count"] = 0
         stats["tri_count"] = int(len(mesh.faces))
         stats["topology"] = "Triangle"
@@ -569,7 +603,7 @@ class TriFlowRetopologyAdapter(BaseModel):
 
     def get_supported_formats(self) -> Dict[str, list[str]]:
         """Return supported input and output mesh formats."""
-        return {"input": ["obj", "glb", "ply", "stl"], "output": ["obj", "glb", "ply"]}
+        return {"input": ["obj", "glb", "ply", "stl"], "output": ["obj", "fbx", "glb", "ply"]}
 
     def get_parameter_schema(self) -> Dict[str, Any]:
         """Return the JSON schema for TriFlow retopology parameters."""
@@ -620,8 +654,8 @@ class TriFlowRetopologyAdapter(BaseModel):
                 "output_format": {
                     "type": "string",
                     "description": "Output file format",
-                    "default": "glb",
-                    "enum": ["glb", "obj"],
+                    "default": "obj",
+                    "enum": ["obj", "fbx", "glb", "ply"],
                     "required": False,
                 },
             }
