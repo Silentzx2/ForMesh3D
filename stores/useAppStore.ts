@@ -65,6 +65,10 @@ export interface AppState {
   clonedJobId: string | null;
   setClonedJobId: (id: string | null) => void;
   assetCollections: string[];
+  assetCollectionAssignments: Record<string, string>;
+  assetFavorites: Record<string, boolean>;
+  setAssetFavorite: (assetId: string, isFavorite: boolean) => void;
+  setAssetCollectionAssignment: (assetId: string, collection: string | null) => void;
   addAssetCollection: (name: string) => void;
   removeAssetCollection: (name: string) => void;
 
@@ -279,6 +283,8 @@ const DEFAULT_STATE: AppStateData = {
   isCommandPaletteOpen: false,
   clonedJobId: null,
   assetCollections: ['Characters', 'Props', 'Environments'],
+  assetCollectionAssignments: {},
+  assetFavorites: {},
 
   tasks: {},
   downloads: {},
@@ -471,6 +477,15 @@ export const useAppStore = create<AppState>()(
       setCommandPaletteOpen: (isCommandPaletteOpen) => set({ isCommandPaletteOpen }),
       toggleCommandPalette: () => set((s) => ({ isCommandPaletteOpen: !s.isCommandPaletteOpen })),
       setClonedJobId: (clonedJobId) => set({ clonedJobId }),
+      setAssetFavorite: (assetId, isFavorite) =>
+        set((s) => ({ assetFavorites: { ...s.assetFavorites, [assetId]: isFavorite } })),
+      setAssetCollectionAssignment: (assetId, collection) =>
+        set((s) => {
+          const assignments = { ...s.assetCollectionAssignments };
+          if (collection) assignments[assetId] = collection;
+          else delete assignments[assetId];
+          return { assetCollectionAssignments: assignments };
+        }),
       addAssetCollection: (name) =>
         set((s) => {
           const trimmed = name.trim();
@@ -480,6 +495,7 @@ export const useAppStore = create<AppState>()(
       removeAssetCollection: (name) =>
         set((s) => ({
           assetCollections: s.assetCollections.filter((c) => c !== name),
+          assetCollectionAssignments: Object.fromEntries(Object.entries(s.assetCollectionAssignments).filter(([, collection]) => collection !== name)),
         })),
 
       // ── Task Actions ──
@@ -670,6 +686,9 @@ export const useAppStore = create<AppState>()(
         creativeLayoutMode: state.creativeLayoutMode,
         capabilities: state.capabilities,
         rightPanelSections: state.rightPanelSections,
+        assetCollections: state.assetCollections,
+        assetCollectionAssignments: state.assetCollectionAssignments,
+        assetFavorites: state.assetFavorites,
         // Tasks
         tasks: state.tasks,
         // Downloads
@@ -699,6 +718,13 @@ export const useAppStore = create<AppState>()(
             Object.entries({ ...defaults.rightPanelSections, ...(p.rightPanelSections as Record<string, boolean> ?? {}) })
               .filter(([sectionId]) => sectionId !== 'modelComparison')
           ),
+          assetCollections: Array.isArray(p.assetCollections) ? p.assetCollections as string[] : defaults.assetCollections,
+          assetCollectionAssignments: p.assetCollectionAssignments && typeof p.assetCollectionAssignments === 'object'
+            ? p.assetCollectionAssignments as Record<string, string>
+            : {},
+          assetFavorites: p.assetFavorites && typeof p.assetFavorites === 'object'
+            ? p.assetFavorites as Record<string, boolean>
+            : {},
           tasks: (p.tasks as Record<string, unknown>) ?? {},
           downloads: (p.downloads as Record<string, unknown>) ?? {},
           installProgress: (p.installProgress as Record<string, unknown>) ?? {},

@@ -1,4 +1,6 @@
 import logging
+import shutil
+import tempfile
 import time
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -153,37 +155,87 @@ class BaseModel(ABC):
             logger.error(f"[GPU UNLOAD FAILED] model={self.model_id}: {e}", exc_info=True)
             raise Exception(f"Failed to unload model {self.model_id}: {str(e)}")
 
+    def _create_temporary_output_dir(self, model_prefix: str) -> Path:
+        """Create a tracked, adapter-owned directory in the system temp root."""
+        safe_prefix = "".join(
+            char for char in str(model_prefix).lower()
+            if char.isalnum() or char in {"_", "-"}
+        ).strip("_-")
+        if not safe_prefix:
+            raise ValueError("A non-empty temporary output prefix is required")
+        directory = Path(tempfile.mkdtemp(prefix=f"formesh3d_{safe_prefix}_")).resolve()
+        active = getattr(self, "_active_temporary_output_dirs", None)
+        if active is None:
+            active = []
+            self._active_temporary_output_dirs = active
+        active.append(directory)
+        return directory
+
+    def _cleanup_active_temporary_output_dirs(self) -> None:
+        """Delete only tracked Formesh3D temp directories created by this adapter call."""
+        directories = list(getattr(self, "_active_temporary_output_dirs", []) or [])
+        self._active_temporary_output_dirs = []
+        temp_root = Path(tempfile.gettempdir()).resolve()
+        for directory in directories:
+            try:
+                candidate = Path(directory)
+                if candidate.is_symlink():
+                    logger.warning("Refusing to clean symlinked adapter output: %s", candidate)
+                    continue
+                resolved = candidate.resolve(strict=True)
+                if (
+                    not resolved.is_dir()
+                    or resolved.parent != temp_root
+                    or not resolved.name.startswith("formesh3d_")
+                ):
+                    logger.warning("Refusing to clean untrusted adapter output directory: %s", directory)
+                    continue
+                shutil.rmtree(resolved)
+            except FileNotFoundError:
+                continue
+            except Exception:
+                logger.warning("Could not clean adapter output directory %s", directory, exc_info=True)
+
     def process(self, inputs: Dict[str, Any], progress_callback: Optional[Callable[[str, float, str], None]] = None) -> Dict[str, Any]:
-        """Process input and return results"""
-        if self.status in [ModelStatus.UNLOADED, ModelStatus.LOADING]:
+        """Process one request and hand successful temporary outputs to the scheduler."""
+        if self.status != ModelStatus.LOADED:
             raise Exception(
-                f"Model {self.model_id} is not loaded, its status {self.status}"
+                f"Model {self.model_id} is not ready for processing, its status is {self.status}"
             )
 
         start_time = time.time()
         succeeded = False
+        self._active_temporary_output_dirs = []
         logger.info(
             f"[MODEL INFERENCE START] model={self.model_id} "
             f"gpu={self.gpu_id if self.gpu_id is not None else 'cpu'}"
         )
         try:
             self.status = ModelStatus.PROCESSING
-            # Pass progress_callback through inputs for adapters that support it
             if progress_callback:
                 inputs = {**inputs, "progress_callback": progress_callback}
             result = self._process_request(inputs)
-            # Adapters may catch their own exceptions and return an error dict
-            # instead of raising. Respect that contract: a "success": False
-            # result is a real failure, not a success.
+
             if isinstance(result, dict) and result.get("success") is False:
                 elapsed = time.time() - start_time
                 error_msg = result.get("error", "Adapter returned failure without exception")
                 self.status = ModelStatus.ERROR
+                self._cleanup_active_temporary_output_dirs()
                 logger.error(
                     f"[MODEL INFERENCE FAILED] model={self.model_id} "
                     f"elapsed={elapsed:.2f}s error={error_msg}"
                 )
                 return result
+
+            if not isinstance(result, dict):
+                self._cleanup_active_temporary_output_dirs()
+                raise TypeError(f"Adapter {self.model_id} returned a non-dictionary result")
+
+            directories = list(getattr(self, "_active_temporary_output_dirs", []) or [])
+            self._active_temporary_output_dirs = []
+            if directories:
+                result["_temporary_output_dirs"] = [str(path) for path in directories]
+
             elapsed = time.time() - start_time
             memory = ""
             if self.gpu_id is not None and torch is not None and torch.cuda.is_available():
@@ -199,12 +251,12 @@ class BaseModel(ABC):
             )
             succeeded = True
             return result
-        except Exception as e:
+        except Exception:
+            self._cleanup_active_temporary_output_dirs()
             self.status = ModelStatus.ERROR
-            logger.error(f"[MODEL INFERENCE FAILED] model={self.model_id}: {e}", exc_info=True)
+            logger.exception("[MODEL INFERENCE FAILED] model=%s", self.model_id)
             raise
         finally:
-            # Only successful requests restore readiness; failures remain visible.
             if succeeded:
                 self.status = ModelStatus.LOADED
 

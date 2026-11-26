@@ -69,6 +69,11 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
         # which only has backend/ on sys.path. Model-specific source path setup
         # per TASKS.md §3.3 — not a global patch, not in loader.py.
         _hunyuan2_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "hunyuan3d-2")
+        if not (Path(_hunyuan2_root) / "hy3dgen").is_dir():
+            raise FileNotFoundError(
+                f"Vendored Hunyuan3D-2 source missing at {_hunyuan2_root}; "
+                "run 'git submodule update --init --recursive' (or 'bash scripts/setup.sh --with-thirdparty')."
+            )
         if _hunyuan2_root not in sys.path:
             sys.path.insert(0, _hunyuan2_root)
         from hy3dgen.shapegen.pipelines import Hunyuan3DDiTFlowMatchingPipeline
@@ -128,6 +133,10 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
             return {"success": False, "error": f"image not found: {image_path}"}
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
+        num_inference_steps = int(inputs["num_inference_steps"])
+        guidance_scale = float(inputs["guidance_scale"])
+        octree_resolution = int(inputs["octree_resolution"])
+        num_chunks = int(inputs["num_chunks"])
 
         # Native polycount target: passed through from the generation request.
         native_target_polycount = int(
@@ -155,10 +164,10 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
         with ctx:
             outputs = pipeline(
                 image=image_path,
-                num_inference_steps=20,
-                guidance_scale=5.0,
-                octree_resolution=380,
-                num_chunks=20000,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=guidance_scale,
+                octree_resolution=octree_resolution,
+                num_chunks=num_chunks,
                 output_type="trimesh",
                 generator=generator,
             )
@@ -175,7 +184,8 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
 
         import tempfile
 
-        out = Path(tempfile.mkdtemp()) / f"hunyuan3d_mini_{seed}.glb"
+        out_dir = self._create_temporary_output_dir("hunyuan3d_mini")
+        out = out_dir / f"hunyuan3d_mini_{seed}.glb"
         mesh.export(str(out))
 
         return {
@@ -186,10 +196,10 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
             "actual_vertex_count": len(mesh.vertices),
             "generation_info": {
                 "seed": seed,
-                "num_inference_steps": 20,
-                "guidance_scale": 5.0,
-                "octree_resolution": 380,
-                "num_chunks": 20000,
+                "num_inference_steps": num_inference_steps,
+                "guidance_scale": guidance_scale,
+                "octree_resolution": octree_resolution,
+                "num_chunks": num_chunks,
                 "native_target_polycount": native_target_polycount or None,
                 "remesh_option": remesh_option,
             },

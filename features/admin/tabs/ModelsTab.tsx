@@ -23,10 +23,21 @@ import { getApiClient } from '@/services/apiClient';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
-import { CANONICAL_MODELS, ModelDefinition } from '@/constants/models';
+interface AdminModelItem {
+  id: string;
+  name: string;
+  feature: string;
+  featureLabel: string;
+  vramMb: number;
+  supportedInputs: string[];
+  supportedOutputs: string[];
+  modelPath: string;
+  status: string;
+  description: string;
+}
 
 export function ModelsTab() {
-  const [models, setModels] = useState<ModelDefinition[]>(CANONICAL_MODELS);
+  const [models, setModels] = useState<AdminModelItem[]>([]);
   const [search, setSearch] = useState('');
   const [featureFilter, setFeatureFilter] = useState('all');
   const [loading, setLoading] = useState(false);
@@ -41,11 +52,25 @@ export function ModelsTab() {
       if (res && res.available_models) {
         setBackendFeatures(res.available_models);
       }
-      if ((res as any)?.model_details) {
-        setBackendModelDetails((res as any).model_details);
+      const details = (res as any)?.model_details;
+      if (details && typeof details === 'object') {
+        setBackendModelDetails(details);
+        const list: AdminModelItem[] = Object.values(details).map((d: any) => ({
+          id: String(d.id || ''),
+          name: String(d.name || d.ui_label || d.model_name || d.id || ''),
+          feature: String(d.feature || 'unknown'),
+          featureLabel: String(d.feature || 'unknown').replace(/_/g, ' '),
+          vramMb: Number(d.vram_requirement || 0),
+          supportedInputs: Array.isArray(d.supported_inputs) ? d.supported_inputs : [],
+          supportedOutputs: Array.isArray(d.supported_outputs) ? d.supported_outputs : [],
+          modelPath: String(d.model_path || ''),
+          status: String(d.status || 'available'),
+          description: String(d.description || d.ui_note || d.label || d.ui_tag || ''),
+        }));
+        setModels(list);
       }
     } catch {
-      // Backend status is optional, canonical catalog acts as source of truth
+      toast.error('Failed to load models from backend YAML registry');
     } finally {
       setLoading(false);
     }
@@ -186,7 +211,7 @@ export function ModelsTab() {
               <div className="space-y-2 pt-2 border-t border-[hsl(var(--border)/0.5)] text-xs">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">VRAM Requirement</span>
-                  <span className="font-mono text-foreground font-semibold">{(m.vramMb / 1024).toFixed(1)} GB</span>
+                  <span className="font-mono text-foreground font-semibold">{m.vramMb ? `${Math.round(m.vramMb / 1024)} GB` : 'CPU Only'}</span>
                 </div>
 
                 <div className="flex items-center justify-between">

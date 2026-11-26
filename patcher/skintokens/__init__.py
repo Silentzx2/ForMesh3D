@@ -34,6 +34,7 @@ except ImportError:  # pragma: no cover
     torch = None
 
 from patcher.doctor import GPUDoctor
+from patcher.skintokens.qwen3_compat import register_qwen3_if_missing
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,95 @@ def apply_patch(gpu_id: Optional[int] = None) -> None:
     """Apply SkinTokens pre-Ampere and import compatibility patches."""
     _inject_michelangelo_models_stub()
     _shim_gradio_if_missing()
+    register_qwen3_if_missing()
+    _patch_dataloader_num_workers()
+    _patch_vocab_logits_processor()
+    _patch_tokenrig_generate(gpu_id=gpu_id)
     _patch_attention_and_precision(gpu_id=gpu_id)
+
+
+def _patch_tokenrig_generate(gpu_id: Optional[int] = None) -> None:
+    """Fix T4 bfloat16 precision and transformers 4.44 beam_search+do_sample EOS invariant."""
+    if torch is None:
+        return
+    try:
+        from src.model.tokenrig import TokenRig
+    except ImportError:
+        return
+    if getattr(TokenRig, "_skintokens_gen_patched", False):
+        return
+
+    is_pre_ampere = GPUDoctor().inspect_gpu(gpu_id).is_pre_ampere
+    orig_generate = TokenRig.generate
+
+    def _safe_generate(self: Any, *args: Any, **kwargs: Any) -> Any:
+        if is_pre_ampere and not getattr(self, "_skintokens_fp32_cast", False):
+            # Avoid bfloat16 emulation NaN/overflow on sm < 80 (T4) during long beam search.
+            self.float()
+            self._skintokens_fp32_cast = True
+
+        # In transformers==4.44, beam_search + do_sample=True uses multinomial over
+        # (num_beams * vocab), which fails BeamSearchScorer's n_eos <= num_beams check
+        # when VocabSwitchingLogitsProcessor masks all tokens except eos_token_id.
+        if kwargs.get("num_beams", 1) > 1 and kwargs.get("do_sample", False):
+            kwargs["do_sample"] = False
+            for k in ("top_k", "top_p", "temperature"):
+                kwargs.pop(k, None)
+
+        if is_pre_ampere:
+            with torch.amp.autocast("cuda", enabled=False):
+                return orig_generate.__wrapped__(self, *args, **kwargs) if hasattr(orig_generate, "__wrapped__") else orig_generate(self, *args, **kwargs)
+        return orig_generate(self, *args, **kwargs)
+
+    TokenRig.generate = _safe_generate  # type: ignore[method-assign]
+    TokenRig._skintokens_gen_patched = True  # type: ignore[attr-defined]
+
+
+def _patch_vocab_logits_processor() -> None:
+    """Guard VocabSwitchingLogitsProcessor against NaN/inf or all-masked rows during beam search."""
+    if torch is None:
+        return
+    try:
+        from src.model.tokenrig import VocabSwitchingLogitsProcessor
+    except ImportError:
+        return
+    if getattr(VocabSwitchingLogitsProcessor, "_skintokens_logits_patched", False):
+        return
+    orig_call = VocabSwitchingLogitsProcessor.__call__
+
+    def _safe_call(self: Any, input_ids: Any, scores: Any) -> Any:
+        # Clamp NaN/+inf before masking so (+inf) + (-inf) never turns into NaN.
+        scores = torch.nan_to_num(scores.float(), nan=0.0, posinf=1e4, neginf=-1e4)
+        out = orig_call(self, input_ids, scores)
+        for row_idx in range(out.shape[0]):
+            if not torch.isfinite(out[row_idx]).any():
+                out[row_idx, self.eos_token_id] = 0.0
+        return out
+
+    VocabSwitchingLogitsProcessor.__call__ = _safe_call  # type: ignore[method-assign]
+    VocabSwitchingLogitsProcessor._skintokens_logits_patched = True  # type: ignore[attr-defined]
+
+
+def _patch_dataloader_num_workers() -> None:
+    """Force num_workers=0 in SkinTokens DatasetConfig.parse to avoid CUDA IPC pidfd_getfd errors."""
+    try:
+        from src.data.dataset import DatasetConfig
+    except ImportError:
+        return
+    if getattr(DatasetConfig, "_skintokens_nw_patched", False):
+        return
+    orig_parse = DatasetConfig.parse.__func__
+
+    @classmethod
+    def _patched_parse(cls: Any, *args: Any, **kwargs: Any) -> Any:
+        if kwargs.get("num_workers", 0):
+            kwargs["num_workers"] = 0
+            kwargs["persistent_workers"] = False
+            kwargs["pin_memory"] = False
+        return orig_parse(cls, *args, **kwargs)
+
+    DatasetConfig.parse = _patched_parse  # type: ignore[assignment]
+    DatasetConfig._skintokens_nw_patched = True  # type: ignore[attr-defined]
 
 
 def _inject_michelangelo_models_stub() -> None:
@@ -59,7 +148,11 @@ def _inject_michelangelo_models_stub() -> None:
     if torch is None:
         return
 
+    import importlib.util
     import types
+
+    if importlib.util.find_spec("src.model.michelangelo.models.tsal.sal_perceiver") is not None:
+        return
 
     # Only register packages that are actually missing from disk.
     # src, src.model, src.model.michelangelo exist on disk (with __init__.py)
@@ -117,24 +210,34 @@ def bpy_server_popen_args(skintokens_root: str, repo_root: str) -> list[str]:
     """Popen args that launch the bpy_server companion with the Michelangelo
     models stub pre-injected in the subprocess.
 
-    apply_patch() only injects the stub into the calling process's
-    ``sys.modules``. bpy_server.py runs in a fresh interpreter, so without this
-    it crashes with ``ModuleNotFoundError: No module named
-    'src.model.michelangelo.models'`` while importing ``src.server.spec`` and
-    never serves ``/ping``.
-
-    The snippet imports ``src.server.bpy_server`` as a module (so its relative
-    imports resolve) and calls ``run()`` after injecting the stub.
+    Falls back to ``blender -b --python-expr`` when ``bpy`` is not installed
+    in ``sys.executable`` (e.g. Python 3.10 where PyPI ``bpy>=4.2`` is unavailable).
     """
+    import importlib.util
+    import os
+    import shutil
+    import site
+
+    extra_paths = site.getsitepackages() if hasattr(site, "getsitepackages") else []
     snippet = (
         "import sys\n"
+        "for p in {extra_paths!r}:\n"
+        "    if p not in sys.path:\n"
+        "        sys.path.append(p)\n"
         "sys.path.insert(0, {repo_root!r})\n"
         "sys.path.insert(0, {skintokens_root!r})\n"
         "from patcher.skintokens import _inject_michelangelo_models_stub\n"
         "_inject_michelangelo_models_stub()\n"
         "from src.server.bpy_server import run\n"
         "run()\n"
-    ).format(repo_root=repo_root, skintokens_root=skintokens_root)
+    ).format(repo_root=repo_root, skintokens_root=skintokens_root, extra_paths=extra_paths)
+
+    if importlib.util.find_spec("bpy") is not None:
+        return [sys.executable, "-c", snippet]
+
+    blender_bin = os.environ.get("BLENDER_PATH") or shutil.which("blender")
+    if blender_bin:
+        return [blender_bin, "-b", "--python-expr", snippet]
     return [sys.executable, "-c", snippet]
 
 

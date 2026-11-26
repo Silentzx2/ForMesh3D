@@ -25,10 +25,11 @@ import { apiClient } from '../lib/api';
 import { parseWorkspaceRouteIdentity, transitionWorkspaceToolRoute, mintWorkspaceId } from '../lib/workspaceRouteContract';
 import { captureWorkspacePreviewBaseline, createWorkspacePreviewRestorePlan } from '../lib/workspacePreviewSnapshot';
 import { createWorkspaceRegenerationRequest } from '../lib/workspaceRegeneration';
-import { resolveComparisonSourceAssetId } from '../lib/assetComparison';
+import { resolveAssetDeletionTarget } from '../lib/assetDeletion';
 import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
 import { useAppStore } from '@/stores/useAppStore';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
+import { findTaskKeyForBackendJob } from '../lib/taskIdentity';
 import { useTaskManager } from '@/hooks/useTaskManager';
 import { useTaskPolling } from '@/hooks/useTaskPolling';
 import { prefetchGLB } from '../lib/glbCache';
@@ -58,15 +59,10 @@ interface ComparisonGroup {
 }
 
 export type WorkspaceExecutionStatus = 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'interrupted' | 'cancelled';
-export type ComparisonMode = 'off' | 'split_screen';
 
 interface WorkspaceContextType {
   activeTool: ToolType;
   setActiveTool: (tool: ToolType) => void;
-  isComparing: boolean;
-  comparisonMode?: ComparisonMode;
-  setIsComparing: (open: boolean) => void;
-  setComparisonMode?: (mode: ComparisonMode) => void;
   mainNav: MainNavRoute;
   setMainNav: (nav: MainNavRoute) => void;
   assets: ModelAsset[];
@@ -83,6 +79,8 @@ interface WorkspaceContextType {
   setShadingMode: (mode: ShadingMode) => void;
   showWireframe: boolean;
   setShowWireframe: (show: boolean) => void;
+  wireframeMode: 'off' | 'overlay' | 'xray';
+  setWireframeMode: (mode: 'off' | 'overlay' | 'xray') => void;
   showGrid: boolean;
   setShowGrid: (show: boolean) => void;
   showBones: boolean;
@@ -292,21 +290,6 @@ function preferredGenerationPreviewUrl(result?: Record<string, any>): string | u
   return result?.active_model_url || result?.textured_model_url || result?.model_url || result?.mesh_url || result?.url;
 }
 
-function comparisonSourceUrl(asset?: ModelAsset | null): string | undefined {
-  const fileId = asset?.source?.fileId || asset?.fileId;
-  const viewUrl = asset?.source?.viewUrl;
-  if (viewUrl && !viewUrl.startsWith('blob:')) return viewUrl;
-  if (fileId) {
-    const artifactFormat = (asset?.format || 'GLB').toLowerCase();
-    return fileId.startsWith('job-')
-      ? `/api/v1/system/jobs/${encodeURIComponent(fileId.slice(4))}/download?artifact_format=${artifactFormat}`
-      : fileId.startsWith('ast_')
-        ? `/api/v1/system/jobs/${encodeURIComponent(fileId)}/download?artifact_format=${artifactFormat}`
-        : `/api/v1/file-upload/download/${encodeURIComponent(fileId)}`;
-  }
-  return viewUrl || asset?.source?.localUrl;
-}
-
 function preferredPreviewStats(result?: Record<string, any>): Record<string, any> {
   if (!result) return {};
   if (typeof result.actual_face_count === 'number' || typeof result.actual_vertex_count === 'number') {
@@ -400,14 +383,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const pathname = usePathname();
 
   const [activeTool, setActiveToolState] = useState<ToolType>('model');
-  const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('off');
-  const [isComparing, setIsComparingState] = useState(false);
-  const setIsComparing = useCallback((open: boolean) => {
-    setIsComparingState(open);
-    setComparisonMode(open ? 'split_screen' : 'off');
-  }, []);
   const [mainNav, setMainNavState] = useState<MainNavRoute>('workspace');
-  const [activeRightTab, setActiveRightTab] = useState<'assets' | 'property' | 'properties'>('properties');
+  const [activeRightTab, setActiveRightTab] = useState<'assets' | 'property' | 'properties'>('assets');
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [leftPanelWidth, setLeftPanelWidth] = useState(320);
@@ -415,6 +392,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [assetFilter, setAssetFilter] = useState<string>('all');
    const [deletedAssetIds, setDeletedAssetIds] = useState<Set<string>>(() => new Set());
    const batchJobIdMap = useRef<Record<string, string>>({}); // Maps jobId to batchQueueItemId
+   const batchAbortControllerRef = useRef<AbortController | null>(null);
    const batchPollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
    
    // React Query for System Stats
@@ -601,17 +579,17 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         if (normUrl && seenUrls.has(normUrl)) return false;
 
         const assetUuid = extractUuid(a.id) || extractUuid(a.fileId) || extractUuid(a.source?.fileId) || extractUuid(rawUrl);
-        if (assetUuid) {
+        if (assetUuid && !a.isLocalDuplicate) {
           if (seenJobUuids.has(assetUuid)) return false;
           seenJobUuids.add(assetUuid);
         }
-
         const fn = a.source?.filename?.trim();
-        if (fn && fn !== 'model.glb' && seenFilenames.has(fn)) return false;
-
+        const filenameKey = a.workspace_id && fn && fn !== 'model.glb' ? `${a.workspace_id}:${fn.toLowerCase()}` : null;
+        if (!a.isLocalDuplicate && filenameKey && seenFilenames.has(filenameKey)) return false;
+        if (!a.isLocalDuplicate && normUrl && seenUrls.has(normUrl)) return false;
         seenIds.add(a.id);
-        if (fn && fn !== 'model.glb') seenFilenames.add(fn);
-        if (normUrl) seenUrls.add(normUrl);
+        if (!a.isLocalDuplicate && filenameKey) seenFilenames.add(filenameKey);
+        if (!a.isLocalDuplicate && normUrl) seenUrls.add(normUrl);
         return true;
       });
 
@@ -700,12 +678,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setSelectedAssetId(null);
       setActiveMeshAssetId(null);
       setWorkspaceVersions([]);
+      useViewerStore.getState().requestAssetSelection(null);
       useViewerStore.getState().setLoadedModel(null, null, null);
     }
   }, [pathname, setWorkspaceId]);
 
   const [shadingMode, setShadingModeState] = useState<ShadingMode>('textured');
-  const [showWireframe, setShowWireframeState] = useState(false);
+  const [wireframeMode, setWireframeMode] = useState<'off' | 'overlay' | 'xray'>('off');
+  const showWireframe = wireframeMode !== 'off';
   const [showGrid, setShowGridState] = useState(false);
   const [showBones, setShowBonesState] = useState(false);
   const [isTurntable, setIsTurntableState] = useState(autoRotatePreference ?? false);
@@ -734,9 +714,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   const [executionStatus, setExecutionStatus] = useState<WorkspaceExecutionStatus>('idle');
-  const [isExecuting, setIsExecutingState] = useState(false);
+  const isExecuting = executionStatus === 'running';
   const setIsExecuting = useCallback((executing: boolean) => {
-    setIsExecutingState(executing);
     setExecutionStatus(executing ? 'running' : 'idle');
   }, []);
   const [executionProgress, setExecutionProgress] = useState(0);
@@ -745,7 +724,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [jobsById, setJobsById] = useState<Record<string, ActiveTask>>({});
   const [hoveredPartId, setHoveredPartId] = useState<string | null>(null);
   const [activeComparisonGroup, setActiveComparisonGroup] = useState<string | null>(null);
-  const [nextComparisonGroupId, setNextComparisonGroupId] = useState(1);
   const jobsByIdRef = useRef(jobsById);
   jobsByIdRef.current = jobsById;
   const activeTaskRef = useRef<ActiveTask | null>(activeTask);
@@ -819,8 +797,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       exportFormats: ['glb'],
       slicerHandoff: false,
     }));
- 
-   const [comparisonGroupId, setComparisonGroupId] = useState<string | null>(null);
  
    const [remeshSettings, setRemeshSettings] = useState<RemeshSettings>({
     tab: 'auto', polyType: 'quad', targetPolycount: 50000,
@@ -919,13 +895,21 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           : (isUuid ? `local_${asset.id}` : `local_${cleanStem}_${shortHash}`));
     const friendlyName = asset.name ? asset.name.replace(/\.[^/.]+$/, '') : `${cleanStem.charAt(0).toUpperCase() + cleanStem.slice(1)} ${shortHash}`;
     const normalized: ModelAsset = { ...asset, id: finalId, name: friendlyName, sourceType: 'local' as const };
-
-    setLocalAssets(prev => {
-      const idx = prev.findIndex(a =>
-        a.id === normalized.id ||
-        (normalized.source?.filename && a.source?.filename && normalized.source.filename !== 'model.glb' && a.source.filename === normalized.source.filename) ||
-        (normalized.source?.viewUrl && a.source?.viewUrl && a.source.viewUrl === normalized.source.viewUrl)
+    const stripQuery = (u?: string) => (u ? u.split('?')[0] : '');
+    const matchesExistingAsset = (candidate: ModelAsset) => {
+      if (candidate.id === normalized.id) return true;
+      if (normalized.isLocalDuplicate || candidate.isLocalDuplicate) return false;
+      const sameWorkspace = normalized.workspace_id === candidate.workspace_id;
+      const normUrl = stripQuery(normalized.source?.viewUrl);
+      const candUrl = stripQuery(candidate.source?.viewUrl);
+      return sameWorkspace && (
+        (normalized.source?.type === 'mesh' && candidate.source?.type === 'mesh') ||
+        (normalized.source?.filename && candidate.source?.filename && normalized.source.filename !== 'model.glb' && candidate.source.filename === normalized.source.filename) ||
+        (normUrl && candUrl && normUrl === candUrl)
       );
+    };
+    setLocalAssets(prev => {
+      const idx = prev.findIndex(matchesExistingAsset);
       if (idx >= 0) {
         const copy = [...prev];
         copy[idx] = { ...copy[idx], ...normalized };
@@ -934,11 +918,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return [normalized, ...prev];
     });
     setAssets(prev => {
-      const idx = prev.findIndex(a =>
-        a.id === normalized.id ||
-        (normalized.source?.filename && a.source?.filename && normalized.source.filename !== 'model.glb' && a.source.filename === normalized.source.filename) ||
-        (normalized.source?.viewUrl && a.source?.viewUrl && a.source.viewUrl === normalized.source.viewUrl)
-      );
+      const idx = prev.findIndex(matchesExistingAsset);
       if (idx >= 0) {
         const copy = [...prev];
         copy[idx] = { ...copy[idx], ...normalized };
@@ -948,6 +928,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     });
     setSelectedAssetId(finalId);
     setViewportResetTrigger(prev => prev + 1);
+    return finalId;
   }, []);
 
   const loadCompletedJobResult = useCallback(async (jobId: string, rawData: any, promptTitle?: string) => {
@@ -1041,11 +1022,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         ? rawData.assets.find((asset: any) => asset.asset_id === candidateSourceAssetId)
         : undefined;
       // Generation input_asset_id can be an image. Only a retained mesh is a valid wipe predecessor.
-      const sourceAssetId = resolveComparisonSourceAssetId({
-        taskSourceAssetId: matchingTask?.sourceAssetId,
-        operationInputAssetId: candidateSourceAssetId,
-        operationInputFileType: sourceAssetRecord?.file_type,
-      });
+      const sourceAssetId = undefined;
       const sourceFilename = [sourceAssetRecord?.original_filename, sourceAssetRecord?.relative_path]
         .find((filename: string | undefined) => Boolean(filename && /\.[a-z0-9]+$/i.test(filename))) || '';
       const sourceFormat = sourceFilename.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() || 'glb';
@@ -1230,7 +1207,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [pathname, loadCompletedJobResult, setWorkspaceId, addAsset, setActiveMeshAssetId, setPersistenceState]);
 
   useEffect(() => {
-    if (activeTool === 'remesh') setShowWireframeState(true);
+    if (activeTool === 'remesh') setWireframeMode('overlay');
   }, [activeTool]);
 
   const setActiveTool = useCallback((tool: ToolType) => {
@@ -1246,10 +1223,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setViewerShadingMode(shadingModeToPreset(mode));
   }, [setViewerShadingMode]);
 
-  const setShowWireframe = useCallback((show: boolean) => {
-    setShowWireframeState(show);
-    useViewerStore.setState({ wireframeOverlay: show });
+  const setWireframeModeAndSync = useCallback((mode: 'off' | 'overlay' | 'xray') => {
+    setWireframeMode(mode);
+    useViewerStore.setState({ wireframeOverlay: mode !== 'off' });
   }, []);
+
+  const setShowWireframe = useCallback((show: boolean) => {
+    setWireframeModeAndSync(show ? 'overlay' : 'off');
+  }, [setWireframeModeAndSync]);
 
   const setShowGrid = useCallback((show: boolean) => {
     setShowGridState(show);
@@ -1665,20 +1646,48 @@ function dataURLtoFile(dataURL: string, filename: string): File {
   }, [addAsset, setWorkspaceId, setActiveMeshAssetId, setExecutionState, setPersistenceState]);
 
   const selectAsset = useCallback((id: string) => {
+    const target = assetsRef.current.find((asset) => asset.id === id);
     setSelectedAssetId(id);
     setActiveMeshAssetId(id);
-    // Selecting an asset updates only active_mesh_asset_id WITHOUT mutating the URL route
-    // Increment viewport trigger to force MeshViewer reload
     setViewportResetTrigger(prev => prev + 1);
+    const viewer = useViewerStore.getState();
+    if (!target) {
+      viewer.requestAssetSelection(null);
+      viewer.setLoadedModel(null, null, null);
+      return;
+    }
+    if (target.category !== 'texture' && target.format !== 'IMAGE' && target.format !== 'FILE') {
+      const requestId = viewer.requestAssetSelection(target as any);
+      viewer.verifyAsset(requestId);
+      viewer.beginAssetLoad(requestId);
+    } else {
+      viewer.requestAssetSelection(null);
+      viewer.setLoadedModel(null, null, null);
+    }
   }, [setActiveMeshAssetId]);
 
   const setCurrentAsset = useCallback((asset: ModelAsset | null) => {
     if (!asset) {
       setSelectedAssetId(null);
+      setActiveMeshAssetId(null);
+      const viewer = useViewerStore.getState();
+      viewer.requestAssetSelection(null);
+      viewer.setLoadedModel(null, null, null);
       return;
     }
-    addAsset(asset);
-    selectAsset(asset.id);
+    const selectedId = addAsset(asset);
+    setSelectedAssetId(selectedId);
+    setActiveMeshAssetId(selectedId);
+    setViewportResetTrigger(prev => prev + 1);
+    const viewer = useViewerStore.getState();
+    if (asset.category !== 'texture' && asset.format !== 'IMAGE' && asset.format !== 'FILE') {
+      const requestId = viewer.requestAssetSelection({ ...asset, id: selectedId } as any);
+      viewer.verifyAsset(requestId);
+      viewer.beginAssetLoad(requestId);
+    } else {
+      viewer.requestAssetSelection(null);
+      viewer.setLoadedModel(null, null, null);
+    }
 
     // Clicking an asset should open its generate workspace so the user is
     // taken back to /workspace/generate/<workspace_id> from any tab or after
@@ -1699,16 +1708,19 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         }
       }
     }
-  }, [addAsset, selectAsset, router, pathname, setActiveTool, setMainNav, setWorkspaceId]);
+  }, [addAsset, router, pathname, setActiveTool, setMainNav, setWorkspaceId, setActiveMeshAssetId]);
 
   const duplicateAsset = useCallback((id: string) => {
     const existing = assets.find(a => a.id === id);
     if (!existing) return;
-    const dup: ModelAsset = { ...existing, id: `asset-${Date.now()}`, name: `${existing.name}_copy`, dateCreated: new Date().toISOString().split('T')[0] };
+    const dup: ModelAsset = {
+      ...existing, id: `local_dup_${crypto.randomUUID()}`, name: `${existing.name}_copy`,
+      dateCreated: new Date().toISOString().split('T')[0], isLocalDuplicate: true, sourceType: 'local',
+    };
     setLocalAssets(prev => [dup, ...prev]);
     setAssets(prev => [dup, ...prev]);
-    setSelectedAssetId(dup.id);
-  }, [assets]);
+    setCurrentAsset(dup);
+  }, [assets, setCurrentAsset]);
 
   const updateAssetProperties = useCallback((id: string, updates: Partial<ModelAsset>) => {
     setLocalAssets(prev => {
@@ -1744,38 +1756,43 @@ function dataURLtoFile(dataURL: string, filename: string): File {
 
   const deleteAsset = useCallback(async (id: string) => {
     const asset = assets.find(a => a.id === id);
-    if (!asset) return;
-
-    // Immediately mark as deleted locally so UI updates instantly
+    if (!asset) return false;
+    const sourceIdentity = (item: ModelAsset) => item.source?.fileId || item.fileId || item.source?.viewUrl || item.source?.localUrl || null;
+    const identity = sourceIdentity(asset);
+    const hasDuplicateAliases = !asset.isLocalDuplicate && Boolean(identity) && assets.some(
+      (candidate) => candidate.id !== id && candidate.isLocalDuplicate && sourceIdentity(candidate) === identity
+    );
+    if (hasDuplicateAliases) {
+      toast.error('Remove this asset’s local duplicates before deleting its source.');
+      return false;
+    }
+    try {
+      const target = resolveAssetDeletionTarget(asset);
+      if (target.kind === 'job') {
+        const response = await fetch(`/api/v1/system/jobs/${encodeURIComponent(target.id)}`, { method: 'DELETE' });
+        if (!response.ok && response.status !== 404) throw new Error(`Job deletion failed (HTTP ${response.status}).`);
+      } else if (target.kind === 'upload') {
+        const response = await fetch(`/api/v1/file-upload/${encodeURIComponent(target.id)}`, { method: 'DELETE' });
+        if (!response.ok && response.status !== 404) throw new Error(`Upload deletion failed (HTTP ${response.status}).`);
+      }
+    } catch (error) {
+      console.warn('Asset deletion failed:', error);
+      toast.error(error instanceof Error ? error.message : 'Asset could not be deleted.');
+      return false;
+    }
+    const wasActive = id === selectedAssetIdRef.current || id === activeMeshAssetIdRef.current;
     setDeletedAssetIds(prev => new Set(prev).add(id));
     setLocalAssets(prev => prev.filter(a => a.id !== id));
-    setAssets(prev => {
-      const next = prev.filter(a => a.id !== id);
-      if (id === selectedAssetIdRef.current) {
-        setSelectedAssetId(next.length > 0 ? next[0].id : null);
-      }
-      return next;
-    });
-
-    const isJob = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ||
-      asset.category === 'generation' ||
-      asset.tags?.includes('AI Generated');
-
-    try {
-      if (isJob) {
-        await fetch(`/api/v1/system/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      }
-      if (asset.source?.fileId) {
-        await fetch(`/api/v1/file-upload/${encodeURIComponent(asset.source.fileId)}`, { method: 'DELETE' });
-      }
-    } catch (err) {
-      console.warn('Backend delete request failed:', err);
+    setAssets(prev => prev.filter(a => a.id !== id));
+    if (wasActive) {
+      const nextAsset = assets.find(a => a.id !== id && a.category !== 'texture' && a.format !== 'IMAGE' && a.format !== 'FILE');
+      setCurrentAsset(nextAsset || null);
     }
-
-    // Invalidate React Query caches so refetch does not bring back stale entries
     queryClient.invalidateQueries({ queryKey: ['uploaded-assets'] });
     queryClient.invalidateQueries({ queryKey: ['history-assets'] });
-  }, [assets, queryClient]);
+    toast.success('Asset deleted.');
+    return true;
+  }, [assets, queryClient, setCurrentAsset]);
 
   const resetCamera = useCallback(() => {
     setViewportResetTrigger(prev => prev + 1);
@@ -1784,7 +1801,8 @@ function dataURLtoFile(dataURL: string, filename: string): File {
   const fitToScreen = useCallback(() => setViewportResetTrigger(prev => prev + 1), []);
 
   const cancelExecution = useCallback(async () => {
-    // a) Call activeAbortControllerRef.current?.abort() to stop in-flight fetches/SSE streams
+    // Batch work uses this same controller only while its task is foreground;
+    // an unrelated task gets its own controller and cannot cancel the batch queue.
     if (activeAbortControllerRef.current) {
       activeAbortControllerRef.current.abort();
       activeAbortControllerRef.current = null;
@@ -1793,16 +1811,18 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     const currentTask = activeTaskRef.current || activeTask;
     const jobId = currentTask?.id;
 
-    // c) Reset execution states cleanly
     setIsExecuting(false);
     setExecutionProgress(0);
     setExecutionStep('Execution cancelled');
+    setExecutionState('cancelled');
 
-    if (!jobId) return;
+    if (!jobId) {
+      toast.info('Operation cancelled');
+      return;
+    }
 
-    // b) If activeTask?.backendJobId or jobsById[jobId]?.backendJobId exists, call backend cancellation
     const backendJobId = currentTask?.backendJobId ||
-      (jobsByIdRef.current[jobId]?.backendJobId) ||
+      jobsByIdRef.current[jobId]?.backendJobId ||
       (!jobId.startsWith('local_') ? jobId : undefined);
 
     if (backendJobId) {
@@ -1812,44 +1832,46 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         if (data?.cancelled || data?.status === 'cancelled') {
           toast.success('Generation job cancelled');
         } else {
-          const message = data?.message || 'Job stop requested.';
-          toast.info('Job cancelled', { description: message });
+          toast.info('Job cancellation requested', { description: data?.message || 'The backend accepted the cancellation request.' });
         }
       } catch (error) {
         try {
-          await fetch(`/api/v1/system/jobs/${encodeURIComponent(backendJobId)}/cancel`, { method: 'POST' });
+          const response = await fetch(`/api/v1/system/jobs/${encodeURIComponent(backendJobId)}/cancel`, { method: 'POST' });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
         } catch (postErr) {
           console.warn('Backend cancel endpoint fallback error:', postErr);
+          toast.error('Backend cancellation could not be confirmed');
         }
-        toast.info('Cancelled locally', { description: 'Cancellation request sent to server' });
       }
     } else {
       toast.info('Operation cancelled');
     }
 
-    setActiveTask(prev => prev ? {
+    setActiveTask(prev => prev && (prev.id === jobId || Boolean(backendJobId && prev.backendJobId === backendJobId)) ? {
       ...prev,
-      status: 'interrupted',
+      status: 'cancelled',
       currentStep: 'Execution cancelled',
       stage: 'cancelled',
-    } : null);
+    } : prev);
 
     setJobsById(prev => {
-      const existing = prev[jobId] || activeTaskRef.current;
+      const activeTaskMatches = activeTaskRef.current && (activeTaskRef.current.id === jobId || Boolean(backendJobId && activeTaskRef.current.backendJobId === backendJobId));
+      const existing = prev[jobId] || Object.values(prev).find(task => task.id === jobId || Boolean(backendJobId && task.backendJobId === backendJobId)) || (activeTaskMatches ? activeTaskRef.current : undefined);
       if (!existing) return prev;
+      const taskKey = Object.keys(prev).find(key => prev[key] === existing) || jobId;
       const updated: ActiveTask = {
         ...existing,
-        status: 'interrupted',
+        status: 'cancelled',
         currentStep: 'Execution cancelled',
         stage: 'cancelled',
       };
-      const next = { ...prev, [jobId]: updated };
+      const next = { ...prev, [taskKey]: updated };
       jobsByIdRef.current = next;
       return next;
     });
-  }, [activeTask, getApiClient]);
+  }, [activeTask, getApiClient, setExecutionState, setIsExecuting, completeTask]);
 
-  const startTask = useCallback((type: ActiveTask['type'], title: string, _promptId?: string, provider?: string, inputImage?: string, inputImageName?: string, comparisonGroupId?: string, sourceModelUrl?: string) => {
+  const startTask = useCallback((type: ActiveTask['type'], title: string, _promptId?: string, provider?: string, inputImage?: string, inputImageName?: string, sourceModelUrl?: string) => {
     // Every execution gets its own task identity. Workspace and backend job
     // identities are attached only after the API accepts the operation.
     // Each submission captures its own signal. Starting another task must
@@ -1900,7 +1922,6 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       provider,
       inputImage,
       inputImageName,
-      comparisonGroupId,
       sourceAssetId: sourceModelUrl ? selectedAsset?.id : undefined,
       sourceModelUrl,
     };
@@ -1947,7 +1968,6 @@ function dataURLtoFile(dataURL: string, filename: string): File {
 
     setExecutionState(plan.executionState);
     setPersistenceState(plan.persistenceState);
-    setIsExecutingState(plan.executionState === 'queued' || plan.executionState === 'running');
     setExecutionStatus(plan.executionState === 'running' || plan.executionState === 'queued' ? 'running' : 'idle');
     setExecutionProgress(0);
     setExecutionStep('');
@@ -1968,9 +1988,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
     viewer.setActiveMeshAssetId(plan.activeMeshAssetId);
 
     setShadingModeState(presetToShadingMode(plan.viewer.shadingMode) as ShadingMode);
-    setShowWireframeState(plan.viewer.wireframeOverlay);
-    setIsComparingState(plan.viewer.compareMode);
-    setComparisonMode(plan.viewer.compareMode ? 'split_screen' : 'off');
+    setWireframeMode(plan.viewer.wireframeOverlay ? 'overlay' : 'off');
 
     if (plan.viewer.loadedModelUrl) {
       loadModelInViewer(plan.viewer.loadedModelUrl, plan.viewer.loadedModelName, plan.viewer.selectedAsset);
@@ -2200,7 +2218,6 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       generationSettings.aiModel || undefined,
       inputThumbnail,
       generationSettings.imageName || 'asset',
-      comparisonGroupId ?? undefined
     );
     const signal = activeAbortControllerRef.current?.signal;
 
@@ -2264,7 +2281,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         error_message: message,
         provider: generationSettings.aiModel || '',
       } as any);
-      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message, diagnostic } : null);
+      setActiveTask(prev => prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message, diagnostic } : null);
       toast.error('Generation failed', { description: message });
     }
   }, [
@@ -2304,7 +2321,6 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       sourceTask.provider,
       sourceTask.inputImage,
       sourceTask.inputImageName,
-      sourceTask.comparisonGroupId,
     );
     setJobsById(prev => prev[localTaskId]
       ? { ...prev, [localTaskId]: { ...prev[localTaskId], submissionSnapshot: sourceTask.submissionSnapshot } }
@@ -2353,10 +2369,10 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       setExecutionState('failed');
       setExecutionStep(message);
       setJobsById(prev => prev[localTaskId]
-        ? { ...prev, [localTaskId]: { ...prev[localTaskId], status: 'failed', currentStep: message, errorMessage: message } }
+        ? { ...prev, [localTaskId]: { ...prev[localTaskId], status: 'failed' as const, currentStep: message, errorMessage: message } }
         : prev);
       setActiveTask(prev => prev?.id === localTaskId
-        ? { ...prev, status: 'failed', currentStep: message, errorMessage: message }
+        ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message }
         : prev);
       toast.error('Regeneration failed', { description: message });
       throw error;
@@ -2417,10 +2433,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       'Neural Remesh (TriFlow)',
       undefined,
       'triflow_retopology',
-      undefined,
-      undefined,
-      comparisonGroupId ?? undefined,
-      comparisonSourceUrl(currentAsset)
     );
     const signal = activeAbortControllerRef.current?.signal;
     try {
@@ -2432,7 +2444,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
       // AI Mode Execution
       const body: Record<string, unknown> = {
-        output_format: customSettings?.outputFormat || 'glb',
+        output_format: customSettings?.outputFormat || 'obj',
         model_preference: 'triflow_retopology',
         target_polycount: targetPoly,
         face_count: targetPoly,
@@ -2466,10 +2478,10 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const message = error instanceof Error ? error.message : 'Remesh submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
-      setActiveTask((prev) => (prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null));
+      setActiveTask((prev) => (prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null));
       toast.error('Remesh failed', { description: message });
     }
-  }, [remeshSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId, addAsset, selectAsset, setViewportResetTrigger]);
+  }, [remeshSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, addAsset, selectAsset, setViewportResetTrigger]);
 
   const runTextureGeneration = useCallback(async () => {
     // Texture generation is standalone: operates on an existing mesh + reference image.
@@ -2479,7 +2491,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const message = 'No mesh selected. Please select a 3D mesh to texture.';
       setIsExecuting(false);
       setExecutionStep(message);
-      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
+      setActiveTask(prev => prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null);
       toast.error(message);
       return;
     }
@@ -2490,7 +2502,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
     const modelPreference = textureSettings.modelId || 'hunyuan3d_paint_v21_image_mesh_painting';
 
-    const localTaskId = startTask('texture', 'Texture generation', undefined, modelPreference, undefined, undefined, comparisonGroupId ?? undefined, comparisonSourceUrl(currentAsset));
+    const localTaskId = startTask('texture', 'Texture generation', undefined, modelPreference);
     const signal = activeAbortControllerRef.current?.signal;
     try {
       const meshRef = await resolveMeshReference(currentAsset, signal);
@@ -2530,10 +2542,10 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         error_message: message,
         provider: textureSettings.modelId || '',
       } as any);
-      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message, diagnostic } : null);
+      setActiveTask(prev => prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message, diagnostic } : null);
       toast.error('Texture generation failed', { description: message });
     }
-  }, [textureSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
+  }, [textureSettings, currentAsset, startTask, bindBackendJob, parseApiError, parseApiData]);
 
   const runUVUnwrapGeneration = useCallback(async (customSettings?: {
     distortionThreshold?: number;
@@ -2552,10 +2564,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       'Smart UV Unwrapping (PartUV)',
       undefined,
       'partuv_uv_unwrapping',
-      undefined,
-      undefined,
-      comparisonGroupId ?? undefined,
-      comparisonSourceUrl(currentAsset)
     );
     const signal = activeAbortControllerRef.current?.signal;
     try {
@@ -2603,10 +2611,10 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const message = error instanceof Error ? error.message : 'UV unwrapping submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
-      setActiveTask((prev) => (prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null));
+      setActiveTask((prev) => (prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null));
       toast.error('UV unwrapping failed', { description: message });
     }
-  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId, addAsset, selectAsset, setViewportResetTrigger]);
+  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, addAsset, selectAsset, setViewportResetTrigger]);
 
   const runSegmentation = useCallback(async (customSettings?: {
     numParts?: number;
@@ -2629,10 +2637,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       'Semantic Part Segmentation (AI)',
       undefined,
       pref || undefined,
-      undefined,
-      undefined,
-      comparisonGroupId ?? undefined,
-      comparisonSourceUrl(currentAsset)
     );
     const signal = activeAbortControllerRef.current?.signal;
     try {
@@ -2678,10 +2682,10 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const message = error instanceof Error ? error.message : 'Segmentation submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
-      setActiveTask((prev) => (prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null));
+      setActiveTask((prev) => (prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null));
       toast.error('Segmentation failed', { description: message });
     }
-  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
+  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData]);
 
   const runAutoRigging = useCallback(async (options?: {
     skeletonTemplate?: string;
@@ -2692,7 +2696,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     customSettings?: Record<string, any>;
   }) => {
     const modelPref = options?.modelPreference || 'skintokens_auto_rigging';
-    const localTaskId = startTask('rigging', 'Auto-Rig Character', undefined, modelPref, undefined, undefined, comparisonGroupId ?? undefined, comparisonSourceUrl(currentAsset));
+    const localTaskId = startTask('rigging', 'Auto-Rig Character', undefined, modelPref);
     const signal = activeAbortControllerRef.current?.signal;
     try {
       const meshRef = await resolveMeshReference(currentAsset, signal);
@@ -2728,10 +2732,10 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const message = error instanceof Error ? error.message : 'Auto-rigging submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
-      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
+      setActiveTask(prev => prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null);
       toast.error('Auto-rigging failed', { description: message });
     }
-  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
+  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData]);
 
   const runMotionGeneration = useCallback(async (options?: {
     prompt?: string;
@@ -2744,7 +2748,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     customSettings?: Record<string, any>;
   }) => {
     const promptText = options?.prompt || 'Walking motion cycle';
-    const localTaskId = startTask('animation', 'Apply Animation', promptText, 'ardy_motion_generation', undefined, undefined, comparisonGroupId ?? undefined);
+    const localTaskId = startTask('animation', 'Apply Animation', promptText, 'ardy_motion_generation');
     const signal = activeAbortControllerRef.current?.signal;
     try {
       const body: Record<string, unknown> = {
@@ -2777,228 +2781,258 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const message = error instanceof Error ? error.message : 'Motion generation submission failed';
       setIsExecuting(false);
       setExecutionStep(message);
-      setActiveTask(prev => prev ? { ...prev, status: 'failed', currentStep: message, errorMessage: message } : null);
+      setActiveTask(prev => prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null);
       toast.error('Motion generation failed', { description: message });
     }
-  }, [startTask, bindBackendJob, parseApiError, parseApiData, comparisonGroupId]);
+  }, [startTask, bindBackendJob, parseApiError, parseApiData]);
 
    // Batch processing function
     const processBatchQueue = useCallback(async () => {
       const appStore = useAppStore.getState();
       const { batchGenerationEnabled, batchQueue } = appStore;
-     
-     if (!batchGenerationEnabled) {
-       toast.error('Batch generation disabled', { description: 'Enable batch generation in settings to process the queue.' });
-       return;
-     }
 
-     // Find queued batch queue items that haven't been processed yet
-     const queuedItems = batchQueue.filter(item => 
-       item.status === 'queued' && !item.jobId
-     );
+      if (!batchGenerationEnabled) {
+        toast.error('Batch generation disabled', { description: 'Enable batch generation in settings to process the queue.' });
+        return;
+      }
+      if (batchAbortControllerRef.current) {
+        toast.info('Batch processing is already running or stopping.');
+        return;
+      }
 
-     if (queuedItems.length === 0) {
-       toast.info('No items to process', { description: 'The batch queue is empty or all items have been processed.' });
-       return;
-     }
+      const queuedItems = batchQueue.filter(item => item.status === 'queued' && !item.jobId);
+      if (queuedItems.length === 0) {
+        toast.info('No items to process', { description: 'The batch queue is empty or all items have been processed.' });
+        return;
+      }
 
-     // Process each queued item
-     for (const batchItem of queuedItems) {
-       try {
-         // Validate that we have the necessary information
-         if (!batchItem.imageFileId) {
-           throw new Error('Missing image file ID for batch item');
-         }
+      const batchController = new AbortController();
+      batchAbortControllerRef.current = batchController;
+      let submittedCount = 0;
 
-         // Create a temporary GenerationSettings object from the batch item
-         const batchTexQuality = batchItem.textureQuality as string | undefined;
-         const batchTexRes: '512' | '1K' | '2K' | '4K' | '8K' =
-           batchItem.texture_resolution ??
-           batchItem.textureResolution ??
-           (batchTexQuality === '8k' ? '8K' : batchTexQuality === 'ultra' ? '4K' : batchTexQuality === 'high' ? '2K' : '1K');
-         const batchSettings: GenerationSettings = {
-           mode: 'image-to-3d',
-           image: null, // We'll use imageFileId instead
-           imageFileId: batchItem.imageFileId,
-           aiModel: batchItem.aiModel,
-           textureQuality: (batchItem.textureQuality as any) ?? 'high',
-           texture_resolution: batchTexRes,
-           textureResolution: batchTexRes,
-           quadTopology: batchItem.quadTopology ?? false,
-           topologyMode: batchItem.topologyMode ?? 'triangle',
-            seed: batchItem.seed ?? (Math.floor(Math.random() * 900000) + 100000),
-            removeBackground: batchItem.removeBackground ?? true,
-            autoOptimizeSettings: batchItem.autoOptimizeSettings ?? { targetPolycount: 0 },
-            generateTexture: batchItem.generateTexture ?? true,
-            highResolutionNormalBaking: batchItem.highResolutionNormalBaking ?? true,
-            generateLOD: batchItem.generateLOD ?? false,
-            lodPreset: batchItem.lodPreset ?? 'high',
-            lodCount: batchItem.lodCount ?? 4,
-            candidateCount: batchItem.candidateCount ?? 1,
-            partCountRange: batchItem.partCountRange ?? '1',
-            rigType: batchItem.rigType ?? 'none',
-            exportFormats: batchItem.exportFormats ?? ['glb'],
-            slicerHandoff: batchItem.slicerHandoff ?? false,
-            generateCollision: batchItem.generateCollision ?? true,
-            preprocessingArtifactId: batchItem.preprocessingArtifactId,
-            preprocessingReviewOverride: batchItem.preprocessingReviewOverride ?? false,
-            preprocessingPreviewUrl: null,
-            preprocessingMetadata: batchItem.preprocessingMetadata,
-            enhancementEnabled: batchItem.enhancementEnabled ?? false,
-            enablePrintabilityCheck: batchItem.enablePrintabilityCheck ?? false,
-            enableAutoRepair: batchItem.enableAutoRepair ?? false,
-            enableAutoRig: batchItem.enableAutoRig ?? false,
-            autoRigMode: batchItem.autoRigMode ?? 'full',
-            enablePostprocess: batchItem.enablePostprocess ?? true,
-         };
+      try {
+        for (const batchItem of queuedItems) {
+          if (batchController.signal.aborted) break;
+          let localTaskId: string | null = null;
 
-          // Create a local task for tracking
-          const localTaskId = startTask(
-            'image-to-3d',
-            `Batch Item ${batchItem.id.slice(-6)}`,
-            undefined,
-             batchItem.aiModel || '',
-             undefined,
-             undefined,
-             comparisonGroupId ?? undefined
-           );
+          try {
+            if (!batchItem.imageFileId) throw new Error('Missing image file ID for batch item');
 
-          // Batch and single submissions use the same manifest-declared model capabilities.
-          const effectiveSettings = batchSettings;
-          const effectiveModelId = effectiveSettings.aiModel || '';
-          const selectedCapabilities = modelDetails[effectiveModelId]?.capabilities || {};
-          const modelCapabilities = resolveGenerationModelCapabilities(effectiveModelId, selectedCapabilities);
-          const { endpoint, body } = buildGenerationParameters(effectiveSettings, modelCapabilities);
+            const batchTexQuality = batchItem.textureQuality as string | undefined;
+            const batchTexRes: '512' | '1K' | '2K' | '4K' | '8K' =
+              batchItem.texture_resolution ??
+              batchItem.textureResolution ??
+              (batchTexQuality === '8k' ? '8K' : batchTexQuality === 'ultra' ? '4K' : batchTexQuality === 'high' ? '2K' : '1K');
+            const batchSettings: GenerationSettings = {
+              mode: 'image-to-3d',
+              image: null,
+              imageFileId: batchItem.imageFileId,
+              aiModel: batchItem.aiModel,
+              textureQuality: (batchItem.textureQuality as any) ?? 'high',
+              texture_resolution: batchTexRes,
+              textureResolution: batchTexRes,
+              quadTopology: batchItem.quadTopology ?? false,
+              topologyMode: batchItem.topologyMode ?? 'triangle',
+              seed: batchItem.seed ?? (Math.floor(Math.random() * 900000) + 100000),
+              removeBackground: batchItem.removeBackground ?? true,
+              autoOptimizeSettings: batchItem.autoOptimizeSettings ?? { targetPolycount: 0 },
+              generateTexture: batchItem.generateTexture ?? true,
+              highResolutionNormalBaking: batchItem.highResolutionNormalBaking ?? true,
+              generateLOD: batchItem.generateLOD ?? false,
+              lodPreset: batchItem.lodPreset ?? 'high',
+              lodCount: batchItem.lodCount ?? 4,
+              candidateCount: batchItem.candidateCount ?? 1,
+              partCountRange: batchItem.partCountRange ?? '1',
+              rigType: batchItem.rigType ?? 'none',
+              exportFormats: batchItem.exportFormats ?? ['glb'],
+              slicerHandoff: batchItem.slicerHandoff ?? false,
+              generateCollision: batchItem.generateCollision ?? true,
+              preprocessingArtifactId: batchItem.preprocessingArtifactId,
+              preprocessingReviewOverride: batchItem.preprocessingReviewOverride ?? false,
+              preprocessingPreviewUrl: null,
+              preprocessingMetadata: batchItem.preprocessingMetadata,
+              enhancementEnabled: batchItem.enhancementEnabled ?? false,
+              enablePrintabilityCheck: batchItem.enablePrintabilityCheck ?? false,
+              enableAutoRepair: batchItem.enableAutoRepair ?? false,
+              enableAutoRig: batchItem.enableAutoRig ?? false,
+              autoRigMode: batchItem.autoRigMode ?? 'full',
+              enablePostprocess: batchItem.enablePostprocess ?? true,
+            };
 
-         // Submit the job to the backend
-         const res = await fetch(endpoint, {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify(body),
-           signal: activeAbortControllerRef.current?.signal,
-         });
-         if (!res.ok) throw await parseApiError(res);
-         const data = await parseApiData<{ job_id?: string; id?: string; status?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
-         const jobId = data.job_id ?? data.id;
-         if (!jobId) throw new Error('Backend did not return a generation job ID');
+            localTaskId = startTask(
+              'image-to-3d',
+              `Batch Item ${batchItem.id.slice(-6)}`,
+              undefined,
+              batchItem.aiModel || '',
+            );
+            activeAbortControllerRef.current = batchController;
 
-         // Store the mapping from jobId to batchQueueItemId for polling
-         batchJobIdMap.current[jobId] = batchItem.id;
+            const effectiveModelId = batchSettings.aiModel || '';
+            const selectedCapabilities = modelDetails[effectiveModelId]?.capabilities || {};
+            const modelCapabilities = resolveGenerationModelCapabilities(effectiveModelId, selectedCapabilities);
+            const { endpoint, body } = buildGenerationParameters(batchSettings, modelCapabilities);
+            const res = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+              signal: batchController.signal,
+            });
+            if (!res.ok) throw await parseApiError(res);
 
-         // Update the batch queue item with the job ID and mark as submitted/running
-         updateBatchItem(batchItem.id, {
-           jobId,
-           status: 'running',
-           progress: 0,
-           startedAt: new Date(),
-         });
+            const data = await parseApiData<{ job_id?: string; id?: string; status?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
+            const jobId = data.job_id ?? data.id;
+            if (!jobId) throw new Error('Backend did not return a generation job ID');
 
-         // Bind the backend job to our local task for tracking
-         bindBackendJob(localTaskId, jobId, {
-           status: 'queued',
-           currentStep: 'Queued on backend',
-           provider: effectiveSettings.aiModel || '',
-         }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
-         
-       } catch (error) {
-         const message = error instanceof Error ? error.message : 'Batch item processing failed';
-         console.error('Failed to process batch item:', error);
-         
-         // Update the batch queue item to reflect the failure
-         updateBatchItem(batchItem.id, {
-           status: 'failed',
-           error: message,
-           completedAt: new Date(),
-         });
-         
-         // Show toast for the error but continue processing other items
-         toast.error(`Batch item failed: ${message}`);
-       }
-     }
+            batchJobIdMap.current[jobId] = batchItem.id;
+            bindBackendJob(localTaskId, jobId, {
+              status: 'queued',
+              currentStep: 'Queued on backend',
+              provider: batchSettings.aiModel || '',
+            }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
 
-      // Show completion toast
-      toast.success('Batch processing started', { description: `${queuedItems.length} items submitted for processing.` });
-    }, [modelDetails, startTask, bindBackendJob, getApiClient, parseApiError, parseApiData, buildGenerationParameters, toast]);
+            if (batchController.signal.aborted) {
+              updateBatchItem(batchItem.id, { jobId, status: 'cancelled', progress: 0, completedAt: new Date() });
+              try {
+                await getApiClient().cancelGenerationJob(jobId);
+              } catch (cancelError) {
+                try {
+                  const response = await fetch(`/api/v1/system/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+                  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                } catch (fallbackError) {
+                  console.warn(`Failed to cancel newly accepted batch job ${jobId}:`, fallbackError || cancelError);
+                }
+              }
+              completeTask(jobId, 'cancelled');
+              setJobsById(prev => {
+                const existing = prev[localTaskId!];
+                if (!existing) return prev;
+                const next = { ...prev, [localTaskId!]: { ...existing, status: 'cancelled' as const, currentStep: 'Batch execution cancelled', stage: 'cancelled' } };
+                jobsByIdRef.current = next;
+                return next;
+              });
+              setActiveTask(prev => prev?.id === localTaskId ? { ...prev, status: 'cancelled' as const, currentStep: 'Batch execution cancelled', stage: 'cancelled' } : prev);
+              if (activeTaskRef.current?.id === localTaskId) setExecutionState('cancelled');
+              delete batchJobIdMap.current[jobId];
+              break;
+            }
+
+            updateBatchItem(batchItem.id, { jobId, status: 'running', progress: 0, startedAt: new Date() });
+            submittedCount += 1;
+          } catch (error) {
+            if (batchController.signal.aborted) {
+              updateBatchItem(batchItem.id, { status: 'cancelled', completedAt: new Date() });
+              if (localTaskId) {
+                setJobsById(prev => {
+                  const existing = prev[localTaskId!];
+                  if (!existing) return prev;
+                  const next = { ...prev, [localTaskId!]: { ...existing, status: 'cancelled' as const, currentStep: 'Batch execution cancelled', stage: 'cancelled' } };
+                  jobsByIdRef.current = next;
+                  return next;
+                });
+                setActiveTask(prev => prev?.id === localTaskId ? { ...prev, status: 'cancelled' as const, currentStep: 'Batch execution cancelled', stage: 'cancelled' } : prev);
+                if (activeTaskRef.current?.id === localTaskId) {
+                  setIsExecuting(false);
+                  setExecutionProgress(0);
+                  setExecutionStep('Batch execution cancelled');
+                  setExecutionState('cancelled');
+                }
+              }
+              break;
+            }
+
+            const message = error instanceof Error ? error.message : 'Batch item processing failed';
+            console.error('Failed to process batch item:', error);
+            updateBatchItem(batchItem.id, { status: 'failed', error: message, completedAt: new Date() });
+            if (localTaskId) {
+              setJobsById(prev => {
+                const existing = prev[localTaskId!];
+                if (!existing) return prev;
+                const next = { ...prev, [localTaskId!]: { ...existing, status: 'failed' as const, currentStep: message, errorMessage: message } };
+                jobsByIdRef.current = next;
+                return next;
+              });
+              setActiveTask(prev => prev?.id === localTaskId ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : prev);
+              if (activeTaskRef.current?.id === localTaskId) {
+                setIsExecuting(false);
+                setExecutionProgress(0);
+                setExecutionStep(message);
+                setExecutionState('failed');
+              }
+            }
+            toast.error(`Batch item failed: ${message}`);
+          }
+        }
+
+        if (!batchController.signal.aborted) {
+          toast.success('Batch processing started', { description: `${submittedCount} items submitted for processing.` });
+        }
+      } finally {
+        if (batchAbortControllerRef.current === batchController) batchAbortControllerRef.current = null;
+        if (activeAbortControllerRef.current === batchController) activeAbortControllerRef.current = null;
+      }
+    }, [modelDetails, startTask, bindBackendJob, getApiClient, parseApiError, parseApiData, buildGenerationParameters, completeTask, setExecutionState, setIsExecuting, setExecutionProgress, setExecutionStep, toast]);
 
    // Cancel batch processing function
    const cancelBatchProcessing = useCallback(async () => {
+     const batchController = batchAbortControllerRef.current;
+     if (batchController) batchController.abort();
+     if (activeAbortControllerRef.current === batchController) activeAbortControllerRef.current = null;
+
      const appStore = useAppStore.getState();
      const { batchQueue, updateBatchItem } = appStore;
-     
-     // Get all batch queue items that are currently running or queued
-     const itemsToCancel = batchQueue.filter(item => 
-       item.status === 'running' || item.status === 'queued'
-     );
-     
+     const itemsToCancel = batchQueue.filter(item => item.status === 'running' || item.status === 'queued');
+
      if (itemsToCancel.length === 0) {
        toast.info('No items to cancel', { description: 'There are no running or queued batch items to cancel.' });
        return;
      }
-     
-     // Cancel each item's job if it has a jobId
+
      for (const item of itemsToCancel) {
-       if (item.jobId) {
-         const bJobId = item.jobId;
+       if (!item.jobId) {
+         updateBatchItem(item.id, { status: 'cancelled', completedAt: new Date() });
+         continue;
+       }
+
+       const backendJobId = item.jobId;
+       try {
+         await getApiClient().cancelGenerationJob(backendJobId);
+       } catch (error) {
          try {
-           await getApiClient().cancelGenerationJob(bJobId);
-         } catch (err) {
-           try {
-             await fetch(`/api/v1/system/jobs/${encodeURIComponent(bJobId)}`, {
-               method: 'DELETE',
-             });
-           } catch (delErr) {
-             console.warn('Failed to cancel job via backend:', delErr);
-           }
+           const response = await fetch(`/api/v1/system/jobs/${encodeURIComponent(backendJobId)}/cancel`, { method: 'POST' });
+           if (!response.ok) throw new Error(`HTTP ${response.status}`);
+         } catch (fallbackError) {
+           console.warn('Failed to cancel batch job via backend:', fallbackError);
          }
-         
-         // Update the batch queue item to cancelled
-         updateBatchItem(item.id, {
-           status: 'cancelled',
-           completedAt: new Date(),
-         });
-         
-         // Clean up the job ID map
-         delete batchJobIdMap.current[bJobId];
+       }
 
-         // Synchronize jobsById so the background poller does not revive cancelled batch jobs
-         setJobsById(prev => {
-           const existing = prev[bJobId];
-           if (!existing) return prev;
-           const updated: ActiveTask = {
-             ...existing,
-             status: 'interrupted',
-             currentStep: 'Batch execution cancelled',
-             stage: 'cancelled',
-           };
-           const next = { ...prev, [bJobId]: updated };
-           jobsByIdRef.current = next;
-           return next;
-         });
+       updateBatchItem(item.id, { status: 'cancelled', completedAt: new Date() });
+       delete batchJobIdMap.current[backendJobId];
+       completeTask(backendJobId, 'cancelled');
 
-         // If this batch item was the active foreground task, clear executing state
-         if (activeTaskRef.current?.id === bJobId) {
-           setIsExecuting(false);
-           setExecutionProgress(0);
-           setExecutionStep('Batch execution cancelled');
-           setActiveTask(prev => prev && prev.id === bJobId ? {
-             ...prev,
-             status: 'interrupted',
-             currentStep: 'Batch execution cancelled',
-             stage: 'cancelled',
-           } : null);
-         }
-       } else {
-         // If the item doesn't have a jobId, it's probably still queued and hasn't been processed yet
-         updateBatchItem(item.id, {
-           status: 'cancelled',
-         });
+       const isForegroundTask = activeTaskRef.current?.id === backendJobId ||
+         activeTaskRef.current?.backendJobId === backendJobId;
+       setJobsById(prev => {
+         const taskKey = findTaskKeyForBackendJob(prev, backendJobId);
+         if (!taskKey) return prev;
+         const existing = prev[taskKey];
+         const next = { ...prev, [taskKey]: { ...existing, status: 'cancelled' as const, currentStep: 'Batch execution cancelled', stage: 'cancelled' } };
+         jobsByIdRef.current = next;
+         return next;
+       });
+
+       if (isForegroundTask) {
+         setIsExecuting(false);
+         setExecutionProgress(0);
+         setExecutionStep('Batch execution cancelled');
+         setExecutionState('cancelled');
+         setActiveTask(prev => prev && (prev.id === backendJobId || prev.backendJobId === backendJobId)
+           ? { ...prev, status: 'cancelled' as const, currentStep: 'Batch execution cancelled', stage: 'cancelled' }
+           : prev);
        }
      }
-     
-      toast.success('Batch processing cancelled', { description: `${itemsToCancel.length} items cancelled.` });
-    }, [useAppStore]);
 
-    // Retry failed batch items function
+     toast.success('Batch processing cancelled', { description: `${itemsToCancel.length} items cancelled.` });
+   }, [getApiClient, completeTask, setExecutionState, setIsExecuting, setExecutionProgress, setExecutionStep, toast]);    // Retry failed batch items function
     const retryFailedBatchItems = useCallback(async () => {
       const appStore = useAppStore.getState();
       const { batchQueue, updateBatchItem } = appStore;
@@ -3022,28 +3056,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
            error: undefined,
            startedAt: undefined,
            completedAt: undefined,
-           // Clear stored generation settings so they get current values when re-queued
-           textureQuality: undefined,
-           quadTopology: undefined,
-           topologyMode: undefined,
-           seed: undefined,
-           removeBackground: undefined,
-           autoOptimizeSettings: undefined,
-           generateTexture: undefined,
-           texture_resolution: undefined,
-           textureResolution: undefined,
-           highResolutionNormalBaking: undefined,
-           generateLOD: undefined,
-           lodPreset: undefined,
-           lodCount: undefined,
-           candidateCount: undefined,
-           preprocessingReviewOverride: undefined,
-           enhancementEnabled: undefined,
-           generateCollision: undefined,
-           enablePrintabilityCheck: undefined,
-           enableAutoRepair: undefined,
-           enableAutoRig: undefined,
-           autoRigMode: undefined,
+           // Preserve the original per-item settings snapshot for deterministic retry.
          });
          
          // Clean up the job ID map for this item
@@ -3141,19 +3154,19 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
   // Split context value into smaller memos to reduce re-render scope.
   // Each memo only recalculates when its specific dependencies change.
   const viewportValue = useMemo(() => ({
-    shadingMode, setShadingMode, showWireframe, setShowWireframe,
+    shadingMode, setShadingMode, showWireframe, setShowWireframe, wireframeMode, setWireframeMode: setWireframeModeAndSync,
     showGrid, setShowGrid, showBones, setShowBones,
     isTurntable, setIsTurntable,
     activeTransformTool, setActiveTransformTool,
     viewportResetTrigger, resetCamera, fitToScreen,
-  }), [shadingMode, setShadingMode, showWireframe, setShowWireframe,
+  }), [shadingMode, setShadingMode, showWireframe, setShowWireframe, wireframeMode, setWireframeModeAndSync,
     showGrid, setShowGrid, showBones, setShowBones,
     isTurntable, setIsTurntable,
     activeTransformTool, setActiveTransformTool,
     viewportResetTrigger, resetCamera, fitToScreen]);
 
   const toolValue = useMemo(() => ({
-    activeTool, setActiveTool, isComparing, comparisonMode, setIsComparing, setComparisonMode, mainNav, setMainNav,
+    activeTool, setActiveTool, mainNav, setMainNav,
     activeRightTab, setActiveRightTab,
     rightPanelMode: activeRightTab, setRightPanelMode: setActiveRightTab,
     isLeftPanelOpen, setIsLeftPanelOpen,
@@ -3163,7 +3176,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     isRightPanelOpen, setIsRightPanelOpen,
     rightPanelOpen: isRightPanelOpen, setRightPanelOpen: setIsRightPanelOpen,
     navigateToTool, navigateToMain, navigateToMainNav: navigateToMain,
-  }), [activeTool, setActiveTool, isComparing, comparisonMode, setIsComparing, setComparisonMode, mainNav, setMainNav,
+  }), [activeTool, setActiveTool, mainNav, setMainNav,
     activeRightTab, setActiveRightTab,
     isLeftPanelOpen, setIsLeftPanelOpen,
     leftPanelWidth, setLeftPanelWidth,

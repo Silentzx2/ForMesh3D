@@ -94,7 +94,7 @@ class Hunyuan3DV20PaintImageMeshPaintingAdapter(BaseModel):
                 return False
             return any(
                 f.is_file() and f.suffix in {".safetensors", ".bin", ".pt", ".ckpt"}
-                for f in p.iterdir()
+                for f in p.rglob("*")
             )
 
         delight_ok = _has_valid_checkpoint("hunyuan3d-delight-v2-0")
@@ -119,8 +119,13 @@ class Hunyuan3DV20PaintImageMeshPaintingAdapter(BaseModel):
             )
 
         device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
+        paint_subfolder = (
+            "hunyuan3d-paint-v2-0-turbo"
+            if (weights_dir_path / "hunyuan3d-paint-v2-0-turbo" / "model_index.json").is_file()
+            else "hunyuan3d-paint-v2-0"
+        )
         try:
-            pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(weights_dir_path))
+            pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(weights_dir_path), subfolder=paint_subfolder)
         except Exception as load_err:
             # Upstream from_pretrained() only downloads if the PARENT directory
             # is missing. If it exists but subdirs are incomplete, it passes
@@ -140,7 +145,7 @@ class Hunyuan3DV20PaintImageMeshPaintingAdapter(BaseModel):
                 # so DiffusionPipeline.from_pretrained() finds every weight file.
                 allow_patterns=["hunyuan3d-paint-v2-0/**/*", "hunyuan3d-paint-v2-0-turbo/**/*", "hunyuan3d-delight-v2-0/**/*"],
             )
-            pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(weights_dir_path))
+            pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(weights_dir_path), subfolder=paint_subfolder)
         if torch is not None and torch.cuda.is_available() and hasattr(pipeline, "enable_model_cpu_offload"):
             try:
                 pipeline.enable_model_cpu_offload(gpu_id=self.gpu_id if self.gpu_id is not None else 0)
@@ -192,7 +197,8 @@ class Hunyuan3DV20PaintImageMeshPaintingAdapter(BaseModel):
 
         import tempfile
 
-        out = Path(tempfile.mkdtemp()) / f"hunyuan3d_v20_paint_{seed}.glb"
+        out_dir = self._create_temporary_output_dir("hunyuan3d_v20_paint")
+        out = out_dir / f"hunyuan3d_v20_paint_{seed}.glb"
         if hasattr(textured, "export"):
             textured.export(str(out))
         else:

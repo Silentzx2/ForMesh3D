@@ -59,33 +59,73 @@ def test_partfield_rgba_palette_works_for_mesh_and_individual_part_exports(tmp_p
     assert all(Path(path).is_file() for path in result["individual_part_paths"])
 
 
-def test_partuv_defaults_to_glb_and_honors_obj_override(tmp_path):
+def test_partuv_runs_full_uv_pipeline_and_exports_uv_coordinates(tmp_path, monkeypatch):
+    import numpy as np
+    from types import SimpleNamespace
+    import backend.adapters.partuv_adapter as partuv_module
+
     source_path = tmp_path / "source.obj"
     trimesh.creation.box().export(source_path)
-
     adapter = PartUVUnwrappingAdapter(vram_requirement=4096, model_id="partuv_uv_unwrapping")
     adapter.model = tmp_path
-    adapter._preprocess = lambda *_args, **_kwargs: (
-        trimesh.creation.box(),
-        None,
-        {},
-        {"sampling": 0.1, "decoding": 0.2},
-    )
+    adapter._pf_model = object()
+    adapter._partuv_config = tmp_path / "config.yaml"
+    adapter._partuv_pack_script = tmp_path / "pack_blender.py"
 
-    glb_result = adapter._process_request({"mesh_path": str(source_path)})
-    assert glb_result["success"] is True
-    assert glb_result["format"] == "glb"
-    assert Path(glb_result["output_mesh_path"]).suffix == ".glb"
-    assert Path(glb_result["output_mesh_path"]).is_file()
+    processed_mesh = trimesh.creation.box()
+    calls = {}
+    final_parts = SimpleNamespace(num_components=2, distortion=1.12)
 
-    obj_result = adapter._process_request({
+    def preprocess(*args, **kwargs):
+        calls["preprocess"] = (args, kwargs)
+        return processed_mesh, None, {0: {"left": 1, "right": 2}}, {"partfield": 0.2}
+
+    def pipeline_numpy(**kwargs):
+        calls["pipeline"] = kwargs
+        return final_parts, [object(), object()]
+
+    def save_results(output_dir, _parts, _individual_parts):
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        mesh = trimesh.creation.box()
+        mesh.visual = trimesh.visual.TextureVisuals(
+            uv=np.asarray(
+                [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0],
+                 [0.2, 0.2], [0.8, 0.2], [0.8, 0.8], [0.2, 0.8]]
+            )
+        )
+        mesh.export(output_dir / "final_components.obj")
+
+    monkeypatch.setattr(partuv_module.shutil, "which", lambda _name: None)
+    adapter._preprocess = preprocess
+    adapter._pipeline_numpy = pipeline_numpy
+    adapter._save_results = save_results
+
+    result = adapter._process_request({
         "mesh_path": str(source_path),
-        "output_format": "obj",
+        "output_format": "glb",
+        "distortion_threshold": 1.35,
+        "pack_method": "blender",
+        "sample_on_faces": 12,
+        "sample_batch_size": 2048,
     })
-    assert obj_result["success"] is True
-    assert obj_result["format"] == "obj"
-    assert Path(obj_result["output_mesh_path"]).suffix == ".obj"
-    assert Path(obj_result["output_mesh_path"]).is_file()
+
+    assert result["success"] is True
+    assert result["uv_unwrapped"] is True
+    assert result["uv_packed"] is False
+    assert calls["preprocess"][1]["sample_on_faces"] == 12
+    assert calls["preprocess"][1]["sample_batch_size"] == 2048
+    assert calls["pipeline"]["threshold"] == 1.35
+    assert calls["pipeline"]["tree_dict"] == {0: {"left": 1, "right": 2}}
+    output = Path(result["output_mesh_path"])
+    assert output.is_file() and output.suffix == ".glb"
+    exported = trimesh.load(output, force="mesh", process=False)
+    assert exported.visual.uv is not None
+    assert np.isfinite(exported.visual.uv).all()
+    assert result["generation_info"]["uv_components"] == 2
+    assert result["generation_info"]["uv_distortion"] == 1.12
+    adapter._cleanup_active_temporary_output_dirs()
+    assert not output.parent.exists()
 
 
 def test_scheduler_download_format_uses_the_published_mesh_extension():

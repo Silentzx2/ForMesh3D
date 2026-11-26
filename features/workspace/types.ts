@@ -63,7 +63,6 @@ export interface ActiveTask {
   diagnostic?: JobDiagnostic | null;
   result?: Record<string, unknown>;
   logs?: { stage: string; progress: number; message: string; level: string; timestamp: string }[];
-  comparisonGroupId?: string;
   /** Asset identity captured with sourceModelUrl when this operation was submitted. */
   sourceAssetId?: string;
   sourceModelUrl?: string;
@@ -145,6 +144,8 @@ export interface ModelAsset {
   materials?: string[];
   createdAt?: string;
   sourceType?: 'local' | 'upload' | 'history';
+  /** Local alias of another asset; deleting it must not delete the shared backend file. */
+  isLocalDuplicate?: boolean;
   artifacts?: {
     source?: string;
     gameReady?: string;
@@ -302,6 +303,7 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
     collection: raw.collection || undefined,
     collectionId: raw.collectionId || undefined,
     isFavorite: Boolean(raw.isFavorite),
+    isLocalDuplicate: Boolean(raw.isLocalDuplicate),
     materialConfig: raw.materialConfig,
     materials: Array.isArray(raw.materials) ? raw.materials : [],
     createdAt: raw.createdAt || raw.created_at,

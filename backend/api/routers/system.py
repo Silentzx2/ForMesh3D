@@ -326,7 +326,7 @@ def _model_supports_download(model_id: str) -> bool:
         token in model_id
         for token in (
             "trellis", "triposg", "hunyuan",
-            "unique3d", "taoflowforge", "pixal3d",
+            "taoflowforge", "pixal3d",
             "skintokens", "unirig", "partuv", "ardy"
         )
     )
@@ -355,15 +355,23 @@ async def list_models(
             weights_ok = bool(cfg and _is_model_weights_available(cfg))
             weights_status[mid] = weights_ok
             downloadable = _model_supports_download(mid)
+            display_name = getattr(cfg, "name", None) or getattr(cfg, "ui_label", None) or getattr(cfg, "model_name", None) or mid
+            display_label = getattr(cfg, "label", None) or getattr(cfg, "ui_tag", None) or "Ready"
+            display_desc = getattr(cfg, "description", None) or getattr(cfg, "ui_note", None) or ""
+            vram_req = getattr(cfg, "vram_requirement", None) or 0
+            vram_badge = getattr(cfg, "ui_badge", None) or (f"{round(vram_req / 1024)}GB VRAM" if vram_req else "CPU Only")
             model_details[mid] = {
                 "id": mid,
                 "feature": feat,
-                "model_name": getattr(cfg, "model_name", None) or mid,
+                "name": display_name,
+                "label": display_label,
+                "description": display_desc,
+                "model_name": display_name,
                 "model_type": getattr(cfg, "model_type", None) or ("mesh" if "mesh" in feat and "paint" not in feat else "texture" if "paint" in feat else "other"),
-                "ui_label": getattr(cfg, "ui_label", None) or getattr(cfg, "model_name", None) or mid,
-                "ui_tag": getattr(cfg, "ui_tag", None) or "Ready",
-                "ui_note": getattr(cfg, "ui_note", None) or "",
-                "ui_badge": getattr(cfg, "ui_badge", None) or (f"{cfg.vram_requirement // 1024}GB VRAM" if getattr(cfg, "vram_requirement", None) else ""),
+                "ui_label": display_name,
+                "ui_tag": display_label,
+                "ui_note": display_desc,
+                "ui_badge": vram_badge,
                 "enabled": getattr(cfg, "enabled", True) if cfg else True,
                 "status": (
                     "weights_missing" if not weights_ok
@@ -1776,6 +1784,8 @@ async def download_job_result(
         FileResponse for direct download or JSON with base64 data
     """
     try:
+        if job_id.startswith("preview_"):
+            job_id = job_id[len("preview_"):]
         requested_artifact_format = artifact_format.strip().lower() if isinstance(artifact_format, str) else "glb"
         scheduler = await get_scheduler(request)
         job_status = await scheduler.get_job_status(job_id)
@@ -1902,18 +1912,6 @@ async def download_job_result(
                                         )
                     except Exception:
                         pass
-                mgr = get_workspace_storage_manager()
-                temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / job_id)
-                temp_dir = temp_dir.resolve()
-                if temp_dir.is_dir():
-                    candidates = sorted([*temp_dir.glob("*.glb"), *temp_dir.glob("*.obj")], key=lambda p: p.name)
-                    for cand in candidates:
-                        if cand.is_file() and not cand.is_symlink():
-                            return FileResponse(
-                                path=str(cand),
-                                filename=filename or cand.name,
-                                media_type=get_content_type_for_file(str(cand)),
-                            )
                 if op.workspace_id:
                     op_ws = db.get_workspace(op.workspace_id)
                     if op_ws and op_ws.active_mesh_asset_id:
@@ -1933,6 +1931,18 @@ async def download_job_result(
                             filename=filename or "mesh.glb",
                             media_type=get_content_type_for_file(str(direct_base)),
                         )
+                mgr = get_workspace_storage_manager()
+                temp_dir = Path(op.temp_dir) if op.temp_dir else (mgr.temp_root / job_id)
+                temp_dir = temp_dir.resolve()
+                if temp_dir.is_dir():
+                    candidates = sorted([*temp_dir.glob("*.glb"), *temp_dir.glob("*.obj")], key=lambda p: p.name)
+                    for cand in candidates:
+                        if cand.is_file() and not cand.is_symlink():
+                            return FileResponse(
+                                path=str(cand),
+                                filename=filename or cand.name,
+                                media_type=get_content_type_for_file(str(cand)),
+                            )
             # Direct fallback: generated mesh is saved at <workspace_id>/mesh/mesh.glb
             # by the scheduler. asset_root/output_mesh_path may not be in Redis when
             # job_id is actually a workspace_id (frontend passes workspace_id as job_id).
@@ -2124,7 +2134,6 @@ async def download_job_result(
             feature_name = job_status.get("feature")
             is_tool_job = (
                 feature_name in {"auto_rig", "uv_unwrapping", "mesh_retopology", "mesh_segmentation"}
-                or bool(result.get("operation_id"))
                 or (isinstance(result.get("artifacts"), dict) and "rigged" in result["artifacts"])
             )
             if not is_tool_job and canonical_format in {"glb", "gltf", "obj", "stl", "ply", "quad_obj"}:
@@ -2324,6 +2333,8 @@ async def download_job_thumbnail(
         FileResponse for direct download or JSON with base64 data
     """
     try:
+        if job_id.startswith("preview_"):
+            job_id = job_id[len("preview_"):]
         raw_status = scheduler.get_job_status(job_id)
         if asyncio.iscoroutine(raw_status):
             job_status = await raw_status
@@ -2333,39 +2344,36 @@ async def download_job_thumbnail(
         if job_status is None:
             from core.scheduler.database_manager import DatabaseManager
             db = DatabaseManager()
+            storage_base = get_storage_base_dir().resolve()
+            asset = None
             ws = db.get_workspace(job_id)
-            if ws and ws.active_mesh_asset_id:
-                asset = db.get_asset(ws.active_mesh_asset_id)
-            elif ws and ws.source_asset_id:
-                asset = db.get_asset(ws.source_asset_id)
-                if asset and asset.thumbnail_path:
-                    storage_base = get_storage_base_dir().resolve()
-                    thumb_path = (storage_base / ws.workspace_id / asset.thumbnail_path).resolve()
-                    if thumb_path.is_file() and thumb_path.is_relative_to(storage_base):
-                        return FileResponse(
-                            path=str(thumb_path),
-                            filename=filename or f"{job_id}_thumb.png",
-                            media_type="image/png",
-                        )
-            asset = db.get_asset(job_id)
+            if not ws:
+                op = db.get_operation(job_id)
+                if op and op.workspace_id:
+                    ws = db.get_workspace(op.workspace_id)
+            if not asset and ws:
+                if ws.active_mesh_asset_id:
+                    asset = db.get_asset(ws.active_mesh_asset_id)
+                elif ws.source_asset_id:
+                    asset = db.get_asset(ws.source_asset_id)
+            if not asset:
+                asset = db.get_asset(job_id)
             if asset:
-                storage_base = get_storage_base_dir().resolve()
+                candidates = []
                 if asset.thumbnail_path:
-                    thumb_path = (storage_base / asset.workspace_id / asset.thumbnail_path).resolve()
+                    candidates.append(storage_base / asset.workspace_id / asset.thumbnail_path)
+                candidates.extend([
+                    storage_base / asset.workspace_id / "mesh" / "mesh_thumb.png",
+                    storage_base / asset.workspace_id / "mesh" / "thumbnail.png",
+                ])
+                for cand in candidates:
+                    thumb_path = cand.resolve()
                     if thumb_path.is_file() and thumb_path.is_relative_to(storage_base):
                         return FileResponse(
                             path=str(thumb_path),
                             filename=filename or f"{job_id}_thumb.png",
                             media_type="image/png",
                         )
-                # If asset has no thumbnail, check workspace active mesh or thumbnail dir
-                cand_thumb = (storage_base / asset.workspace_id / "mesh" / "thumbnail.png").resolve()
-                if cand_thumb.is_file() and cand_thumb.is_relative_to(storage_base):
-                    return FileResponse(
-                        path=str(cand_thumb),
-                        filename=filename or f"{job_id}_thumb.png",
-                        media_type="image/png",
-                    )
                 # Fallback to default SVG placeholder
                 svg_bytes = DEFAULT_MESH_THUMBNAIL_SVG.encode("utf-8")
                 return Response(

@@ -105,7 +105,9 @@ async def generate_motion(
 
         operation_id = None
         if target_ws_id:
-            op_row = db.enqueue_operation(
+            from backend.core.scheduler.database_manager import generate_operation_id
+            op_row, _ = db.enqueue_operation(
+                operation_id=generate_operation_id(),
                 workspace_id=target_ws_id,
                 operation_type="animation",
                 input_asset_id=input_asset.asset_id if input_asset else None,

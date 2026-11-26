@@ -103,3 +103,25 @@ Use only the currently exported shared presets. Prefer local CSS transitions for
 2. Reuse existing CSS variables and component primitives.
 3. Keep design documentation aligned with shipped components; historical proposals belong in an explicitly marked history/ADR, not in the current component reference.
 4. Run `bun run test`, `bun run lint`, `bun test`, and `bun run build` for frontend changes.
+
+ 
+## 11. Asset library and viewer lifecycle
+
+- All renderable-asset selection entry points use the same request, verify, load, then ready/error lifecycle from the actual Three.js loader. A newer selection or workspace change invalidates stale completions; retry starts a new request.
+- The Workspace scope toggle is strict: it shows matching workspace assets only and may show an empty state. It never silently displays global assets as a fallback.
+- Collection names and asset assignments are persisted in the existing app-state localStorage store. The Collections control filters by an assignment; removing an assignment clears the persisted mapping.
+- Duplicates are local aliases to the original file. Removing a duplicate removes only the alias and never deletes its shared source. Backend deletion is attempted only for a validated job/upload identity and the card is removed only after a successful response.
+- Thumbnail failures are scoped to the asset ID and exact thumbnail URL, so a changed URL can be retried. Pagination resets on filter/scope changes and clamps when results shrink.
+- Upload guidance matches the validator: GLB, GLTF, OBJ, FBX, STL and PLY, up to 200 MiB.
+- The Generator context accordion follows persisted desktop inspector state; changing tools may auto-expand it until the user manually overrides it.
+- Asset favorites are toggled from each asset's options menu and persisted by stable asset identity in the existing app-state store.
+- Viewer statistics are cleared when a new asset selection begins, preventing the still-visible previous mesh from supplying stale metrics to the new selection. The old mesh remains rendered until the replacement load succeeds.
+- Geometry health and UV chart counts display unknown when no measured or backend metadata exists; do not substitute assumed manifold status, chart counts or UV-channel labels.
+- `glbCache.ts` shares network work while keeping cancellation per consumer; the underlying fetch is aborted only after the final subscriber leaves.
+
+## 12. Task execution and cancellation
+
+- Explicit user cancellation is terminal `cancelled`; `interrupted` is reserved for work interrupted by process/runtime failure.
+- Batch submission has a single-run guard and one abort controller; cancellation stops pending submissions and cancels accepted jobs through the dedicated `/cancel` endpoint.
+- Batch cancellation resolves local task keys through their backend job identity. Retrying a failed batch item preserves its original input and settings snapshot.
+- Adaptive polling runs only while backend jobs are queued/running and ignores responses that arrive after a task has entered a terminal state.

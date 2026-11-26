@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict
@@ -74,8 +75,19 @@ class ArdyMotionGenerationAdapter(BaseModel):
             sys.path.insert(0, _ardy_root)
         from ardy.model import load_model
 
+        model_name = "ARDY-Core-RP-20FPS-Horizon40"
+        # download_models.sh downloads nvidia/ARDY-Core-RP-20FPS-Horizon40 directly
+        # into pretrained/ardy/ (config.yaml at root), while upstream load_model
+        # expects <checkpoints_dir>/<model_name>/config.yaml.
+        expected_dir = weights_dir / model_name
+        if not expected_dir.exists() and (weights_dir / "config.yaml").is_file():
+            try:
+                expected_dir.symlink_to(weights_dir)
+            except OSError:
+                pass
+
         model = load_model(
-            "ARDY-Core-RP-20FPS-Horizon40",
+            model_name,
             device="cpu",
             checkpoints_dir=str(weights_dir),
             text_encoder=False,  # avoid HF download for text encoder
@@ -98,8 +110,10 @@ class ArdyMotionGenerationAdapter(BaseModel):
             return {"success": False, "error": "ARDY requires a text prompt"}
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
-        duration = float(inputs.get("duration", 4.0))
-        checkpoint = inputs.get("checkpoint", "ARDY-Core-RP-20FPS-Horizon40")
+        duration = float(inputs["duration"])
+        num_denoising_steps = int(inputs["num_denoising_steps"])
+        cfg_weight = float(inputs["cfg_weight"])
+        checkpoint = inputs["checkpoint"]
 
         from ardy.tools import seed_everything
 
@@ -121,7 +135,6 @@ class ArdyMotionGenerationAdapter(BaseModel):
             # motion_mask: all ones (no joints masked out), observed_motion: zeros (no conditioning)
             motion_mask = torch.ones(1, num_frames, model.motion_rep.n_joints * 3, device=device)
             observed_motion = torch.zeros(1, num_frames, model.motion_rep.n_joints * 3, device=device)
-            num_denoising_steps = 50
             motion = model(
                 texts,
                 num_frames,
@@ -130,14 +143,15 @@ class ArdyMotionGenerationAdapter(BaseModel):
                 first_heading_angle=first_heading_angle,
                 motion_mask=motion_mask,
                 observed_motion=observed_motion,
-                cfg_weight=2.0,
+                cfg_weight=cfg_weight,
             )
             output = model.motion_rep.inverse(motion, is_normalized=True)
 
         import numpy as np
         import tempfile
 
-        out = Path(tempfile.mkdtemp()) / f"ardy_{seed}.npz"
+        out_dir = self._create_temporary_output_dir("ardy")
+        out = out_dir / f"ardy_{seed}.npz"
         arrays = {k: np.asarray(v) for k, v in output.items()}
         arrays["fps"] = float(fps)
         arrays["text"] = prompt

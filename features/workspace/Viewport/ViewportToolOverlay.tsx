@@ -12,14 +12,12 @@ import {
   GridIcon,
   HelpCircleIcon,
   LayersIcon,
-  FlipHorizontalIcon,
   RotateCw,
   SettingsIcon,
 } from '@hugeicons/core-free-icons';
 import type { LightTone } from '../types';
 import type { ShadingMode } from '../types';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
-import { getAssetComparisonPair } from '../lib/assetComparison';
 
 interface ViewportToolOverlayProps {
   isRightPanelOpen?: boolean;
@@ -30,12 +28,11 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
 }) => {
   const {
     showWireframe,
-    setShowWireframe,
+    wireframeMode,
+    setWireframeMode,
     currentAsset,
     activeTool,
     isExecuting,
-    isComparing,
-    setIsComparing,
     showGrid,
     setShowGrid,
     isTurntable,
@@ -67,7 +64,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
     if (unique.length <= 1) return [];
 
     return unique.map((asset, index) => {
-      const isBase = index === 0 || asset.is_base_mesh || asset.category === 'generation';
+      const isBase = Boolean(asset.is_base_mesh) || (index === 0 && asset.category === 'generation');
       const versionNumber = String(index + 1).padStart(3, '0');
       const label = isBase
         ? 'Base Mesh (v001)'
@@ -81,8 +78,8 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
   }, [workspaceId, assets, currentAsset]);
 
   const isRightPanelOpen = propRightPanelOpen ?? contextRightPanelOpen ?? false;
+  const modelStats = useViewerStore((s) => s.modelStats);
   const hasRenderableMesh = Boolean(currentAsset && currentAsset.category !== 'texture' && currentAsset.format !== 'IMAGE' && currentAsset.format !== 'FILE' && (currentAsset.source?.viewUrl || currentAsset.source?.localUrl || currentAsset.artifacts?.gameReady || currentAsset.artifacts?.source));
-  const canCompare = Boolean(getAssetComparisonPair(currentAsset, isExecuting)) || (!isExecuting && hasRenderableMesh && (activeTool === 'texture' || activeTool === 'pbr'));
 
   const [activePreset, setActivePreset] = useState<'Front' | 'Top' | 'Side' | 'Iso'>('Iso');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -199,6 +196,24 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
           </div>
         </div>
       )}
+      {/* Top-Right Compact Mesh Stats Card */}
+      {hasRenderableMesh && modelStats && (
+        <div
+          className="pointer-events-auto absolute top-4 flex items-center gap-2.5 px-2.5 py-1 rounded-lg bg-[hsl(var(--surface-1))]/90 backdrop-blur-md border border-white/[0.08] shadow-lg text-[10px] font-mono text-zinc-200 transition-[right] duration-200 ease-out z-20"
+          style={{ right: isRightPanelOpen ? '276px' : '16px' }}
+        >
+          <span className="flex items-center gap-1">
+            <span className="text-zinc-400">Faces</span>
+            <span className="font-bold text-[hsl(var(--primary))]">{modelStats.triangles.toLocaleString()}</span>
+          </span>
+          <span className="w-px h-3 bg-white/10" />
+          <span className="flex items-center gap-1">
+            <span className="text-zinc-400">Verts</span>
+            <span className="font-bold text-white">{modelStats.vertices.toLocaleString()}</span>
+          </span>
+        </div>
+      )}
+
       {/* Top-Right Control Cluster (Tripo-Style Vertical Tool Dock) */}
       <div
         className={`pointer-events-auto absolute top-16 md:top-20 flex flex-col items-center gap-2 transition-[right] duration-200 ease-out z-20 ${
@@ -239,39 +254,32 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
             </button>
           </SimpleTooltip>
 
-          {/* 3. Unified viewport comparison — lineage pair or same-mesh texture shading */}
-          {canCompare && (
-            <SimpleTooltip label={isComparing ? 'Exit Viewport Comparison' : (activeTool === 'texture' || activeTool === 'pbr' ? 'Compare Clay vs Textured' : 'Compare Before / After')} side="left">
-              <button
-                type="button"
-                onClick={() => setIsComparing(!isComparing)}
-                aria-label={isComparing ? 'Exit viewport comparison' : (activeTool === 'texture' || activeTool === 'pbr' ? 'Compare clay and textured model' : 'Compare before and after')}
-                aria-pressed={isComparing}
-                className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-                  isComparing
-                    ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
-                    : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
-                }`}
-              >
-                <HugeiconsIcon icon={FlipHorizontalIcon} size={16} />
-              </button>
-            </SimpleTooltip>
-          )}
-
-          {/* 4. Wireframe toggle button */}
+          {/* 3. Wireframe 2-mode toggle button (Overlay on surface vs Internal X-Ray) */}
           <SimpleTooltip
-            label={showWireframe ? 'Wireframe: ON' : 'Wireframe: OFF'}
+            label={
+              wireframeMode === 'overlay'
+                ? 'Wireframe: Overlay (Click for Internal X-Ray)'
+                : wireframeMode === 'xray'
+                  ? 'Wireframe: Internal X-Ray (Click to Turn Off)'
+                  : 'Wireframe: OFF (Click for Overlay)'
+            }
             side="left"
           >
             <button
               type="button"
-              onClick={() => setShowWireframe(!showWireframe)}
+              onClick={() =>
+                setWireframeMode(
+                  wireframeMode === 'off' ? 'overlay' : wireframeMode === 'overlay' ? 'xray' : 'off'
+                )
+              }
               className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-                showWireframe
+                wireframeMode === 'overlay'
                   ? 'bg-[#F9CF00] text-black shadow-sm font-bold'
-                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+                  : wireframeMode === 'xray'
+                    ? 'bg-amber-400/25 text-[#F9CF00] ring-1 ring-[#F9CF00] shadow-sm font-bold'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/[0.08]'
               }`}
-              aria-label="Toggle Wireframe Overlay"
+              aria-label="Toggle Wireframe Mode"
               aria-pressed={showWireframe}
             >
               <HugeiconsIcon icon={LayersIcon} size={16} />

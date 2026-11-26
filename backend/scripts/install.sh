@@ -600,6 +600,14 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     echo "[INFO] Installing o-voxel..."
     install_local_wheel "o_voxel-*.whl" "o-voxel" || { echo "[ERROR] o-voxel wheel not found in $WHEEL_DIR"; exit 1; }
 
+    # torchmcubes — TripoSR marching-cubes dependency; try prebuilt wheel, fall back to source build if wheel install fails.
+    echo "[INFO] Installing torchmcubes..."
+    if ! install_local_wheel "torchmcubes-*.whl" "torchmcubes"; then
+        echo "[WARN] Prebuilt torchmcubes wheel unavailable; building from source..."
+        $UV_PIP install --no-build-isolation "git+https://github.com/tatsy/torchmcubes.git" \
+            || echo "[WARN] torchmcubes source build failed; TripoSR will use skimage marching_cubes fallback."
+    fi
+
     # custom_rasterizer — Hunyuan3D-2 differentiable rasterizer CUDA extension.
     # Prebuilt wheel only, no source build. Required by hunyuan3d_v20_paint_image_mesh_painting.
     echo "[INFO] Installing custom_rasterizer..."
@@ -659,10 +667,18 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     fi
 
     # pyfqmr-triflow — custom constrained QEM simplification for TriFlow neural retopology
-    if [ -d "backend/thirdparty/triflow/third_party/pyfqmr-triflow" ]; then
+    if [ -d "$THIRDPARTY_DIR/triflow/third_party/pyfqmr-triflow" ]; then
         echo "[INFO] Installing pyfqmr-triflow..."
-        $UV_PIP install -e backend/thirdparty/triflow/third_party/pyfqmr-triflow || echo "[WARN] pyfqmr-triflow install failed"
+        $UV_PIP install -e "$THIRDPARTY_DIR/triflow/third_party/pyfqmr-triflow" || echo "[WARN] pyfqmr-triflow install failed"
     fi
+
+    # PartUV — prebuilt PyPI wheel (no C++/CGAL source build; --no-deps keeps trimesh>=4.12)
+    echo "[INFO] Installing partuv (prebuilt PyPI wheel)..."
+    $UV_PIP install --no-deps "partuv==0.1.2" || echo "[WARN] partuv wheel install failed"
+
+    # bpy — Blender Python 4.0 wheel for SkinTokens & PartUV packing (Python 3.10 compatible)
+    echo "[INFO] Installing bpy==4.0.0 from Blender PyPI..."
+    $UV_PIP install "bpy==4.0.0" --extra-index-url https://download.blender.org/pypi/ || echo "[WARN] bpy install failed"
 
     # PartField — NVIDIA 3D Feature Fields for Part Segmentation (backend/thirdparty/PartField)
     if [ -d "backend/thirdparty/PartField" ]; then

@@ -71,168 +71,142 @@ export interface StreamProgressCallback {
   (loaded: number, total: number, percent: number): void;
 }
 
-const inFlightRequests = new Map<string, Promise<ArrayBuffer>>();
-const progressListeners = new Map<string, Set<StreamProgressCallback>>();
-
-/**
- * Load 3D model buffer using L1 RAM -> L2 Disk Cache -> In-Flight Deduplication -> Streaming Network Fetch.
- * Supports concurrent request deduplication, retry resilience, and streaming progress callbacks.
- */
-export async function loadGLBWithProgress(
-  url: string,
-  onProgress?: StreamProgressCallback,
-  signal?: AbortSignal
-): Promise<ArrayBuffer> {
+interface InFlightRequest {
+  controller: AbortController;
+  promise: Promise<ArrayBuffer>;
+  consumers: Set<symbol>;
+  progressListeners: Set<StreamProgressCallback>;
+}
+const inFlightRequests = new Map<string, InFlightRequest>();
+function createAbortError(): DOMException { return new DOMException('Aborted', 'AbortError'); }
+function subscribeToRequest(url: string, request: InFlightRequest, onProgress?: StreamProgressCallback, signal?: AbortSignal): Promise<ArrayBuffer> {
+  if (signal?.aborted) return Promise.reject(createAbortError());
+  const consumerId = Symbol(url);
+  const listener = onProgress ? ((loaded: number, total: number, percent: number) => onProgress(loaded, total, percent)) : undefined;
+  request.consumers.add(consumerId);
+  if (listener) request.progressListeners.add(listener);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const release = (abortIfUnused: boolean) => {
+      signal?.removeEventListener('abort', handleAbort);
+      request.consumers.delete(consumerId);
+      if (listener) request.progressListeners.delete(listener);
+      if (abortIfUnused && request.consumers.size === 0 && inFlightRequests.get(url) === request) {
+        inFlightRequests.delete(url);
+        request.controller.abort();
+      }
+    };
+    const handleAbort = () => {
+      if (settled) return;
+      settled = true;
+      release(true);
+      reject(createAbortError());
+    };
+    signal?.addEventListener('abort', handleAbort, { once: true });
+    if (signal?.aborted) { handleAbort(); return; }
+    request.promise.then(
+      (buffer) => { if (!settled) { settled = true; release(false); resolve(buffer); } },
+      (error: unknown) => { if (!settled) { settled = true; release(false); reject(error); } },
+    );
+  });
+}
+async function fetchWithRetry(url: string, sharedSignal: AbortSignal, request: InFlightRequest, attempt = 1, maxAttempts = 3): Promise<ArrayBuffer> {
+  if (sharedSignal.aborted) throw createAbortError();
+  const attemptController = new AbortController();
+  const abortFromShared = () => attemptController.abort();
+  sharedSignal.addEventListener('abort', abortFromShared, { once: true });
+  const timeoutId = setTimeout(() => attemptController.abort(), 120000);
+  try {
+    const response = await fetch(url, { signal: attemptController.signal });
+    if (!response.ok) {
+      const error = new Error('HTTP ' + response.status);
+      if (![502, 503, 504].includes(response.status) || attempt >= maxAttempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+      return fetchWithRetry(url, sharedSignal, request, attempt + 1, maxAttempts);
+    }
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('text/html') || contentType.includes('application/json')) {
+      const text = await response.clone().text();
+      if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) throw new Error('Model file served as HTML — possible token/auth failure.');
+    }
+    const rawLength = Number(response.headers.get('content-length') || 0);
+    const total = Number.isFinite(rawLength) && rawLength > 0 ? rawLength : 0;
+    let arrayBuffer: ArrayBuffer;
+    if (response.body && typeof ReadableStream !== 'undefined' && total > 0) {
+      const reader = response.body.getReader();
+      let buffer = new Uint8Array(total);
+      let loaded = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        if (loaded + value.byteLength > buffer.byteLength) {
+          const next = new Uint8Array(Math.max(loaded + value.byteLength, buffer.byteLength * 2));
+          next.set(buffer.subarray(0, loaded));
+          buffer = next;
+        }
+        buffer.set(value, loaded);
+        loaded += value.byteLength;
+        const percent = Math.min(99, Math.round((loaded / total) * 100));
+        for (const progressListener of request.progressListeners) { try { progressListener(loaded, total, percent); } catch {} }
+      }
+      arrayBuffer = buffer.buffer.slice(0, loaded);
+    } else {
+      arrayBuffer = await response.arrayBuffer();
+    }
+    for (const progressListener of request.progressListeners) { try { progressListener(arrayBuffer.byteLength, arrayBuffer.byteLength, 100); } catch {} }
+    setCachedGLB(url, arrayBuffer);
+    return arrayBuffer;
+  } catch (error) {
+    if (sharedSignal.aborted) throw createAbortError();
+    const message = error instanceof Error ? error.message : String(error);
+    const retryable = attemptController.signal.aborted || error instanceof TypeError || /network|fetch|HTTP 502|HTTP 503|HTTP 504/i.test(message);
+    if (retryable && attempt < maxAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+      return fetchWithRetry(url, sharedSignal, request, attempt + 1, maxAttempts);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+    sharedSignal.removeEventListener('abort', abortFromShared);
+  }
+}
+/** Each caller owns an independent cancellation subscription to the shared network request. */
+export async function loadGLBWithProgress(url: string, onProgress?: StreamProgressCallback, signal?: AbortSignal): Promise<ArrayBuffer> {
   if (!url) throw new Error('Model URL is required');
-
+  if (signal?.aborted) throw createAbortError();
   const isCacheableUrl = !url.startsWith('blob:') && !url.startsWith('data:');
-
-  // 1. Check L1 in-memory cache (Instant 0ms)
   if (isCacheableUrl) {
     const memCached = getCachedGLB(url);
-    if (memCached) {
-      onProgress?.(memCached.byteLength, memCached.byteLength, 100);
-      return memCached;
-    }
+    if (memCached) { onProgress?.(memCached.byteLength, memCached.byteLength, 100); return memCached; }
   }
-
-  // 2. Check L2 persistent browser CacheStorage (~5ms, no network)
   if (isCacheableUrl && typeof window !== 'undefined' && 'caches' in window) {
     try {
       const cache = await caches.open(CACHE_NAME);
       const matched = await cache.match(url);
+      if (signal?.aborted) throw createAbortError();
       if (matched) {
-        const buf = await matched.arrayBuffer();
-        if (buf && buf.byteLength > 0) {
-          setCachedGLB(url, buf);
-          onProgress?.(buf.byteLength, buf.byteLength, 100);
-          return buf;
-        }
+        const buffer = await matched.arrayBuffer();
+        if (buffer.byteLength > 0) { setCachedGLB(url, buffer); onProgress?.(buffer.byteLength, buffer.byteLength, 100); return buffer; }
       }
-    } catch {}
-  }
-
-  // 3. Deduplicate in-flight requests: if another component (e.g. prefetcher) is already downloading this URL, share it!
-  if (inFlightRequests.has(url)) {
-    if (onProgress) {
-      let listeners = progressListeners.get(url);
-      if (!listeners) {
-        listeners = new Set();
-        progressListeners.set(url, listeners);
-      }
-      listeners.add(onProgress);
+    } catch {
+      if (signal?.aborted) throw createAbortError();
+      // CacheStorage is an optimization; network remains the source of truth.
     }
-    return inFlightRequests.get(url)!;
   }
-
-  // 4. Execute fetch with automatic retry and in-flight tracking
-  let listeners = progressListeners.get(url);
-  if (!listeners) {
-    listeners = new Set();
-    progressListeners.set(url, listeners);
-  }
-  if (onProgress) {
-    listeners.add(onProgress);
-  }
-
-  const broadcastProgress = (loaded: number, total: number, percent: number) => {
-    const subs = progressListeners.get(url);
-    if (subs) {
-      for (const cb of subs) {
-        try {
-          cb(loaded, total, percent);
-        } catch {}
-      }
-    }
+  const existing = inFlightRequests.get(url);
+  if (existing) return subscribeToRequest(url, existing, onProgress, signal);
+  const request: InFlightRequest = {
+    controller: new AbortController(),
+    promise: Promise.resolve(new ArrayBuffer(0)),
+    consumers: new Set(),
+    progressListeners: new Set(),
   };
-
-  const fetchWithRetry = async (attempt = 1, maxAttempts = 3): Promise<ArrayBuffer> => {
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const controller = new AbortController();
-    const abortHandler = () => controller.abort();
-    signal?.addEventListener('abort', abortHandler);
-    try {
-      // Generous 120s timeout per attempt for large 3D models with 2K/4K textures
-      const timeoutId = setTimeout(() => controller.abort(), 120000);
-
-      const response = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeoutId);
-      signal?.removeEventListener('abort', abortHandler);
-
-      if (!response.ok) {
-        if (attempt < maxAttempts && (response.status === 502 || response.status === 503 || response.status === 504)) {
-          await new Promise((r) => setTimeout(r, 600 * attempt));
-          return fetchWithRetry(attempt + 1, maxAttempts);
-        }
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const contentType = response.headers.get('content-type') || '';
-      if (contentType.includes('text/html') || contentType.includes('application/json')) {
-        const text = await response.clone().text();
-        if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
-          throw new Error('Model file served as HTML — possible token/auth failure.');
-        }
-      }
-
-      const contentLength = response.headers.get('content-length');
-      const total = contentLength ? parseInt(contentLength, 10) : 0;
-
-      let arrayBuffer: ArrayBuffer;
-
-      if (response.body && typeof ReadableStream !== 'undefined' && total > 0) {
-        try {
-          const reader = response.body.getReader();
-          let buffer = new Uint8Array(total);
-          let loaded = 0;
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (!value) continue;
-            if (loaded + value.byteLength > buffer.byteLength) {
-              const next = new Uint8Array(Math.max(loaded + value.byteLength, buffer.byteLength * 2));
-              next.set(buffer.subarray(0, loaded));
-              buffer = next;
-            }
-            buffer.set(value, loaded);
-            loaded += value.byteLength;
-            const percent = Math.min(99, Math.round((loaded / total) * 100));
-            broadcastProgress(loaded, total, percent);
-          }
-
-          arrayBuffer = buffer.buffer.slice(0, loaded);
-          broadcastProgress(loaded, total, 100);
-        } catch (streamErr) {
-          console.warn('[glbCache] Streaming reader failed, falling back to full arrayBuffer fetch:', streamErr);
-          const fallbackRes = await fetch(url);
-          arrayBuffer = await fallbackRes.arrayBuffer();
-          broadcastProgress(arrayBuffer.byteLength, arrayBuffer.byteLength, 100);
-        }
-      } else {
-        arrayBuffer = await response.arrayBuffer();
-        broadcastProgress(arrayBuffer.byteLength, arrayBuffer.byteLength, 100);
-      }
-
-      setCachedGLB(url, arrayBuffer);
-      return arrayBuffer;
-    } catch (err: any) {
-      if (!signal?.aborted && attempt < maxAttempts && (err?.message?.includes('network') || err?.message?.includes('fetch'))) {
-        console.warn(`[glbCache] Fetch attempt ${attempt} failed for ${url} (${err?.message}); retrying...`);
-        await new Promise((r) => setTimeout(r, 800 * attempt));
-        return fetchWithRetry(attempt + 1, maxAttempts);
-      }
-      throw err;
-    }
-  };
-
-  const task = fetchWithRetry().finally(() => {
-    inFlightRequests.delete(url);
-    progressListeners.delete(url);
+  request.promise = fetchWithRetry(url, request.controller.signal, request).finally(() => {
+    if (inFlightRequests.get(url) === request) inFlightRequests.delete(url);
   });
-
-  inFlightRequests.set(url, task);
-  return task;
+  inFlightRequests.set(url, request);
+  return subscribeToRequest(url, request, onProgress, signal);
 }
 
 export async function prefetchGLB(url: string): Promise<ArrayBuffer | null> {

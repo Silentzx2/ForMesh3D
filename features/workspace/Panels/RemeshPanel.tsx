@@ -171,8 +171,8 @@ export const QualityBadge: React.FC<QualityBadgeProps> = React.memo(({
     Sharp: {
       label: 'Sharp',
       icon: SparklesIcon,
-      style: 'bg-[#F9CF00]/15 text-[#F9CF00] border-[#F9CF00]/30 shadow-[0_0_8px_rgba(249,207,0,0.15)]',
-      dotStyle: 'bg-[#F9CF00]',
+      style: 'bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] border-[hsl(var(--primary))]/30 shadow-[0_0_8px_rgba(249,207,0,0.15)]',
+      dotStyle: 'bg-[hsl(var(--primary))]',
     },
     Clean: {
       label: 'Clean',
@@ -219,7 +219,7 @@ export const QualityBadge: React.FC<QualityBadgeProps> = React.memo(({
         </div>
         <div className="flex justify-between gap-4 text-zinc-300">
           <span>Feature Edge Retention</span>
-          <span className="font-mono text-[#F9CF00] font-bold">{retentionDisplay}</span>
+          <span className="font-mono text-[hsl(var(--primary))] font-bold">{retentionDisplay}</span>
         </div>
       </div>
       {warnings.length > 0 && (
@@ -278,7 +278,7 @@ export const RemeshPanel: React.FC = () => {
   const [featureAngle, setFeatureAngle] = useState<30 | 45 | 60>(45);
   const [adaptiveDensity, setAdaptiveDensity] = useState(true);
   const [watertightHealing, setWatertightHealing] = useState(true);
-  const [outputFormat, setOutputFormat] = useState<'glb' | 'obj'>('glb');
+  const [outputFormat, setOutputFormat] = useState<'obj' | 'fbx'>('obj');
 
   // Debounce ref for smooth non-blocking slider interaction
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -289,7 +289,7 @@ export const RemeshPanel: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const meshInputRef = useRef<HTMLInputElement>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [inputTab, setInputTab] = useState<'image' | 'mesh'>('image');
+  const [inputTab, setInputTab] = useState<'image' | 'mesh'>('mesh');
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
 
@@ -503,7 +503,7 @@ export const RemeshPanel: React.FC = () => {
       {/* 1. Header (Clean, Refined Studio Header) */}
       <div className="flex items-center justify-between py-2.5 px-3 border-b border-white/[0.06] flex-shrink-0">
         <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded-md bg-[#F9CF00]/15 flex items-center justify-center text-[#F9CF00]">
+          <div className="w-5 h-5 rounded-md bg-[hsl(var(--primary))]/15 flex items-center justify-center text-[hsl(var(--primary))]">
             <RefreshCw className="w-3 h-3" />
           </div>
           <h2 className="text-xs font-bold text-zinc-100 tracking-normal">
@@ -531,8 +531,8 @@ export const RemeshPanel: React.FC = () => {
         <div
           className={`p-2 rounded-2xl border transition-colors space-y-2 flex-shrink-0 ${
             isDragOver
-              ? 'border-[#F9CF00] ring-1 ring-[#F9CF00]/40 bg-[#161726]'
-              : 'border-white/[0.08] bg-[#12131d]'
+              ? 'border-[hsl(var(--primary))] ring-1 ring-[hsl(var(--primary))]/40 bg-[hsl(var(--surface-2))]'
+              : 'border-white/[0.08] bg-[hsl(var(--surface-1))]'
           }`}
           onDragOver={handleCardDragOver}
           onDragEnter={handleCardDragEnter}
@@ -608,14 +608,14 @@ export const RemeshPanel: React.FC = () => {
               }}
               className={`relative group w-full h-[195px] workspace-upload-dropzone rounded-xl border border-dashed transition-all p-3 flex flex-col items-center justify-center text-center cursor-pointer shadow-inner ${
                 isDragOver
-                  ? 'border-[#F9CF00] bg-[#1c1d2c] ring-1 ring-[#F9CF00]/40'
-                  : 'border-white/[0.12] hover:border-white/25 bg-[#0f1019]'
+                  ? 'border-[hsl(var(--primary))] bg-[hsl(var(--surface-2))] ring-1 ring-[hsl(var(--primary))]/40'
+                  : 'border-white/[0.12] hover:border-white/25 bg-[hsl(var(--surface-0))]'
               } [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:16px_16px] [background-position:0_0,0_8px,8px_-8px,-8px_0px]`}
             >
               <div
                 className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-transform mb-2 ${
                   isDragOver
-                    ? 'bg-[#F9CF00] text-black scale-110 shadow-[#F9CF00]/30'
+                    ? 'bg-[hsl(var(--primary))] text-black scale-110 shadow-[hsl(var(--primary))]/30'
                     : 'bg-gradient-to-br from-[#6366F1] to-[#8B5CF6] text-white shadow-indigo-500/25 group-hover:scale-105'
                 }`}
               >
@@ -627,38 +627,31 @@ export const RemeshPanel: React.FC = () => {
               <span className="text-[10px] text-zinc-400 mt-1 font-medium">
                 OBJ, FBX, STL, GLB, PLY
               </span>
-              <span className="text-[9px] text-zinc-500 font-mono mt-0.5">
+              <span className="text-[9px] text-zinc-400 font-mono mt-0.5">
                 Size ≤ 150MB
               </span>
-              <input
-                ref={meshInputRef}
-                type="file"
-                accept=".obj,.fbx,.stl,.glb,.ply,.gltf"
-                className="hidden"
-                onChange={handleMeshUpload}
-              />
             </div>
           )}
         </div>
 
         {/* Live Upload Progress Bar with Real Speed & Remaining Time */}
         {isMeshUploading && (
-          <div className="p-2 rounded-xl bg-black/40 border border-[#F9CF00]/30 space-y-1.5 animate-in fade-in">
+          <div className="p-2 rounded-xl bg-black/40 border border-[hsl(var(--primary))]/30 space-y-1.5 animate-in fade-in">
             <div className="flex items-center justify-between text-[10px]">
               <div className="flex items-center gap-1.5 min-w-0 pr-2">
-                <div className="w-2.5 h-2.5 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <div className="w-2.5 h-2.5 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin flex-shrink-0" />
                 <span className="font-semibold text-white truncate text-[10px]">
                   {meshUploadState.fileName || 'Uploading 3D Mesh...'}
                 </span>
               </div>
-              <span className="font-mono font-bold text-[#F9CF00] text-[10px] flex-shrink-0">
+              <span className="font-mono font-bold text-[hsl(var(--primary))] text-[10px] flex-shrink-0">
                 {meshUploadState.percent ?? 50}%
               </span>
             </div>
 
             <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-200 rounded-full"
+                className="h-full bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--primary))]/80 transition-all duration-200 rounded-full"
                 style={{ width: `${Math.max(4, Math.min(100, meshUploadState.percent ?? 50))}%` }}
               />
             </div>
@@ -710,7 +703,7 @@ export const RemeshPanel: React.FC = () => {
           </div>
 
           {/* 4. Target Polycount: Tripo-Style Smooth Gradient Slider + Quick Presets */}
-          <div className="space-y-2.5 p-3 rounded-2xl bg-[#12131d] border border-white/[0.08]">
+          <div className="space-y-2.5 p-3 rounded-2xl bg-[hsl(var(--surface-1))] border border-white/[0.08]">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
                 Target Face Budget
@@ -719,7 +712,7 @@ export const RemeshPanel: React.FC = () => {
                 <span className="text-sm font-bold text-white tracking-tight">
                   {localPolycount.toLocaleString()}
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-[#F9CF00]/15 text-[#F9CF00] font-semibold border border-[#F9CF00]/30">
+                <span className="text-[10px] px-2 py-0.5 rounded bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] font-semibold border border-[hsl(var(--primary))]/30">
                   {getBudgetTierLabel(localPolycount)}
                 </span>
               </div>
@@ -738,7 +731,7 @@ export const RemeshPanel: React.FC = () => {
                 style={{
                   background: `linear-gradient(to right, #F9CF00 0%, #F9CF00 ${sliderPercentage}%, rgba(255, 255, 255, 0.08) ${sliderPercentage}%, rgba(255, 255, 255, 0.08) 100%)`,
                 }}
-                className="w-full h-2 rounded-full appearance-none cursor-pointer focus:outline-none transition-all duration-75 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[#F9CF00] [&::-webkit-slider-thumb]:shadow-[0_0_10px_rgba(249,207,0,0.7)] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-125 [&::-webkit-slider-thumb]:active:scale-95 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-[#F9CF00] [&::-moz-range-thumb]:shadow-[0_0_10px_rgba(249,207,0,0.7)] [&::-moz-range-thumb]:cursor-pointer"
+                className="w-full h-2 rounded-full appearance-none cursor-pointer focus:outline-none transition-all duration-75 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[hsl(var(--primary))] [&::-webkit-slider-thumb]:shadow-[0_0_10px_rgba(249,207,0,0.7)] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-125 [&::-webkit-slider-thumb]:active:scale-95 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-[hsl(var(--primary))] [&::-moz-range-thumb]:shadow-[0_0_10px_rgba(249,207,0,0.7)] [&::-moz-range-thumb]:cursor-pointer"
               />
               <div className="flex justify-between text-[10px] font-mono text-zinc-400 px-0.5">
                 <span>5K</span>
@@ -762,7 +755,7 @@ export const RemeshPanel: React.FC = () => {
                   onClick={() => updatePolycount(p.val, true)}
                   className={`h-7 rounded-lg text-xs font-bold flex items-center justify-center transition-all cursor-pointer ${
                     localPolycount === p.val
-                      ? 'bg-[#F9CF00] text-black shadow-sm font-extrabold'
+                      ? 'bg-[hsl(var(--primary))] text-black shadow-sm font-extrabold'
                       : 'bg-black/30 text-zinc-400 hover:text-white hover:bg-white/[0.04] border border-white/[0.04]'
                   }`}
                 >
@@ -773,13 +766,13 @@ export const RemeshPanel: React.FC = () => {
           </div>
 
           {/* TriFlow AI engine */}
-            <div className="p-2.5 rounded-xl bg-[#12131d] border border-white/[0.06] space-y-1">
+            <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-1))] border border-white/[0.06] space-y-1">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-white flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-[#F9CF00]" />
+                  <Sparkles className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
                   <span>TriFlow Neural Engine</span>
                 </span>
-                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#F9CF00]/15 text-[#F9CF00] font-semibold border border-[#F9CF00]/30">
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] font-semibold border border-[hsl(var(--primary))]/30">
                   Latent Flow Matching
                 </span>
               </div>
@@ -796,17 +789,17 @@ export const RemeshPanel: React.FC = () => {
               onClick={() => setIsAdvancedOpen((prev) => !prev)}
               className={`w-full h-8.5 px-3 rounded-xl border flex items-center justify-between text-left transition-all cursor-pointer shadow-sm ${
                 isAdvancedOpen
-                  ? 'bg-[#1b1b2f] border-[#F9CF00] text-white ring-1 ring-[#F9CF00]/50'
+                  ? 'bg-[#1b1b2f] border-[hsl(var(--primary))] text-white ring-1 ring-[hsl(var(--primary))]/50'
                   : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-[hsl(var(--foreground))]'
               }`}
             >
               <div className="flex items-center gap-2">
-                <SlidersHorizontal className="w-3.5 h-3.5 text-[#F9CF00]" />
+                <SlidersHorizontal className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
                 <span className="text-xs font-medium text-zinc-200">Advanced Settings</span>
               </div>
               <ChevronRight
                 className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${
-                  isAdvancedOpen ? 'rotate-90 text-[#F9CF00]' : ''
+                  isAdvancedOpen ? 'rotate-90 text-[hsl(var(--primary))]' : ''
                 }`}
               />
             </button>
@@ -820,13 +813,13 @@ export const RemeshPanel: React.FC = () => {
             id="retopo-advanced-flyout"
             role="dialog"
             aria-label="Advanced Retopology Settings"
-            className="workspace-advanced-flyout p-3 rounded-2xl bg-[#141421] border border-[#F9CF00]/40 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-2.5 animate-in fade-in zoom-in-95 duration-150 pointer-events-auto select-none" style={{ '--workspace-flyout-width': '280px' } as React.CSSProperties}
+            className="workspace-advanced-flyout p-3 rounded-2xl bg-[#141421] border border-[hsl(var(--primary))]/40 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-2.5 animate-in fade-in zoom-in-95 duration-150 pointer-events-auto select-none" style={{ '--workspace-flyout-width': '280px' } as React.CSSProperties}
           >
             {/* Flyout Header */}
             <div className="flex items-start justify-between pb-1.5 border-b border-white/[0.08]">
               <div>
                 <h3 className="text-xs font-bold text-white tracking-wide flex items-center gap-1.5">
-                  <SlidersHorizontal className="w-3.5 h-3.5 text-[#F9CF00]" />
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
                   <span>Advanced Retopo Settings</span>
                 </h3>
                 <p className="text-[10px] text-zinc-400 mt-0.5">Geometry flow &amp; edge preservation</p>
@@ -845,7 +838,7 @@ export const RemeshPanel: React.FC = () => {
             <div className="flex items-center justify-between py-1">
               <div className="space-y-0.5 pr-2">
                 <div className="flex items-center gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5 text-[#F9CF00]" />
+                  <ShieldCheck className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
                   <span className="text-xs text-zinc-200 font-medium">Preserve Sharp Edges</span>
                 </div>
                 <p className="text-[10px] text-zinc-400">Maintains creases on hard surfaces</p>
@@ -856,7 +849,7 @@ export const RemeshPanel: React.FC = () => {
                 aria-checked={preserveEdges}
                 onClick={() => setPreserveEdges(!preserveEdges)}
                 className={`w-8 h-4.5 rounded-full p-0.5 transition-colors cursor-pointer flex-shrink-0 ${
-                  preserveEdges ? 'bg-[#F9CF00]' : 'bg-white/15'
+                  preserveEdges ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'
                 }`}
               >
                 <div
@@ -949,7 +942,7 @@ export const RemeshPanel: React.FC = () => {
             <div className="space-y-1.5 pt-2 border-t border-white/[0.06]">
               <span className="text-xs text-zinc-300 font-medium block">Export Format</span>
               <div className="grid grid-cols-2 gap-1.5 p-0.5 rounded-xl bg-black/30 border border-white/[0.06]">
-                {(['glb', 'obj'] as const).map((fmt) => (
+                {(['obj', 'fbx'] as const).map((fmt) => (
                   <button
                     key={fmt}
                     type="button"
@@ -973,22 +966,22 @@ export const RemeshPanel: React.FC = () => {
       {/* 5. Sticky Bottom Action CTA Button (NO model name in button or subtitle as requested) */}
       <div className="p-3 pt-2.5 border-t border-white/[0.08] bg-[hsl(var(--surface-1))] flex-shrink-0 space-y-2">
         {isExecuting ? (
-          <div className="p-3 rounded-2xl bg-[#141524] border border-[#F9CF00]/30 shadow-xl space-y-2.5 animate-in fade-in">
+          <div className="p-3 rounded-2xl bg-[hsl(var(--surface-1))] border border-[hsl(var(--primary))]/30 shadow-xl space-y-2.5 animate-in fade-in">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-2 min-w-0 pr-2">
-                <div className="w-3.5 h-3.5 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <div className="w-3.5 h-3.5 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin flex-shrink-0" />
                 <span className="font-semibold text-white truncate text-xs">
                   {executionStep || 'Retopologizing mesh...'}
                 </span>
               </div>
-              <span className="font-mono font-bold text-[#F9CF00] text-xs flex-shrink-0">
+              <span className="font-mono font-bold text-[hsl(var(--primary))] text-xs flex-shrink-0">
                 {Math.round(executionProgress)}%
               </span>
             </div>
 
             <div className="w-full h-1.5 rounded-full bg-black/40 overflow-hidden border border-white/10">
               <div
-                className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-300 rounded-full"
+                className="h-full bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--primary))]/80 transition-all duration-300 rounded-full"
                 style={{ width: `${Math.max(4, Math.min(100, Math.round(executionProgress)))}%` }}
               />
             </div>
@@ -1007,8 +1000,8 @@ export const RemeshPanel: React.FC = () => {
             <button
               type="button"
               onClick={handleRunRetopo}
-              disabled={!currentAsset && !generationSettings.image}
-              className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!currentAsset || isMeshUploading || isExecuting}
+              className="w-full h-8 rounded-full bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[hsl(var(--primary))]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RefreshCw className="w-3.5 h-3.5 text-black" />
               <span>

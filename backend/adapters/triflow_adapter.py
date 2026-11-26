@@ -171,7 +171,6 @@ class TriFlowRetopologyAdapter(BaseModel):
                 "get_cond": get_cond_fn,
                 "triflow_root": triflow_root,
             }
-            self.status = ModelStatus.LOADED
 
             logger.info("[TRIFLOW LOAD] Successfully loaded TriFlow pipeline.")
             return self.pipeline_components
@@ -195,7 +194,6 @@ class TriFlowRetopologyAdapter(BaseModel):
 
         if torch is not None and torch.cuda.is_available():
             torch.cuda.empty_cache()
-        self.status = ModelStatus.UNLOADED
         logger.info("[TRIFLOW UNLOAD] Pipeline unloaded and CUDA cache emptied.")
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
@@ -221,7 +219,7 @@ class TriFlowRetopologyAdapter(BaseModel):
 
         watertight = bool(inputs.get("watertight") or inputs.get("watertightHealing", False))
         adaptive = bool(inputs.get("adaptive") if "adaptive" in inputs else inputs.get("adaptiveDensity", True))
-        output_format = str(inputs.get("output_format", "glb")).lower().lstrip(".")
+        output_format = str(inputs.get("output_format") or "obj").lower().lstrip(".")
 
         repo_root = Path(__file__).resolve().parents[2]
         triflow_root = _setup_triflow_sys_paths(repo_root)
@@ -238,6 +236,18 @@ class TriFlowRetopologyAdapter(BaseModel):
 
         # Real Neural Pipeline Execution
         try:
+            # meshlib >= 3.1 renamed MeshProjectionResult._offsetof_mtp -> _offsetof_tp;
+            # keep compatibility inside this TriFlow worker process.
+            try:
+                import meshlib.mrmeshpy as _mrmesh  # type: ignore
+
+                if not hasattr(_mrmesh.MeshProjectionResult, "_offsetof_mtp") and hasattr(
+                    _mrmesh.MeshProjectionResult, "_offsetof_tp"
+                ):
+                    _mrmesh.MeshProjectionResult._offsetof_mtp = _mrmesh.MeshProjectionResult._offsetof_tp
+            except Exception:
+                pass
+
             from triflow.utils.mesh_processing import process_one_mesh, robust_remesh
             from triflow.utils.mesh_reconstruction import topology_flow2mesh_QEM
             from triflow.utils.sampling import FlowEulerSampler
@@ -314,7 +324,7 @@ class TriFlowRetopologyAdapter(BaseModel):
             sampling_started = time.perf_counter()
             with torch.no_grad():
                 with accelerator.autocast():
-                    res = sampler.sample(model, noise=noise, cond=c, steps=50, verbose=False)
+                    res = sampler.sample(model, noise=noise, cond=c, steps=50, verbose=True)
             logger.info(
                 "[TRIFLOW] Latent sampling completed elapsed=%.2fs",
                 time.perf_counter() - sampling_started,
@@ -362,18 +372,19 @@ class TriFlowRetopologyAdapter(BaseModel):
             elif inputs.get("output_mesh_path"):
                 out_file = Path(inputs["output_mesh_path"]).resolve()
             else:
-                out_dir = Path(inputs.get("output_dir") or tempfile.mkdtemp())
+                out_dir_value = inputs.get("output_dir")
+                out_dir = Path(out_dir_value) if out_dir_value else self._create_temporary_output_dir("triflow")
                 out_dir.mkdir(parents=True, exist_ok=True)
                 stem = Path(mesh_path).stem
                 out_file = out_dir / f"{stem}_triflow.{output_format}"
             out_file.parent.mkdir(parents=True, exist_ok=True)
-            export_mesh_safe(mesh_qem, out_file)
-
-            stats = compute_mesh_stats(mesh_qem)
+            stats, actual_quad_ratio, quad_obj_path = self._export_triflow_output(
+                mesh_qem, out_file, output_format, poly_type, quad_ratio
+            )
             elapsed = round(time.time() - start_time, 2)
             logger.info("[TRIFLOW] Retopology completed in %ss. Output: %s", elapsed, out_file)
 
-            return {
+            res_dict: Dict[str, Any] = {
                 "success": True,
                 "output_mesh_path": str(out_file),
                 "mesh_path": str(out_file),
@@ -381,11 +392,15 @@ class TriFlowRetopologyAdapter(BaseModel):
                 "generation_info": {
                     "engine": "triflow",
                     "target_faces": target_faces,
-                    "quad_ratio": quad_ratio,
+                    "poly_type": poly_type,
+                    "quad_ratio": actual_quad_ratio,
                     "execution_time_s": elapsed,
                     "output_format": output_format,
                 },
             }
+            if quad_obj_path is not None:
+                res_dict["quad_obj_path"] = str(quad_obj_path)
+            return res_dict
 
         except ModuleNotFoundError as e:
             if "pyfqmr_triflow" in str(e):
@@ -415,6 +430,8 @@ class TriFlowRetopologyAdapter(BaseModel):
         (e.g. pyfqmr_triflow Cython extension not compiled)."""
         logger.warning("[TRIFLOW FALLBACK] Applying high-quality quadric decimation fallback.")
         input_mesh = load_mesh_safe(mesh_path)
+        if hasattr(input_mesh, "dump"):
+            input_mesh = input_mesh.dump(concatenate=True)
         try:
             if hasattr(input_mesh, "simplify_quadric_decimation"):
                 simplified = input_mesh.simplify_quadric_decimation(face_count=target_faces)
@@ -433,15 +450,18 @@ class TriFlowRetopologyAdapter(BaseModel):
         elif inputs.get("output_mesh_path"):
             out_file = Path(inputs["output_mesh_path"]).resolve()
         else:
-            out_dir = Path(inputs.get("output_dir") or tempfile.mkdtemp())
+            out_dir_value = inputs.get("output_dir")
+            out_dir = Path(out_dir_value) if out_dir_value else self._create_temporary_output_dir("triflow")
             out_dir.mkdir(parents=True, exist_ok=True)
             stem = Path(mesh_path).stem
             out_file = out_dir / f"{stem}_retopo.{output_format}"
         out_file.parent.mkdir(parents=True, exist_ok=True)
-        export_mesh_safe(simplified, out_file)
-        stats = compute_mesh_stats(simplified)
+        poly_type = str(inputs.get("poly_type", "quad")).lower()
+        stats, actual_quad_ratio, quad_obj_path = self._export_triflow_output(
+            simplified, out_file, output_format, poly_type, quad_ratio
+        )
 
-        return {
+        res_dict: Dict[str, Any] = {
             "success": True,
             "output_mesh_path": str(out_file),
             "mesh_path": str(out_file),
@@ -449,14 +469,141 @@ class TriFlowRetopologyAdapter(BaseModel):
             "generation_info": {
                 "engine": "triflow_fallback",
                 "target_faces": target_faces,
-                "quad_ratio": quad_ratio,
+                "poly_type": poly_type,
+                "quad_ratio": actual_quad_ratio,
                 "execution_time_s": round(time.time() - start_time, 2),
             },
         }
+        if quad_obj_path is not None:
+            res_dict["quad_obj_path"] = str(quad_obj_path)
+        return res_dict
+
+    @staticmethod
+    def _pair_triangles_to_quads(mesh: trimesh.Trimesh, max_angle_deg: float = 45.0):
+        """Greedily pair adjacent co-planar triangles into ordered 4-vertex quads."""
+        faces = np.asarray(mesh.faces)
+        adj = mesh.face_adjacency
+        angles = mesh.face_adjacency_angles
+        max_rad = float(np.deg2rad(max_angle_deg))
+        order = np.argsort(angles)
+        used = np.zeros(len(faces), dtype=bool)
+        mixed_faces = []
+        quad_count = 0
+
+        for idx in order:
+            if angles[idx] > max_rad:
+                break
+            f0, f1 = int(adj[idx, 0]), int(adj[idx, 1])
+            if used[f0] or used[f1]:
+                continue
+            t0, t1 = faces[f0], faces[f1]
+            shared = set(t0.tolist()) & set(t1.tolist())
+            if len(shared) != 2:
+                continue
+            # Rotate t0 so the edge NOT opposite to the shared edge starts at the shared-edge vertex
+            opp0 = next(i for i, v in enumerate(t0) if v not in shared)
+            v_a, v_b, v_c = int(t0[opp0]), int(t0[(opp0 + 1) % 3]), int(t0[(opp0 + 2) % 3])
+            opp1_v = next(int(v) for v in t1 if v not in shared)
+            # Quad winding: v_a -> v_b -> opp1_v -> v_c
+            mixed_faces.append([v_a, v_b, opp1_v, v_c])
+            used[f0] = used[f1] = True
+            quad_count += 1
+
+        tri_count = 0
+        for fi in range(len(faces)):
+            if not used[fi]:
+                mixed_faces.append([int(v) for v in faces[fi]])
+                tri_count += 1
+        return mixed_faces, quad_count, tri_count
+
+    @staticmethod
+    def _write_quad_obj(mesh: trimesh.Trimesh, mixed_faces: list[list[int]], out_path: Path) -> None:
+        """Write vertices and mixed quad/triangle faces to a Wavefront OBJ file."""
+        verts = np.asarray(mesh.vertices)
+        lines = [f"v {x:.6f} {y:.6f} {z:.6f}\n" for x, y, z in verts]
+        for face in mixed_faces:
+            lines.append("f " + " ".join(str(idx + 1) for idx in face) + "\n")
+        out_path.write_text("".join(lines), encoding="utf-8")
+
+    @staticmethod
+    def _convert_obj_to_fbx(obj_path: Path, fbx_path: Path) -> None:
+        """Convert an OBJ (preserving quads/ngons) to FBX via bpy or Blender."""
+        import importlib.util
+        import subprocess
+        from pipelines.mesh_utils import find_blender_binary
+
+        snippet = (
+            "import bpy, sys\n"
+            "src, dst = sys.argv[-2], sys.argv[-1]\n"
+            "bpy.ops.wm.read_factory_settings(use_empty=True)\n"
+            "if hasattr(bpy.ops.wm, 'obj_import'):\n"
+            "    bpy.ops.wm.obj_import(filepath=src)\n"
+            "else:\n"
+            "    bpy.ops.import_scene.obj(filepath=src)\n"
+            "bpy.ops.export_scene.fbx(filepath=dst, use_selection=False, mesh_smooth_type='FACE')\n"
+        )
+        if importlib.util.find_spec("bpy") is not None:
+            cmd = [sys.executable, "-c", snippet, str(obj_path), str(fbx_path)]
+        else:
+            blender_bin = find_blender_binary()
+            if not blender_bin:
+                raise RuntimeError("FBX export requires bpy or Blender installed")
+            cmd = [blender_bin, "-b", "--python-expr", snippet, "--", str(obj_path), str(fbx_path)]
+
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        if proc.returncode != 0 or not fbx_path.is_file():
+            raise RuntimeError(f"FBX export failed: {proc.stderr.strip() or proc.stdout.strip()}")
+
+    def _export_triflow_output(
+        self,
+        mesh: trimesh.Trimesh,
+        out_file: Path,
+        output_format: str,
+        poly_type: str,
+        quad_ratio: float,
+    ):
+        stats = compute_mesh_stats(mesh)
+        quad_obj_path: Optional[Path] = None
+
+        if poly_type == "quad" and quad_ratio > 0.0:
+            mixed_faces, quad_count, tri_count = self._pair_triangles_to_quads(mesh)
+            total = max(1, quad_count + tri_count)
+            actual_quad_ratio = round(quad_count / total, 4)
+            stats["quad_count"] = quad_count
+            stats["tri_count"] = tri_count
+            stats["topology"] = "Quad-Dominant" if quad_count > 0 else "Triangle"
+            stats["quad_ratio"] = actual_quad_ratio
+            if output_format == "obj":
+                self._write_quad_obj(mesh, mixed_faces, out_file)
+            elif output_format == "fbx":
+                quad_obj_path = out_file.with_suffix(".obj")
+                self._write_quad_obj(mesh, mixed_faces, quad_obj_path)
+                self._convert_obj_to_fbx(quad_obj_path, out_file)
+            else:
+                # glTF/GLB only supports triangles; export GLB for viewport + sibling .obj for true quads.
+                export_mesh_safe(mesh, out_file)
+                quad_obj_path = out_file.with_suffix(".obj")
+                self._write_quad_obj(mesh, mixed_faces, quad_obj_path)
+            return stats, actual_quad_ratio, quad_obj_path
+
+        if output_format == "fbx":
+            tmp_obj = out_file.with_suffix(".obj")
+            export_mesh_safe(mesh, tmp_obj, file_type="obj")
+            try:
+                self._convert_obj_to_fbx(tmp_obj, out_file)
+            finally:
+                tmp_obj.unlink(missing_ok=True)
+        else:
+            export_mesh_safe(mesh, out_file, file_type=output_format)
+        stats["quad_count"] = 0
+        stats["tri_count"] = int(len(mesh.faces))
+        stats["topology"] = "Triangle"
+        stats["quad_ratio"] = 0.0
+        return stats, 0.0, None
 
     def get_supported_formats(self) -> Dict[str, list[str]]:
         """Return supported input and output mesh formats."""
-        return {"input": ["obj", "glb", "ply", "stl"], "output": ["obj", "glb", "ply"]}
+        return {"input": ["obj", "glb", "ply", "stl"], "output": ["obj", "fbx", "glb", "ply"]}
 
     def get_parameter_schema(self) -> Dict[str, Any]:
         """Return the JSON schema for TriFlow retopology parameters."""
@@ -507,8 +654,8 @@ class TriFlowRetopologyAdapter(BaseModel):
                 "output_format": {
                     "type": "string",
                     "description": "Output file format",
-                    "default": "glb",
-                    "enum": ["glb", "obj"],
+                    "default": "obj",
+                    "enum": ["obj", "fbx", "glb", "ply"],
                     "required": False,
                 },
             }

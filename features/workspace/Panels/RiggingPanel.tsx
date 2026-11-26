@@ -150,8 +150,8 @@ export const QualityBadge: React.FC<QualityBadgeProps> = React.memo(({
     Sharp: {
       label: 'Sharp',
       icon: SparklesIcon,
-      style: 'bg-[#F9CF00]/15 text-[#F9CF00] border-[#F9CF00]/30 shadow-[0_0_8px_rgba(249,207,0,0.15)]',
-      dotStyle: 'bg-[#F9CF00]',
+      style: 'bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] border-[hsl(var(--primary))]/30 shadow-[0_0_8px_rgba(249,207,0,0.15)]',
+      dotStyle: 'bg-[hsl(var(--primary))]',
     },
     Clean: {
       label: 'Clean',
@@ -198,7 +198,7 @@ export const QualityBadge: React.FC<QualityBadgeProps> = React.memo(({
         </div>
         <div className="flex justify-between gap-4 text-zinc-300">
           <span>Feature Edge Retention</span>
-          <span className="font-mono text-[#F9CF00] font-bold">{retentionDisplay}</span>
+          <span className="font-mono text-[hsl(var(--primary))] font-bold">{retentionDisplay}</span>
         </div>
       </div>
       {warnings.length > 0 && (
@@ -473,14 +473,14 @@ export const RiggingPanel: React.FC = () => {
         },
       });
 
-      setIsLocalExecuting(false);
       setLocalProgress(100);
       setLocalStep('Completed');
     } catch (err: any) {
-      setIsLocalExecuting(false);
       setLocalProgress(0);
       setLocalStep(err.message || 'Failed to start auto-rigging');
       toast.error('Auto-rigging error', { description: err.message || 'Unknown error' });
+    } finally {
+      setIsLocalExecuting(false);
     }
   };
 
@@ -515,7 +515,7 @@ export const RiggingPanel: React.FC = () => {
       {/* 1. Header: Clean Rigging Title */}
       <div className="flex items-center justify-center py-2 border-b border-[hsl(var(--border))] px-8 flex-shrink-0">
         <div className="flex items-center gap-1.5">
-          <Bone className="w-3.5 h-3.5 text-[#F9CF00]" />
+          <Bone className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
           <h2 className="text-[11px] font-bold text-[hsl(var(--foreground))] tracking-wide uppercase truncate">
             Auto-Rigging
           </h2>
@@ -537,8 +537,8 @@ export const RiggingPanel: React.FC = () => {
         <div
           className={`p-2 rounded-2xl border transition-colors space-y-2 flex-shrink-0 ${
             isDragOver
-              ? 'border-[#F9CF00] ring-1 ring-[#F9CF00]/40 bg-[#161726]'
-              : 'border-white/[0.08] bg-[#12131d]'
+              ? 'border-[hsl(var(--primary))] ring-1 ring-[hsl(var(--primary))]/40 bg-[hsl(var(--surface-2))]'
+              : 'border-white/[0.08] bg-[hsl(var(--surface-1))]'
           }`}
           onDragOver={handleCardDragOver}
           onDragEnter={handleCardDragEnter}
@@ -563,14 +563,14 @@ export const RiggingPanel: React.FC = () => {
             }}
             className={`relative group w-full h-[195px] workspace-upload-dropzone rounded-xl border border-dashed transition-all p-3 flex flex-col items-center justify-center text-center cursor-pointer shadow-inner ${
               isDragOver
-                ? 'border-[#F9CF00] bg-[#1c1d2c] ring-1 ring-[#F9CF00]/40'
-                : 'border-white/[0.12] hover:border-white/25 bg-[#0f1019]'
+                ? 'border-[hsl(var(--primary))] bg-[hsl(var(--surface-2))] ring-1 ring-[hsl(var(--primary))]/40'
+                : 'border-white/[0.12] hover:border-white/25 bg-[hsl(var(--surface-0))]'
             } [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:16px_16px] [background-position:0_0,0_8px,8px_-8px,-8px_0px]`}
           >
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-transform mb-2 ${
                 isDragOver
-                  ? 'bg-[#F9CF00] text-black scale-110 shadow-[#F9CF00]/30'
+                  ? 'bg-[hsl(var(--primary))] text-black scale-110 shadow-[hsl(var(--primary))]/30'
                   : 'bg-gradient-to-br from-[#6366F1] to-[#8B5CF6] text-white shadow-indigo-500/25 group-hover:scale-105'
               }`}
             >
@@ -582,37 +582,30 @@ export const RiggingPanel: React.FC = () => {
             <span className="text-[10px] text-zinc-400 mt-1 font-medium">
               OBJ, FBX, STL, GLB, PLY
             </span>
-            <span className="text-[9px] text-zinc-500 font-mono mt-0.5">
+            <span className="text-[9px] text-zinc-400 font-mono mt-0.5">
               Size ≤ 150MB
             </span>
-            <input
-              ref={meshInputRef}
-              type="file"
-              accept=".glb,.gltf,.obj,.fbx,.stl,.ply"
-              className="hidden"
-              onChange={handleMeshUpload}
-            />
           </div>
         </div>
 
         {/* Live Upload Progress Bar with Real Speed & Remaining Time */}
         {isMeshUploading && (
-          <div className="p-2 rounded-xl bg-black/40 border border-[#F9CF00]/30 space-y-1.5 animate-in fade-in">
+          <div className="p-2 rounded-xl bg-black/40 border border-[hsl(var(--primary))]/30 space-y-1.5 animate-in fade-in">
             <div className="flex items-center justify-between text-[10px]">
               <div className="flex items-center gap-1.5 min-w-0 pr-2">
-                <div className="w-2.5 h-2.5 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <div className="w-2.5 h-2.5 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin flex-shrink-0" />
                 <span className="font-semibold text-white truncate text-[10px]">
                   {meshUploadState.fileName || 'Uploading 3D Mesh...'}
                 </span>
               </div>
-              <span className="font-mono font-bold text-[#F9CF00] text-[10px] flex-shrink-0">
+              <span className="font-mono font-bold text-[hsl(var(--primary))] text-[10px] flex-shrink-0">
                 {meshUploadState.percent ?? 50}%
               </span>
             </div>
 
             <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-200 rounded-full"
+                className="h-full bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--primary))]/80 transition-all duration-200 rounded-full"
                 style={{ width: `${Math.max(4, Math.min(100, meshUploadState.percent ?? 50))}%` }}
               />
             </div>
@@ -633,13 +626,13 @@ export const RiggingPanel: React.FC = () => {
         )}
 
         {/* Neural AI Model Card (SkinTokens) when in AI Mode */}
-          <div className="space-y-1.5 p-3 rounded-2xl bg-[#12131d] border border-white/[0.08]">
+          <div className="space-y-1.5 p-3 rounded-2xl bg-[hsl(var(--surface-1))] border border-white/[0.08]">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-[#F9CF00]" />
+                <Sparkles className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
                 <span className="text-xs font-bold text-white">SkinTokens Auto-Rig</span>
               </div>
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#F9CF00]/15 text-[#F9CF00] font-mono font-bold border border-[#F9CF00]/30">
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] font-mono font-bold border border-[hsl(var(--primary))]/30">
                 14GB VRAM
               </span>
             </div>
@@ -703,7 +696,7 @@ export const RiggingPanel: React.FC = () => {
         </div>
 
         {/* 5. Facial & Finger Bones Toggle Switch */}
-        <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#12131d] border border-white/[0.08]">
+        <div className="flex items-center justify-between p-2.5 rounded-xl bg-[hsl(var(--surface-1))] border border-white/[0.08]">
           <div className="space-y-0.5 pr-2">
             <span className="text-xs font-semibold text-white block">
               Facial &amp; Finger Bones
@@ -718,7 +711,7 @@ export const RiggingPanel: React.FC = () => {
             aria-checked={facialAndFingerBones}
             onClick={() => setFacialAndFingerBones(!facialAndFingerBones)}
             className={`w-7.5 h-4 rounded-full p-0.5 transition-colors cursor-pointer flex-shrink-0 ${
-              facialAndFingerBones ? 'bg-[#F9CF00]' : 'bg-white/15'
+              facialAndFingerBones ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'
             }`}
           >
             <div
@@ -738,17 +731,17 @@ export const RiggingPanel: React.FC = () => {
             onClick={() => setIsAdvancedOpen((prev) => !prev)}
             className={`w-full h-8 px-2.5 rounded-xl border flex items-center justify-between text-left transition-all cursor-pointer shadow-sm ${
               isAdvancedOpen
-                ? 'bg-[#1b1b2f] border-[#F9CF00] text-white ring-1 ring-[#F9CF00]/50'
+                ? 'bg-[#1b1b2f] border-[hsl(var(--primary))] text-white ring-1 ring-[hsl(var(--primary))]/50'
                 : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-[hsl(var(--foreground))]'
             }`}
           >
             <div className="flex items-center gap-2">
-              <SlidersHorizontal className="w-3.5 h-3.5 text-[#F9CF00]" />
+              <SlidersHorizontal className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
               <span className="text-[11px] font-medium text-zinc-200">Advanced Rigging Settings</span>
             </div>
             <ChevronRight
               className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${
-                isAdvancedOpen ? 'rotate-90 text-[#F9CF00]' : ''
+                isAdvancedOpen ? 'rotate-90 text-[hsl(var(--primary))]' : ''
               }`}
             />
           </button>
@@ -761,7 +754,7 @@ export const RiggingPanel: React.FC = () => {
             id="rigging-advanced-flyout"
             role="dialog"
             aria-label="Advanced Rigging Settings"
-            className="workspace-advanced-flyout p-3.5 rounded-2xl bg-[#141421] border border-[#F9CF00]/50 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-3 animate-in fade-in zoom-in-95 duration-150 pointer-events-auto select-none" style={{ '--workspace-flyout-width': '300px' } as React.CSSProperties}
+            className="workspace-advanced-flyout p-3.5 rounded-2xl bg-[#141421] border border-[hsl(var(--primary))]/50 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-3 animate-in fade-in zoom-in-95 duration-150 pointer-events-auto select-none" style={{ '--workspace-flyout-width': '300px' } as React.CSSProperties}
           >
             {/* Header with Title and Close Button */}
             <div className="flex items-start justify-between pb-1.5 border-b border-white/[0.08]">
@@ -855,7 +848,7 @@ export const RiggingPanel: React.FC = () => {
                   onClick={() => setExportFormat('glb')}
                   className={`h-7 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer ${
                     exportFormat === 'glb'
-                      ? 'bg-[#F9CF00] text-black shadow-sm font-extrabold'
+                      ? 'bg-[hsl(var(--primary))] text-black shadow-sm font-extrabold'
                       : 'text-zinc-400 hover:text-white'
                   }`}
                 >
@@ -866,7 +859,7 @@ export const RiggingPanel: React.FC = () => {
                   onClick={() => setExportFormat('fbx')}
                   className={`h-7 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer ${
                     exportFormat === 'fbx'
-                      ? 'bg-[#F9CF00] text-black shadow-sm font-extrabold'
+                      ? 'bg-[hsl(var(--primary))] text-black shadow-sm font-extrabold'
                       : 'text-zinc-400 hover:text-white'
                   }`}
                 >
@@ -879,7 +872,7 @@ export const RiggingPanel: React.FC = () => {
             <div className="flex items-center justify-between py-1 border-t border-white/[0.06] pt-2">
               <div className="space-y-0.5 pr-2">
                 <div className="flex items-center gap-1.5">
-                  <Zap className="w-3 h-3 text-[#F9CF00]" />
+                  <Zap className="w-3 h-3 text-[hsl(var(--primary))]" />
                   <span className="text-[11px] text-zinc-200 font-medium">Symmetry Snapping</span>
                 </div>
                 <p className="text-[9px] text-zinc-400">Enforce exact bilateral symmetry across sagittal plane</p>
@@ -890,7 +883,7 @@ export const RiggingPanel: React.FC = () => {
                 aria-checked={symmetrySnapping}
                 onClick={() => setSymmetrySnapping(!symmetrySnapping)}
                 className={`w-7.5 h-4 rounded-full p-0.5 transition-colors cursor-pointer flex-shrink-0 ${
-                  symmetrySnapping ? 'bg-[#F9CF00]' : 'bg-white/15'
+                  symmetrySnapping ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'
                 }`}
               >
                 <div
@@ -903,7 +896,7 @@ export const RiggingPanel: React.FC = () => {
 
             {/* Parameter 5: SkinTokens Neural Options (Active in AI Mode) */}
               <div className="space-y-2 border-t border-white/[0.06] pt-2">
-                <span className="text-[10px] font-semibold text-[#F9CF00] uppercase tracking-wider block">
+                <span className="text-[10px] font-semibold text-[hsl(var(--primary))] uppercase tracking-wider block">
                   SkinTokens Neural Settings
                 </span>
 
@@ -911,7 +904,7 @@ export const RiggingPanel: React.FC = () => {
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-[10px]">
                     <span className="text-zinc-300">Sampling Temperature</span>
-                    <span className="font-mono text-[#F9CF00] font-bold">{temperature.toFixed(2)}</span>
+                    <span className="font-mono text-[hsl(var(--primary))] font-bold">{temperature.toFixed(2)}</span>
                   </div>
                   <input
                     type="range"
@@ -922,7 +915,7 @@ export const RiggingPanel: React.FC = () => {
                     onChange={(e) => setTemperature(parseFloat(e.target.value))}
                     className="w-full h-1.5 rounded-full appearance-none bg-white/10 cursor-pointer accent-[#F9CF00]"
                   />
-                  <div className="flex justify-between text-[8.5px] font-mono text-zinc-500">
+                  <div className="flex justify-between text-[8.5px] font-mono text-zinc-400">
                     <span>0.1 (Precise)</span>
                     <span>1.0 (Default)</span>
                     <span>2.0 (Creative)</span>
@@ -940,7 +933,7 @@ export const RiggingPanel: React.FC = () => {
                           type="button"
                           onClick={() => setTopK(k)}
                           className={`h-6 rounded text-[9.5px] font-bold font-mono transition-all ${
-                            topK === k ? 'bg-[#F9CF00] text-black font-extrabold' : 'bg-black/30 text-zinc-400 hover:text-white'
+                            topK === k ? 'bg-[hsl(var(--primary))] text-black font-extrabold' : 'bg-black/30 text-zinc-400 hover:text-white'
                           }`}
                         >
                           {k}
@@ -957,7 +950,7 @@ export const RiggingPanel: React.FC = () => {
                           type="button"
                           onClick={() => setNumBeams(b)}
                           className={`h-6 rounded text-[9.5px] font-bold font-mono transition-all ${
-                            numBeams === b ? 'bg-[#F9CF00] text-black font-extrabold' : 'bg-black/30 text-zinc-400 hover:text-white'
+                            numBeams === b ? 'bg-[hsl(var(--primary))] text-black font-extrabold' : 'bg-black/30 text-zinc-400 hover:text-white'
                           }`}
                         >
                           {b}
@@ -979,7 +972,7 @@ export const RiggingPanel: React.FC = () => {
                     aria-checked={useTransfer}
                     onClick={() => setUseTransfer(!useTransfer)}
                     className={`w-7.5 h-4 rounded-full p-0.5 transition-colors cursor-pointer flex-shrink-0 ${
-                      useTransfer ? 'bg-[#F9CF00]' : 'bg-white/15'
+                      useTransfer ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'
                     }`}
                   >
                     <div
@@ -1002,7 +995,7 @@ export const RiggingPanel: React.FC = () => {
                     aria-checked={usePostprocess}
                     onClick={() => setUsePostprocess(!usePostprocess)}
                     className={`w-7.5 h-4 rounded-full p-0.5 transition-colors cursor-pointer flex-shrink-0 ${
-                      usePostprocess ? 'bg-[#F9CF00]' : 'bg-white/15'
+                      usePostprocess ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'
                     }`}
                   >
                     <div
@@ -1021,22 +1014,22 @@ export const RiggingPanel: React.FC = () => {
       {/* 7. Sticky Bottom Action CTA Button */}
       <div className="p-3 pt-2 pb-3 border-t border-white/[0.08] bg-[hsl(var(--surface-1))] flex-shrink-0 space-y-1.5">
         {isBusy ? (
-          <div className="p-3 rounded-2xl bg-[#141524] border border-[#F9CF00]/30 shadow-xl space-y-2 animate-in fade-in">
+          <div className="p-3 rounded-2xl bg-[hsl(var(--surface-1))] border border-[hsl(var(--primary))]/30 shadow-xl space-y-2 animate-in fade-in">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-2 min-w-0 pr-2">
-                <div className="w-3.5 h-3.5 border-2 border-[#F9CF00] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <div className="w-3.5 h-3.5 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin flex-shrink-0" />
                 <span className="font-semibold text-white truncate text-xs">
                   {step}
                 </span>
               </div>
-              <span className="font-mono font-bold text-[#F9CF00] text-xs flex-shrink-0">
+              <span className="font-mono font-bold text-[hsl(var(--primary))] text-xs flex-shrink-0">
                 {Math.round(progress)}%
               </span>
             </div>
 
             <div className="w-full h-1.5 rounded-full bg-black/40 overflow-hidden border border-white/10">
               <div
-                className="h-full bg-gradient-to-r from-[#F9CF00] to-[#FFE04D] transition-all duration-300 rounded-full"
+                className="h-full bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--primary))]/80 transition-all duration-300 rounded-full"
                 style={{ width: `${Math.max(4, Math.min(100, Math.round(progress)))}%` }}
               />
             </div>
@@ -1055,8 +1048,8 @@ export const RiggingPanel: React.FC = () => {
             <button
               type="button"
               onClick={handleAutoRig}
-              disabled={!currentAsset}
-              className="w-full h-8 rounded-full bg-[#F9CF00] hover:bg-[#ffdb29] text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#F9CF00]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!currentAsset || isMeshUploading || isBusy}
+              className="w-full h-8 rounded-full bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[hsl(var(--primary))]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Bone className="w-3.5 h-3.5 text-black" />
               <span>Auto-Rig Character (SkinTokens)</span>

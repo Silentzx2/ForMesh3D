@@ -184,6 +184,11 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
     let meshIdx = 0;
     root.traverse((node) => {
       if (node instanceof THREE.Mesh && node.geometry) {
+        if (node.material) {
+          node.material = Array.isArray(node.material)
+            ? node.material.map((m) => m.clone())
+            : node.material.clone();
+        }
         node.userData.__meshIndex = meshIdx;
 
         interactivesRef.current.push({ obj: node, id: `p${meshIdx + 1}` });
@@ -206,6 +211,7 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
       root.traverse((n) => { if (n instanceof THREE.Bone) realBones.push(n); });
       if (realBones.length > 0) {
         const skel = new THREE.SkeletonHelper(root);
+        skel.name = '__preview_skeleton_helper';
         (skel.material as THREE.LineBasicMaterial).depthTest = !xrayBones;
         (skel.material as THREE.LineBasicMaterial).color = new THREE.Color(0xf9cf00);
         skel.renderOrder = xrayBones ? 999 : 0;
@@ -213,7 +219,21 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
       }
     }
     invalidateRenderRef.current();
-  }, [activeModel, mode, xrayBones]);
+  }, [activeModel, mode]);
+
+  // Update X-ray bone helper in-place without rebuilding the entire scene
+  useEffect(() => {
+    const group = modelGroupRef.current;
+    if (!group || mode !== 'rigging') return;
+    const skel = group.getObjectByName('__preview_skeleton_helper') as THREE.SkeletonHelper | undefined;
+    if (skel) {
+      const mat = skel.material as THREE.LineBasicMaterial;
+      mat.depthTest = !xrayBones;
+      mat.needsUpdate = true;
+      skel.renderOrder = xrayBones ? 999 : 0;
+      invalidateRenderRef.current();
+    }
+  }, [mode, xrayBones]);
 
   // 3. Build expensive edge geometry only when the user enables seam/boundary highlighting.
   // This keeps segmentation page mount lightweight for dense production meshes.
@@ -333,27 +353,33 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
     invalidateRenderRef.current();
   }, [viewAngle, orbitYaw]);
 
-  // 5. Throttled Pointer Handler
-  const isRaycastingRef = useRef(false);
-  const handlePointer = useCallback((e: React.MouseEvent<HTMLDivElement>, isClick: boolean) => {
+  // 5. rAF-Throttled Pointer Handler (reuses Raycaster & Vector2)
+  const raycasterRef = useRef<THREE.Raycaster | null>(null);
+  const pointerVecRef = useRef<THREE.Vector2 | null>(null);
+  const hoverRafRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (hoverRafRef.current !== null) cancelAnimationFrame(hoverRafRef.current);
+  }, []);
+
+  const runRaycast = useCallback((clientX: number, clientY: number, isClick: boolean) => {
     const el = containerRef.current;
     const camera = cameraRef.current;
     if (!el || !camera || interactivesRef.current.length === 0) return;
 
-    if (!isClick && isRaycastingRef.current) return;
-    if (!isClick) isRaycastingRef.current = true;
-
     const rect = el.getBoundingClientRect();
-    const mouse = new THREE.Vector2(
-      ((e.clientX - rect.left) / rect.width) * 2 - 1,
-      -((e.clientY - rect.top) / rect.height) * 2 + 1
-    );
+    if (!rect.width || !rect.height) return;
+    if (!pointerVecRef.current) pointerVecRef.current = new THREE.Vector2();
+    if (!raycasterRef.current) raycasterRef.current = new THREE.Raycaster();
 
-    const ray = new THREE.Raycaster();
-    ray.setFromCamera(mouse, camera);
+    pointerVecRef.current.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1
+    );
+    raycasterRef.current.setFromCamera(pointerVecRef.current, camera);
 
     const meshObjects = interactivesRef.current.map((i) => i.obj);
-    const hits = ray.intersectObjects(meshObjects, true);
+    const hits = raycasterRef.current.intersectObjects(meshObjects, true);
 
     if (hits.length > 0) {
       const hit = hits[0].object;
@@ -365,7 +391,6 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
           setHovered(found.id);
           onHoverIdRef.current?.(found.id);
         }
-        isRaycastingRef.current = false;
         return;
       }
     }
@@ -373,14 +398,35 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
     if (!isClick) {
       setHovered(null);
       onHoverIdRef.current?.(null);
-      isRaycastingRef.current = false;
     }
   }, []);
+
+  const handlePointer = useCallback((e: React.MouseEvent<HTMLDivElement>, isClick: boolean) => {
+    const { clientX, clientY } = e;
+    if (isClick) {
+      runRaycast(clientX, clientY, true);
+      return;
+    }
+    if (hoverRafRef.current !== null) return;
+    hoverRafRef.current = requestAnimationFrame(() => {
+      hoverRafRef.current = null;
+      runRaycast(clientX, clientY, false);
+    });
+  }, [runRaycast]);
+
+  const pointerDownPosRef = useRef<{ x: number; y: number } | null>(null);
 
   return (
     <div
       ref={containerRef}
-      onClick={(e) => handlePointer(e, true)}
+      onPointerDown={(e) => {
+        pointerDownPosRef.current = { x: e.clientX, y: e.clientY };
+      }}
+      onClick={(e) => {
+        const down = pointerDownPosRef.current;
+        if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) return;
+        handlePointer(e, true);
+      }}
       onMouseMove={(e) => handlePointer(e, false)}
       className={`relative w-full aspect-square max-h-[220px] rounded-xl overflow-hidden border border-white/[0.08] bg-[hsl(var(--surface-0))] ${
         hovered ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'

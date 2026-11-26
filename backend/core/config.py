@@ -145,6 +145,9 @@ class PostProcessingConfig(BaseSettings):
 
 class ModelConfig(BaseSettings):
     """Configuration for a single model"""
+    name: Optional[str] = None
+    label: Optional[str] = None
+    description: Optional[str] = None
     model_name: Optional[str] = None
     model_type: Optional[str] = None
     ui_label: Optional[str] = None
@@ -159,6 +162,7 @@ class ModelConfig(BaseSettings):
     enabled: bool = True
     model_parameters: Optional[Dict] = None
     init_params: Dict[str, Any] = Field(default_factory=dict)
+    default_parameters: Optional[Dict[str, Any]] = Field(default_factory=dict)
     capabilities: Dict[str, Any] = Field(default_factory=dict)
 
     model_config = SettingsConfigDict(protected_namespaces=("settings_",), extra="allow")

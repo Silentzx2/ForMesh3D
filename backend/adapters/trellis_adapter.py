@@ -181,6 +181,10 @@ class _TrellisBaseAdapter(BaseModel):
             return {"success": False, "error": f"image not found: {image_path}"}
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
+        ss_steps = int(inputs["ss_sampling_steps"])
+        ss_cfg = float(inputs["ss_guidance_strength"])
+        slat_steps = int(inputs["slat_sampling_steps"])
+        slat_cfg = float(inputs["slat_guidance_strength"])
 
         from PIL import Image
 
@@ -192,7 +196,7 @@ class _TrellisBaseAdapter(BaseModel):
             or inputs.get("target_polycount")
             or 0
         )
-        texture_resolution = int(inputs.get("texture_resolution", 1024) or 1024)
+        texture_resolution = int(inputs.get("texture_resolution") or 2048)
         texture_resolution = max(512, min(2048, texture_resolution))
         remesh_option = str(inputs.get("remesh_option", "none") or "none").strip().lower()
 
@@ -201,7 +205,13 @@ class _TrellisBaseAdapter(BaseModel):
 
         ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
         with ctx:
-            result = pipeline.run(image, seed=seed, formats=formats)
+            result = pipeline.run(
+                image,
+                seed=seed,
+                formats=formats,
+                sparse_structure_sampler_params={"steps": ss_steps, "cfg_strength": ss_cfg},
+                slat_sampler_params={"steps": slat_steps, "cfg_strength": slat_cfg},
+            )
 
         mesh = result.get("mesh") if isinstance(result, dict) else None
         if mesh is None:
@@ -222,7 +232,8 @@ class _TrellisBaseAdapter(BaseModel):
         import trimesh
         import tempfile
 
-        out = Path(tempfile.mkdtemp()) / f"trellis_{seed}.glb"
+        out_dir = self._create_temporary_output_dir("trellis")
+        out = out_dir / f"trellis_{seed}.glb"
         # MeshExtractResult has vertices/faces as torch tensors, no .export() method
         tmesh = trimesh.Trimesh(
             vertices=mesh.vertices.cpu().numpy(),
@@ -307,7 +318,7 @@ class _TrellisBaseAdapter(BaseModel):
                 textured = self._paint_pipeline(
                     self._paint_app_rep, mesh, texture_size=texture_resolution
                 )
-                textured_out = Path(tempfile.mkdtemp()) / f"trellis_textured_{seed}.glb"
+                textured_out = out_dir / f"trellis_textured_{seed}.glb"
                 if hasattr(textured, "export"):
                     textured.export(str(textured_out))
                     return {

@@ -261,6 +261,8 @@ class JobRequest:
 
     def mark_started(self, model_id: str):
         """Mark job as started"""
+        if self.status not in (JobStatus.QUEUED, JobStatus.PROCESSING):
+            return
         self.status = JobStatus.PROCESSING
         self.started_at = datetime.utcnow()
         self.assigned_model = model_id
@@ -271,6 +273,8 @@ class JobRequest:
 
     def mark_completed(self, result: Dict[str, Any]):
         """Mark job as completed"""
+        if self.status in (JobStatus.CANCELLED, JobStatus.FAILED):
+            return
         self.status = JobStatus.COMPLETED
         self.completed_at = datetime.utcnow()
         self.result = result
@@ -281,6 +285,8 @@ class JobRequest:
 
     def mark_failed(self, error: str):
         """Mark job as failed"""
+        if self.status in (JobStatus.CANCELLED, JobStatus.COMPLETED):
+            return
         self.status = JobStatus.FAILED
         self.completed_at = datetime.utcnow()
         self.error = error
@@ -290,6 +296,8 @@ class JobRequest:
 
     def mark_cancelled(self):
         """Mark job as cancelled"""
+        if self.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
+            return
         self.status = JobStatus.CANCELLED
         self.completed_at = datetime.utcnow()
         self.metadata["error_code"] = "JOB_CANCELLED"

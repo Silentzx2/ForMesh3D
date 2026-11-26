@@ -18,8 +18,6 @@ import { useAnimationStore } from '@/stores/useAnimationStore';
 import { getApiClient } from '@/services/apiClient';
 import { collectMeshStats } from './meshStats';
 import { loadGLBWithProgress } from '../lib/glbCache';
-import { getAssetComparisonPair } from '../lib/assetComparison';
-import { getDiagonalComparisonSlope } from '../lib/comparisonGeometry';
 
 import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
@@ -37,6 +35,53 @@ const sharedOBJLoader = new OBJLoader();
 const sharedFBXLoader = new FBXLoader();
 const sharedSTLLoader = new STLLoader();
 const sharedPLYLoader = new PLYLoader();
+
+/**
+ * Extract outer polygon edges from an OBJ text when it contains quads/n-gons,
+ * so wireframe overlay shows true quad topology instead of triangulated diagonals.
+ */
+function extractObjQuadEdgesGeometry(objText: string): THREE.BufferGeometry | null {
+  const verts: number[] = [];
+  const edgePositions: number[] = [];
+  let hasQuadOrNgon = false;
+
+  const lines = objText.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line || line[0] === '#') continue;
+    if (line[0] === 'v' && (line[1] === ' ' || line[1] === '\t')) {
+      const parts = line.split(/\s+/);
+      if (parts.length >= 4) {
+        verts.push(parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3]));
+      }
+    } else if (line[0] === 'f' && (line[1] === ' ' || line[1] === '\t')) {
+      const parts = line.split(/\s+/).slice(1);
+      if (parts.length < 3) continue;
+      if (parts.length >= 4) hasQuadOrNgon = true;
+      const vCount = verts.length / 3;
+      const indices: number[] = [];
+      for (const p of parts) {
+        const raw = parseInt(p.split('/')[0], 10);
+        if (Number.isNaN(raw)) continue;
+        const idx = raw > 0 ? raw - 1 : vCount + raw;
+        if (idx >= 0 && idx < vCount) indices.push(idx);
+      }
+      for (let j = 0; j < indices.length; j++) {
+        const a = indices[j] * 3;
+        const b = indices[(j + 1) % indices.length] * 3;
+        edgePositions.push(
+          verts[a], verts[a + 1], verts[a + 2],
+          verts[b], verts[b + 1], verts[b + 2],
+        );
+      }
+    }
+  }
+
+  if (!hasQuadOrNgon || edgePositions.length === 0) return null;
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(edgePositions, 3));
+  return geom;
+}
 
 export type LightTone = 'studio' | 'warm' | 'cool' | 'neutral';
 
@@ -204,18 +249,15 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
   const {
     currentAsset,
-    assets,
     activeTool,
-    isComparing,
-    setIsComparing,
     shadingMode,
     showWireframe,
+    wireframeMode,
     showGrid,
     isTurntable,
     viewportResetTrigger,
     isExecuting,
     executionProgress,
-    executionStep,
     environmentSettings,
     hoveredPartId,
     setHoveredPartId,
@@ -243,18 +285,24 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   })();
 
   const loadedModelUrl = useViewerStore((state) => state.loadedModelUrl);
+  const selectionRequestId = useViewerStore((state) => state.selectionRequestId);
 
-  const [modelLoadStatus, setModelLoadStatus] = useState<'empty' | 'loading' | 'loaded' | 'error'>('empty');
-  const [hasModel, setHasModel] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadState, setLoadState] = useState<
+    | { status: 'empty'; hasModel: false; error: null }
+    | { status: 'loading'; hasModel: boolean; error: null }
+    | { status: 'loaded'; hasModel: true; error: null }
+    | { status: 'error'; hasModel: false; error: string }
+  >({ status: 'empty', hasModel: false, error: null });
+  const modelLoadStatus = loadState.status;
+  const hasModel = loadState.hasModel;
+  const loadError = loadState.error;
   const [retryKey, setRetryKey] = useState(0);
-  const [isComparisonLoading, setIsComparisonLoading] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [webglError, setWebglError] = useState<string | null>(null);
   const [webglInitKey, setWebglInitKey] = useState(0);
 
   const handleRetryLoad = useCallback(() => {
-    setLoadError(null);
+    setLoadState((prev) => ({ status: 'empty', hasModel: false, error: null }));
     setRetryKey((prev) => prev + 1);
   }, []);
 
@@ -266,18 +314,23 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, []);
-  const comparisonOpenRef = useRef(false);
-  const comparisonPositionRef = useRef(50);
-  const comparisonAssetIdRef = useRef<string | null>(currentAsset?.id ?? null);
-  const comparisonBeforeGroupRef = useRef<THREE.Group | null>(null);
-  const comparisonDividerRef = useRef<HTMLDivElement | null>(null);
-  const comparisonHandleRef = useRef<HTMLDivElement | null>(null);
   const shadingModeRef = useRef(shadingMode);
   const showWireframeRef = useRef(showWireframe);
+  const wireframeModeRef = useRef(wireframeMode);
+  const reducedMotionRef = useRef(reducedMotion);
+  const scanRevealRef = useRef<{ active: boolean; startMs: number; minY: number; maxY: number }>({
+    active: false,
+    startMs: 0,
+    minY: 0,
+    maxY: 2.0,
+  });
   useEffect(() => {
     shadingModeRef.current = shadingMode;
     showWireframeRef.current = showWireframe;
-  }, [shadingMode, showWireframe]);
+    wireframeModeRef.current = wireframeMode;
+    reducedMotionRef.current = reducedMotion;
+    invalidateRenderRef.current();
+  }, [shadingMode, showWireframe, wireframeMode, reducedMotion]);
 
   // Three.js instances stored in refs to avoid React re-render overhead
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -416,60 +469,15 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     modelGroupRef.current = modelGroup;
     scene.add(modelGroup);
 
-    const comparisonBeforeGroup = new THREE.Group();
-    comparisonBeforeGroup.name = 'comparison-before';
-    comparisonBeforeGroup.visible = false;
-    comparisonBeforeGroupRef.current = comparisonBeforeGroup;
-    scene.add(comparisonBeforeGroup);
-
-    // Diagonal comparison is composited from two passes of this same renderer.
-    // Render targets keep the scene/camera/lights shared; only model visibility changes.
-    const comparisonTargetBefore = new THREE.WebGLRenderTarget(width, height, {
-      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
-      format: THREE.RGBAFormat, depthBuffer: true, stencilBuffer: false,
-    });
-    const comparisonTargetAfter = new THREE.WebGLRenderTarget(width, height, {
-      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
-      format: THREE.RGBAFormat, depthBuffer: true, stencilBuffer: false,
-    });
-    comparisonTargetBefore.texture.colorSpace = THREE.SRGBColorSpace;
-    comparisonTargetAfter.texture.colorSpace = THREE.SRGBColorSpace;
-    const comparisonCompositeScene = new THREE.Scene();
-    const comparisonCompositeCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const comparisonCompositeMaterial = new THREE.ShaderMaterial({
-      uniforms: {
-        uBefore: { value: comparisonTargetBefore.texture },
-        uAfter: { value: comparisonTargetAfter.texture },
-        uPosition: { value: 0.5 },
-        uSlope: { value: getDiagonalComparisonSlope(width, height) },
-      },
-      vertexShader: `varying vec2 vUv;
-        void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
-      fragmentShader: `uniform sampler2D uBefore;
-        uniform sampler2D uAfter;
-        uniform float uPosition;
-        uniform float uSlope;
-        varying vec2 vUv;
-        void main() {
-          float dividerX = uPosition + (0.5 - vUv.y) * uSlope;
-          vec4 color = vUv.x <= dividerX ? texture2D(uBefore, vUv) : texture2D(uAfter, vUv);
-          gl_FragColor = color;
-          #include <tonemapping_fragment>
-          #include <colorspace_fragment>
-        }`,
-      depthTest: false, depthWrite: false, toneMapped: false,
-    });
-    const comparisonCompositeQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), comparisonCompositeMaterial);
-    comparisonCompositeScene.add(comparisonCompositeQuad);
-    const resizeComparisonTargets = (w: number, h: number) => {
-      const pixelRatio = renderer.getPixelRatio();
-      const targetWidth = Math.max(1, Math.round(w * pixelRatio));
-      const targetHeight = Math.max(1, Math.round(h * pixelRatio));
-      comparisonTargetBefore.setSize(targetWidth, targetHeight);
-      comparisonTargetAfter.setSize(targetWidth, targetHeight);
-      comparisonCompositeMaterial.uniforms.uSlope.value = getDiagonalComparisonSlope(w, h);
-    };
-    resizeComparisonTargets(width, height);
+    // Real-mesh bottom-to-top scan reveal plane & glowing gold ring
+    const revealPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 10);
+    const scanRing = new THREE.Mesh(
+      new THREE.TorusGeometry(1.05, 0.012, 8, 64),
+      new THREE.MeshBasicMaterial({ color: 0xf5c542, transparent: true, opacity: 0.85 })
+    );
+    scanRing.rotation.x = Math.PI / 2;
+    scanRing.visible = false;
+    scene.add(scanRing);
 
     // Render on demand. OrbitControls emits "change" while damping settles;
     // imported model animations and the optional turntable keep their own RAF alive.
@@ -490,46 +498,53 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
       if (modelGroupRef.current && isTurntableRef.current) {
         modelGroupRef.current.rotation.y += 0.008;
-        if (comparisonBeforeGroupRef.current) {
-          comparisonBeforeGroupRef.current.rotation.y = modelGroupRef.current.rotation.y;
-        }
         keepAnimating = true;
       }
 
-      const beforeGroup = comparisonBeforeGroupRef.current;
-      const afterGroup = modelGroupRef.current;
-      if (comparisonOpenRef.current && beforeGroup?.children.length && afterGroup?.children.length) {
-        const width = container.clientWidth;
-        const height = container.clientHeight;
-        const drawingBufferSize = renderer.getDrawingBufferSize(new THREE.Vector2());
-        comparisonCompositeMaterial.uniforms.uPosition.value = comparisonPositionRef.current / 100;
-        comparisonCompositeMaterial.uniforms.uSlope.value = Math.tan(14 * Math.PI / 180) * height / Math.max(width, 1);
-        const previousClearColor = renderer.getClearColor(new THREE.Color());
-        const previousClearAlpha = renderer.getClearAlpha();
-        renderer.setClearColor(0x000000, 0);
-        renderer.setScissorTest(false);
-        beforeGroup.visible = true;
-        afterGroup.visible = false;
-        renderer.setRenderTarget(comparisonTargetBefore);
-        renderer.clear(true, true, true);
-        renderer.render(scene, camera);
-        beforeGroup.visible = false;
-        afterGroup.visible = true;
-        renderer.setRenderTarget(comparisonTargetAfter);
-        renderer.clear(true, true, true);
-        renderer.render(scene, camera);
-        renderer.setRenderTarget(null);
-        renderer.setViewport(0, 0, drawingBufferSize.x, drawingBufferSize.y);
-        renderer.clear(true, true, true);
-        renderer.render(comparisonCompositeScene, comparisonCompositeCamera);
-        renderer.setClearColor(previousClearColor, previousClearAlpha);
+      // ~0.95s bottom-to-top scan reveal on newly loaded mesh
+      const reveal = scanRevealRef.current;
+      if (reveal.active && modelGroupRef.current && !reducedMotionRef.current) {
+        const t = Math.min(1, (performance.now() - reveal.startMs) / 950);
+        const y = reveal.minY + (reveal.maxY - reveal.minY) * t;
+        renderer.localClippingEnabled = true;
+        revealPlane.constant = y;
+        scanRing.visible = t < 1;
+        scanRing.position.y = y;
+        modelGroupRef.current.traverse((c) => {
+          if (c instanceof THREE.Mesh && c.material) {
+            const mats = Array.isArray(c.material) ? c.material : [c.material];
+            mats.forEach((m) => {
+              if (!m.clippingPlanes || m.clippingPlanes[0] !== revealPlane) {
+                m.clippingPlanes = [revealPlane];
+                m.needsUpdate = true;
+              }
+            });
+          }
+        });
+        if (t >= 1) {
+          reveal.active = false;
+          scanRing.visible = false;
+          renderer.localClippingEnabled = false;
+          modelGroupRef.current.traverse((c) => {
+            if (c instanceof THREE.Mesh && c.material) {
+              const mats = Array.isArray(c.material) ? c.material : [c.material];
+              mats.forEach((m) => {
+                if (m.clippingPlanes) {
+                  m.clippingPlanes = null;
+                  m.needsUpdate = true;
+                }
+              });
+            }
+          });
+        } else {
+          keepAnimating = true;
+        }
       } else {
-        if (beforeGroup) beforeGroup.visible = false;
-        if (afterGroup) afterGroup.visible = true;
-        renderer.setRenderTarget(null);
-        renderer.setScissorTest(false);
-        renderer.render(scene, camera);
+        scanRing.visible = false;
       }
+
+      renderer.setRenderTarget(null);
+      renderer.render(scene, camera);
 
       if (keepAnimating) scheduleRender();
     };
@@ -551,7 +566,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           camera.aspect = w / h;
           camera.updateProjectionMatrix();
           renderer.setSize(w, h);
-          resizeComparisonTargets(w, h);
           invalidateRenderRef.current();
         }
       }
@@ -572,17 +586,14 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         renderer.domElement.parentElement.removeChild(renderer.domElement);
       }
       disposeObject3D(scene);
-      comparisonTargetBefore.dispose();
-      comparisonTargetAfter.dispose();
-      comparisonCompositeQuad.geometry.dispose();
-      comparisonCompositeMaterial.dispose();
+      scanRing.geometry.dispose();
+      (scanRing.material as THREE.Material).dispose();
       renderer.dispose();
       sceneRef.current = null;
       cameraRef.current = null;
       rendererRef.current = null;
       controlsRef.current = null;
       modelGroupRef.current = null;
-      comparisonBeforeGroupRef.current = null;
     };
   }, [webglInitKey]);
 
@@ -919,9 +930,43 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     const orig = mesh.userData.__originalMaterial;
     if (!orig) return;
 
-    // Instant zero-lag wireframe: use pre-compiled unlit MeshBasicMaterial.
-    // Avoids re-compiling heavy PBR/Standard shaders at 1M faces (no main-thread freeze).
-    if (wireframe || mode === 'wireframe') {
+    const activeWireMode = wireframe ? (wireframeModeRef.current === 'xray' ? 'xray' : 'overlay') : 'off';
+
+    // Manage surface wireframe overlay child (solid mesh stays visible underneath; internal faces hidden)
+    let overlayChild = mesh.children.find((c) => c.userData?.__isWireframeOverlay) as THREE.Object3D | undefined;
+    if (activeWireMode === 'overlay' && mode !== 'wireframe') {
+      if (!overlayChild) {
+        const quadEdges = mesh.userData.__quadEdgesGeometry as THREE.BufferGeometry | undefined;
+        if (quadEdges) {
+          const lineMat = new THREE.LineBasicMaterial({
+            color: 0xf9cf00,
+            transparent: true,
+            opacity: 0.55,
+          });
+          overlayChild = new THREE.LineSegments(quadEdges, lineMat);
+        } else {
+          const overlayMat = new THREE.MeshBasicMaterial({
+            color: 0xf9cf00,
+            wireframe: true,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: -1,
+            transparent: true,
+            opacity: 0.45,
+          });
+          overlayChild = new THREE.Mesh(mesh.geometry, overlayMat);
+        }
+        overlayChild.userData.__isWireframeOverlay = true;
+        overlayChild.raycast = () => {};
+        mesh.add(overlayChild);
+      }
+      overlayChild.visible = true;
+    } else if (overlayChild) {
+      overlayChild.visible = false;
+    }
+
+    // Full internal X-ray wireframe mode
+    if (activeWireMode === 'xray' || mode === 'wireframe') {
       if (!mesh.userData.__wireMaterial) {
         mesh.userData.__wireMaterial = new THREE.MeshBasicMaterial({
           color: 0x00ffcc,
@@ -979,24 +1024,19 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     }
   }, [getUVCheckerTexture]);
 
-  const effectiveShadingMode: ShadingMode =
-    shadingMode === 'uv-checker' || (activeTool === 'uv' && (shadingMode === 'textured' || !shadingMode))
-      ? 'uv-checker'
-      : shadingMode;
+  const effectiveShadingMode: ShadingMode = shadingMode || 'textured';
 
   useEffect(() => {
-    [modelGroupRef.current, comparisonBeforeGroupRef.current].forEach((group) => {
-      group?.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          applyShadingToMesh(child, effectiveShadingMode, Boolean(showWireframe));
-        }
-      });
+    modelGroupRef.current?.traverse((child) => {
+      if (child instanceof THREE.Mesh && !child.userData?.__isWireframeOverlay) {
+        applyShadingToMesh(child, effectiveShadingMode, Boolean(showWireframe));
+      }
     });
     if (keyLightRef.current) {
-      keyLightRef.current.castShadow = !showWireframe;
+      keyLightRef.current.castShadow = wireframeMode !== 'xray';
     }
     invalidateRenderRef.current();
-  }, [showWireframe, effectiveShadingMode, applyShadingToMesh]);
+  }, [showWireframe, wireframeMode, effectiveShadingMode, applyShadingToMesh]);
 
   // 3. Reset Camera / Fit to screen helper
   const fitCameraToModel = useCallback((object: THREE.Object3D) => {
@@ -1091,190 +1131,20 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     (isMeshAsset ? artifactUrl || assetFileUrl : null) ||
     (currentAsset ? null : loadedModelUrl) ||
     null;
-  const isTextureShadingComparison = (activeTool === 'texture' || activeTool === 'pbr') && Boolean(modelUrl);
-  const comparisonPair = getAssetComparisonPair(currentAsset, isExecuting);
-  // Compare the same mesh twice for Texture/PBR: clay on the left, PBR on the right.
-  const comparisonBeforeUrl = isTextureShadingComparison ? modelUrl : comparisonPair?.beforeUrl || null;
-  const comparisonSourceAsset = currentAsset?.sourceAssetId
-    ? assets.find((asset) =>
-        asset.id === currentAsset.sourceAssetId ||
-        asset.fileId === currentAsset.sourceAssetId ||
-        asset.source?.fileId === currentAsset.sourceAssetId ||
-        asset.id.replace(/^(local_|upload_|hist_)/, '') === currentAsset.sourceAssetId
-      )
-    : undefined;
-  const supportedComparisonFormats = ['glb', 'gltf', 'obj', 'fbx', 'stl', 'ply'];
-  const sourceFilenameExtension = comparisonSourceAsset?.source?.filename
-    ?.split(/[?#]/)[0].split('.').pop()?.toLowerCase();
-  const urlArtifactFormat = comparisonBeforeUrl?.match(/[?&]artifact_format=([^&]+)/i)?.[1]?.toLowerCase();
-  const urlPathExtension = comparisonBeforeUrl?.split(/[?#]/)[0].split('.').pop()?.toLowerCase();
-  const comparisonBeforeFormat = [
-    sourceFilenameExtension,
-    currentAsset?.format?.toLowerCase(),
-    urlArtifactFormat,
-    comparisonSourceAsset?.format?.toLowerCase(),
-    urlPathExtension,
-  ].find((format) => format && supportedComparisonFormats.includes(format)) || 'glb';
-  const canCompareModels = Boolean(comparisonPair) || isTextureShadingComparison;
-
-  useEffect(() => {
-    if (comparisonAssetIdRef.current !== (currentAsset?.id ?? null)) {
-      comparisonAssetIdRef.current = currentAsset?.id ?? null;
-      setIsComparing(false);
-    }
-  }, [currentAsset?.id, setIsComparing]);
-
-  useEffect(() => {
-    comparisonOpenRef.current = isComparing;
-    if (isComparing && comparisonDividerRef.current) {
-      comparisonDividerRef.current.style.left = `${comparisonPositionRef.current}%`;
-    }
-    invalidateRenderRef.current();
-  }, [isComparing]);
-
-  useEffect(() => {
-    if (!canCompareModels && isComparing) setIsComparing(false);
-  }, [canCompareModels, isComparing, setIsComparing]);
 
   useEffect(() => {
     invalidateRenderRef.current();
   }, [isTurntable]);
 
-  // Load the captured predecessor only while comparison is open.
-  // Use the same formats as the primary viewport and dispose every stale result.
   useEffect(() => {
-    const beforeGroup = comparisonBeforeGroupRef.current;
-    if (!beforeGroup) return;
-
-    if (!isComparing || !canCompareModels || !comparisonBeforeUrl) {
-      beforeGroup.visible = false;
-      while (beforeGroup.children.length) {
-        const child = beforeGroup.children[0];
-        beforeGroup.remove(child);
-        disposeObject3D(child);
-      }
-      setIsComparisonLoading(false);
-      invalidateRenderRef.current();
-      return;
-    }
-
-    const abortController = new AbortController();
-    let isCancelled = false;
-    setIsComparisonLoading(true);
-    beforeGroup.visible = false;
-    while (beforeGroup.children.length) {
-      const child = beforeGroup.children[0];
-      beforeGroup.remove(child);
-      disposeObject3D(child);
-    }
-
-    const failComparisonLoad = (error: unknown) => {
-      if (isCancelled) return;
-      setIsComparisonLoading(false);
-      setIsComparing(false);
-      toast.error('Could not load the original mesh for comparison');
-      console.warn('Original mesh comparison load failed:', error);
-    };
-
-    const handleComparisonLoaded = (original: THREE.Object3D) => {
-      if (isCancelled || !comparisonBeforeGroupRef.current) {
-        disposeObject3D(original);
-        return;
-      }
-      const bounds = new THREE.Box3().setFromObject(original);
-      if (bounds.isEmpty()) {
-        disposeObject3D(original);
-        setIsComparisonLoading(false);
-        setIsComparing(false);
-        return;
-      }
-      const center = bounds.getCenter(new THREE.Vector3());
-      const size = bounds.getSize(new THREE.Vector3());
-      const maxDimension = Math.max(size.x, size.y, size.z);
-      const scale = maxDimension > 0 ? 2 / maxDimension : 1;
-      original.position.sub(center.clone().multiplyScalar(scale));
-      original.position.y += (size.y * scale) / 2;
-      original.scale.setScalar(scale);
-      original.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          const triCount = child.geometry?.index
-            ? child.geometry.index.count / 3
-            : (child.geometry?.attributes?.position?.count || 0) / 3;
-          // High-density meshes (>800k tris) bypass shadow-map rasterization to preserve 60 FPS
-          child.castShadow = triCount < 800_000;
-          child.receiveShadow = true;
-          child.frustumCulled = true;
-          child.matrixAutoUpdate = false;
-          child.updateMatrix();
-          applyShadingToMesh(child, isTextureShadingComparison ? 'clay' : shadingModeRef.current, isTextureShadingComparison ? false : Boolean(showWireframeRef.current));
-        }
-      });
-      comparisonBeforeGroupRef.current.add(original);
-      comparisonBeforeGroupRef.current.visible = true;
-      setIsComparisonLoading(false);
-      invalidateRenderRef.current();
-    };
-
-    if (comparisonBeforeFormat === 'glb' || comparisonBeforeFormat === 'gltf') {
-      void loadGLBWithProgress(comparisonBeforeUrl, undefined, abortController.signal)
-        .then((buffer) => {
-          if (isCancelled || abortController.signal.aborted) return;
-          const basePath = comparisonBeforeUrl.startsWith('blob:') || comparisonBeforeUrl.startsWith('data:')
-            ? ''
-            : new URL('.', new URL(comparisonBeforeUrl, window.location.href)).href;
-          sharedGLTFLoader.parse(
-            buffer,
-            basePath,
-            (gltf) => handleComparisonLoaded(gltf.scene || gltf.scenes?.[0] || new THREE.Group()),
-            failComparisonLoad,
-          );
-        })
-        .catch(failComparisonLoad);
-    } else if (comparisonBeforeFormat === 'obj') {
-      sharedOBJLoader.load(comparisonBeforeUrl, handleComparisonLoaded, undefined, failComparisonLoad);
-    } else if (comparisonBeforeFormat === 'fbx') {
-      sharedFBXLoader.load(comparisonBeforeUrl, handleComparisonLoaded, undefined, failComparisonLoad);
-    } else if (comparisonBeforeFormat === 'stl') {
-      sharedSTLLoader.load(
-        comparisonBeforeUrl,
-        (geometry) => {
-          geometry.computeVertexNormals();
-          handleComparisonLoaded(new THREE.Mesh(
-            geometry,
-            new THREE.MeshStandardMaterial({ color: 0xc8cdd5, roughness: 0.6 }),
-          ));
-        },
-        undefined,
-        failComparisonLoad,
-      );
-    } else if (comparisonBeforeFormat === 'ply') {
-      sharedPLYLoader.load(
-        comparisonBeforeUrl,
-        (geometry) => {
-          geometry.computeVertexNormals();
-          handleComparisonLoaded(new THREE.Mesh(
-            geometry,
-            new THREE.MeshStandardMaterial({ color: 0xc8cdd5, roughness: 0.6 }),
-          ));
-        },
-        undefined,
-        failComparisonLoad,
-      );
-    } else {
-      failComparisonLoad(new Error('Unsupported comparison format: ' + comparisonBeforeFormat));
-    }
-
-    return () => {
-      isCancelled = true;
-      abortController.abort();
-    };
-  }, [isComparing, canCompareModels, comparisonBeforeUrl, comparisonBeforeFormat, isTextureShadingComparison, setIsComparing, applyShadingToMesh]);
-
-  useEffect(() => {
+    const selectionState = useViewerStore.getState();
+    const requestId = selectionState.selectionRequestId;
+    const tracksSelection = selectionState.assetSelectionState === 'loading';
     if (!modelUrl || !modelGroupRef.current) {
-      setModelLoadStatus('empty');
-      setHasModel(false);
-      setLoadError(null);
+      if (!modelUrl && tracksSelection) selectionState.failAssetLoad(requestId, 'Selected asset has no renderable model URL.');
+      scanRevealRef.current.active = false;
+      if (rendererRef.current) rendererRef.current.localClippingEnabled = false;
+      setLoadState({ status: 'empty', hasModel: false, error: null });
       const group = modelGroupRef.current;
       if (group) {
         while (group.children.length > 0) {
@@ -1295,8 +1165,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
 
     const abortController = new AbortController();
     let isCancelled = false;
-    setModelLoadStatus('loading');
-    setLoadError(null);
+    setLoadState((prev) => ({ status: 'loading', hasModel: prev.hasModel, error: null }));
 
     // Clear previous model from scene
     const group = modelGroupRef.current;
@@ -1327,7 +1196,9 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       }
 
       // Capture native geometry before viewport normalization changes its dimensions.
-      useViewerStore.getState().setModelStats(collectMeshStats(object));
+      const stats = collectMeshStats(object);
+      useViewerStore.getState().setModelStats(stats);
+      if (tracksSelection) useViewerStore.getState().completeAssetLoad(requestId, modelUrl, currentAsset?.name ?? null, stats);
 
       // Center and normalize model dimensions to fit comfortably inside unit space
       const box = new THREE.Box3().setFromObject(object);
@@ -1375,16 +1246,23 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       group.add(object);
       useViewerStore.getState().setActiveModelObject(object);
       fitCameraToModel(object);
+      if (!reducedMotionRef.current) {
+        const box = new THREE.Box3().setFromObject(object);
+        scanRevealRef.current = {
+          active: true,
+          startMs: performance.now(),
+          minY: Number.isFinite(box.min.y) ? box.min.y - 0.05 : 0,
+          maxY: Number.isFinite(box.max.y) ? box.max.y + 0.05 : 2.0,
+        };
+      }
       invalidateRenderRef.current();
-      setModelLoadStatus('loaded');
-      setHasModel(true);
+      setLoadState({ status: 'loaded', hasModel: true, error: null });
     };
 
     const handleLoadFailure = (msg: string) => {
       if (!isCancelled) {
-        setModelLoadStatus('error');
-        setHasModel(false);
-        setLoadError(msg);
+        setLoadState({ status: 'error', hasModel: false, error: msg });
+        if (tracksSelection) useViewerStore.getState().failAssetLoad(requestId, msg);
       }
     };
 
@@ -1412,18 +1290,28 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         handleLoadFailure(`Failed to load 3D model: ${err instanceof Error ? err.message : 'Network error'}`);
       });
     } else if (format === 'obj') {
-      sharedOBJLoader.load(
-        modelUrl,
-        (obj) => {
+      void fetch(modelUrl, { signal: abortController.signal })
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.text();
+        })
+        .then((objText) => {
           if (isCancelled || abortController.signal.aborted) return;
+          const obj = sharedOBJLoader.parse(objText);
+          const quadEdgesGeo = extractObjQuadEdgesGeometry(objText);
+          if (quadEdgesGeo) {
+            obj.traverse((child) => {
+              if ((child as THREE.Mesh).isMesh) {
+                child.userData.__quadEdgesGeometry = quadEdgesGeo;
+              }
+            });
+          }
           handleObjectLoaded(obj);
-        },
-        undefined,
-        (err: unknown) => {
+        })
+        .catch((err: unknown) => {
           if (isCancelled || abortController.signal.aborted) return;
           handleLoadFailure(`Failed to load OBJ: ${(err as any)?.message || 'Error'}`);
-        }
-      );
+        });
     } else if (format === 'fbx') {
       sharedFBXLoader.load(
         modelUrl,
@@ -1475,7 +1363,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       isCancelled = true;
       abortController.abort();
     };
-  }, [modelUrl, assetFormat, fitCameraToModel, applyShadingToMesh, retryKey]);
+  }, [modelUrl, assetFormat, fitCameraToModel, applyShadingToMesh, retryKey, selectionRequestId]);
 
   // 6. Highlight hovered part in main viewer (top-level hook — never nested inside another hook)
   useEffect(() => {
@@ -1494,22 +1382,25 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     // Parse part index from id like "p1" -> 0, "p2" -> 1, etc.
     const match = hoveredPartId.match(/^p(\d+)$/);
     if (!match) return;
-    const meshIndex = parseInt(match[1], 1) - 1;
+    const meshIndex = parseInt(match[1], 10) - 1;
 
     let meshCount = 0;
+    const hoverMaterials: THREE.Material[] = [];
     group.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         if (meshCount === meshIndex) {
           if (!child.userData.__hoverOriginalMaterial) {
             child.userData.__hoverOriginalMaterial = child.material;
           }
-          child.material = new THREE.MeshStandardMaterial({
+          const hoverMat = new THREE.MeshStandardMaterial({
             color: 0xf9cf00,
             emissive: 0xf9cf00,
             emissiveIntensity: 0.5,
             roughness: 0.2,
             metalness: 0.1,
           });
+          hoverMaterials.push(hoverMat);
+          child.material = hoverMat;
         }
         meshCount++;
       }
@@ -1523,6 +1414,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           delete child.userData.__hoverOriginalMaterial;
         }
       });
+      hoverMaterials.forEach((m) => m.dispose());
     };
   }, [hoveredPartId]);
 
@@ -1566,28 +1458,10 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     };
   }, []);
 
-  const updateComparisonPosition = (clientX: number) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect || rect.width <= 0) return;
-    const next = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
-    comparisonPositionRef.current = next;
-    invalidateRenderRef.current();
-    if (comparisonDividerRef.current) comparisonDividerRef.current.style.left = `${next}%`;
-    comparisonHandleRef.current?.setAttribute('aria-valuenow', String(Math.round(next)));
-    comparisonHandleRef.current?.setAttribute('aria-valuetext', `${Math.round(next)} percent before`);
-  };
-
-  const moveComparisonBy = (delta: number) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const next = Math.max(0, Math.min(100, comparisonPositionRef.current + delta));
-    updateComparisonPosition(rect.left + (rect.width * next) / 100);
-  };
-
   // Single source of truth for the viewport UI shell: one mutually exclusive
   // status replaces the previously overlapping JSX conditions (empty, loading,
-  // executing, comparing, or error).
-  type ViewportUIStatus = 'idle' | 'empty' | 'loading' | 'executing' | 'comparing' | 'error';
+  // executing, or error).
+  type ViewportUIStatus = 'idle' | 'empty' | 'loading' | 'executing' | 'error';
   const viewportStatus: ViewportUIStatus = loadError
     ? 'error'
     : isExecuting
@@ -1596,9 +1470,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         ? 'loading'
         : !hasModel
           ? 'empty'
-          : isComparing && canCompareModels
-            ? 'comparing'
-            : 'idle';
+          : 'idle';
 
   return (
     <div
@@ -1680,71 +1552,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           <p className="text-[10px] text-white font-mono mt-1 text-center">
             {Math.round(executionProgress)}%
           </p>
-        </div>
-      )}
-
-      {viewportStatus === 'comparing' && (
-        <div className="absolute inset-0 z-10 pointer-events-none">
-          <div className="absolute top-3 left-3 px-2 py-1 rounded-md bg-black/65 border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white">
-            {isTextureShadingComparison ? 'Clay / Untextured' : activeTool === 'remesh' ? 'Original Mesh' : activeTool === 'uv' ? 'Before UV' : activeTool === 'segment' ? 'Original' : 'Before'}
-          </div>
-          <div className="absolute top-3 right-3 px-2 py-1 rounded-md bg-black/65 border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white">
-            {isTextureShadingComparison ? 'PBR / Textured' : activeTool === 'remesh' ? 'Remeshed' : activeTool === 'uv' ? 'After UV' : activeTool === 'segment' ? 'Segmented' : 'After'}
-          </div>
-          <div
-            ref={comparisonDividerRef}
-            className="absolute top-0 bottom-0"
-            style={{ left: `${comparisonPositionRef.current}%`, transform: 'translateX(-50%) rotate(-14deg)' }}
-          >
-            <div className="absolute inset-y-0 left-0 w-px -translate-x-1/2 bg-[#F9CF00] shadow-[0_0_10px_rgba(249,207,0,0.7)]" />
-            <div
-              ref={comparisonHandleRef}
-              role="slider"
-              tabIndex={0}
-              aria-label={isTextureShadingComparison ? 'Clay and textured comparison split' : 'Before and after comparison split'}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={Math.round(comparisonPositionRef.current)}
-              aria-valuetext={`${Math.round(comparisonPositionRef.current)} percent before`}
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.currentTarget.setPointerCapture(event.pointerId);
-                updateComparisonPosition(event.clientX);
-              }}
-              onPointerMove={(event) => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) updateComparisonPosition(event.clientX);
-              }}
-              onPointerUp={(event) => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
-                  event.preventDefault();
-                  moveComparisonBy(-1);
-                } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
-                  event.preventDefault();
-                  moveComparisonBy(1);
-                } else if (event.key === 'Home') {
-                  event.preventDefault();
-                  updateComparisonPosition(containerRef.current?.getBoundingClientRect().left ?? 0);
-                } else if (event.key === 'End') {
-                  event.preventDefault();
-                  updateComparisonPosition(containerRef.current?.getBoundingClientRect().right ?? 0);
-                }
-              }}
-              className="pointer-events-auto absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 rotate-[14deg] w-10 h-12 rounded-full bg-[#171821]/95 border border-[#F9CF00] shadow-lg flex items-center justify-center cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-[#F9CF00]"
-            >
-              <span className="flex items-center gap-0.5 text-[#F9CF00]">
-                <span className="w-0.5 h-3 rounded-full bg-current" />
-                <span className="w-0.5 h-3 rounded-full bg-current" />
-              </span>
-            </div>
-          </div>
-          {isComparisonLoading && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg bg-black/70 border border-white/10 text-[10px] text-zinc-200">
-              Loading original mesh…
-            </div>
-          )}
         </div>
       )}
 

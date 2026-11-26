@@ -120,7 +120,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onMobileMenuToggle, isMobi
           </button>
 
           {workspaceMenuOpen && (
-            <div className="absolute top-full left-0 mt-1.5 w-48 py-1 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-100">
+            <div className="absolute top-full left-0 mt-1.5 min-w-[200px] w-max py-1 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-100">
               <div className="px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-zinc-500">
                 Workspace Modes
               </div>

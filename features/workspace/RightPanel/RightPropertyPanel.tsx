@@ -89,7 +89,7 @@ export const RightPropertyPanel: React.FC = () => {
 
   // Auto-expand section matching activeTool; manual toggle overrides auto behavior
   const manualOverridesRef = useRef<Set<string>>(new Set());
-  const prevToolRef = useRef<string | null>(null);
+  const prevToolRef = useRef<string | null>(activeTool);
 
   useEffect(() => {
     if (prevToolRef.current !== activeTool) {
@@ -112,18 +112,26 @@ export const RightPropertyPanel: React.FC = () => {
   };
 
   const isSectionExpanded = (sectionId: string) => {
-    // Context section is ALWAYS expanded by default for tool inspectors
-    if (sectionId === 'context') return true;
-    // When inside a dedicated dynamic tool, collapse general mesh properties by default
-    if (activeTool === 'rigging' || activeTool === 'segment' || activeTool === 'uv' || activeTool === 'animation') {
+    // Dedicated tool inspectors collapse general mesh properties by default.
+    if (sectionId !== 'context' && (activeTool === 'rigging' || activeTool === 'segment' || activeTool === 'uv' || activeTool === 'animation')) {
       return rightPanelSections?.[sectionId] ?? false;
     }
     return rightPanelSections?.[sectionId] ?? true;
   };
 
   const [exportFormat, setExportFormat] = useState<'glb' | 'gltf' | 'fbx' | 'obj' | 'stl' | 'ply'>('glb');
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportSuccess, setExportSuccess] = useState(false);
+  const [exportState, setExportState] = useState<'idle' | 'exporting' | 'success'>('idle');
+  const exportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isExporting = exportState === 'exporting';
+  const exportSuccess = exportState === 'success';
+
+  const scheduleExportReset = () => {
+    if (exportTimerRef.current) clearTimeout(exportTimerRef.current);
+    exportTimerRef.current = setTimeout(() => {
+      setExportState('idle');
+      exportTimerRef.current = null;
+    }, 3000);
+  };
 
   // Live 3D object transform synchronized to Three.js model group
   const [transform, setTransform] = useState({
@@ -272,18 +280,18 @@ export const RightPropertyPanel: React.FC = () => {
       }
 
       if (activeModelObject) {
-        setIsExporting(true);
+        if (exportTimerRef.current) clearTimeout(exportTimerRef.current);
+        setExportState('exporting');
         try {
           toast.info(`Generating ${exportFormat.toUpperCase()} in browser...`);
           await triggerClientExport(activeModelObject, exportFormat as ClientSupportedExportFormat, `${assetBaseName}.${exportFormat}`);
-          setExportSuccess(true);
+          setExportState('success');
           toast.success(`${exportFormat.toUpperCase()} exported successfully!`);
-          setTimeout(() => setExportSuccess(false), 3000);
+          scheduleExportReset();
         } catch (err: any) {
           console.error('Client export failed:', err);
           toast.error('Export failed', { description: err?.message || 'Failed to export model' });
-        } finally {
-          setIsExporting(false);
+          setExportState('idle');
         }
         return;
       }
@@ -294,20 +302,21 @@ export const RightPropertyPanel: React.FC = () => {
       return;
     }
 
-    setIsExporting(true);
+    if (exportTimerRef.current) clearTimeout(exportTimerRef.current);
+    setExportState('exporting');
     try {
       await downloadArtifact(sourceUrl, `${assetBaseName}.${exportFormat}`, exportFormat);
-      setExportSuccess(true);
-      setTimeout(() => setExportSuccess(false), 3000);
+      setExportState('success');
+      scheduleExportReset();
     } catch (error) {
       // If remote download fails, attempt client Three.js export fallback
       if (activeModelObject && exportFormat !== 'fbx') {
         try {
           toast.info(`Backend artifact unavailable. Generating ${exportFormat.toUpperCase()} from viewport...`);
           await triggerClientExport(activeModelObject, exportFormat as ClientSupportedExportFormat, `${assetBaseName}.${exportFormat}`);
-          setExportSuccess(true);
+          setExportState('success');
           toast.success(`${exportFormat.toUpperCase()} exported from viewport!`);
-          setTimeout(() => setExportSuccess(false), 3000);
+          scheduleExportReset();
           return;
         } catch (clientErr: any) {
           console.error('Fallback client export failed:', clientErr);
@@ -316,9 +325,7 @@ export const RightPropertyPanel: React.FC = () => {
       console.error(error);
       const msg = error instanceof Error ? error.message : 'Export failed';
       toast.error('Export failed', { description: msg });
-      setExportSuccess(false);
-    } finally {
-      setIsExporting(false);
+      setExportState('idle');
     }
   };
 
@@ -436,7 +443,7 @@ export const RightPropertyPanel: React.FC = () => {
             Active
           </span>
         </div>
-        <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2.5">
           <div className="p-3 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-2.5">
             <div className="flex justify-between items-center text-xs border-t border-[hsl(var(--border))]/50 pt-2">
               <span className="text-[hsl(var(--muted-foreground))]">Output Polygons</span>
@@ -507,7 +514,7 @@ export const RightPropertyPanel: React.FC = () => {
             Active
           </span>
         </div>
-        <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2.5">
           {/* Roughness */}
           <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-1.5">
             <div className="flex justify-between text-xs text-[hsl(var(--foreground))]">
@@ -666,12 +673,7 @@ export const RightPropertyPanel: React.FC = () => {
     const rows: React.ReactNode[] = [];
     if (base.length) {
       const baseAsset = base[0];
-      const handleBaseClick = () => {
-        const requestId = requestAssetSelection(baseAsset as any);
-        verifyAsset(requestId);
-        beginAssetLoad(requestId);
-        setCurrentAsset(baseAsset);
-      };
+      const handleBaseClick = () => setCurrentAsset(baseAsset);
       rows.push(
         <div key="base" className="flex items-center gap-1 px-1 py-1 rounded bg-[hsl(var(--surface-2))] cursor-pointer" onClick={handleBaseClick}>
           <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
@@ -684,12 +686,7 @@ export const RightPropertyPanel: React.FC = () => {
       group.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
       group.forEach((a, i) => {
         const isCurrent = currentAsset?.id === a.id;
-        const handleDerivedClick = () => {
-          const requestId = requestAssetSelection(a as any);
-          verifyAsset(requestId);
-          beginAssetLoad(requestId);
-          setCurrentAsset(a);
-        };
+        const handleDerivedClick = () => setCurrentAsset(a);
         rows.push(
           <div key={a.id} className="flex items-center gap-1 px-1 py-1 rounded cursor-pointer" onClick={handleDerivedClick}>
             <span className={`w-2 h-2 rounded-full shrink-0 ${isCurrent ? 'bg-primary' : 'bg-[hsl(var(--surface-3))]'}`} />
@@ -766,7 +763,7 @@ export const RightPropertyPanel: React.FC = () => {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
+      <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2.5">
         {/* 3. 3D AI Generator Pipeline (Shown exclusively on Model page) */}
         {activeTool === 'model' && isSectionExpanded('context') && (
           <Collapsible
@@ -999,23 +996,28 @@ export const RightPropertyPanel: React.FC = () => {
 
         {/* 2. Geometry Statistics & Topology Health */}
         {isSectionExpanded('geometry') && (() => {
-          const verticesDisplay = currentAsset?.vertices
+          const verticesDisplay = currentAsset.statsAvailable
             ? currentAsset.vertices.toLocaleString()
-            : modelStats?.vertices
-            ? modelStats.vertices.toLocaleString()
-            : '—';
+            : currentAsset.vertices > 0
+              ? currentAsset.vertices.toLocaleString()
+              : modelStats?.vertices?.toLocaleString() ?? '—';
 
-          const facesDisplay = currentAsset?.faces
+          const facesDisplay = currentAsset.statsAvailable
             ? currentAsset.faces.toLocaleString()
-            : modelStats?.triangles
-            ? modelStats.triangles.toLocaleString()
-            : '—';
+            : currentAsset.faces > 0
+              ? currentAsset.faces.toLocaleString()
+              : modelStats?.triangles?.toLocaleString() ?? '—';
 
-          const isManifold = currentAsset?.isManifold ?? modelStats?.isManifold ?? true;
-          const nonManifoldEdges = currentAsset?.nonManifoldEdges ?? modelStats?.nonManifoldEdges ?? 0;
-          const surfaceArea = currentAsset?.surfaceArea ?? modelStats?.surfaceArea;
-          const volume = currentAsset?.volume ?? modelStats?.volume;
-          const uvCharts = currentAsset?.uvCharts ?? modelStats?.uvCharts;
+          const isManifold = currentAsset.isManifold ?? modelStats?.isManifold;
+          const nonManifoldEdges = currentAsset.nonManifoldEdges ?? modelStats?.nonManifoldEdges;
+          const manifoldStatus = isManifold === true || (isManifold === undefined && nonManifoldEdges === 0)
+            ? 'manifold'
+            : isManifold === false || (nonManifoldEdges !== undefined && nonManifoldEdges > 0)
+              ? 'non-manifold'
+              : 'unknown';
+          const surfaceArea = currentAsset.surfaceArea ?? modelStats?.surfaceArea;
+          const volume = currentAsset.volume ?? modelStats?.volume;
+          const uvCharts = currentAsset.uvCharts ?? modelStats?.uvCharts;
 
           return (
             <Collapsible
@@ -1042,15 +1044,19 @@ export const RightPropertyPanel: React.FC = () => {
                     />
                   </button>
                 </CollapsibleTrigger>
-                {isManifold && nonManifoldEdges === 0 ? (
+                {manifoldStatus === 'manifold' ? (
                   <span className="flex items-center gap-1 text-[10px] text-[hsl(var(--neon-green))] font-mono px-1.5 py-0.5 rounded bg-[hsl(var(--neon-green))]/10 border border-[hsl(var(--neon-green))]/30">
                     <HugeiconsIcon icon={ShieldCheckIcon} size={16} className="w-3 h-3" />
                     Manifold
                   </span>
-                ) : (
+                ) : manifoldStatus === 'non-manifold' ? (
                   <span className="flex items-center gap-1 text-[10px] text-amber-400 font-mono px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30">
                     <HugeiconsIcon icon={TriangleAlertIcon} size={16} className="w-3 h-3" />
-                    Non-Manifold ({nonManifoldEdges})
+                    Non-Manifold{nonManifoldEdges !== undefined ? ` (${nonManifoldEdges})` : ''}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-[hsl(var(--muted-foreground))] font-mono px-1.5 py-0.5 rounded border border-[hsl(var(--border))]">
+                    Not analyzed
                   </span>
                 )}
               </div>
@@ -1084,14 +1090,10 @@ export const RightPropertyPanel: React.FC = () => {
                   </div>
                   <div className="p-2 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
                     <span className="text-[hsl(var(--muted-foreground))] block text-[10px]">UV Islands</span>
-                    <span className="font-bold text-[hsl(var(--neon-green))]">{uvCharts !== undefined && uvCharts > 0 ? `${uvCharts} charts` : '1 chart'}</span>
+                    <span className="font-bold text-[hsl(var(--neon-green))]">{uvCharts !== undefined ? `${uvCharts} charts` : '—'}</span>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))] pt-1 border-t border-[hsl(var(--border))]">
-                  <span>UV Channels</span>
-                  <span className="font-mono text-[hsl(var(--foreground))]">2 (UV0: Diffuse, UV1: Lightmap)</span>
-                </div>
                 {currentAsset.dimensions && (
                   <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))] pt-1 border-t border-[hsl(var(--border))]">
                     <span>Dimensions (X×Y×Z)</span>

@@ -56,7 +56,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     import torch
@@ -182,7 +182,6 @@ _ADAPTER_OWNED_INFERENCE_PROFILE_MODEL_IDS = frozenset({
     "trellis2_image_mesh_painting",
     "pixal3d_image_to_raw_mesh",
     "pixal3d_image_to_3d",
-    "unique3d_image_to_raw_mesh",
     "taoflowforge_image_to_raw_mesh",
     "hunyuan3d_paint_v21_image_mesh_painting",
 })
@@ -530,6 +529,20 @@ def model_worker_process(
                     job_request, result_callback_id = job_data
                     logger.info(f"Worker {worker_id} received job {job_request.job_id}")
 
+                    def _worker_progress_cb(stage: str, fraction: float, message: str) -> None:
+                        try:
+                            response_queue.put((
+                                "__progress__",
+                                {
+                                    "job_id": job_request.job_id,
+                                    "stage": stage,
+                                    "progress": float(fraction),
+                                    "message": message,
+                                },
+                            ))
+                        except Exception:
+                            pass
+
                     # Process job
                     result, loaded_model, processing_job = _process_job_in_worker(
                         job_request,
@@ -538,6 +551,7 @@ def model_worker_process(
                         processing_job,
                         gpu_id,
                         worker_config.resource_plan,
+                        progress_callback=_worker_progress_cb,
                     )
                     status_str = "SUCCESS" if result.get("success") else "FAILED"
                     logger.info(
@@ -860,6 +874,7 @@ def _process_job_in_worker(
     processing_job: Optional[str],
     gpu_id: Optional[int],
     resource_plan: Optional[Dict[str, Any]] = None,
+    progress_callback: Optional[Callable[[str, float, str], None]] = None,
 ) -> Tuple[Dict[str, Any], Optional[BaseModel], Optional[str]]:
     """Process a job in the worker process - simplified for single model"""
     try:
@@ -1045,6 +1060,12 @@ def _process_job_in_worker(
         _reset_cuda_peak_memory_stats(resource_plan, gpu_id)
         inference_start_time = time.time()
 
+        default_params = model_config.get("default_parameters") or {}
+        if isinstance(default_params, dict):
+            for param_key, param_val in default_params.items():
+                if model_inputs.get(param_key) is None:
+                    model_inputs[param_key] = param_val
+
         if total_seeds_to_run > 1:
             candidates_list = []
             candidate_results = []
@@ -1102,7 +1123,7 @@ def _process_job_in_worker(
                             except Exception:
                                 pass
         else:
-            result = loaded_model.process(model_inputs)
+            result = loaded_model.process(model_inputs, progress_callback=progress_callback)
 
         effective_info = result.get("generation_info") if isinstance(result, dict) else None
         if isinstance(effective_info, dict):
@@ -1364,6 +1385,7 @@ class MultiprocessModelScheduler:
 
         # Scheduler state
         self.running = False
+        self._lifecycle_state = "stopped"
         self._background_tasks: set[asyncio.Task] = set()
         self.response_handler_thread: Optional[threading.Thread] = None
         self.pending_results: Dict[str, asyncio.Future] = {}
@@ -1562,10 +1584,11 @@ class MultiprocessModelScheduler:
 
     async def start(self):
         """Start the scheduler - no workers created initially"""
-        if self.running:
-            logger.warning("Scheduler is already running")
+        if self._lifecycle_state in ("starting", "running"):
+            logger.warning("Scheduler is already starting or running")
             return
 
+        self._lifecycle_state = "starting"
         self.running = True
         # Store reference to main event loop
         self.main_event_loop = asyncio.get_event_loop()
@@ -1599,12 +1622,14 @@ class MultiprocessModelScheduler:
             logger.info("Scheduler started - workers will be created on demand")
         else:
             logger.info("Scheduler started in queue-only mode (no job processing)")
+        self._lifecycle_state = "running"
 
     async def stop(self):
         """Stop the scheduler and cleanup worker processes"""
-        if not self.running:
+        if self._lifecycle_state in ("stopping", "stopped"):
             return
 
+        self._lifecycle_state = "stopping"
         self.running = False
         logger.info("Stopping multiprocess model scheduler")
 
@@ -1654,6 +1679,7 @@ class MultiprocessModelScheduler:
         self.worker_last_used.clear()
         self.model_selection_counter.clear()
         self.main_event_loop = None
+        self._lifecycle_state = "stopped"
 
         logger.info("Multiprocess scheduler stopped")
 
@@ -2339,6 +2365,8 @@ class MultiprocessModelScheduler:
                             _relative_path = pub["relative_mesh_path"]
                             final_result["output_mesh_path"] = str(_dst)
                             final_result["mesh_path"] = str(_dst)
+                            final_result["output_path"] = str(_dst)
+                            final_result["file_path"] = str(_dst)
                             final_result["relative_mesh_path"] = _relative_path
                             final_result["asset_root"] = str(_ws_mgr.get_workspace_dir(_ws_id))
 
@@ -2465,6 +2493,11 @@ class MultiprocessModelScheduler:
                                     shutil.copy2(str(_src), str(_dst))
                             final_result["output_mesh_path"] = str(_dst)
                             final_result["mesh_path"] = str(_dst)
+                            final_result["output_path"] = str(_dst)
+                            final_result["file_path"] = str(_dst)
+                            if final_result.get("textured_mesh_path"):
+                                final_result["textured_mesh_path"] = str(_dst)
+                            final_result["relative_mesh_path"] = "mesh/mesh.glb"
                             final_result["asset_root"] = str(canonical_root)
                             # Register the durable generated mesh and make it the workspace active mesh.
                             try:
@@ -2890,33 +2923,47 @@ class MultiprocessModelScheduler:
     def _cleanup_adapter_temporary_output(
         self, result: Any, *, nested: bool = True
     ) -> None:
-        """Remove an adapter-owned temporary output directory after persistence."""
+        """Remove explicitly marked adapter-owned temp dirs after durable persistence."""
         if not isinstance(result, dict):
             return
         payload = result.get("result") if nested else result
         if not isinstance(payload, dict):
             return
-        directory_value = payload.pop("_temporary_output_dir", None)
-        if not directory_value:
+
+        directories = payload.pop("_temporary_output_dirs", None)
+        legacy_directory = payload.pop("_temporary_output_dir", None)
+        if legacy_directory:
+            directories = list(directories or []) if isinstance(directories, (list, tuple)) else []
+            directories.append(legacy_directory)
+        if not directories:
             return
-        try:
-            temp_root = Path(tempfile.gettempdir()).resolve()
-            output_dir = Path(directory_value).resolve(strict=True)
-            if output_dir.parent != temp_root or not output_dir.name.startswith("sf3d_"):
+        if isinstance(directories, (str, Path)):
+            directories = [directories]
+
+        temp_root = Path(tempfile.gettempdir()).resolve()
+        for directory_value in directories:
+            try:
+                candidate = Path(directory_value)
+                if candidate.is_symlink():
+                    logger.warning("Refusing to clean symlinked adapter output: %s", candidate)
+                    continue
+                output_dir = candidate.resolve(strict=True)
+                allowed_prefix = output_dir.name.startswith(("formesh3d_", "sf3d_", "triposr_"))
+                if not output_dir.is_dir() or output_dir.parent != temp_root or not allowed_prefix:
+                    logger.warning(
+                        "Refusing to clean untrusted adapter temporary output directory: %s",
+                        directory_value,
+                    )
+                    continue
+                shutil.rmtree(output_dir)
+            except FileNotFoundError:
+                continue
+            except Exception:
                 logger.warning(
-                    "Refusing to clean untrusted SF3D temporary output directory: %s",
+                    "Could not clean adapter temporary output directory %s",
                     directory_value,
+                    exc_info=True,
                 )
-                return
-            shutil.rmtree(output_dir)
-        except FileNotFoundError:
-            return
-        except Exception:
-            logger.warning(
-                "Could not clean SF3D temporary output directory %s",
-                directory_value,
-                exc_info=True,
-            )
 
     def _register_managed_input_dir(self, directory: Path) -> None:
         """Register an app-managed temporary input directory for safe cleanup."""
@@ -3370,7 +3417,7 @@ class MultiprocessModelScheduler:
                     max_load_timeout = float(timeout_env)
                 except ValueError:
                     max_load_timeout = 1800.0
-            elif any(k in model_id.lower() for k in ("trellis", "hunyuan", "unique3d", "pixal", "taoflow")):
+            elif any(k in model_id.lower() for k in ("trellis", "hunyuan", "pixal", "taoflow")):
                 max_load_timeout = 1800.0
             else:
                 max_load_timeout = 600.0
@@ -3716,6 +3763,19 @@ class MultiprocessModelScheduler:
                 for worker_id, response_queue in self.worker_response_queues.items():
                     try:
                         callback_id, result = response_queue.get_nowait()
+                        if callback_id == "__progress__" and isinstance(result, dict):
+                            if self.main_event_loop and result.get("job_id"):
+                                scaled = max(0.15, min(0.74, 0.15 + float(result.get("progress", 0.0)) * 0.59))
+                                asyncio.run_coroutine_threadsafe(
+                                    self.job_queue.update_job_progress(
+                                        result["job_id"],
+                                        scaled,
+                                        stage=result.get("stage"),
+                                        message=result.get("message"),
+                                    ),
+                                    self.main_event_loop,
+                                )
+                            continue
                         success = bool(result.get("success")) if isinstance(result, dict) else False
                         logger.info(
                             f"Worker {worker_id} response received: callback_id={callback_id} success={success}"

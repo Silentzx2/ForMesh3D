@@ -79,8 +79,6 @@ def _labels_from_merge_tree(
             f"from {face_count} faces (produced {len(active)})"
         )
 
-    cluster_labels = {node_id: label for label, node_id in enumerate(sorted(active))}
-
     def find_root(face_id: int) -> int:
         node_id = face_id
         while parent.get(node_id, node_id) != node_id:
@@ -93,8 +91,18 @@ def _labels_from_merge_tree(
             node_id = next_id
         return root_id
 
+    # Label clusters by their first source-face occurrence, not merge-node IDs.
+    # Internal node IDs reflect tree construction order and are not semantic order.
+    cluster_labels: Dict[int, int] = {}
+
+    def label_for_face(face_id: int) -> int:
+        root_id = find_root(face_id)
+        if root_id not in cluster_labels:
+            cluster_labels[root_id] = len(cluster_labels)
+        return cluster_labels[root_id]
+
     labels = np.fromiter(
-        (cluster_labels[find_root(face_id)] for face_id in range(face_count)),
+        (label_for_face(face_id) for face_id in range(face_count)),
         dtype=np.int32,
         count=face_count,
     )
@@ -276,11 +284,11 @@ class PartFieldSegmentationAdapter(BaseModel):
                 "use Script mode for geometric or connected-component decomposition."
             )
 
-        target_parts = max(2, min(32, int(inputs.get("num_parts", 8))))
-        min_face_island = max(0, int(inputs.get("min_face_island_threshold", 50)))
-        colorize = bool(inputs.get("colorize_preview", True))
-        save_individual = bool(inputs.get("save_individual_parts", False))
-        hierarchical = bool(inputs.get("hierarchical", False))
+        target_parts = max(2, min(32, int(inputs["num_parts"])))
+        min_face_island = max(0, int(inputs["min_face_island_threshold"]))
+        colorize = bool(inputs["colorize_preview"])
+        save_individual = bool(inputs["save_individual_parts"])
+        hierarchical = bool(inputs["hierarchical"])
         logger.info(
             "[PARTFIELD] save_individual_parts=%s num_parts=%d min_face_island=%d",
             save_individual, target_parts, min_face_island,
@@ -305,9 +313,11 @@ class PartFieldSegmentationAdapter(BaseModel):
             progress("Extracting trained PartField feature fields", 15, "inference")
         seed = int(inputs.get("seed", 42))
         sampling_started = time.perf_counter()
+        sample_on_faces = int(inputs["sample_on_faces"])
+        sample_batch_size = int(inputs["sample_batch_size"])
         logger.info(
             "[PARTFIELD] Sampling face features: samples_per_face=%d batch_size=%d seed=%d",
-            10, 8192, seed,
+            sample_on_faces, sample_batch_size, seed,
         )
         tree, _root_node, _normalized_mesh = self.model.process_face(
             str(source_file),
@@ -318,8 +328,8 @@ class PartFieldSegmentationAdapter(BaseModel):
             save_features=False,
             save_segmentation=False,
             seed=seed,
-            sample_on_faces=10,
-            sample_batch_size=8192,
+            sample_on_faces=sample_on_faces,
+            sample_batch_size=sample_batch_size,
             pca_dim=None,
         )
         logger.info(
@@ -379,7 +389,24 @@ class PartFieldSegmentationAdapter(BaseModel):
 
         if callable(progress):
             progress("Writing segmented mesh", 90, "export")
-        export_mesh_safe(segmented_mesh, output_path, file_type=output_format)
+        if individual_paths:
+            scene = trimesh.Scene()
+            for part_id in range(actual_parts):
+                part_faces = original_mesh.faces[labels == part_id]
+                if not len(part_faces):
+                    continue
+                part_mesh = trimesh.Trimesh(
+                    vertices=original_mesh.vertices.copy(),
+                    faces=part_faces,
+                    process=False,
+                )
+                part_mesh.remove_unreferenced_vertices()
+                rgb = palette[part_id % len(palette)]
+                part_mesh.visual.face_colors = np.tile(np.array([rgb[0], rgb[1], rgb[2], 255], dtype=np.uint8), (len(part_mesh.faces), 1))
+                scene.add_geometry(part_mesh, node_name=f"part_{part_id + 1:02d}")
+            scene.export(str(output_path), file_type=output_format)
+        else:
+            export_mesh_safe(segmented_mesh, output_path, file_type=output_format)
 
         parts = []
         total_faces = max(1, len(segmented_mesh.faces))

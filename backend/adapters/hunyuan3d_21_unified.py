@@ -163,6 +163,13 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
                 device=device,
             )
 
+        if hasattr(shape_pipeline, "enable_flashvdm") and bool(getattr(self, "enable_flashvdm", True)):
+            try:
+                shape_pipeline.enable_flashvdm()
+                logger.info("Hunyuan3D-2.1 Unified FlashVDM decoder enabled")
+            except Exception as vdm_err:
+                logger.warning("Could not enable FlashVDM for Hunyuan3D-2.1 Unified: %s", vdm_err)
+
         if torch is not None and torch.cuda.is_available() and hasattr(shape_pipeline, "enable_model_cpu_offload"):
             try:
                 shape_pipeline.enable_model_cpu_offload(
@@ -176,30 +183,64 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
 
         self._shape_pipeline = shape_pipeline
         self.model = shape_pipeline
-        self.status = ModelStatus.LOADED
 
         # ── Load paint pipeline (needed for texture autochain / paint page) ──
-        try:
-            from hy3dgen.texgen.pipelines import Hunyuan3DPaintPipeline
-
+        self._paint_is_hy3dpaint = False
+        if bool(getattr(self, "enable_realesrgan", True)):
             try:
-                paint_pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(weights_dir_path))
-            except Exception as paint_err:
-                logger.warning(
-                    "Hunyuan3D-2.1 Unified paint load failed (%s); re-downloading and retrying.",
-                    paint_err,
-                )
-                self._download_weights(weights_dir_path)
-                paint_pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(weights_dir_path))
+                hy3dpaint_dir = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Hunyuan3D-2.1" / "hy3dpaint")
+                if hy3dpaint_dir not in sys.path:
+                    sys.path.insert(0, hy3dpaint_dir)
+                from textureGenPipeline import Hunyuan3DPaintConfig, Hunyuan3DPaintPipeline as Hy3DPaintV21Pipeline
 
-            self._paint_pipeline = paint_pipeline
-            logger.info("Hunyuan3D-2.1 Unified paint pipeline loaded from %s", weights_dir_path)
-        except Exception as paint_load_err:
-            logger.warning(
-                "Hunyuan3D-2.1 Unified paint pipeline not loaded (texture disabled): %s",
-                paint_load_err,
-            )
-            self._paint_pipeline = None
+                self._paint_pipeline = Hy3DPaintV21Pipeline(Hunyuan3DPaintConfig(6, 512))
+                self._paint_is_hy3dpaint = True
+                logger.info("Hunyuan3D-2.1 Unified hy3dpaint (RealESRGAN) pipeline loaded")
+            except Exception as hy3dpaint_err:
+                logger.warning("hy3dpaint (RealESRGAN) unavailable (%s); falling back to hy3dgen paint.", hy3dpaint_err)
+
+        if self._paint_pipeline is None:
+            try:
+                from hy3dgen.texgen.pipelines import Hunyuan3DPaintPipeline
+
+                paint_weights_dir = Path(get_model_weights_dir("tencent/Hunyuan3D-2"))
+                paint_subfolder = (
+                    "hunyuan3d-paint-v2-0-turbo"
+                    if (paint_weights_dir / "hunyuan3d-paint-v2-0-turbo" / "model_index.json").is_file()
+                    else "hunyuan3d-paint-v2-0"
+                )
+                try:
+                    paint_pipeline = Hunyuan3DPaintPipeline.from_pretrained(
+                        str(paint_weights_dir), subfolder=paint_subfolder
+                    )
+                except Exception as paint_err:
+                    logger.warning(
+                        "Hunyuan3D-2.1 Unified paint load failed (%s); re-downloading and retrying.",
+                        paint_err,
+                    )
+                    from huggingface_hub import snapshot_download
+
+                    snapshot_download(
+                        repo_id="tencent/Hunyuan3D-2",
+                        local_dir=str(paint_weights_dir),
+                        allow_patterns=[
+                            "hunyuan3d-paint-v2-0/**/*",
+                            "hunyuan3d-paint-v2-0-turbo/**/*",
+                            "hunyuan3d-delight-v2-0/**/*",
+                        ],
+                    )
+                    paint_pipeline = Hunyuan3DPaintPipeline.from_pretrained(
+                        str(paint_weights_dir), subfolder=paint_subfolder
+                    )
+
+                self._paint_pipeline = paint_pipeline
+                logger.info("Hunyuan3D-2.1 Unified paint pipeline loaded from %s", weights_dir_path)
+            except Exception as paint_load_err:
+                logger.warning(
+                    "Hunyuan3D-2.1 Unified paint pipeline not loaded (texture disabled): %s",
+                    paint_load_err,
+                )
+                self._paint_pipeline = None
 
         return shape_pipeline
 
@@ -207,13 +248,17 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
         self._shape_pipeline = None
         self._paint_pipeline = None
         self.model = None
-        self.status = ModelStatus.UNLOADED
 
     # ── inference ──────────────────────────────────────────────────────
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        texture_enabled = bool(
-            inputs.get("texture_enabled", False) and inputs.get("generate_texture", True)
+        raw_tex = inputs.get("texture_enabled")
+        if raw_tex is None:
+            raw_tex = inputs.get("generate_texture", False)
+        texture_enabled = (
+            raw_tex.strip().lower() in {"1", "true", "yes", "on"}
+            if isinstance(raw_tex, str)
+            else bool(raw_tex)
         )
 
         # ── Paint-only mode: existing mesh + reference image → textured mesh ──
@@ -233,24 +278,35 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
                 return {"success": False, "error": f"image not found: {image_path}"}
 
             seed = int(inputs.get("seed", DEFAULT_SEED))
-            texture_resolution = int(inputs.get("texture_resolution", 2048) or 2048)
+            texture_resolution = int(inputs.get("texture_resolution") or 2048)
             texture_resolution = max(512, min(4096, texture_resolution))
 
-            import trimesh
-            from PIL import Image
-
-            mesh = trimesh.load(mesh_path, process=False)
-            image = Image.open(image_path)
-
+            out_dir = self._create_temporary_output_dir("hunyuan3d21_paint")
+            out = out_dir / f"hunyuan3d_21_paint_{seed}.glb"
             ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
-            with ctx:
-                textured = pipeline(mesh=mesh, image=image)
-
-            out = Path(tempfile.mkdtemp()) / f"hunyuan3d_21_paint_{seed}.glb"
-            if hasattr(textured, "export"):
-                textured.export(str(out))
+            if getattr(self, "_paint_is_hy3dpaint", False):
+                with ctx:
+                    pipeline(
+                        mesh_path=str(mesh_path),
+                        image_path=str(image_path),
+                        output_mesh_path=str(out.with_suffix(".obj")),
+                        use_remesh=False,
+                        save_glb=True,
+                    )
             else:
-                return {"success": False, "error": "Paint pipeline returned non-exportable object"}
+                import trimesh
+                from PIL import Image
+
+                mesh = trimesh.load(mesh_path, process=False)
+                image = Image.open(image_path)
+
+                with ctx:
+                    textured = pipeline(mesh=mesh, image=image)
+
+                if hasattr(textured, "export"):
+                    textured.export(str(out))
+                else:
+                    return {"success": False, "error": "Paint pipeline returned non-exportable object"}
 
             return {
                 "success": True,
@@ -278,6 +334,10 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
             return {"success": False, "error": f"image not found: {image_path}"}
 
         seed = int(inputs.get("seed", DEFAULT_SEED))
+        num_inference_steps = int(inputs["num_inference_steps"])
+        guidance_scale = float(inputs["guidance_scale"])
+        octree_resolution = int(inputs["octree_resolution"])
+        num_chunks = int(inputs["num_chunks"])
 
         import trimesh
 
@@ -294,10 +354,10 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
         with ctx:
             outputs = pipeline(
                 image=image_path,
-                num_inference_steps=50,
-                guidance_scale=7.5,
-                octree_resolution=512,
-                num_chunks=8000,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=guidance_scale,
+                octree_resolution=octree_resolution,
+                num_chunks=num_chunks,
                 output_type="trimesh",
                 generator=generator,
             )
@@ -308,7 +368,8 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
 
         mesh = meshes[0]
 
-        out = Path(tempfile.mkdtemp()) / f"hunyuan3d_21_{seed}.glb"
+        out_dir = self._create_temporary_output_dir("hunyuan3d21")
+        out = out_dir / f"hunyuan3d_21_{seed}.glb"
         mesh.export(str(out))
 
         # ── Texture autochain: paint on the raw mesh using already-loaded weights ──
@@ -316,14 +377,25 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
             texture_image_path = inputs.get("image_path") or inputs.get("image")
             if texture_image_path and Path(texture_image_path).is_file():
                 try:
-                    from PIL import Image
+                    textured_out = out_dir / f"hunyuan3d_21_textured_{seed}.glb"
+                    if getattr(self, "_paint_is_hy3dpaint", False):
+                        with ctx:
+                            self._paint_pipeline(
+                                mesh_path=str(out),
+                                image_path=str(texture_image_path),
+                                output_mesh_path=str(textured_out.with_suffix(".obj")),
+                                use_remesh=False,
+                                save_glb=True,
+                            )
+                    else:
+                        from PIL import Image
 
-                    ref_image = Image.open(texture_image_path)
-                    with ctx:
-                        textured = self._paint_pipeline(mesh=mesh, image=ref_image)
-                    textured_out = Path(tempfile.mkdtemp()) / f"hunyuan3d_21_textured_{seed}.glb"
-                    if hasattr(textured, "export"):
-                        textured.export(str(textured_out))
+                        ref_image = Image.open(texture_image_path)
+                        with ctx:
+                            textured = self._paint_pipeline(mesh=mesh, image=ref_image)
+                        if hasattr(textured, "export"):
+                            textured.export(str(textured_out))
+                    if textured_out.is_file():
                         return {
                             "success": True,
                             "output_mesh_path": str(out),
@@ -332,10 +404,10 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
                             "texture_enabled": True,
                             "generation_info": {
                                 "seed": seed,
-                                "num_inference_steps": 50,
-                                "guidance_scale": 7.5,
-                                "octree_resolution": 512,
-                                "num_chunks": 8000,
+                                "num_inference_steps": num_inference_steps,
+                                "guidance_scale": guidance_scale,
+                                "octree_resolution": octree_resolution,
+                                "num_chunks": num_chunks,
                                 "texture_enabled": True,
                                 "feature_type": "image_to_raw_mesh",
                             },
@@ -356,10 +428,10 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
             "mesh_path": str(out),
             "generation_info": {
                 "seed": seed,
-                "num_inference_steps": 50,
-                "guidance_scale": 7.5,
-                "octree_resolution": 512,
-                "num_chunks": 8000,
+                "num_inference_steps": num_inference_steps,
+                "guidance_scale": guidance_scale,
+                "octree_resolution": octree_resolution,
+                "num_chunks": num_chunks,
                 "texture_enabled": False,
                 "feature_type": "image_to_raw_mesh",
             },

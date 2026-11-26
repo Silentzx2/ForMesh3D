@@ -1264,8 +1264,6 @@ async def delete_file(
         raise HTTPException(status_code=404, detail="File not found on disk")
     thumbnail_path = _upload_thumbnail_path(file_id)
     manifest_path = _upload_manifest_path(file_id, metadata.get("file_type", ""))
-    if thumbnail_path is None:
-        raise HTTPException(status_code=500, detail="Upload thumbnail path is outside configured storage")
     try:
         manifest_path.parent.resolve(strict=False).relative_to(
             get_storage_base_dir().resolve()
@@ -1273,7 +1271,8 @@ async def delete_file(
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=500, detail="Upload manifest path is outside configured storage") from exc
     try:
-        thumbnail_path.unlink(missing_ok=True)
+        if thumbnail_path is not None:
+            thumbnail_path.unlink(missing_ok=True)
         file_path.unlink(missing_ok=True)
         manifest_path.unlink(missing_ok=True)
         if metadata.get("file_type") == "mesh":

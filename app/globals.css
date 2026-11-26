@@ -419,6 +419,16 @@
     box-shadow: 0 0 0 1px hsl(var(--border) / 0.3);
   }
 
+  .cv-card {
+    content-visibility: auto;
+    contain-intrinsic-size: auto none auto 240px;
+  }
+
+  .cv-row {
+    content-visibility: auto;
+    contain-intrinsic-size: auto none auto 76px;
+  }
+
   .glow-border-animated {
     border: 1px solid hsl(var(--border));
     transition: all 200ms ease-out;

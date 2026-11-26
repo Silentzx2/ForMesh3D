@@ -9,15 +9,19 @@ import { Download, RefreshCw, Wand2, AlertCircle } from '@/components/icons/huge
 import { toast } from 'sonner';
 
 export const DynamicUVInspector: React.FC = () => {
-  const { currentAsset, runUVUnwrapGeneration, isExecuting } = useWorkspace();
+  const { currentAsset, runUVUnwrapGeneration, isExecuting, shadingMode, setShadingMode } = useWorkspace();
   const activeModelObject = useViewerStore((s) => s.activeModelObject);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [highlightSeams, setHighlightSeams] = useState(false);
-  const [viewportChecker, setViewportChecker] = useState(false);
+  const viewportChecker = shadingMode === 'uv-checker';
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [forceRefresh, setForceRefresh] = useState(0);
+
+  useEffect(() => {
+    setHighlightSeams(false);
+  }, [activeModelObject]);
 
   // Extract REAL UV coordinates and metadata from active Three.js model
   const uvData = useMemo(() => {
@@ -66,7 +70,7 @@ export const DynamicUVInspector: React.FC = () => {
       }
     });
 
-    const coveragePercent = Math.min(99.0, Math.max(1.0, Math.round(totalUVArea * 1000) / 10));
+    const coveragePercent = Math.max(0, Math.round(totalUVArea * 1000) / 10);
 
     return {
       hasUV: true,
@@ -200,67 +204,36 @@ export const DynamicUVInspector: React.FC = () => {
 
     activeModelObject.traverse((node) => {
       if (node instanceof THREE.Mesh) {
-        let seamLine = node.children.find((c) => c.userData.__isSeamLine);
+        const seamLine = node.children.find((c) => c.userData.__isSeamLine) as THREE.LineSegments | undefined;
         if (nextVal) {
           if (!seamLine) {
             const edges = new THREE.EdgesGeometry(node.geometry, 28);
-            seamLine = new THREE.LineSegments(
+            const line = new THREE.LineSegments(
               edges,
               new THREE.LineBasicMaterial({ color: 0xef4444, linewidth: 2 })
             );
-            seamLine.userData.__isSeamLine = true;
-            node.add(seamLine);
+            line.userData.__isSeamLine = true;
+            node.add(line);
+          } else {
+            seamLine.visible = true;
           }
-          seamLine.visible = true;
         } else if (seamLine) {
-          seamLine.visible = false;
+          node.remove(seamLine);
+          seamLine.geometry.dispose();
+          if (Array.isArray(seamLine.material)) {
+            seamLine.material.forEach((m) => m.dispose());
+          } else {
+            seamLine.material.dispose();
+          }
         }
       }
     });
     invalidateViewportRender();
   };
 
-  // Toggle Procedural UV Checkerboard on Active 3D Model
+  // Toggle Procedural UV Checkerboard via shared workspace shading state
   const toggleViewportChecker = () => {
-    const nextVal = !viewportChecker;
-    setViewportChecker(nextVal);
-    if (!activeModelObject) return;
-
-    activeModelObject.traverse((node) => {
-      if (node instanceof THREE.Mesh && node.material) {
-        const mat = node.material as THREE.MeshStandardMaterial;
-        if (nextVal) {
-          if (!mat.userData.__origMap) {
-            mat.userData.__origMap = mat.map;
-          }
-          // Procedural 256x256 checker texture
-          const canvas = document.createElement('canvas');
-          canvas.width = 256; canvas.height = 256;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            for (let x = 0; x < 256; x += 32) {
-              for (let y = 0; y < 256; y += 32) {
-                ctx.fillStyle = (x / 32 + y / 32) % 2 === 0 ? '#ffffff' : '#1e2029';
-                ctx.fillRect(x, y, 32, 32);
-              }
-            }
-          }
-          const texture = new THREE.CanvasTexture(canvas);
-          texture.wrapS = THREE.RepeatWrapping;
-          texture.wrapT = THREE.RepeatWrapping;
-          texture.repeat.set(4, 4);
-          mat.map = texture;
-          mat.needsUpdate = true;
-        } else {
-          if (mat.userData.__origMap !== undefined) {
-            mat.map = mat.userData.__origMap;
-            delete mat.userData.__origMap;
-            mat.needsUpdate = true;
-          }
-        }
-      }
-    });
-    invalidateViewportRender();
+    setShadingMode(viewportChecker ? 'textured' : 'uv-checker');
   };
 
   // Export 2D UV Layout PNG
