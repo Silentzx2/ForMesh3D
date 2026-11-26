@@ -430,13 +430,14 @@ class ModelFactory:
                     f"Model {model_id} not in registry and no explicit module/class provided"
                 )
 
-        # Validate numeric fields
+        # Validate numeric fields (0 is valid for CPU-only models)
         if "vram_requirement" in config:
             if (
-                not isinstance(config["vram_requirement"], int)
-                or config["vram_requirement"] <= 0
+                isinstance(config["vram_requirement"], bool)
+                or not isinstance(config["vram_requirement"], int)
+                or config["vram_requirement"] < 0
             ):
-                raise ValueError("vram_requirement must be a positive integer")
+                raise ValueError("vram_requirement must be a non-negative integer")
 
         return True
 
