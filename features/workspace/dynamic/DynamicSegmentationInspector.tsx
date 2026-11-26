@@ -122,7 +122,9 @@ export const DynamicSegmentationInspector: React.FC = () => {
 
     const childMeshes: THREE.Mesh[] = [];
     activeModelObject.traverse((c) => {
-      if (c instanceof THREE.Mesh && c.geometry) childMeshes.push(c);
+      if (c instanceof THREE.Mesh && c.geometry && !c.userData?.__isWireframeOverlay) {
+        childMeshes.push(c);
+      }
     });
 
     if (childMeshes.length === 0) return { realParts: null, isRealModelData: false };
@@ -167,28 +169,52 @@ export const DynamicSegmentationInspector: React.FC = () => {
     if (!activeModelObject) return;
     const meshes: THREE.Mesh[] = [];
     activeModelObject.traverse((c) => {
-      if (c instanceof THREE.Mesh && c.geometry) meshes.push(c);
+      if (c instanceof THREE.Mesh && c.geometry && !c.userData?.__isWireframeOverlay) {
+        meshes.push(c);
+      }
     });
     if (meshes.length < 2) return;
 
-    const modelBox = new THREE.Box3().setFromObject(activeModelObject);
-    const modelCenter = modelBox.getCenter(new THREE.Vector3());
-    const radius = modelBox.getSize(new THREE.Vector3()).length() * 0.35;
+    // Cache each part's original local position and explode direction once (in activeModelObject local space)
+    // so MeshViewer world scaling never distorts offsets and dragging the slider never drifts.
+    if (!activeModelObject.userData.__explodeInitialized) {
+      const localModelBox = new THREE.Box3();
+      const partLocalCenters: THREE.Vector3[] = [];
+      meshes.forEach((m) => {
+        if (!m.userData.__origPos) {
+          m.userData.__origPos = m.position.clone();
+        }
+        if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+        const box = (m.geometry.boundingBox ? m.geometry.boundingBox.clone() : new THREE.Box3());
+        const center = box.getCenter(new THREE.Vector3()).add(m.userData.__origPos as THREE.Vector3);
+        partLocalCenters.push(center);
+        box.translate(m.userData.__origPos as THREE.Vector3);
+        localModelBox.union(box);
+      });
+      const localCenter = localModelBox.getCenter(new THREE.Vector3());
+      const localRadius = Math.max(1e-4, localModelBox.getSize(new THREE.Vector3()).length() * 0.35);
+      meshes.forEach((m, idx) => {
+        const dir = partLocalCenters[idx].clone().sub(localCenter);
+        if (dir.lengthSq() < 1e-8) {
+          const angle = (idx / meshes.length) * Math.PI * 2;
+          dir.set(Math.cos(angle), 0.35, Math.sin(angle));
+        }
+        m.userData.__explodeDir = dir.normalize();
+      });
+      activeModelObject.userData.__explodeRadius = localRadius;
+      activeModelObject.userData.__explodeInitialized = true;
+    }
 
+    const radius = (activeModelObject.userData.__explodeRadius as number) || 1;
     meshes.forEach((m) => {
-      if (!m.userData.__origPos) {
-        m.userData.__origPos = m.position.clone();
-      }
-      const orig = m.userData.__origPos as THREE.Vector3;
+      const orig = (m.userData.__origPos as THREE.Vector3) || new THREE.Vector3();
       if (explodeAmount === 0) {
         m.position.copy(orig);
       } else {
-        const partCenter = new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3());
-        const dir = partCenter.sub(modelCenter);
-        if (dir.lengthSq() < 1e-6) dir.set(0, 1, 0);
-        dir.normalize();
+        const dir = (m.userData.__explodeDir as THREE.Vector3) || new THREE.Vector3(0, 1, 0);
         m.position.copy(orig).addScaledVector(dir, (explodeAmount / 100) * radius);
       }
+      m.updateMatrixWorld(true);
     });
     invalidateViewportRender();
   }, [activeModelObject, explodeAmount]);
