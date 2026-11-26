@@ -12,7 +12,6 @@ out/
 # Coverage
 assets/ui-audit 
 skills-lock.json
-.brain/
 coverage/
 
 # Python
