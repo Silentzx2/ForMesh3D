@@ -73,7 +73,7 @@ class ArdyMotionGenerationAdapter(BaseModel):
         _ardy_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "ardy")
         if _ardy_root not in sys.path:
             sys.path.insert(0, _ardy_root)
-        from ardy.model import load_model
+        from ardy.model.load_model import load_model, load_text_encoder
 
         model_name = "ARDY-Core-RP-20FPS-Horizon40"
         # download_models.sh downloads nvidia/ARDY-Core-RP-20FPS-Horizon40 directly
@@ -86,11 +86,17 @@ class ArdyMotionGenerationAdapter(BaseModel):
             except OSError:
                 pass
 
+        text_encoder: Any = False
+        try:
+            text_encoder = load_text_encoder(mode="api", fp32=True, device="cpu")
+        except Exception as exc:
+            logger.warning("ARDY remote text encoder unavailable (%s); using unconditional text features.", exc)
+
         model = load_model(
             model_name,
             device="cpu",
             checkpoints_dir=str(weights_dir),
-            text_encoder=False,  # avoid HF download for text encoder
+            text_encoder=text_encoder,
         )
         self._model = model
         self.model = model
@@ -112,6 +118,9 @@ class ArdyMotionGenerationAdapter(BaseModel):
         seed = int(inputs.get("seed", DEFAULT_SEED))
         duration = float(inputs["duration"])
         num_denoising_steps = int(inputs["num_denoising_steps"])
+        max_steps = getattr(getattr(model, "diffusion", None), "num_timesteps", None)
+        if isinstance(max_steps, int) and max_steps > 0:
+            num_denoising_steps = max(1, min(num_denoising_steps, max_steps))
         cfg_weight = float(inputs["cfg_weight"])
         checkpoint = inputs["checkpoint"]
 
@@ -132,18 +141,23 @@ class ArdyMotionGenerationAdapter(BaseModel):
             lengths = torch.tensor([num_frames], device=device)
             pad_mask = length_to_mask(lengths)
             first_heading_angle = torch.zeros(1, device=device)
-            # motion_mask: all ones (no joints masked out), observed_motion: zeros (no conditioning)
-            motion_mask = torch.ones(1, num_frames, model.motion_rep.n_joints * 3, device=device)
-            observed_motion = torch.zeros(1, num_frames, model.motion_rep.n_joints * 3, device=device)
+            text_feat = None
+            text_pad_mask = None
+            if getattr(model, "text_encoder", None) is None:
+                text_feat = torch.zeros(1, 1, 4096, device=device)
+                text_pad_mask = torch.zeros(1, 1, dtype=torch.bool, device=device)
+            # None for motion_mask / observed_motion = constraint-free generation.
             motion = model(
                 texts,
                 num_frames,
                 num_denoising_steps=num_denoising_steps,
                 pad_mask=pad_mask,
                 first_heading_angle=first_heading_angle,
-                motion_mask=motion_mask,
-                observed_motion=observed_motion,
+                motion_mask=None,
+                observed_motion=None,
                 cfg_weight=cfg_weight,
+                text_feat=text_feat,
+                text_pad_mask=text_pad_mask,
             )
             output = model.motion_rep.inverse(motion, is_normalized=True)
 
@@ -152,21 +166,28 @@ class ArdyMotionGenerationAdapter(BaseModel):
 
         out_dir = self._create_temporary_output_dir("ardy")
         out = out_dir / f"ardy_{seed}.npz"
-        arrays = {k: np.asarray(v) for k, v in output.items()}
+        arrays = {
+            k: (v.detach().cpu().numpy() if torch is not None and isinstance(v, torch.Tensor) else np.asarray(v))
+            for k, v in output.items()
+        }
         arrays["fps"] = float(fps)
         arrays["text"] = prompt
         np.savez(str(out), **arrays)
 
         return {
             "success": True,
-            "output_mesh_path": str(out),
-            "mesh_path": str(out),
+            "output_motion_path": str(out),
+            "output_path": str(out),
+            "file_path": str(out),
+            "format": "npz",
+            "artifact_type": "motion",
             "generation_info": {
                 "seed": seed,
                 "duration": duration,
                 "fps": float(fps),
                 "num_frames": num_frames,
                 "checkpoint": checkpoint,
+                "output_format": "npz",
             },
         }
 

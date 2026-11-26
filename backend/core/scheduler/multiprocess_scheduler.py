@@ -80,16 +80,17 @@ logger = logging.getLogger(__name__)
 
 
 def _result_artifact_format(result: Dict[str, Any]) -> str:
-    """Return the actual mesh extension used by the published job artifact."""
+    """Return the actual artifact extension used by the published job output."""
     output_path = (
         result.get("output_mesh_path")
         or result.get("mesh_path")
+        or result.get("output_motion_path")
         or result.get("output_path")
         or result.get("file_path")
     )
     suffix = Path(str(output_path)).suffix.lower().lstrip(".") if output_path else ""
     candidate = suffix or str(result.get("format") or "").lower().lstrip(".")
-    return candidate if candidate in {"glb", "gltf", "obj", "fbx", "stl", "ply"} else "glb"
+    return candidate if candidate in {"glb", "gltf", "obj", "fbx", "stl", "ply", "npz", "json", "bvh"} else "glb"
 
 
 def parse_bool_env(env_var: str, default: bool = False) -> bool:
@@ -2475,6 +2476,82 @@ class MultiprocessModelScheduler:
                                     _legacy_job_root.rmdir()
                                 except OSError:
                                     pass
+                        elif _feature == "motion_generation":
+                            from core.utils.file_utils import get_workspace_storage_manager
+
+                            _ws_mgr = get_workspace_storage_manager()
+                            _ws_id = _target_ws_id
+                            if not _ws_id and _op_id:
+                                from core.scheduler.database_manager import DatabaseManager
+                                _op_rec = DatabaseManager().get_operation(_op_id)
+                                _ws_id = _op_rec.workspace_id if _op_rec else None
+                            target_root = (
+                                _ws_mgr.get_workspace_dir(_ws_id)
+                                if _ws_id
+                                else canonical_asset_workspace(job_id, final_result, job_request.inputs)
+                            )
+                            motion_dir = target_root / "animation"
+                            motion_dir.mkdir(parents=True, exist_ok=True)
+                            _dst = motion_dir / _src.name
+                            if not _dst.exists() or _src.resolve() != _dst.resolve():
+                                shutil.copy2(str(_src), str(_dst))
+                            _ext = _dst.suffix.lower().lstrip(".") or "npz"
+                            _rel_motion = f"animation/{_dst.name}"
+                            final_result["output_motion_path"] = str(_dst)
+                            final_result["output_path"] = str(_dst)
+                            final_result["file_path"] = str(_dst)
+                            final_result["relative_motion_path"] = _rel_motion
+                            final_result["asset_root"] = str(target_root)
+                            final_result["format"] = _ext
+                            final_result["artifact_type"] = "motion"
+                            if _ws_id:
+                                try:
+                                    from core.scheduler.database_manager import DatabaseManager
+                                    from core.scheduler.database_models import ExecutionStatus, PersistenceStatus
+                                    _db = DatabaseManager()
+                                    _asset_id = f"ast_{uuid.uuid4().hex[:12]}"
+                                    _digest = hashlib.sha256()
+                                    with _dst.open("rb") as _mh:
+                                        for _chunk in iter(lambda: _mh.read(1024 * 1024), b""):
+                                            _digest.update(_chunk)
+                                    _db.add_asset(
+                                        asset_id=_asset_id,
+                                        workspace_id=_ws_id,
+                                        file_type="motion",
+                                        relative_path=_rel_motion,
+                                        original_filename=_dst.name,
+                                        byte_size=_dst.stat().st_size,
+                                        sha256=_digest.hexdigest(),
+                                        operation_id=_op_id,
+                                        operation_type="animation",
+                                        is_retained=1,
+                                    )
+                                    final_result["asset_id"] = _asset_id
+                                    final_result["workspace_id"] = _ws_id
+                                    if _op_id:
+                                        try:
+                                            _db.update_operation_execution_status(_op_id, ExecutionStatus.PROCESSING)
+                                        except Exception:
+                                            pass
+                                        _db.update_operation_execution_status(
+                                            _op_id,
+                                            ExecutionStatus.COMPLETED,
+                                            progress=1.0,
+                                            result={
+                                                "output_path": str(_dst),
+                                                "relative_motion_path": _rel_motion,
+                                                "asset_id": _asset_id,
+                                                "format": _ext,
+                                                "artifact_type": "motion",
+                                            },
+                                        )
+                                        try:
+                                            _db.update_operation_persistence_status(_op_id, PersistenceStatus.SAVING)
+                                        except Exception:
+                                            pass
+                                        _db.update_operation_persistence_status(_op_id, PersistenceStatus.SAVED)
+                                except Exception as _db_error:
+                                    logger.warning(f"Failed to sync motion asset to workspace DB: {_db_error}")
                         else:
                             # Only generation jobs create a canonical workspace from their job ID.
                             canonical_root = canonical_asset_workspace(job_id, final_result, job_request.inputs)

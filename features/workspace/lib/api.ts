@@ -190,7 +190,7 @@ class ApiClient {
         // master/source.glb for the source view, thumbnail endpoint always
         // resolves (file → input image → placeholder) even after a restart.
         const gameReadyUrl =
-          jobResult.model_url || jobResult.game_ready_url || `${jobBase}/download?artifact_format=glb`;
+          jobResult.model_url || jobResult.game_ready_url || `${jobBase}/download`;
         const sourceUrl =
           jobResult.source_model_url || jobResult.high_fidelity_url || `${jobBase}/download?artifact_format=master`;
         const thumbnailUrl = jobResult.thumbnail_url || `${jobBase}/thumbnail`;

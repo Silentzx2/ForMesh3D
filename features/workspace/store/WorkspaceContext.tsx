@@ -978,6 +978,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const productionStatus = result.production_status || (result.postprocess_status === 'degraded' ? 'degraded' : 'ready');
     const degradedReasons = result.degraded_reasons || (result.texture_stage?.status === 'failed' ? ['texture_generation_failed'] : []);
 
+    const inferredFormat = (
+      (isRetainedResult ? retainedFormat : undefined) ||
+      result?.format ||
+      result?.generation_info?.output_format ||
+      (typeof (result?.output_mesh_path || result?.mesh_path) === 'string'
+        ? (result?.output_mesh_path || result?.mesh_path).match(/\.([a-z0-9]+)$/i)?.[1]
+        : undefined) ||
+      'glb'
+    ).toString().toLowerCase();
+
     const retainedModelUrl = isRetainedResult && retainedAssetId
       ? `/api/v1/system/jobs/${encodeURIComponent(retainedAssetLookupId)}/download`
       : undefined;
@@ -996,7 +1006,21 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // which the scheduler already copied into storage_root (see
       // multiprocess_scheduler.py _publish step). Fall through to it below.
       undefined
-    ) || `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=glb`;
+    ) || `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=${encodeURIComponent(inferredFormat)}`;
+
+    const isMotionArtifact =
+      result?.artifact_type === 'motion' ||
+      inferredFormat === 'npz' ||
+      inferredFormat === 'bvh';
+
+    if (isMotionArtifact) {
+      void refreshAssets();
+      if (shouldActivatePreview) {
+        setExecutionState('completed');
+        setPersistenceState('saved');
+      }
+      return undefined;
+    }
 
     if (resolvedModelUrl) {
       // Ensure the preview URL is same-origin proxied so MeshViewer can always
@@ -1006,7 +1030,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const modelUrl =
         preferredGenerationPreviewUrl(result) ??
         proxiedModelUrl ??
-        `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=glb`;
+        `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=${encodeURIComponent(inferredFormat)}`;
       const previewStats = preferredPreviewStats(result);
       const cleanName = promptTitle && promptTitle !== 'generate' && promptTitle !== 'asset' ? promptTitle : `Model_${jobId.slice(0, 6)}`;
       const resultArtifacts = result.artifacts && typeof result.artifacts === 'object' ? result.artifacts : {};
@@ -1047,7 +1071,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
        settingsSnapshot: matchingTask?.submissionSnapshot?.body || undefined,
         thumbnail: result.thumbnail_url || `/api/v1/system/jobs/${encodeURIComponent(retainedAssetLookupId)}/thumbnail`,
         source: {
-          filename: isRetainedResult && retainedFilename ? retainedFilename : `${cleanName}.glb`,
+          filename: isRetainedResult && retainedFilename ? retainedFilename : `${cleanName}.${inferredFormat}`,
           subfolder: 'generated',
           type: 'output',
           viewUrl: modelUrl,
@@ -1060,7 +1084,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         triangles: isNativeRawPreview(result) ? previewStats.faces : (result.polygon_count ?? previewStats.faces),
         statsAvailable: Boolean(previewStats.faces || result.polygon_count || previewStats.vertices || result.vertex_count),
         topology: (result.topology as any) || (result.quality_trace?.game_ready?.quad_dominant ? 'Quad' : 'Triangle'),
-        format: isRetainedResult ? retainedFormat : 'GLB',
+        format: isRetainedResult ? retainedFormat : inferredFormat.toUpperCase(),
         postprocessStatus: productionStatus === 'degraded' ? 'degraded' : (result.production_status || result.postprocess_status || 'completed'),
         productionStatus,
         degradedReasons,

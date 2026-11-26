@@ -677,6 +677,6 @@ motion_generation:
     model_type: motion
     default_parameters:
       duration: 4.0
-      num_denoising_steps: 50
+      num_denoising_steps: 10
       cfg_weight: 2.0
       checkpoint: "ARDY-Core-RP-20FPS-Horizon40"

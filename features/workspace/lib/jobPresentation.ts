@@ -24,7 +24,7 @@ export function getJobPresentation(job: JobData) {
   const gameReadyUrl = gameReady?.status === 'ready' && gameReady.url
     ? gameReady.url
     : (!gameReady && productionComplete)
-      ? result.game_ready_url || result.model_url || `/api/v1/system/jobs/${job.id}/download?artifact_format=glb`
+      ? result.game_ready_url || result.model_url || `/api/v1/system/jobs/${job.id}/download`
       : null;
   const usesGameReady = Boolean(gameReadyUrl && productionComplete);
   const outputUrl = usesGameReady
