@@ -675,6 +675,12 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     # PartUV — C++ UV unwrapping extension (backend/thirdparty/PartUV)
     if [ -d "$THIRDPARTY_DIR/PartUV" ]; then
         echo "[INFO] Building PartUV C++ extension..."
+        if ! find /usr -name "CGALConfig.cmake" -o -name "cgal-config.cmake" 2>/dev/null | grep -q .; then
+            if command -v apt-get >/dev/null 2>&1; then
+                echo "[INFO] Installing CGAL/Eigen build dependencies for PartUV..."
+                apt-get update -qq && apt-get install -y --no-install-recommends libcgal-dev libeigen3-dev libgmp-dev libmpfr-dev || true
+            fi
+        fi
         sed -i 's/cmake\.verbose = true/build.verbose = true/' "$THIRDPARTY_DIR/PartUV/pyproject.toml"
         CUDAARCHS="75;80;86;89;90" CMAKE_CUDA_ARCHITECTURES="75;80;86;89;90" \
             $UV_PIP install --no-build-isolation -e "$THIRDPARTY_DIR/PartUV" || echo "[WARN] PartUV build failed"
@@ -712,7 +718,7 @@ if command -v apt-get >/dev/null 2>&1 || command -v apt >/dev/null 2>&1; then
         echo "[ERROR] Failed to update apt repositories."
         exit 1
     fi
-    if ! $SUDO_CMD "$APT_BIN" install -y --no-install-recommends libsm6 libegl-mesa0 libgl1-mesa-dev; then
+    if ! $SUDO_CMD "$APT_BIN" install -y --no-install-recommends libsm6 libegl-mesa0 libgl1-mesa-dev libcgal-dev libeigen3-dev libgmp-dev libmpfr-dev; then
         echo "[ERROR] Failed to install system runtime libraries."
         exit 1
     fi
