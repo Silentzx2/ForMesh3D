@@ -75,8 +75,19 @@ class ArdyMotionGenerationAdapter(BaseModel):
             sys.path.insert(0, _ardy_root)
         from ardy.model import load_model
 
+        model_name = "ARDY-Core-RP-20FPS-Horizon40"
+        # download_models.sh downloads nvidia/ARDY-Core-RP-20FPS-Horizon40 directly
+        # into pretrained/ardy/ (config.yaml at root), while upstream load_model
+        # expects <checkpoints_dir>/<model_name>/config.yaml.
+        expected_dir = weights_dir / model_name
+        if not expected_dir.exists() and (weights_dir / "config.yaml").is_file():
+            try:
+                expected_dir.symlink_to(weights_dir)
+            except OSError:
+                pass
+
         model = load_model(
-            "ARDY-Core-RP-20FPS-Horizon40",
+            model_name,
             device="cpu",
             checkpoints_dir=str(weights_dir),
             text_encoder=False,  # avoid HF download for text encoder
