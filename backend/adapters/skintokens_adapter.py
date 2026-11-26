@@ -138,6 +138,11 @@ class SkinTokensAdapter(BaseModel):
                     break
 
             logger.info("Loading SkinTokens model from %s", ckpt_path or "default")
+            _load_cwd = os.getcwd()
+            # TokenRig.__init__ loads cfg['pretrained_vae'] via a relative path
+            # ('experiments/skin_vae_.../last.ckpt'); run from weights_dir if present.
+            if weights_dir.is_dir():
+                os.chdir(str(weights_dir))
             try:
                 demo.load_model(model_ckpt=ckpt_path or "", hf_path=None)
             except RuntimeError as e:
@@ -153,6 +158,8 @@ class SkinTokensAdapter(BaseModel):
                     "Vendor src/model/michelangelo/models/ there, then retry. "
                     f"Original error: {e}"
                 ) from e
+            finally:
+                os.chdir(_load_cwd)
 
             self.model = demo.model
             if getattr(self.model, "_skintokens_stub", False):
