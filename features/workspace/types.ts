@@ -333,6 +333,7 @@ export type MeshUploadStage = 'uploading' | 'verifying';
 export interface MeshUploadCallbacks {
   onProgress?: (loadedBytes: number, totalBytes?: number) => void;
   onStage?: (stage: MeshUploadStage) => void;
+  signal?: AbortSignal;
 }
 
 export async function uploadMeshAsset(file: File, callbacks: MeshUploadCallbacks = {}): Promise<ModelAsset> {
@@ -342,7 +343,7 @@ export async function uploadMeshAsset(file: File, callbacks: MeshUploadCallbacks
   if (file.size === 0) throw new Error('File is empty.');
 
   callbacks.onStage?.('uploading');
-  const result = await getApiClient().uploadMeshFile(file, callbacks.onProgress);
+  const result = await getApiClient().uploadMeshFile(file, callbacks.onProgress, callbacks.signal);
   callbacks.onStage?.('verifying');
   const fileId = requireUploadFileId(result?.file_id, 'mesh');
 

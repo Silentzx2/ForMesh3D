@@ -1,7 +1,7 @@
 # HuggingFace token (stored with 0o600 permissions, but plaintext on disk)
 .hf_token
 backend/.hf_token
-
+.brain/
 # Dependencies
 node_modules/
 
@@ -122,4 +122,7 @@ assets/wheels/torch*
 thirdparty/wheels
 assets/example_mesh/white_mesh_remesh.obj
 assets/example_mesh/white_mesh_remesh.obj.mtl
+
+# Bundled approved premade motion presets are version-controlled in backend/motion_presets/.
+# User uploads/generated copies live under backend/storage/presets/ (storage/ is ignored above).
 

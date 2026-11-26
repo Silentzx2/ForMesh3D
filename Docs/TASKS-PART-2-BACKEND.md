@@ -90,7 +90,7 @@ This is not a fixed list. Recursive discovery is authoritative. Backend changes 
 - Broad scheduler, database, or storage architecture refactors.
 - New distributed systems, workers, queues, services, or infrastructure for this personal deployment.
 - Frontend component, CSS, hook, store, type, or API-client changes.
-- Direct writes of preset files into backend/storage/.
+- Direct writes of preset files into workspace storage roots. User-owned presets may be written only under backend/storage/presets/<preset_id>/.
 - Exposing local filesystem paths to browser clients.
 - Inventing API capabilities because a visual control exists in a screenshot.
 
@@ -250,6 +250,14 @@ POST /api/v1/motion/clips/preview
 - Temporary bytes must be memory-bounded or use a dedicated app-owned temporary directory with guaranteed cleanup on success, error, timeout, and cancellation.
 - Return explicit 400/413/415/422 errors for invalid archive, too-large upload, unsupported format, or unsupported clip semantics.
 
+### 6.4a Persistent user preset library
+
+- GET /api/v1/motion/uploads lists user-owned uploaded/generated presets.
+- POST /api/v1/motion/uploads imports and validates an NPZ into backend/storage/presets/<upl_id>/motion.npz plus one metadata.json.
+- POST /api/v1/motion/uploads/from-clip/{clip_id} copies a completed job/asset artifact into a deterministic gen_<hex12> user preset; repeated calls for the same immutable source are idempotent.
+- DELETE /api/v1/motion/uploads/{clip_id} deletes the user preset directory only.
+- Legacy flat backend/storage/motion_uploads/<id>.npz uploads remain readable during migration; all new writes go to backend/storage/presets/.
+
 ### 6.5 Completed ARDY job result
 
 - [ ] Reuse existing completed-job/artifact identity and safe resolver if it supports motion NPZ artifacts.
@@ -288,7 +296,7 @@ Intended local structure:
 - [ ] Create directory and tracked .gitkeep if not already present.
 - [ ] Ignore user-dropped NPZ/thumbnail files in Git while keeping .gitkeep tracked.
 - [ ] Do not add sample clips as if they were real ARDY output.
-- [ ] Do not store user/premade presets inside backend/storage/.
+- [ ] Do not store bundled premade presets inside backend/storage/. User-uploaded/generated presets must be stored under backend/storage/presets/<preset_id>/ with motion.npz and one metadata.json per preset directory.
 - [ ] Do not auto-copy preview uploads into permanent preset directory.
 - [ ] Preset listing is read-only.
 
@@ -378,7 +386,7 @@ The current API already has prompt, duration, seed, checkpoint, post_process, ta
 - [ ] Do not create separate duplicate job table or motion-only storage tree unless current lifecycle cannot safely represent the clip and user approves a design.
 - [ ] Never return output_motion_path, file_path, temp directory paths, or absolute local paths to frontend.
 - [ ] Do not delete generated user artifacts during preview cleanup.
-- [ ] Distinguish user presets from generated job artifacts. Presets are in backend/motion_presets/; generated artifacts follow existing workspace/job retention model.
+- [ ] Distinguish bundled premade presets from user presets. Premade assets are committed in backend/motion_presets/; user uploads and persistent copies of generated artifacts live under backend/storage/presets/<preset_id>/ while the original generated job artifact remains in its workspace/job retention path.
 
 ---
 
@@ -407,7 +415,7 @@ The current API already has prompt, duration, seed, checkpoint, post_process, ta
 - [ ] Do not change scheduler/database architecture to solve a small API task.
 - [ ] Do not invent ARDY NPZ keys, joint names/order, rotation formats, or coordinate systems.
 - [ ] Do not enable unsupported FPS, checkpoint, skeleton, cleanup, or rigging parameters.
-- [ ] Do not write uploaded/premade presets into backend/storage/.
+- [ ] Never write premade presets into backend/storage/. Persist user uploads/generated copies only in backend/storage/presets/<preset_id>/.
 - [ ] Do not expose raw filesystem paths.
 - [ ] Do not accept unbounded archive sizes, decompression, array shapes, or frame counts.
 - [ ] Do not create fake assets, clips, job completion, or placeholder response data.
@@ -438,7 +446,7 @@ The current API already has prompt, duration, seed, checkpoint, post_process, ta
 - [ ] GET /api/v1/motion/clips/{id} returns documented MotionClipV1 schema.
 - [ ] GET thumbnail serves only verified PNG/WEBP siblings.
 - [ ] POST preview accepts valid bounded files and rejects invalid/oversized files.
-- [ ] Preview does not persist user uploads to backend/storage/ or permanent presets.
+- [ ] The temporary preview endpoint does not persist uploads. The separate import endpoint persists user presets under backend/storage/presets/<preset_id>/.
 - [ ] Completed ARDY job exposes a stable motion_clip_id and the clip can be resolved.
 - [ ] Deleted/expired artifact returns 404 without revealing filesystem path.
 - [ ] Existing POST motion and rig APIs remain backward-compatible.
@@ -494,3 +502,8 @@ The backend agent must provide:
 11. Any frontend handoff request as a precise endpoint/type diff. Do not implement that frontend change.
 
 **End of Part 2.** This file is the backend implementation specification. Part 1 remains the UI/UX and frontend source of truth.
+
+
+## Implementation status note — 2026-11-26
+
+The current dev implementation traces the adapter's upstream inverse() output keys and skeleton definitions, but the repository contains no real NPZ produced by the installed supported checkpoint. Current parser tests are synthetic fixtures only. The parser therefore reports only the source-supported Y-up axis and labels translation units as source-native; handedness and physical units are not asserted. REAL MotionClipV1 retarget/playback acceptance remains BLOCKED until one real generated NPZ is inspected and validated against the actual checkpoint output. Do not change ardy_adapter.py or model loading to bypass this gate.

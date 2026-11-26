@@ -1,242 +1,90 @@
 'use client';
 
-import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useWorkspace } from '../store/WorkspaceContext';
-import type { ModelAsset } from '../types';
-import { SimpleTooltip } from '@/components/ui/simple-tooltip';
+import { ActiveMeshBar, isValidMeshAsset } from '../components';
+import { useAnimationStore } from '@/stores/useAnimationStore';
+import {
+  listMotionPresets,
+  listUploadedMotionClips,
+  uploadMotionClip,
+  deleteUploadedMotionClip,
+  getMotionClipFromUrl,
+  getPresetThumbnailUrl,
+  motionClipV1ToThreeClip,
+  type MotionPresetItem,
+  type MotionClipV1,
+} from '@/services/motionClient';
+import {
+  listSavedMotionClips,
+  saveMotionClip,
+  deleteSavedMotionClip,
+  type SavedMotionClipRecord,
+} from '@/services/motionStorage';
 import {
   Film,
-  Box,
-  SlidersHorizontal,
-  ChevronRight,
   RotateCw,
-  Repeat,
-  Sparkles,
+  Trash2,
 } from '@/components/icons/hugeicons-components';
 import { HugeiconsIcon } from '@hugeicons/react';
-import {
-  CheckIcon,
-  TriangleAlertIcon,
-  Cancel,
-  SparklesIcon,
-} from '@hugeicons/core-free-icons';
+import { Cancel, SearchIcon, UploadIcon } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
-import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
-import { getApiClient } from '@/services/apiClient';
 
-// ==========================================
-// 1. Quality Metrics & QualityBadge Export
-// ==========================================
-export interface QualityMetrics {
-  triangles: number;
-  nonManifoldEdges: number;
-  holes: number;
-  featureEdgeRetention: number | null;
-  warnings: string[];
-  passedGate: boolean;
-  status: 'Sharp' | 'Clean' | 'Needs Review';
+type LibraryTab = 'preset' | 'saved';
+type LoadStatus = 'loading' | 'ready' | 'empty' | 'error';
+
+const DURATION_MIN = 0.5;
+const DURATION_MAX = 30.0;
+
+interface PresetCardProps {
+  preset: MotionPresetItem;
+  isActive: boolean;
+  onSelect: (preset: MotionPresetItem) => void;
 }
 
-export function computeQualityMetrics(
-  asset?: ModelAsset | null,
-  rawResult?: Record<string, any> | null
-): QualityMetrics {
-  const qaReport = (
-    asset?.artifacts?.qaReport ||
-    (asset as any)?.qa_report ||
-    (asset as any)?.quality_trace?.game_ready?.qa ||
-    rawResult?.qa_report ||
-    rawResult?.quality_report ||
-    rawResult?.artifacts?.qaReport
-  ) as Record<string, any> | undefined;
-
-  const afterMetrics = qaReport?.after_postprocess?.metrics || qaReport?.metrics || rawResult?.metrics || {};
-  const masterToDeriv = qaReport?.master_to_derivative || rawResult?.master_to_derivative || {};
-  const meshDetails = ((asset?.meshDetails || rawResult?.mesh_details) || {}) as Record<string, any>;
-
-  const triangles = Number(
-    asset?.triangles ||
-    asset?.faces ||
-    afterMetrics.triangle_count ||
-    afterMetrics.triangles ||
-    meshDetails.triangle_count ||
-    meshDetails.triangles ||
-    rawResult?.triangle_count ||
-    0
-  );
-
-  const nonManifoldEdges = Number(
-    asset?.nonManifoldEdges ?? afterMetrics.non_manifold_edges ?? meshDetails.non_manifold_edges ?? rawResult?.non_manifold_edges ?? (asset?.isManifold === false ? 1 : 0)
-  );
-
-  const holes = Number(
-    afterMetrics.hole_count ?? afterMetrics.holes ?? meshDetails.hole_count ?? meshDetails.holes ?? rawResult?.hole_count ?? 0
-  );
-
-  const rawRetention =
-    masterToDeriv.feature_edge_retention ?? afterMetrics.feature_edge_retention ?? qaReport?.feature_edge_retention ?? meshDetails.feature_edge_retention ?? rawResult?.feature_edge_retention;
-
-  const featureEdgeRetention = (rawRetention !== undefined && rawRetention !== null && !isNaN(Number(rawRetention)))
-    ? Number(rawRetention)
-    : null;
-
-  const warnings: string[] = [];
-  if (Array.isArray(asset?.qaWarnings)) warnings.push(...asset!.qaWarnings);
-  if (Array.isArray(asset?.degradedReasons)) warnings.push(...asset!.degradedReasons);
-  if (Array.isArray(qaReport?.warnings)) warnings.push(...qaReport!.warnings);
-  if (Array.isArray(rawResult?.warnings)) warnings.push(...rawResult!.warnings);
-  if (Array.isArray(rawResult?.degraded_reasons)) warnings.push(...rawResult!.degraded_reasons);
-
-  const topoGate = qaReport?.topology_gate || rawResult?.topology_gate;
-  const qualGate = qaReport?.quality_gate || masterToDeriv.quality_gate || rawResult?.quality_gate;
-  const gateFailed = (topoGate && topoGate.passed_clean === false) || (qualGate && qualGate.passed === false);
-  const passedGate = !gateFailed && asset?.qaStatus !== 'fail';
-
-  let status: 'Sharp' | 'Clean' | 'Needs Review';
-  const backendTier = asset?.qualityTier || rawResult?.quality_tier || qaReport?.quality_tier || (rawResult?.quality_trace as any)?.quality_tier;
-  if (backendTier && (String(backendTier).toLowerCase() === 'sharp' || String(backendTier).toLowerCase() === 'clean')) {
-    status = String(backendTier).toLowerCase() === 'sharp' ? 'Sharp' : 'Clean';
-  } else if (
-    asset?.productionStatus === 'degraded' ||
-    asset?.qaStatus === 'fail' ||
-    asset?.qaStatus === 'warn' ||
-    warnings.length > 0 ||
-    gateFailed ||
-    nonManifoldEdges > 0 ||
-    holes > 0
-  ) {
-    status = 'Needs Review';
-  } else if (featureEdgeRetention !== null && featureEdgeRetention >= 0.85) {
-    status = 'Sharp';
-  } else {
-    status = 'Clean';
-  }
-
-  return {
-    triangles,
-    nonManifoldEdges,
-    holes,
-    featureEdgeRetention,
-    warnings,
-    passedGate,
-    status,
-  };
-}
-
-export interface QualityBadgeProps {
-  asset?: ModelAsset | null;
-  rawResult?: Record<string, any> | null;
-  metrics?: Partial<QualityMetrics>;
-  className?: string;
-  size?: 'sm' | 'md';
-}
-
-export const QualityBadge: React.FC<QualityBadgeProps> = React.memo(({
-  asset,
-  rawResult,
-  metrics: customMetrics,
-  className = '',
-  size = 'md',
-}) => {
-  const computed = useMemo(() => {
-    const base = computeQualityMetrics(asset, rawResult);
-    return { ...base, ...customMetrics };
-  }, [asset, rawResult, customMetrics]);
-
-  const { status, triangles, nonManifoldEdges, holes, featureEdgeRetention, warnings } = computed;
-
-  const badgeConfig = {
-    Sharp: {
-      label: 'Sharp',
-      icon: SparklesIcon,
-      style: 'bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] border-[hsl(var(--primary))]/30 shadow-[0_0_8px_rgba(249,207,0,0.15)]',
-      dotStyle: 'bg-[hsl(var(--primary))]',
-    },
-    Clean: {
-      label: 'Clean',
-      icon: CheckIcon,
-      style: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 shadow-[0_0_8px_rgba(52,211,153,0.15)]',
-      dotStyle: 'bg-emerald-400',
-    },
-    'Needs Review': {
-      label: 'Needs Review',
-      icon: TriangleAlertIcon,
-      style: 'bg-amber-500/15 text-amber-300 border-amber-500/30 shadow-[0_0_8px_rgba(251,191,36,0.15)]',
-      dotStyle: 'bg-amber-400',
-    },
-  }[status];
-
-  const retentionDisplay = featureEdgeRetention !== null
-    ? `${(featureEdgeRetention <= 1 ? featureEdgeRetention * 100 : featureEdgeRetention).toFixed(1)}%`
-    : '100.0%';
-
-  const tooltipContent = (
-    <div className="space-y-1.5 text-left py-1 px-0.5 text-[9.5px]">
-      <div className="font-bold border-b border-white/10 pb-1 flex items-center justify-between gap-3">
-        <span className="text-white">Mesh Quality Report</span>
-        <span className={`px-1.5 py-0.2 rounded text-[8px] font-mono font-bold ${badgeConfig.style}`}>
-          {status}
-        </span>
-      </div>
-      <div className="space-y-1">
-        <div className="flex justify-between gap-4 text-zinc-300">
-          <span>Triangles</span>
-          <span className="font-mono text-white font-bold">{triangles.toLocaleString()}</span>
-        </div>
-        <div className="flex justify-between gap-4 text-zinc-300">
-          <span>Non-Manifold Edges</span>
-          <span className={`font-mono font-bold ${nonManifoldEdges > 0 ? 'text-amber-300' : 'text-emerald-300'}`}>
-            {nonManifoldEdges}
-          </span>
-        </div>
-        <div className="flex justify-between gap-4 text-zinc-300">
-          <span>Holes</span>
-          <span className={`font-mono font-bold ${holes > 0 ? 'text-amber-300' : 'text-emerald-300'}`}>
-            {holes}
-          </span>
-        </div>
-        <div className="flex justify-between gap-4 text-zinc-300">
-          <span>Feature Edge Retention</span>
-          <span className="font-mono text-[hsl(var(--primary))] font-bold">{retentionDisplay}</span>
-        </div>
-      </div>
-      {warnings.length > 0 && (
-        <div className="pt-1 border-t border-white/10 text-[8px] text-amber-300/90 leading-tight">
-          ⚠ {warnings[0]}
-        </div>
-      )}
-    </div>
-  );
+const PresetCard: React.FC<PresetCardProps> = ({ preset, isActive, onSelect }) => {
+  const [imgFailed, setImgFailed] = useState(false);
+  const thumbUrl = getPresetThumbnailUrl(preset);
 
   return (
-    <SimpleTooltip label={tooltipContent} side="top">
-      <span
-        data-testid="quality-badge"
-        className={`inline-flex items-center gap-1 font-bold rounded-md border tracking-wider transition-all cursor-help ${size === 'sm' ? 'px-1.5 py-0.2 text-[8px]' : 'px-2 py-0.5 text-[9.5px]'} ${badgeConfig.style} ${className}`}
-      >
-        <span className={`w-1.5 h-1.5 rounded-full ${badgeConfig.dotStyle}`} />
-        <HugeiconsIcon icon={badgeConfig.icon} size={size === 'sm' ? 11 : 13} className="stroke-[2.5]" />
-        <span>{badgeConfig.label}</span>
-      </span>
-    </SimpleTooltip>
+    <button
+      type="button"
+      onClick={() => onSelect(preset)}
+      className={`group text-left rounded-xl border p-2 transition-colors cursor-pointer flex flex-col gap-1.5 ${
+        isActive
+          ? 'bg-[hsl(var(--accent))]/15 border-[hsl(var(--accent))] text-white'
+          : 'bg-[hsl(var(--surface-2))] border-white/[0.08] hover:border-white/20 text-zinc-200'
+      }`}
+    >
+      <div className="w-full aspect-square rounded-lg bg-[hsl(var(--surface-0))] border border-white/[0.06] overflow-hidden flex items-center justify-center">
+        {thumbUrl && !imgFailed ? (
+          <img
+            src={thumbUrl}
+            alt={preset.name}
+            onError={() => setImgFailed(true)}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <Film className="w-6 h-6 text-zinc-500" />
+        )}
+      </div>
+      <div className="min-w-0 space-y-0.5">
+        <div className="text-xs font-medium text-white truncate">{preset.name}</div>
+        {(preset.duration !== null || preset.fps !== null) && (
+          <div className="text-[11px] font-mono text-zinc-400 truncate">
+            {[
+              preset.duration !== null ? `${preset.duration.toFixed(1)}s` : null,
+              preset.fps !== null ? `${preset.fps} FPS` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </div>
+        )}
+      </div>
+    </button>
   );
-});
-QualityBadge.displayName = 'QualityBadge';
+};
 
-// ==========================================
-// 2. Preset Prompt Quick Chips
-// ==========================================
-const MOTION_PRESETS = [
-  { label: 'Walk', prompt: 'A character walks forward confidently' },
-  { label: 'Run', prompt: 'A character runs forward at a steady pace' },
-  { label: 'Jump', prompt: 'A character jumps upward and lands cleanly' },
-  { label: 'Dance', prompt: 'A character performs a rhythmic dance motion' },
-] as const;
-
-// ==========================================
-// 3. Focused AnimationPanel Component
-// ==========================================
 export const AnimationPanel: React.FC = () => {
   const {
     isExecuting,
@@ -244,182 +92,228 @@ export const AnimationPanel: React.FC = () => {
     executionStep,
     cancelExecution,
     currentAsset,
-    generationSettings,
-    setGenerationSettings,
     runMotionGeneration,
   } = useWorkspace();
 
-  const { state: meshUploadState, upload: uploadMesh } = useMeshAssetUpload();
-  const isMeshUploading = meshUploadState.status === 'uploading' || meshUploadState.status === 'verifying';
+  const loadedSkeletonBoneNames = useAnimationStore((s) => s.loadedSkeletonBoneNames);
+  const retargetMapping = useAnimationStore((s) => s.retargetMapping);
+  const activeMotionClip = useAnimationStore((s) => s.activeMotionClip);
+  const setClipState = useAnimationStore((s) => s.setClipState);
+  const bindMotionClip = useAnimationStore((s) => s.bindMotionClip);
+  const setClipError = useAnimationStore((s) => s.setClipError);
 
-  // 1-to-1 Untouched Upload card refs & state
-  const meshInputRef = useRef<HTMLInputElement>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
-  const dragCounterRef = useRef(0);
+  const hasValidMesh = isValidMeshAsset(currentAsset);
+  const hasRiggedMesh = hasValidMesh && Boolean(loadedSkeletonBoneNames?.length);
 
-  // Core Animation Parameter state
-  const [motionPrompt, setMotionPrompt] = useState<string>('A character walks forward confidently');
+  // Create Motion state
+  const [motionPrompt, setMotionPrompt] = useState<string>('');
   const [duration, setDuration] = useState<number>(4.0);
-  const [footSkatingCleanup, setFootSkatingCleanup] = useState<boolean>(true);
-
-  // Advanced Motion Settings Flyout state
-  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
-  const [frameRate, setFrameRate] = useState<'24 FPS' | '30 FPS' | '60 FPS'>('30 FPS');
-  const [loopingMotion, setLoopingMotion] = useState<boolean>(true);
-  const [targetSkeleton, setTargetSkeleton] = useState<'core' | 'g1'>('core');
   const [seed, setSeed] = useState<number | ''>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [mounted, setMounted] = useState(false);
 
-  const advancedTriggerRef = useRef<HTMLButtonElement>(null);
-  const advancedFlyoutRef = useRef<HTMLDivElement>(null);
+  // Library tabs & search
+  const [activeTab, setActiveTab] = useState<LibraryTab>('preset');
+  const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // Preset state
+  const [presetStatus, setPresetStatus] = useState<LoadStatus>('loading');
+  const [presets, setPresets] = useState<MotionPresetItem[]>([]);
+  const [presetError, setPresetError] = useState<string | null>(null);
 
-  // Close flyout on outside click or Escape
-  useEffect(() => {
-    if (!isAdvancedOpen) return;
-    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
-      const target = e.target as Node;
-      if (
-        advancedFlyoutRef.current &&
-        !advancedFlyoutRef.current.contains(target) &&
-        advancedTriggerRef.current &&
-        !advancedTriggerRef.current.contains(target)
-      ) {
-        setIsAdvancedOpen(false);
-      }
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsAdvancedOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('touchstart', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('touchstart', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isAdvancedOpen]);
+  // My Presets state (server uploads/generated copies + IndexedDB cache)
+  const [savedStatus, setSavedStatus] = useState<LoadStatus>('loading');
+  const [savedClips, setSavedClips] = useState<SavedMotionClipRecord[]>([]);
+  const [uploadedClips, setUploadedClips] = useState<MotionPresetItem[]>([]);
+  const [savedError, setSavedError] = useState<string | null>(null);
 
-  // Clear sticky drag glow on global window dragend, drop, or dragleave
-  useEffect(() => {
-    const handleGlobalDragEnd = () => {
-      dragCounterRef.current = 0;
-      setIsDragOver(false);
-    };
-    const handleWindowDragLeave = (e: DragEvent) => {
-      if (!e.relatedTarget || e.relatedTarget === document.documentElement) {
-        dragCounterRef.current = 0;
-        setIsDragOver(false);
-      }
-    };
-    window.addEventListener('dragend', handleGlobalDragEnd);
-    window.addEventListener('drop', handleGlobalDragEnd);
-    window.addEventListener('dragleave', handleWindowDragLeave);
-    return () => {
-      window.removeEventListener('dragend', handleGlobalDragEnd);
-      window.removeEventListener('drop', handleGlobalDragEnd);
-      window.removeEventListener('dragleave', handleWindowDragLeave);
-    };
-  }, []);
+  // NPZ preview upload
+  const npzInputRef = useRef<HTMLInputElement>(null);
+  const [isPreviewUploading, setIsPreviewUploading] = useState(false);
+  const clipRequestIdRef = useRef(0);
 
-  const isMeshFile = (file: File) => {
-    const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
-    return ['.glb', '.gltf', '.obj', '.fbx', '.stl', '.ply'].includes(ext);
-  };
-
-  const handleCardDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  };
-
-  const handleCardDragEnter = (e: React.DragEvent) => {
-    e.preventDefault();
-    dragCounterRef.current += 1;
-    handleCardDragOver(e);
-  };
-
-  const handleCardDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
-    const related = e.relatedTarget as Node | null;
-    if (!related || !e.currentTarget.contains(related) || dragCounterRef.current <= 0) {
-      dragCounterRef.current = 0;
-      setIsDragOver(false);
+  const loadPresets = useCallback(async () => {
+    setPresetStatus('loading');
+    setPresetError(null);
+    try {
+      const res = await listMotionPresets();
+      setPresets(res.presets);
+      setPresetStatus(res.presets.length > 0 ? 'ready' : 'empty');
+    } catch (err: unknown) {
+      setPresetError(err instanceof Error ? err.message : 'Failed to load presets.');
+      setPresetStatus('error');
     }
-  };
+  }, []);
 
-  const handleMeshUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    dragCounterRef.current = 0;
-    setIsDragOver(false);
-    const file = e.target.files?.[0];
-    if (file) {
-      if (!isMeshFile(file)) {
-        toast.error('Please upload a valid 3D mesh file (GLB, OBJ, FBX, STL, PLY)');
+  const loadSaved = useCallback(async () => {
+    setSavedStatus('loading');
+    setSavedError(null);
+    try {
+      const [localResult, uploadsResult] = await Promise.allSettled([
+        listSavedMotionClips(),
+        listUploadedMotionClips(),
+      ]);
+
+      const records = localResult.status === 'fulfilled' ? localResult.value : [];
+      const uploads = uploadsResult.status === 'fulfilled' ? uploadsResult.value.presets : [];
+
+      setSavedClips(records);
+      setUploadedClips(uploads);
+
+      if (records.length === 0 && uploads.length === 0) {
+        if (localResult.status === 'rejected' && uploadsResult.status === 'rejected') {
+          setSavedError('Failed to load saved or uploaded clips.');
+          setSavedStatus('error');
+          return;
+        }
+        setSavedStatus('empty');
+      } else {
+        setSavedStatus('ready');
+      }
+    } catch (err: unknown) {
+      setSavedError(err instanceof Error ? err.message : 'Failed to read My Presets.');
+      setSavedStatus('error');
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadPresets();
+    void loadSaved();
+  }, [loadPresets, loadSaved]);
+
+  useEffect(() => {
+    if (activeMotionClip?.id) void loadSaved();
+  }, [activeMotionClip?.id, loadSaved]);
+
+  useEffect(() => {
+    clipRequestIdRef.current += 1;
+  }, [currentAsset?.id]);
+
+  const bindValidatedClip = useCallback(
+    (clip: MotionClipV1) => {
+      if (!hasRiggedMesh) {
+        toast.error('Select or upload a rigged 3D mesh before applying a motion clip.');
         return;
       }
-      await uploadMesh(file);
-      toast.success(`3D Mesh loaded: ${file.name}`);
-    }
-    if (meshInputRef.current) meshInputRef.current.value = '';
-  };
+      setClipState('binding_clip', null);
+      const { threeClip } = motionClipV1ToThreeClip(
+        clip,
+        loadedSkeletonBoneNames,
+        retargetMapping
+      );
+      bindMotionClip(clip, threeClip);
+    },
+    [hasRiggedMesh, loadedSkeletonBoneNames, retargetMapping, setClipState, bindMotionClip]
+  );
 
-  const handleUnifiedDrop = async (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounterRef.current = 0;
-    setIsDragOver(false);
-
-    const file = e.dataTransfer.files?.[0];
-    if (!file) return;
-
-    if (!isMeshFile(file)) {
-      toast.error('Please upload a valid 3D mesh file (GLB, OBJ, FBX, STL, PLY)');
+  const handleSelectPreset = async (preset: MotionPresetItem) => {
+    if (!hasRiggedMesh) {
+      toast.error('Please select or upload a 3D mesh first.');
       return;
     }
-    await uploadMesh(file);
-    toast.success(`3D Mesh loaded: ${file.name}`);
+    const reqId = ++clipRequestIdRef.current;
+    try {
+      setClipState('loading_clip', null);
+      const clip = await getMotionClipFromUrl(preset.clip_url);
+      if (clipRequestIdRef.current !== reqId) return;
+
+      setClipState('validating_clip', null);
+      bindValidatedClip(clip);
+    } catch (err: unknown) {
+      if (clipRequestIdRef.current !== reqId) return;
+      const msg = err instanceof Error ? err.message : 'Failed to load preset clip.';
+      setClipError(msg);
+      toast.error(msg);
+    }
   };
 
-  const handlePresetSelect = (presetPrompt: string) => {
-    setMotionPrompt(presetPrompt);
+  const handleSelectSaved = (record: SavedMotionClipRecord) => {
+    if (!hasRiggedMesh) {
+      toast.error('Please select or upload a 3D mesh first.');
+      return;
+    }
+    try {
+      setClipState('validating_clip', null);
+      bindValidatedClip(record.clip);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to bind saved clip.';
+      setClipError(msg);
+      toast.error(msg);
+    }
   };
 
-  const handleApplyAnimation = async () => {
-    if (!currentAsset) {
-      toast.error('Please load a 3D mesh first');
+  const handleDeleteSaved = async (id: string, isServerUpload: boolean, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      if (isServerUpload) {
+        await deleteUploadedMotionClip(id);
+      }
+      await deleteSavedMotionClip(id).catch(() => {});
+      await loadSaved();
+      toast.success('Removed saved clip');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete saved clip.');
+    }
+  };
+
+  const handleNpzUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (npzInputRef.current) npzInputRef.current.value = '';
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.npz')) {
+      toast.error('Please select a .npz motion file.');
+      return;
+    }
+
+    const reqId = ++clipRequestIdRef.current;
+    setIsPreviewUploading(true);
+    try {
+      setClipState('loading_clip', null);
+      const clip = await uploadMotionClip(file);
+      if (clipRequestIdRef.current !== reqId) return;
+
+      setClipState('validating_clip', null);
+      await saveMotionClip(clip, 'preset').catch((cacheError) => {
+        console.warn('Motion clip local cache unavailable:', cacheError);
+      });
+      await loadSaved();
+      setActiveTab('saved');
+
+      if (hasRiggedMesh) {
+        bindValidatedClip(clip);
+      } else {
+        setClipState('ready', null);
+        toast.success(`Imported "${clip.name}". Select a rigged mesh to play.`);
+      }
+    } catch (err: unknown) {
+      if (clipRequestIdRef.current !== reqId) return;
+      const msg = err instanceof Error ? err.message : 'NPZ upload failed.';
+      setClipError(msg);
+      toast.error(msg);
+    } finally {
+      setIsPreviewUploading(false);
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!hasRiggedMesh) {
+      toast.error('Please select or upload a 3D mesh first.');
       return;
     }
     if (!motionPrompt.trim()) {
-      toast.error('Please enter a motion prompt or pick a preset');
+      toast.error('Please enter a motion description.');
       return;
     }
-
+    const clampedDuration = Math.min(DURATION_MAX, Math.max(DURATION_MIN, duration));
     setIsSubmitting(true);
     try {
-      const checkpoint = targetSkeleton === 'g1'
-        ? (frameRate === '24 FPS' ? 'ARDY-G1-RP-25FPS-Horizon52' : 'ARDY-G1-RP-25FPS-Horizon8')
-        : (frameRate === '60 FPS' ? 'ARDY-Core-RP-20FPS-Horizon8' : 'ARDY-Core-RP-20FPS-Horizon40');
-
       await runMotionGeneration({
         prompt: motionPrompt.trim(),
-        duration,
+        duration: clampedDuration,
         seed: seed === '' ? undefined : Number(seed),
-        frameRate,
-        targetSkeleton,
-        footSkatingCleanup,
-        modelParameters: {
-          fps: parseInt(frameRate, 10),
-          loop: loopingMotion,
-          checkpoint,
-        },
       });
-    } catch (err: any) {
-      toast.error(`Animation generation failed: ${err.message || 'Unknown error'}`);
+    } catch (err: unknown) {
+      toast.error(`Animation generation failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -429,500 +323,394 @@ export const AnimationPanel: React.FC = () => {
     try {
       await cancelExecution();
       toast.info('Animation cancelled');
-    } catch (err: any) {
-      toast.error(`Cancel failed: ${err.message || 'Unknown error'}`);
+    } catch (err: unknown) {
+      toast.error(`Cancel failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
-  // Slider percentage for duration (range 1.0s to 15.0s)
-  const durationPercentage = Math.round(((duration - 1.0) / (15.0 - 1.0)) * 100);
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const filteredPresets = normalizedQuery
+    ? presets.filter((p) => p.name.toLowerCase().includes(normalizedQuery))
+    : presets;
+
+  const uploadedIdSet = new Set(uploadedClips.map((u) => u.id));
+  const mergedSavedItems = [
+    ...uploadedClips.map((u) => ({
+      id: u.id,
+      name: u.name,
+      duration: u.duration,
+      fps: u.fps,
+      subtitle: [
+        u.duration !== null ? `${u.duration.toFixed(1)}s` : null,
+        u.fps !== null ? `${u.fps} FPS` : null,
+        u.source === 'generated' ? 'Generated' : 'Uploaded',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      isServerUpload: true,
+      presetItem: u,
+      localRecord: null as SavedMotionClipRecord | null,
+    })),
+    ...savedClips
+      .filter((c) => !uploadedIdSet.has(c.id))
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        duration: c.clip.duration,
+        fps: c.clip.fps,
+        subtitle: `${c.clip.duration.toFixed(1)}s · ${c.clip.fps} FPS · ${c.clip.joint_names.length}J · Local cache`,
+        isServerUpload: false,
+        presetItem: null as MotionPresetItem | null,
+        localRecord: c,
+      })),
+  ];
+
+  const filteredSaved = normalizedQuery
+    ? mergedSavedItems.filter((c) => c.name.toLowerCase().includes(normalizedQuery))
+    : mergedSavedItems;
+
+  const durationPct = Math.round(((duration - DURATION_MIN) / (DURATION_MAX - DURATION_MIN)) * 100);
 
   return (
     <div className="flex flex-col h-full w-full bg-[hsl(var(--surface-1))] text-[hsl(var(--foreground))] overflow-hidden">
-      {/* 1. Header: Clean Animation Title */}
-      <div className="flex items-center justify-center py-2 border-b border-[hsl(var(--border))] px-8 flex-shrink-0">
-        <div className="flex items-center gap-1.5">
-          <Film className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
-          <h2 className="text-[11px] font-bold text-[hsl(var(--foreground))] tracking-wide uppercase truncate">
-            3D Animation
-          </h2>
+      {/* Header */}
+      <div className="flex items-center justify-between py-2.5 px-3 border-b border-white/[0.08] flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <Film className="w-4 h-4 text-[hsl(var(--primary))]" />
+          <h2 className="text-[13px] font-semibold text-white">Animation</h2>
         </div>
-      </div>
-
-      {/* 2. Fixed tool body — no internal scrolling */}
-      <div className="flex-1 overflow-hidden p-3 space-y-2 min-h-0 no-scrollbar workspace-tool-body">
-        {/* Hidden File Inputs */}
+        <button
+          type="button"
+          onClick={() => npzInputRef.current?.click()}
+          disabled={isPreviewUploading}
+          className="h-7 px-2.5 rounded-lg bg-[hsl(var(--surface-2))] hover:bg-[hsl(var(--surface-3))] border border-white/[0.08] text-xs font-medium text-zinc-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+          title="Import an NPZ motion clip into My Presets"
+        >
+          <HugeiconsIcon icon={UploadIcon} size={14} className="text-[hsl(var(--primary))]" />
+          <span>{isPreviewUploading ? 'Importing...' : 'Import NPZ'}</span>
+        </button>
         <input
-          ref={meshInputRef}
+          ref={npzInputRef}
           type="file"
-          accept=".glb,.gltf,.obj,.fbx,.stl,.ply"
-          onChange={handleMeshUpload}
+          accept=".npz"
+          onChange={handleNpzUpload}
           className="hidden"
         />
+      </div>
 
-        {/* 1-TO-1 EXACT UNTOUCHED UPLOAD CARD */}
-        <div
-          className={`p-2 rounded-2xl border transition-colors space-y-2 flex-shrink-0 ${
-            isDragOver
-              ? 'border-[hsl(var(--primary))] ring-1 ring-[hsl(var(--primary))]/40 bg-[hsl(var(--surface-2))]'
-              : 'border-white/[0.08] bg-[hsl(var(--surface-1))]'
-          }`}
-          onDragOver={handleCardDragOver}
-          onDragEnter={handleCardDragEnter}
-          onDragLeave={handleCardDragLeave}
-          onDrop={handleUnifiedDrop}
-        >
-          {/* 3D Mesh Upload Dropzone */}
-          <div
-            role="button"
-            tabIndex={0}
-            aria-label="Upload 3D Mesh"
-            onClick={() => !isMeshUploading && meshInputRef.current?.click()}
-            onDragOver={handleCardDragOver}
-            onDragEnter={handleCardDragEnter}
-            onDragLeave={handleCardDragLeave}
-            onDrop={handleUnifiedDrop}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                if (!isMeshUploading) meshInputRef.current?.click();
-              }
-            }}
-            className={`relative group w-full h-[195px] workspace-upload-dropzone rounded-xl border border-dashed transition-all p-3 flex flex-col items-center justify-center text-center cursor-pointer shadow-inner ${
-              isDragOver
-                ? 'border-[hsl(var(--primary))] bg-[hsl(var(--surface-2))] ring-1 ring-[hsl(var(--primary))]/40'
-                : 'border-white/[0.12] hover:border-white/25 bg-[hsl(var(--surface-0))]'
-            } [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:16px_16px] [background-position:0_0,0_8px,8px_-8px,-8px_0px]`}
-          >
-            <div
-              className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-transform mb-2 ${
-                isDragOver
-                  ? 'bg-[hsl(var(--primary))] text-black scale-110 shadow-[hsl(var(--primary))]/30'
-                  : 'bg-gradient-to-br from-[#6366F1] to-[#8B5CF6] text-white shadow-indigo-500/25 group-hover:scale-105'
-              }`}
-            >
-              <Box className="w-5 h-5 text-white" strokeWidth={2} />
-            </div>
-            <span className="text-xs font-bold text-white tracking-wide">
-              {isDragOver ? 'Drop 3D Mesh Here' : isMeshUploading ? 'Uploading Mesh...' : 'Upload 3D Mesh'}
-            </span>
-            <span className="text-[10px] text-zinc-400 mt-1 font-medium">
-              OBJ, FBX, STL, GLB, PLY
-            </span>
-            <span className="text-[9px] text-zinc-400 font-mono mt-0.5">
-              Size ≤ 150MB
-            </span>
-            <input
-              ref={meshInputRef}
-              type="file"
-              accept=".glb,.gltf,.obj,.fbx,.stl,.ply"
-              className="hidden"
-              onChange={handleMeshUpload}
-            />
-          </div>
-        </div>
-
-        {/* Live Upload Progress Bar with Real Speed & Remaining Time */}
-        {isMeshUploading && (
-          <div className="p-2 rounded-xl bg-black/40 border border-[hsl(var(--primary))]/30 space-y-1.5 animate-in fade-in">
-            <div className="flex items-center justify-between text-[10px]">
-              <div className="flex items-center gap-1.5 min-w-0 pr-2">
-                <div className="w-2.5 h-2.5 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin flex-shrink-0" />
-                <span className="font-semibold text-white truncate text-[10px]">
-                  {meshUploadState.fileName || 'Uploading 3D Mesh...'}
-                </span>
-              </div>
-              <span className="font-mono font-bold text-[hsl(var(--primary))] text-[10px] flex-shrink-0">
-                {meshUploadState.percent ?? 50}%
-              </span>
-            </div>
-
-            <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--primary))]/80 transition-all duration-200 rounded-full"
-                style={{ width: `${Math.max(4, Math.min(100, meshUploadState.percent ?? 50))}%` }}
-              />
-            </div>
-
-            <div className="flex items-center justify-between text-[9px] text-zinc-400 font-mono">
-              <span>
-                {meshUploadState.totalBytes
-                  ? `${(meshUploadState.loadedBytes / 1048576).toFixed(1)} MB / ${(meshUploadState.totalBytes / 1048576).toFixed(1)} MB`
-                  : `${(meshUploadState.loadedBytes / 1048576).toFixed(1)} MB`}
-              </span>
-              <span>
-                {meshUploadState.totalBytes && meshUploadState.loadedBytes > 0
-                  ? `~${Math.max(1, Math.ceil((meshUploadState.totalBytes - meshUploadState.loadedBytes) / 2097152))}s left`
-                  : 'Transferring...'}
-              </span>
-            </div>
-          </div>
+      {/* Scrollable Body */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0 workspace-tool-body">
+        <ActiveMeshBar />
+        {hasValidMesh && !hasRiggedMesh && (
+          <p role="status" className="text-xs text-amber-300">The selected mesh has no loaded skeleton. Run Auto Rigging and select the rigged asset before generating or applying motion.</p>
         )}
 
-        {/* 3. Motion Prompt Section */}
-        <div className="space-y-1">
+        {/* Create Motion Card */}
+        <section
+          aria-label="Create Motion"
+          className="p-3 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.08] space-y-2.5"
+        >
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
-              Motion Prompt
-            </span>
-            <span className="text-[9px] text-zinc-400 font-mono">
-              Natural Language
-            </span>
+            <h3 className="text-xs font-semibold text-white">Create Motion</h3>
+            <span className="text-[11px] font-mono text-zinc-400">ARDY 20 FPS</span>
           </div>
 
-          <div className="relative">
+          <textarea
+            rows={3}
+            value={motionPrompt}
+            onChange={(e) => setMotionPrompt(e.target.value)}
+            placeholder="Describe a motion... e.g. &quot;Make the character walk forward&quot;"
+            aria-label="Motion prompt"
+            className="w-full px-2.5 py-2 rounded-lg bg-[hsl(var(--surface-0))] border border-white/[0.08] focus:border-[hsl(var(--accent))] focus:outline-none text-xs text-white placeholder:text-zinc-500 resize-none"
+          />
+
+          {/* Duration (0.5s - 30.0s) */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <label htmlFor="motion-duration-slider" className="text-zinc-300 font-medium">
+                Duration
+              </label>
+              <span className="font-mono text-[11px] text-white bg-[hsl(var(--surface-0))] px-1.5 py-0.5 rounded border border-white/[0.08]">
+                {duration.toFixed(1)} s
+              </span>
+            </div>
             <input
-              type="text"
-              value={motionPrompt}
-              onChange={(e) => setMotionPrompt(e.target.value)}
-              placeholder="e.g. A character walks forward..."
-              className="w-full h-7.5 px-2.5 rounded-lg bg-black/40 border border-white/[0.08] focus:border-[hsl(var(--primary))] focus:ring-1 focus:ring-[hsl(var(--primary))]/40 text-xs text-white placeholder:text-zinc-400 outline-none transition-all"
+              id="motion-duration-slider"
+              type="range"
+              min={DURATION_MIN}
+              max={DURATION_MAX}
+              step={0.5}
+              value={duration}
+              onChange={(e) => setDuration(parseFloat(e.target.value))}
+              style={{
+                background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${durationPct}%, rgba(255, 255, 255, 0.08) ${durationPct}%, rgba(255, 255, 255, 0.08) 100%)`,
+              }}
+              className="w-full h-1.5 rounded-full appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[hsl(var(--primary))]"
             />
           </div>
 
-          {/* Quick Preset Chips */}
-          <div className="flex items-center gap-1 pt-0.5">
-            {MOTION_PRESETS.map((preset) => {
-              const isSelected = motionPrompt === preset.prompt;
-              return (
-                <button
-                  key={preset.label}
-                  type="button"
-                  onClick={() => handlePresetSelect(preset.prompt)}
-                  className={`flex-1 h-6 rounded-md text-[10px] font-semibold transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                    isSelected
-                      ? 'bg-[hsl(var(--primary))] text-black font-bold shadow-sm'
-                      : 'bg-black/30 hover:bg-white/[0.08] text-zinc-300 hover:text-white border border-white/[0.04]'
-                  }`}
-                >
-                  <Sparkles className="w-2.5 h-2.5" />
-                  <span>{preset.label}</span>
-                </button>
-              );
-            })}
+          {/* Seed */}
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="motion-seed-input" className="text-xs text-zinc-300 font-medium shrink-0">
+              Seed
+            </label>
+            <input
+              id="motion-seed-input"
+              type="number"
+              min={0}
+              placeholder="Random"
+              value={seed}
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (raw === '') {
+                  setSeed('');
+                } else {
+                  const parsed = parseInt(raw, 10);
+                  if (!Number.isNaN(parsed) && parsed >= 0) setSeed(parsed);
+                }
+              }}
+              className="flex-1 min-w-0 h-7 px-2 rounded-lg bg-[hsl(var(--surface-0))] border border-white/[0.08] text-xs font-mono text-white placeholder:text-zinc-500 focus:border-[hsl(var(--accent))] focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+            <button
+              type="button"
+              onClick={() => setSeed(Math.floor(Math.random() * 900000) + 100000)}
+              aria-label="Randomize seed"
+              title="Randomize seed"
+              className="h-7 px-2 rounded-lg bg-[hsl(var(--surface-3))] hover:bg-white/15 border border-white/[0.08] text-zinc-200 text-[11px] font-medium flex items-center gap-1 cursor-pointer shrink-0"
+            >
+              <RotateCw className="w-3 h-3" />
+              <span>New</span>
+            </button>
           </div>
-        </div>
 
-        {/* 4. Advanced Motion Settings Trigger Button (Opens Dynamic Portal Flyout) */}
-        <div className="pt-0.5">
-          <button
-            ref={advancedTriggerRef}
-            type="button"
-            aria-expanded={isAdvancedOpen}
-            onClick={() => setIsAdvancedOpen((prev) => !prev)}
-            className={`w-full h-8 px-2.5 rounded-xl border flex items-center justify-between text-left transition-all cursor-pointer shadow-sm ${
-              isAdvancedOpen
-                ? 'bg-[#1b1b2f] border-[hsl(var(--primary))] text-white ring-1 ring-[hsl(var(--primary))]/50'
-                : 'bg-[hsl(var(--surface-2))] border-[hsl(var(--border))] hover:bg-[hsl(var(--surface-3))] text-[hsl(var(--foreground))]'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <SlidersHorizontal className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
-              <span className="text-[11px] font-medium text-zinc-200">Advanced Motion Settings</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[9px] font-mono text-[hsl(var(--primary))] font-bold px-1.5 py-0.2 rounded bg-[hsl(var(--primary))]/10 border border-[hsl(var(--primary))]/20">
-                {duration.toFixed(1)}s · {frameRate.split(' ')[0]}F
-              </span>
-              <ChevronRight
-                className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${
-                  isAdvancedOpen ? 'rotate-90 text-[hsl(var(--primary))]' : ''
-                }`}
-              />
-            </div>
-          </button>
-        </div>
-
-        {/* Dynamic Flying Side Settings Panel (Portal to document.body) */}
-        {mounted && isAdvancedOpen && typeof document !== 'undefined' && createPortal(
-          <div
-            ref={advancedFlyoutRef}
-            id="animation-advanced-flyout"
-            role="dialog"
-            aria-label="Advanced Motion Settings"
-            className="workspace-advanced-flyout p-3.5 rounded-2xl bg-[#141421] border border-[hsl(var(--primary))]/50 shadow-[0_16px_50px_rgba(0,0,0,0.85)] space-y-3 animate-in fade-in zoom-in-95 duration-150 pointer-events-auto select-none" style={{ '--workspace-flyout-width': '300px' } as React.CSSProperties}
-          >
-            {/* Header with Title and Close Button */}
-            <div className="flex items-start justify-between pb-1.5 border-b border-white/[0.08]">
-              <div>
-                <h3 className="text-[11px] font-bold text-white tracking-wide">Advanced Motion Settings</h3>
-                <p className="text-[9.5px] text-zinc-400 mt-0.5">Settings automatically saved</p>
+          {/* Primary Generate / Progress Line */}
+          {isExecuting ? (
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-zinc-200 truncate">{executionStep || 'Generating motion...'}</span>
+                <span className="font-mono text-[11px] text-[hsl(var(--primary))] font-semibold">
+                  {Math.round(executionProgress)}%
+                </span>
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-[hsl(var(--surface-0))] overflow-hidden">
+                <div
+                  className="h-full bg-[hsl(var(--primary))] transition-all duration-300"
+                  style={{ width: `${Math.max(4, Math.min(100, Math.round(executionProgress)))}%` }}
+                />
               </div>
               <button
                 type="button"
-                onClick={() => setIsAdvancedOpen(false)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                aria-label="Close Advanced Motion settings"
+                onClick={handleCancel}
+                className="w-full h-7 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/35 text-rose-200 text-xs font-medium flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <HugeiconsIcon icon={Cancel} size={13} />
+                <span>Cancel</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={!hasRiggedMesh || !motionPrompt.trim() || isSubmitting}
+              className="w-full h-8 rounded-full bg-[hsl(var(--primary))] hover:opacity-90 text-black font-semibold text-xs flex items-center justify-center gap-2 transition-opacity cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <span>{isSubmitting ? 'Queueing...' : 'Generate'}</span>
+            </button>
+          )}
+        </section>
+
+        {/* Preset / Saved Library */}
+        <section aria-label="Motion Library" className="space-y-2">
+          {/* Tabs */}
+          <div className="flex items-center justify-between border-b border-white/[0.08] pb-1.5">
+            <div className="flex items-center gap-3" role="tablist" aria-label="Motion clip sources">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'preset'}
+                onClick={() => setActiveTab('preset')}
+                className={`text-xs font-semibold pb-1 border-b-2 transition-colors cursor-pointer ${
+                  activeTab === 'preset'
+                    ? 'text-white border-[hsl(var(--primary))]'
+                    : 'text-zinc-400 border-transparent hover:text-zinc-200'
+                }`}
+              >
+                Premade
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'saved'}
+                onClick={() => {
+                  setActiveTab('saved');
+                  void loadSaved();
+                }}
+                className={`text-xs font-semibold pb-1 border-b-2 transition-colors cursor-pointer ${
+                  activeTab === 'saved'
+                    ? 'text-white border-[hsl(var(--primary))]'
+                    : 'text-zinc-400 border-transparent hover:text-zinc-200'
+                }`}
+              >
+                My Presets ({mergedSavedItems.length})
               </button>
             </div>
 
-            {/* Parameter 1: Fine-Grain Duration Slider (1.0s to 15.0s) */}
-            <div className="space-y-1.5 p-2 rounded-xl bg-black/30 border border-white/[0.04]">
-              <div className="flex items-center justify-between">
-                <span className="text-[10.5px] text-zinc-300 font-medium">Animation Duration</span>
-                <span className="text-[9.5px] font-mono text-[hsl(var(--primary))] font-bold px-1.5 py-0.5 rounded bg-[hsl(var(--primary))]/10 border border-[hsl(var(--primary))]/20">
-                  {duration.toFixed(1)}s
-                </span>
-              </div>
-              <div className="space-y-1 pt-0.5">
-                <input
-                  type="range"
-                  min={1.0}
-                  max={15.0}
-                  step={0.5}
-                  value={duration}
-                  onChange={(e) => setDuration(parseFloat(e.target.value))}
-                  style={{
-                    background: `linear-gradient(to right, #F9CF00 0%, #F9CF00 ${durationPercentage}%, rgba(255, 255, 255, 0.08) ${durationPercentage}%, rgba(255, 255, 255, 0.08) 100%)`,
-                  }}
-                  className="w-full h-1.5 rounded-full appearance-none cursor-pointer focus:outline-none transition-all duration-75 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[hsl(var(--primary))] [&::-webkit-slider-thumb]:shadow-[0_0_10px_rgba(249,207,0,0.7)] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:hover:scale-125 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-[hsl(var(--primary))]"
-                />
-                <div className="flex justify-between text-[8.5px] font-mono text-zinc-400 px-0.5">
-                  <span>1.0s</span>
-                  <span>4.0s (Default)</span>
-                  <span>15.0s</span>
-                </div>
-                <div className="grid grid-cols-4 gap-1 pt-1">
-                  {([2.0, 4.0, 8.0, 15.0] as const).map((sec) => (
-                    <button
-                      key={sec}
-                      type="button"
-                      onClick={() => setDuration(sec)}
-                      className={`h-6 rounded-md text-[10px] font-semibold flex items-center justify-center transition-all cursor-pointer ${
-                        duration === sec
-                          ? 'bg-[hsl(var(--primary))] text-black shadow-sm font-bold'
-                          : 'bg-black/30 text-zinc-400 hover:text-white hover:bg-white/[0.04] border border-white/[0.04]'
-                      }`}
-                    >
-                      <span>{sec.toFixed(0)}s</span>
-                    </button>
+            <button
+              type="button"
+              onClick={() => (activeTab === 'preset' ? void loadPresets() : void loadSaved())}
+              aria-label="Refresh motion list"
+              title="Refresh"
+              className="p-1 rounded-md text-zinc-400 hover:text-white hover:bg-white/10 cursor-pointer"
+            >
+              <RotateCw className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Search */}
+          <div className="relative">
+            <HugeiconsIcon icon={SearchIcon} size={14} className="text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search clips..."
+              aria-label="Search motion clips"
+              className="w-full h-7.5 pl-8 pr-2.5 rounded-lg bg-[hsl(var(--surface-2))] border border-white/[0.08] text-xs text-white placeholder:text-zinc-500 focus:border-[hsl(var(--accent))] focus:outline-none"
+            />
+          </div>
+
+          {/* Tab Panel: Premade */}
+          {activeTab === 'preset' && (
+            <div role="tabpanel" aria-label="Premade motion clips">
+              {presetStatus === 'loading' && (
+                <div className="grid grid-cols-2 gap-2">
+                  {[0, 1, 2, 3].map((idx) => (
+                    <div key={idx} className="h-28 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.06] animate-pulse" />
                   ))}
                 </div>
-              </div>
-            </div>
-
-            {/* Parameter 2: Foot Skating Cleanup (Ground Lock) Toggle */}
-            <div className="flex items-center justify-between py-1 border-t border-white/[0.06] pt-1.5">
-              <div className="space-y-0.5 pr-2">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-zinc-200 font-medium">Foot Skating Cleanup</span>
-                  <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/15 text-emerald-400 font-mono font-bold border border-emerald-500/25">
-                    Ground Lock
-                  </span>
-                </div>
-                <p className="text-[9px] text-zinc-400">Aligns foot contacts with ground plane and eliminates sliding</p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={footSkatingCleanup}
-                onClick={() => setFootSkatingCleanup(!footSkatingCleanup)}
-                className={`w-7.5 h-4 rounded-full p-0.5 transition-colors cursor-pointer flex-shrink-0 ${
-                  footSkatingCleanup ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'
-                }`}
-              >
-                <div
-                  className={`w-3 h-3 rounded-full shadow-sm transition-transform ${
-                    footSkatingCleanup ? 'translate-x-3.5 bg-black' : 'translate-x-0 bg-white'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Parameter 2: Frame Rate Pills */}
-            <div className="space-y-1 border-t border-white/[0.06] pt-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[10.5px] text-zinc-300 font-medium">Frame Rate</span>
-                <span className="text-[8.5px] px-1.5 py-0.5 rounded bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] font-mono font-bold border border-[hsl(var(--primary))]/25">
-                  {frameRate}
-                </span>
-              </div>
-              <div className="grid grid-cols-3 gap-1 p-0.5 rounded-xl bg-black/30 border border-white/[0.04]">
-                {(['24 FPS', '30 FPS', '60 FPS'] as const).map((fps) => (
-                  <button
-                    key={fps}
-                    type="button"
-                    onClick={() => setFrameRate(fps)}
-                    className={`h-6.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                      frameRate === fps
-                        ? 'bg-white text-black font-extrabold shadow-sm'
-                        : 'text-zinc-400 hover:text-white'
-                    }`}
-                  >
-                    <span>{fps}</span>
-                  </button>
-                ))}
-              </div>
-              <p className="text-[9px] text-zinc-400 leading-tight">
-                Sampling rate for synthesized keyframes. 30 FPS is standard for real-time game rigs.
-              </p>
-            </div>
-
-            {/* Parameter 2: Looping Motion Toggle */}
-            <div className="flex items-center justify-between py-0.5 border-t border-white/[0.06] pt-1.5">
-              <div className="space-y-0.5 pr-2">
-                <div className="flex items-center gap-1.5">
-                  <Repeat className="w-3 h-3 text-indigo-400" />
-                  <span className="text-[11px] text-zinc-200 font-medium">Looping Motion</span>
-                </div>
-                <p className="text-[9px] text-zinc-400">Seamless cyclic continuity for walk/run locomotion</p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={loopingMotion}
-                onClick={() => setLoopingMotion(!loopingMotion)}
-                className={`w-7.5 h-4 rounded-full p-0.5 transition-colors cursor-pointer flex-shrink-0 ${
-                  loopingMotion ? 'bg-[#6366F1]' : 'bg-white/15'
-                }`}
-              >
-                <div
-                  className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${
-                    loopingMotion ? 'translate-x-3.5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Parameter 3: Target Skeleton Profile */}
-            <div className="space-y-1 border-t border-white/[0.06] pt-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[10.5px] text-zinc-300 font-medium">Target Skeleton Profile</span>
-                <span className="text-[8.5px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-mono font-bold border border-emerald-500/25">
-                  {targetSkeleton === 'core' ? 'Humanoid' : 'G1 Robot'}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-1 p-0.5 rounded-xl bg-black/30 border border-white/[0.04]">
-                <button
-                  type="button"
-                  onClick={() => setTargetSkeleton('core')}
-                  className={`h-6.5 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer ${
-                    targetSkeleton === 'core'
-                      ? 'bg-white text-black font-extrabold shadow-sm'
-                      : 'text-zinc-400 hover:text-white'
-                  }`}
-                >
-                  <span>Core Humanoid</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTargetSkeleton('g1')}
-                  className={`h-6.5 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer ${
-                    targetSkeleton === 'g1'
-                      ? 'bg-white text-black font-extrabold shadow-sm'
-                      : 'text-zinc-400 hover:text-white'
-                  }`}
-                >
-                  <span>G1 Unit</span>
-                </button>
-              </div>
-              <p className="text-[9px] text-zinc-400 leading-tight">
-                Core Humanoid targets standard biped rigs; G1 Unit targets Unitree humanoid robot armature.
-              </p>
-            </div>
-
-            {/* Parameter 4: Random Seed with Generator Button */}
-            <div className="space-y-1 border-t border-white/[0.06] pt-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[10.5px] text-zinc-300 font-medium">Random Seed</span>
-                {seed !== '' && (
+              )}
+              {presetStatus === 'error' && (
+                <div role="alert" className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-200 space-y-2">
+                  <p>{presetError || 'Unable to load presets.'}</p>
                   <button
                     type="button"
-                    onClick={() => setSeed('')}
-                    className="text-[9px] text-zinc-400 hover:text-[hsl(var(--primary))] transition-colors cursor-pointer"
+                    onClick={() => void loadPresets()}
+                    className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/15 text-white text-[11px] font-medium cursor-pointer"
                   >
-                    Reset to Random
+                    Retry
                   </button>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5 p-1 rounded-xl bg-black/40 border border-white/[0.04]">
-                <div className="relative flex-1 flex items-center min-w-0">
-                  <span className="text-xs pl-2 pr-1 text-zinc-300 select-none">🎲</span>
-                  <input
-                    type="number"
-                    placeholder="Random (or 123456)"
-                    value={seed}
-                    onChange={(e) => {
-                      const val = e.target.value === '' ? '' : parseInt(e.target.value, 10);
-                      if (val === '' || (!isNaN(val) && val >= 0)) {
-                        setSeed(val);
-                      }
-                    }}
-                    className="w-full bg-transparent text-xs text-white placeholder:text-zinc-400 focus:outline-none font-mono py-0.5 pr-2 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const newSeed = Math.floor(Math.random() * 900000) + 100000;
-                    setSeed(newSeed);
-                    toast.info(`New random seed: ${newSeed}`);
-                  }}
-                  className="flex-shrink-0 px-2 py-1 rounded-lg bg-white/[0.08] hover:bg-white/15 text-zinc-200 hover:text-white text-[10px] font-semibold transition-all cursor-pointer flex items-center gap-1 border border-white/[0.08] active:scale-95"
-                  title="Generate new random seed"
-                >
-                  <RotateCw className="w-2.5 h-2.5" />
-                  <span>New</span>
-                </button>
-              </div>
+              )}
+              {presetStatus === 'empty' && (
+                <div className="p-4 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.06] text-center text-xs text-zinc-400">
+                  No premade presets are installed yet. Add reviewed NPZ files to backend/motion_presets/. User imports and generated clips appear in My Presets.
+                </div>
+              )}
+              {presetStatus === 'ready' && filteredPresets.length === 0 && (
+                <div className="p-4 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.06] text-center text-xs text-zinc-400">
+                  No presets match &quot;{searchQuery}&quot;.
+                </div>
+              )}
+              {presetStatus === 'ready' && filteredPresets.length > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  {filteredPresets.map((preset) => (
+                    <PresetCard
+                      key={preset.id}
+                      preset={preset}
+                      isActive={activeMotionClip?.id === preset.id}
+                      onSelect={handleSelectPreset}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-          </div>,
-          document.body
-        )}
+          )}
+
+          {/* Tab Panel: My Presets (server-backed) */}
+          {activeTab === 'saved' && (
+            <div role="tabpanel" aria-label="My user motion presets" className="space-y-1.5">
+              {savedStatus === 'loading' && (
+                <div className="space-y-1.5">
+                  {[0, 1].map((idx) => (
+                    <div key={idx} className="h-12 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.06] animate-pulse" />
+                  ))}
+                </div>
+              )}
+              {savedStatus === 'error' && (
+                <div role="alert" className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-200 space-y-2">
+                  <p>{savedError || 'Unable to read the My Presets library.'}</p>
+                  <button
+                    type="button"
+                    onClick={() => void loadSaved()}
+                    className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/15 text-white text-[11px] font-medium cursor-pointer"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+              {savedStatus === 'empty' && (
+                <div className="p-4 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.06] text-center text-xs text-zinc-400">
+                  No user presets yet. Import an NPZ or generate motion; both are saved in backend/storage/presets/.
+                </div>
+              )}
+              {savedStatus === 'ready' && filteredSaved.length === 0 && (
+                <div className="p-4 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.06] text-center text-xs text-zinc-400">
+                  No My Presets match &quot;{searchQuery}&quot;.
+                </div>
+              )}
+              {savedStatus === 'ready' && filteredSaved.length > 0 && (
+                <div className="space-y-1.5">
+                  {filteredSaved.map((item) => {
+                    const isActive = activeMotionClip?.id === item.id;
+                    return (
+                      <div
+                        key={item.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          if (item.presetItem) {
+                            void handleSelectPreset(item.presetItem);
+                          } else if (item.localRecord) {
+                            handleSelectSaved(item.localRecord);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            if (item.presetItem) {
+                              void handleSelectPreset(item.presetItem);
+                            } else if (item.localRecord) {
+                              handleSelectSaved(item.localRecord);
+                            }
+                          }
+                        }}
+                        className={`flex items-center justify-between gap-2 p-2.5 rounded-xl border transition-colors cursor-pointer ${
+                          isActive
+                            ? 'bg-[hsl(var(--accent))]/15 border-[hsl(var(--accent))] text-white'
+                            : 'bg-[hsl(var(--surface-2))] border-white/[0.08] hover:border-white/20 text-zinc-200'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium text-white truncate">{item.name}</div>
+                          <div className="text-[11px] font-mono text-zinc-400">{item.subtitle}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => void handleDeleteSaved(item.id, item.isServerUpload, e)}
+                          aria-label={`Delete ${item.name}`}
+                          className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-white/10 cursor-pointer shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
       </div>
-
-      {/* 7. Sticky Bottom Action CTA Button (NO model name in button or subtitle as requested) */}
-      <div className="p-3 pt-2 pb-3 border-t border-white/[0.08] bg-[hsl(var(--surface-1))] flex-shrink-0 space-y-1.5">
-        {isExecuting ? (
-          <div className="p-3 rounded-2xl bg-[hsl(var(--surface-1))] border border-[hsl(var(--primary))]/30 shadow-xl space-y-2 animate-in fade-in">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2 min-w-0 pr-2">
-                <div className="w-3.5 h-3.5 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin flex-shrink-0" />
-                <span className="font-semibold text-white truncate text-xs">
-                  {executionStep || 'Generating character motion...'}
-                </span>
-              </div>
-              <span className="font-mono font-bold text-[hsl(var(--primary))] text-xs flex-shrink-0">
-                {Math.round(executionProgress)}%
-              </span>
-            </div>
-
-            <div className="w-full h-1.5 rounded-full bg-black/40 overflow-hidden border border-white/10">
-              <div
-                className="h-full bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--primary))]/80 transition-all duration-300 rounded-full"
-                style={{ width: `${Math.max(4, Math.min(100, Math.round(executionProgress)))}%` }}
-              />
-            </div>
-
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="w-full py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 hover:text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[hsl(var(--primary))]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <HugeiconsIcon icon={Cancel} size={14} />
-              <span>Cancel</span>
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-1">
-            <button
-              type="button"
-              onClick={handleApplyAnimation}
-              disabled={!currentAsset || !motionPrompt.trim() || isSubmitting || isExecuting}
-              className="w-full h-8 rounded-full bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[hsl(var(--primary))]/15 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Film className="w-3.5 h-3.5 text-black" />
-              <span>{isSubmitting ? 'Queueing Motion...' : 'Apply Animation'}</span>
-            </button>
-            <div className="flex items-center justify-between text-[9.5px] text-zinc-400 px-1 font-mono">
-              <span>Duration: {duration.toFixed(1)}s · {frameRate}</span>
-              <span>Ground Lock: {footSkatingCleanup ? 'Active' : 'Off'}</span>
-            </div>
-          </div>
-        )}
-        </div>
-      </div>
+    </div>
   );
 };

@@ -18,6 +18,7 @@ This document provides a **complete, self‑contained description** of the ForMe
 | **Model Factory** | `backend/core/scheduler/model_factory.py`, `backend/adapters/__init__.py` | Builds `ADAPTER_REGISTRY` and derived `_ADAPTER_MAP`; selects the correct adapter class for a given model. |
 | **Adapters & Patchers** | `backend/adapters/`, `patcher/<model>/` | Executes model inference; isolates pre‑Ampere (`sm < 80`) patches. Currently each adapter contains duplicated boiler‑plate – the audit recommends collapsing these to a thin façade. |
 | **Storage & DB** | `backend/storage/`, `backend/database_manager.py` | Persists generated assets under `<workspace_id>/mesh/mesh.glb` and stores job/workspace state in SQLite. |
+| **Motion Service** | `backend/services/motion_clips.py` | Safe motion preset discovery, bounded NPZ/NPY parsing, and `MotionClipV1` normalization for ARDY and user-uploaded clips; presets in `backend/motion_presets/`, user uploads/generated copies in backend/storage/presets/<preset_id>/. |
 | **Third‑Party Source** | `backend/thirdparty/` | Pinned upstream repositories (model code, weights). |
 
 ---
@@ -30,6 +31,7 @@ This document provides a **complete, self‑contained description** of the ForMe
 4. **Scheduler** (`multiprocess_scheduler.py`) injects missing `default_parameters` from `models.yaml` and dispatches the job to an **isolated model worker** (single‑process or multi‑worker via Redis).
 5. The **Adapter** receives the request, performs any model‑specific pre‑processing, invokes the **Third‑Party Model Pipeline**, and writes the output GLB (or related asset) to `backend/storage/<workspace_id>/mesh/`.  It also records job metadata in SQLite.
 6. UI **polls** job status; once finished the mesh is fetched from storage and rendered in the `MeshViewer.tsx` component (progress bar → scan‑reveal).
+7. (Motion) Completed ARDY jobs expose a `motion_clip_id`; the frontend resolves playable `MotionClipV1` clips through the Motion Service (`/api/v1/motion/clips/{clip_id}`) without raw filesystem paths, and binds them to the active rigged mesh in the viewport animation player.
 
 ---
 

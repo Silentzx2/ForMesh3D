@@ -70,42 +70,49 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onMobileMenuToggle, isMobi
   return (
     <header
       id="persistent-top-header"
-      className="h-10 px-2.5 md:px-3 bg-[hsl(var(--surface-0))] flex items-center justify-between border-b border-white/[0.06] select-none z-50 text-xs w-full flex-shrink-0 min-w-0 shadow-sm"
+      className="h-10 px-2.5 md:px-3 bg-[hsl(var(--surface-0))] flex items-center justify-between border-b border-white/[0.08] select-none z-50 text-xs w-full flex-shrink-0 min-w-0"
     >
       {/* Left Branding & Mode Dropdown */}
       <div className="flex items-center gap-2 md:gap-2.5 min-w-0">
         {/* Mobile menu button */}
         <button
+          type="button"
           onClick={onMobileMenuToggle}
-          className="group md:hidden p-1 rounded-md text-zinc-300 hover:text-white hover:bg-white/[0.06] transition-all duration-200 flex-shrink-0 active:scale-95"
+          className="group md:hidden p-1 rounded-md text-zinc-300 hover:text-white hover:bg-white/[0.06] transition-colors duration-150 flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={isMobileNavOpen ? 'Close menu' : 'Open menu'}
         >
-          <HugeiconsIcon icon={Menu} size={14} className="w-3.5 h-3.5 group-hover:scale-105 transition-transform duration-200" />
+          <HugeiconsIcon icon={Menu} size={14} className="w-3.5 h-3.5" />
         </button>
 
         {/* Brand Studio Logo (ForMesh 3D) */}
-        <div
+        <button
+          type="button"
           onClick={() => navigateToTool('model')}
-          className="flex items-center gap-1.5 cursor-pointer group py-0.5 pr-1 flex-shrink-0 select-none"
+          aria-label="ForMesh 3D Home"
+          className="flex items-center gap-1.5 cursor-pointer group py-0.5 px-1 -ml-1 rounded-md flex-shrink-0 select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {/* Stylized Logo Cube */}
-          <div className="w-4 h-4 rounded-[4px] bg-gradient-to-br from-[#FFD866] via-[#F5C542] to-[#E0A800] flex items-center justify-center text-[#080808] font-black text-[9px] shadow-[0_0_8px_rgba(245,197,66,0.35)] tracking-tighter group-hover:shadow-[0_0_14px_rgba(245,197,66,0.6)] group-hover:scale-105 active:scale-95 transition-all duration-200">
+          <span
+            aria-hidden="true"
+            className="w-4 h-4 rounded-[4px] bg-primary flex items-center justify-center text-primary-foreground font-black text-[9px] tracking-tighter transition-transform duration-150 group-hover:scale-105"
+          >
             <svg viewBox="0 0 24 24" className="w-2.5 h-2.5 fill-current">
               <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
             </svg>
-          </div>
-          <span className="font-extrabold text-[11px] tracking-wider text-white uppercase font-sans hidden sm:inline group-hover:text-primary transition-colors duration-200">
+          </span>
+          <span className="font-extrabold text-[11px] tracking-wider text-white uppercase font-sans hidden sm:inline group-hover:text-primary transition-colors duration-150">
             ForMesh <span className="text-primary font-black">3D</span>
           </span>
-        </div>
+        </button>
 
         {/* 3D Workspace Mode Switcher Dropdown - hidden on mobile */}
         <div ref={workspaceMenuRef} className="relative hidden md:block">
           <button
+            type="button"
             id="btn-workspace-switcher"
             aria-expanded={workspaceMenuOpen}
             onClick={() => { const nextOpen = !workspaceMenuOpen; if (nextOpen) window.dispatchEvent(new CustomEvent('workspace-header-popover-open', { detail: 'workspace-mode' })); setWorkspaceMenuOpen(nextOpen); }}
-            className="group h-6 px-2 rounded-full bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.16] hover:bg-white/[0.08] flex items-center gap-1 transition-all duration-200 active:scale-95 cursor-pointer shadow-sm"
+            className="group h-6 px-2 rounded-full bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.16] hover:bg-white/[0.08] flex items-center gap-1 transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <span className="text-zinc-200 group-hover:text-white text-[10px] font-semibold flex gap-1 items-center transition-colors duration-200">
               <span className="text-primary font-bold">3D Workspace</span>
@@ -193,15 +200,16 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onMobileMenuToggle, isMobi
           side="bottom"
         >
           <button
+            type="button"
             id="btn-fastapi-status-pill"
             onClick={() => navigateToMain('system')}
-            className="group flex items-center gap-1.5 h-6 px-2 rounded-full border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/[0.16] text-[10px] font-semibold transition-all duration-200 active:scale-95 cursor-pointer shadow-sm"
+            className="group flex items-center gap-1.5 h-6 px-2 rounded-full border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/[0.16] text-[10px] font-semibold transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <span
               className={`w-1.5 h-1.5 rounded-full ${
                 systemStats.status === 'online'
-                  ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]'
-                  : 'bg-rose-400 shadow-[0_0_6px_rgba(244,63,94,0.8)]'
+                  ? 'bg-emerald-400'
+                  : 'bg-rose-400'
               }`}
             />
             <span

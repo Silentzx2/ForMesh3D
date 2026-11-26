@@ -29,6 +29,8 @@ import { resolveAssetDeletionTarget } from '../lib/assetDeletion';
 import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
 import { useAppStore } from '@/stores/useAppStore';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
+import { useAnimationStore } from '@/stores/useAnimationStore';
+import { saveGeneratedMotionClip } from '@/services/motionClient';
 import { findTaskKeyForBackendJob } from '../lib/taskIdentity';
 import { useTaskManager } from '@/hooks/useTaskManager';
 import { useTaskPolling } from '@/hooks/useTaskPolling';
@@ -219,6 +221,29 @@ interface WorkspaceContextType {
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
+
+const DERIVED_OPERATION_TYPES = new Set([
+  'remesh',
+  'retopology',
+  'texture',
+  'pbr',
+  'uv',
+  'segment',
+  'segmentation',
+  'rigging',
+  'animation',
+  'edit',
+  'refine',
+]);
+
+function isDerivedOrTempAsset(asset: ModelAsset): boolean {
+  if (!asset) return false;
+  if (asset.id.startsWith('preview_')) return true;
+  if (asset.is_base_mesh === false) return true;
+  const opType = (asset.operation_type || '').toLowerCase();
+  if (opType && DERIVED_OPERATION_TYPES.has(opType)) return true;
+  return false;
+}
 
 const TOOL_TO_ROUTE: Record<ToolType, string> = {
   tools: '/workspace/generate',
@@ -417,7 +442,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     queryKey: ['history-assets'],
     queryFn: async () => {
       const history = await apiClient.getHistory() as Record<string, any>;
-      return Object.entries(history).filter(([, h]) => h.status?.completed).map(([id, h], i) => {
+      return Object.entries(history)
+        .filter(([, h]) => {
+          if (!h.status?.completed) return false;
+          const opType = String(h.outputs?.operation_type || h.operation_type || '').toLowerCase();
+          if (opType && DERIVED_OPERATION_TYPES.has(opType)) return false;
+          if (h.outputs?.is_base_mesh === false) return false;
+          return true;
+        })
+        .map(([id, h], i) => {
         const rawPrompt = (h.prompt?.[1] as string)?.trim();
         const promptName = rawPrompt && !rawPrompt.startsWith('workflow:') && rawPrompt !== 'generate'
           ? (rawPrompt.charAt(0).toUpperCase() + rawPrompt.slice(1)).slice(0, 40)
@@ -429,6 +462,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         return normalizeModelAsset({
           id: id || `hist-${i}`,
           workspace_id: targetWsId,
+          is_base_mesh: true,
+          operation_type: 'generate',
           name,
           category: 'generation',
           thumbnail: (outputs.thumbnail as string) || (outputs.thumbnail_url as string) || '',
@@ -571,6 +606,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       const filtered = all.filter(a => {
         if (!a || !a.id) return false;
+        if (isDerivedOrTempAsset(a)) return false;
         if (deletedAssetIds.has(a.id)) return false;
         if (seenIds.has(a.id)) return false;
 
@@ -628,6 +664,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const workspaceIdRef = useRef<string | null>(workspaceId);
 
   const [activeMeshAssetId, setActiveMeshAssetIdState] = useState<string | null>(null);
+  const [activeDerivedAsset, setActiveDerivedAsset] = useState<ModelAsset | null>(null);
   const [executionState, setExecutionStateInternal] = useState<WorkspaceExecutionState>('idle');
   const [persistenceState, setPersistenceStateInternal] = useState<WorkspacePersistenceState>('not_saved');
   const [workspaceVersions, setWorkspaceVersions] = useState<WorkspaceVersionItem[]>([]);
@@ -677,6 +714,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setWorkspaceId(routeIdentity.workspaceId);
       setSelectedAssetId(null);
       setActiveMeshAssetId(null);
+      setActiveDerivedAsset(null);
       setWorkspaceVersions([]);
       useViewerStore.getState().requestAssetSelection(null);
       useViewerStore.getState().setLoadedModel(null, null, null);
@@ -864,6 +902,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const currentAsset = useMemo(() => {
     if (!selectedAssetId) return null;
+    if (activeDerivedAsset && activeDerivedAsset.id === selectedAssetId) {
+      return activeDerivedAsset;
+    }
     const direct = assets.find(a => a.id === selectedAssetId);
     if (direct) return direct;
     const cleanSelected = selectedAssetId.replace(/^(local_|upload_|hist_|job-)/, '').toLowerCase();
@@ -872,7 +913,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const aFileId = (a.fileId || a.source?.fileId || '').replace(/^(job-)/, '').toLowerCase();
       return cleanA === cleanSelected || aFileId === cleanSelected || (cleanSelected.length >= 8 && (cleanA.includes(cleanSelected) || cleanSelected.includes(cleanA)));
     }) ?? null;
-  }, [assets, selectedAssetId]);
+  }, [assets, selectedAssetId, activeDerivedAsset]);
   const currentAssetRef = useRef(currentAsset);
 
   useEffect(() => {
@@ -1008,12 +1049,42 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       undefined
     ) || `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=${encodeURIComponent(inferredFormat)}`;
 
+    const motionClipId = typeof result?.motion_clip_id === 'string' && result.motion_clip_id.trim()
+      ? result.motion_clip_id.trim()
+      : undefined;
     const isMotionArtifact =
       result?.artifact_type === 'motion' ||
+      Boolean(motionClipId) ||
       inferredFormat === 'npz' ||
       inferredFormat === 'bvh';
 
     if (isMotionArtifact) {
+      if (motionClipId) {
+        const animStore = useAnimationStore.getState();
+        const sourceAssetId =
+          rawData?.operation?.input_asset_id ||
+          rawData?.input_asset_id ||
+          result?.operation?.input_asset_id ||
+          animStore.pendingMotionClipAssetId ||
+          undefined;
+        let resolvedClipId = motionClipId;
+        let savedToLibrary = false;
+        try {
+          const savedClip = await saveGeneratedMotionClip(motionClipId);
+          resolvedClipId = savedClip.id;
+          savedToLibrary = true;
+        } catch (saveError) {
+          console.warn('Generated motion could not be persisted to My Presets yet:', saveError);
+        }
+        const activeAsset = currentAssetRef.current as any;
+        const activeAssetId = activeAsset?.asset_id || activeAsset?.id;
+        if (shouldActivatePreview && sourceAssetId && activeAssetId === sourceAssetId) {
+          animStore.setPendingMotionClipAssetId(sourceAssetId);
+          animStore.setPendingMotionClipId(resolvedClipId);
+        } else if (shouldActivatePreview && savedToLibrary) {
+          toast.info('Motion saved to My Presets. Select its source rigged mesh to apply it.');
+        }
+      }
       void refreshAssets();
       if (shouldActivatePreview) {
         setExecutionState('completed');
@@ -1058,17 +1129,27 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         ? { ...resultArtifacts, source: comparisonSource }
         : result.artifacts;
       void prefetchGLB(modelUrl);
+      const operationType = String(
+        rawData?.operation?.operation_type ||
+        result?.operation_type ||
+        matchingTask?.type ||
+        'generate'
+      ).toLowerCase();
+      const isDerivedOperation = DERIVED_OPERATION_TYPES.has(operationType);
+      const isBaseMesh = !isDerivedOperation && isRetainedResult;
       const finalAssetId = isRetainedResult && retainedAssetId
         ? retainedAssetId
         : `preview_${resolvedOperationId || jobId}`;
       const outputAsset = normalizeModelAsset({
         id: finalAssetId,
         name: rawData?.active_mesh_asset?.original_filename || cleanName,
-        category: isRetainedResult ? 'mesh' : 'generation',
+        category: isBaseMesh ? 'mesh' : 'generation',
         workspace_id: resolvedWorkspaceId,
         operation_id: resolvedOperationId,
-       sourceAssetId,
-       settingsSnapshot: matchingTask?.submissionSnapshot?.body || undefined,
+        operation_type: operationType,
+        is_base_mesh: isBaseMesh,
+        sourceAssetId,
+        settingsSnapshot: matchingTask?.submissionSnapshot?.body || undefined,
         thumbnail: result.thumbnail_url || `/api/v1/system/jobs/${encodeURIComponent(retainedAssetLookupId)}/thumbnail`,
         source: {
           filename: isRetainedResult && retainedFilename ? retainedFilename : `${cleanName}.${inferredFormat}`,
@@ -1100,9 +1181,36 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         artifacts: outputArtifacts,
         candidates: result.candidates,
       });
-      addAsset(outputAsset);
-      void refreshAssets();
+      if (isBaseMesh) {
+        addAsset(outputAsset);
+        void refreshAssets();
+      }
+      if (resolvedWorkspaceId && (isBaseMesh || isDerivedOperation)) {
+        const versionAssetId = retainedAssetId || finalAssetId;
+        const versionLabel = isBaseMesh
+          ? 'Base'
+          : operationType.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+        const newVersion: WorkspaceVersionItem = {
+          asset_id: versionAssetId,
+          name: outputAsset.name,
+          version_label: versionLabel,
+          operation_type: operationType,
+          url: modelUrl,
+          thumbnail_url: outputAsset.thumbnail || null,
+          created_at: new Date().toISOString(),
+          is_base: isBaseMesh,
+        };
+        setWorkspaceVersions((prev) => {
+          const deduped = prev.filter((v) => v.asset_id !== newVersion.asset_id && v.url !== newVersion.url);
+          return [...deduped, newVersion];
+        });
+      }
       if (shouldActivatePreview) {
+        if (!isBaseMesh) {
+          setActiveDerivedAsset(outputAsset);
+        } else {
+          setActiveDerivedAsset(null);
+        }
         setSelectedAssetId(finalAssetId);
         setActiveMeshAssetId(finalAssetId);
         setExecutionState('completed');
@@ -1169,6 +1277,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               id: activeMeshAssetId,
               workspace_id: resolvedWorkspaceId,
               operation_id: activeMesh?.operation_id,
+              is_base_mesh: true,
               name: activeMeshName,
               category: 'mesh',
               thumbnail: `/api/v1/system/jobs/${encodeURIComponent(activeMeshAssetId)}/thumbnail`,
@@ -1656,7 +1765,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
         tags: ['AI Generated'],
         candidates: result.candidates,
       });
-      addAsset(outputAsset);
+      setActiveDerivedAsset(outputAsset);
       setSelectedAssetId(outputAsset.id);
       setActiveMeshAssetId(outputAsset.id);
       setExecutionState('completed');
@@ -1670,6 +1779,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
   }, [addAsset, setWorkspaceId, setActiveMeshAssetId, setExecutionState, setPersistenceState]);
 
   const selectAsset = useCallback((id: string) => {
+    setActiveDerivedAsset(null);
     const target = assetsRef.current.find((asset) => asset.id === id);
     setSelectedAssetId(id);
     setActiveMeshAssetId(id);
@@ -1692,6 +1802,7 @@ function dataURLtoFile(dataURL: string, filename: string): File {
 
   const setCurrentAsset = useCallback((asset: ModelAsset | null) => {
     if (!asset) {
+      setActiveDerivedAsset(null);
       setSelectedAssetId(null);
       setActiveMeshAssetId(null);
       const viewer = useViewerStore.getState();
@@ -1699,7 +1810,13 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       viewer.setLoadedModel(null, null, null);
       return;
     }
-    const selectedId = addAsset(asset);
+    const isDerived = isDerivedOrTempAsset(asset);
+    const selectedId = isDerived ? asset.id : addAsset(asset);
+    if (isDerived) {
+      setActiveDerivedAsset(asset);
+    } else {
+      setActiveDerivedAsset(null);
+    }
     setSelectedAssetId(selectedId);
     setActiveMeshAssetId(selectedId);
     setViewportResetTrigger(prev => prev + 1);
@@ -1713,22 +1830,21 @@ function dataURLtoFile(dataURL: string, filename: string): File {
       viewer.setLoadedModel(null, null, null);
     }
 
-    // Clicking an asset should open its generate workspace so the user is
-    // taken back to /workspace/generate/<workspace_id> from any tab or after
-    // a refresh.
-    const targetWsId = asset.workspace_id || (asset.id && !asset.id.startsWith('local_') && !asset.id.startsWith('upload_') ? asset.id.replace(/^job-/, '') : null);
+    const targetWsId = asset.workspace_id || null;
     if (targetWsId) {
       setWorkspaceId(targetWsId);
-      const targetRoute = `/workspace/generate/${targetWsId}`;
-      if (typeof window !== 'undefined' && window.location.pathname !== targetRoute) {
+    }
+    // Switching active mesh inside a downstream tool must keep the current tool and route intact.
+    if (typeof window !== 'undefined') {
+      if (!pathname.startsWith('/workspace')) {
+        const targetRoute = targetWsId ? `/workspace/generate/${targetWsId}` : '/workspace/generate';
         setActiveTool('model');
         setMainNav('workspace');
-        // In workspace shell: replaceState keeps MeshViewer mounted. Outside
-        // shell: full router.push navigation.
-        if (pathname.startsWith('/workspace')) {
+        router.push(targetRoute);
+      } else if (activeToolRef.current === 'model' && targetWsId) {
+        const targetRoute = `/workspace/generate/${targetWsId}`;
+        if (window.location.pathname !== targetRoute) {
           window.history.replaceState(null, '', targetRoute);
-        } else {
-          router.push(targetRoute);
         }
       }
     }
@@ -2731,7 +2847,6 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         model_preference: modelPref,
         model_parameters: {
           ...(options?.modelParameters || {}),
-          bind_pose: options?.bindPose || 't_pose',
         },
         ...meshRef,
       };
@@ -2768,6 +2883,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     frameRate?: string;
     targetSkeleton?: string;
     footSkatingCleanup?: boolean;
+    inputAssetId?: string;
     modelParameters?: Record<string, any>;
     customSettings?: Record<string, any>;
   }) => {
@@ -2775,13 +2891,19 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
     const localTaskId = startTask('animation', 'Apply Animation', promptText, 'ardy_motion_generation');
     const signal = activeAbortControllerRef.current?.signal;
     try {
+      const resolvedWorkspaceId = currentAsset?.workspace_id || workspaceIdRef.current || undefined;
+      const resolvedInputAssetId =
+        options?.inputAssetId ||
+        (currentAsset as (ModelAsset & { asset_id?: string }) | null)?.asset_id ||
+        currentAsset?.id ||
+        undefined;
       const body: Record<string, unknown> = {
         prompt: promptText,
         duration: options?.duration ?? 5.0,
-        seed: options?.seed ?? Math.floor(Math.random() * 1000000),
-        target_skeleton: options?.targetSkeleton || 'core',
-        post_process: options?.footSkatingCleanup ?? true,
-        checkpoint: 'ARDY-Core-RP-20FPS-Horizon40',
+        ...(options?.seed !== undefined ? { seed: options.seed } : {}),
+        ...(resolvedWorkspaceId ? { workspace_id: resolvedWorkspaceId } : {}),
+        ...(resolvedInputAssetId ? { input_asset_id: resolvedInputAssetId } : {}),
+        ...(options?.modelParameters ? { model_parameters: options.modelParameters } : {}),
         model_preference: 'ardy_motion_generation',
       };
 
@@ -2795,9 +2917,11 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       const data = await parseApiData<{ job_id?: string; id?: string; workspace_id?: string; operation_id?: string; route_path?: string }>(res);
       const jobId = data.job_id ?? data.id;
       if (!jobId) throw new Error('Backend did not return a motion generation job ID');
+      useAnimationStore.getState().setPendingMotionClipAssetId(resolvedInputAssetId ?? null);
       bindBackendJob(localTaskId, jobId, { status: 'queued', currentStep: 'Motion generation queued on backend' }, { workspaceId: data.workspace_id, operationId: data.operation_id, routePath: data.route_path });
       setExecutionStep('Motion generation queued on backend');
     } catch (error) {
+      useAnimationStore.getState().setPendingMotionClipAssetId(null);
       if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled')))) {
         console.log('Motion generation cancelled by user');
         return;
@@ -2808,7 +2932,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       setActiveTask(prev => prev ? { ...prev, status: 'failed' as const, currentStep: message, errorMessage: message } : null);
       toast.error('Motion generation failed', { description: message });
     }
-  }, [startTask, bindBackendJob, parseApiError, parseApiData]);
+  }, [currentAsset, startTask, bindBackendJob, parseApiError, parseApiData]);
 
    // Batch processing function
     const processBatchQueue = useCallback(async () => {

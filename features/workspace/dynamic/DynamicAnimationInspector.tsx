@@ -1,12 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import * as THREE from 'three';
-import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
+import React, { useState } from 'react';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { useViewerStore } from '@/stores/useViewerStore';
 import { useAnimationStore } from '@/stores/useAnimationStore';
-import { downloadArtifact } from '../lib/artifactDownload';
+import { saveMotionClip } from '@/services/motionStorage';
+import { exportAnimatedModelAsGlb } from './exportAnimatedGlb';
 import {
   Film,
   Play,
@@ -14,167 +13,166 @@ import {
   RotateCcw,
   Repeat,
   Download,
-  Footprints,
 } from '@/components/icons/hugeicons-components';
 import { toast } from 'sonner';
 
 export const DynamicAnimationInspector: React.FC = () => {
   const { currentAsset } = useWorkspace();
   const activeModelObject = useViewerStore((s) => s.activeModelObject);
-  const {
-    isPlaying,
-    togglePlay,
-    setIsPlaying,
-    currentTime,
-    setCurrentTime,
-    duration,
-    setDuration,
-    playbackSpeed,
-    setPlaybackSpeed,
-    isLooping,
-    setIsLooping,
-    tickPlayback,
-    displayOptions,
-    setDisplayOptions,
-  } = useAnimationStore();
 
-  const [showTrajectory, setShowTrajectory] = useState(true);
-  const [isExporting, setIsExporting] = useState(false);
+  const clipState = useAnimationStore((s) => s.clipState);
+  const clipError = useAnimationStore((s) => s.clipError);
+  const activeMotionClip = useAnimationStore((s) => s.activeMotionClip);
+  const activeThreeClip = useAnimationStore((s) => s.activeThreeClip);
+  const isPlaying = useAnimationStore((s) => s.isPlaying);
+  const togglePlay = useAnimationStore((s) => s.togglePlay);
+  const setIsPlaying = useAnimationStore((s) => s.setIsPlaying);
+  const currentTime = useAnimationStore((s) => s.currentTime);
+  const setCurrentTime = useAnimationStore((s) => s.setCurrentTime);
+  const duration = useAnimationStore((s) => s.duration);
+  const fps = useAnimationStore((s) => s.fps);
+  const playbackSpeed = useAnimationStore((s) => s.playbackSpeed);
+  const setPlaybackSpeed = useAnimationStore((s) => s.setPlaybackSpeed);
+  const isLooping = useAnimationStore((s) => s.isLooping);
+  const setIsLooping = useAnimationStore((s) => s.setIsLooping);
+  const setClipState = useAnimationStore((s) => s.setClipState);
+  const dismissClipError = useAnimationStore((s) => s.dismissClipError);
+  const displayOptions = useAnimationStore((s) => s.displayOptions);
+  const setDisplayOptions = useAnimationStore((s) => s.setDisplayOptions);
+
   const [exportError, setExportError] = useState<string | null>(null);
+  const [isSavingLocal, setIsSavingLocal] = useState(false);
 
-  // Sync duration with active animation clip if available on model
-  const activeClip = useMemo(() => {
-    if (!activeModelObject || !activeModelObject.animations || activeModelObject.animations.length === 0) {
-      return null;
-    }
-    return activeModelObject.animations[0];
-  }, [activeModelObject]);
-
-  useEffect(() => {
-    if (activeClip && activeClip.duration > 0) {
-      setDuration(activeClip.duration);
-    }
-  }, [activeClip, setDuration]);
-
-  // Single animation clock: store tickPlayback drives currentTime; one rAF ticks it
-  useEffect(() => {
-    let id: number;
-    if (isPlaying) {
-      const tick = (now: number) => {
-        tickPlayback(now);
-        id = requestAnimationFrame(tick);
-      };
-      id = requestAnimationFrame(tick);
-    }
-    return () => cancelAnimationFrame(id);
-  }, [isPlaying, tickPlayback]);
-
-  const currentFrame = Math.round(currentTime * 30);
-  const totalFrames = Math.round(duration * 30);
+  const isExporting = clipState === 'exporting';
+  const hasClip = Boolean(activeThreeClip);
+  const safeFps = fps > 0 ? fps : 20;
+  const currentFrame = Math.round(currentTime * safeFps);
+  const totalFrames = Math.round(duration * safeFps);
   const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
 
-  // Real Export: Downloads backend clip or exports client GLB with animation tracks
+  const clipName = activeMotionClip?.name ?? activeThreeClip?.name ?? 'No Clip Attached';
+
   const handleExportClip = async () => {
-    setIsExporting(true);
+    setIsPlaying(false);
+    setClipState('exporting');
     setExportError(null);
     toast.info('Preparing animation motion clip export...');
     try {
-
-      const assetId = currentAsset?.id;
-      if (assetId) {
-        try {
-          await downloadArtifact(`/api/v1/system/jobs/${assetId}/download?artifact_format=glb`, `${currentAsset?.name || 'animation_clip'}.glb`, 'glb');
-          toast.success('Animation motion clip exported (.glb)');
-          return;
-        } catch {
-          // Fall through to client exporter
-        }
-      }
-
-      if (activeModelObject) {
-        const exporter = new GLTFExporter();
-        const animations = activeModelObject.animations && activeModelObject.animations.length > 0
-          ? activeModelObject.animations
-          : [];
-
-        await new Promise<void>((resolve, reject) => {
-          exporter.parse(
-            activeModelObject,
-            (gltf) => {
-              const blob = new Blob([gltf as ArrayBuffer], { type: 'model/gltf-binary' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `${currentAsset?.name || 'motion_clip'}.glb`;
-              document.body.appendChild(a);
-              a.click();
-              a.remove();
-              setTimeout(() => URL.revokeObjectURL(url), 500);
-              toast.success('Animation motion clip exported (.glb)');
-              resolve();
-            },
-            reject,
-            { binary: true, animations }
-          );
-        });
-      } else {
-        throw new Error('No active 3D model available to export');
-      }
-    } catch (err: any) {
-      setExportError(err.message || 'Export failed');
-      toast.error(`Export failed: ${err.message || 'Unknown error'}`);
+      await exportAnimatedModelAsGlb({
+        activeModelObject,
+        activeThreeClip,
+        assetId: currentAsset?.id,
+        assetName: currentAsset?.name || clipName,
+      });
+      toast.success('Animation motion clip exported (.glb)');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Export failed';
+      setExportError(msg);
+      toast.error(`Export failed: ${msg}`);
     } finally {
-      setIsExporting(false);
+      setClipState(hasClip ? 'paused' : 'idle');
     }
   };
 
+  const handleSaveToLocal = async () => {
+    if (!activeMotionClip) return;
+    setIsSavingLocal(true);
+    try {
+      await saveMotionClip(activeMotionClip, 'generated');
+      toast.success(`Saved "${activeMotionClip.name}" to local clips`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save clip locally');
+    } finally {
+      setIsSavingLocal(false);
+    }
+  };
+
+  const statusBadge = (() => {
+    switch (clipState) {
+      case 'playing':
+        return { label: 'Playing', cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' };
+      case 'paused':
+      case 'ready':
+        return { label: 'Ready', cls: 'bg-[hsl(var(--accent))]/15 text-[hsl(var(--accent))] border-[hsl(var(--accent))]/30' };
+      case 'loading_clip':
+      case 'validating_clip':
+      case 'binding_clip':
+        return { label: 'Loading', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' };
+      case 'exporting':
+        return { label: 'Exporting', cls: 'bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] border-[hsl(var(--primary))]/30' };
+      case 'clip_error':
+        return { label: 'Error', cls: 'bg-rose-500/15 text-rose-400 border-rose-500/30' };
+      default:
+        return { label: 'Idle', cls: 'bg-white/[0.06] text-zinc-400 border-white/[0.08]' };
+    }
+  })();
+
   return (
-    <div className="space-y-2 select-none text-xs">
+    <div className="space-y-2.5 select-none text-xs">
       {/* Clip Info Card */}
-      <div className="p-2.5 rounded-xl bg-black/40 border border-white/[0.08] space-y-1.5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <Film className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
-            <span className="text-xs font-semibold text-white truncate">
-              {activeClip ? activeClip.name : 'Locomotion Clip'}
-            </span>
+      <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.08] space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Film className="w-3.5 h-3.5 text-[hsl(var(--primary))] shrink-0" />
+            <span className="text-xs font-semibold text-white truncate">{clipName}</span>
           </div>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-mono font-semibold border border-emerald-500/30">
-            Active
+          <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-mono font-medium border shrink-0 ${statusBadge.cls}`}>
+            {statusBadge.label}
           </span>
         </div>
 
-        <div className="flex justify-between text-[10px] font-mono text-zinc-400">
+        <div className="flex justify-between text-[11px] font-mono text-zinc-400">
           <span>Frame {currentFrame}/{totalFrames}</span>
-          <span>{duration.toFixed(1)}s · 30 FPS</span>
+          <span>{duration.toFixed(1)}s · {safeFps} FPS</span>
         </div>
+
+        {activeMotionClip && (
+          <div className="flex justify-between text-[11px] font-mono text-zinc-400 border-t border-white/[0.06] pt-1">
+            <span className="truncate">{activeMotionClip.skeleton_profile}</span>
+            <span>{activeMotionClip.joint_names.length} joints</span>
+          </div>
+        )}
       </div>
 
+      {/* Error State Banner */}
+      {clipState === 'clip_error' && clipError && (
+        <div role="alert" className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 space-y-1.5">
+          <p className="text-[11px] leading-snug">{clipError}</p>
+          <button
+            type="button"
+            onClick={dismissClipError}
+            className="px-2 py-1 rounded-md bg-white/10 hover:bg-white/15 text-white text-[11px] font-medium cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Scrubber Timeline */}
-      <div className="space-y-1.5 p-2.5 rounded-xl bg-[hsl(var(--surface-1))] border border-white/[0.08]">
+      <div className="space-y-1.5 p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.08]">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-            Timeline Scrubber
-          </span>
-          <span className="font-mono text-[10px] text-[hsl(var(--primary))] font-semibold">
+          <span className="text-[11px] font-medium text-zinc-300">Timeline</span>
+          <span className="font-mono text-[11px] text-[hsl(var(--primary))] font-semibold">
             {currentTime.toFixed(2)}s / {duration.toFixed(1)}s
           </span>
         </div>
 
         <input
           type="range"
+          aria-label="Animation timeline scrubber"
           min={0}
-          max={Math.max(0.1, duration)}
-          step={0.033}
+          max={Math.max(0.05, duration)}
+          step={1 / safeFps}
           value={currentTime}
+          disabled={!hasClip || isExporting}
           onChange={(e) => {
             setCurrentTime(parseFloat(e.target.value));
             if (isPlaying) setIsPlaying(false);
           }}
           style={{
-            background: `linear-gradient(to right, #F9CF00 0%, #F9CF00 ${progressPercent}%, rgba(255, 255, 255, 0.08) ${progressPercent}%, rgba(255, 255, 255, 0.08) 100%)`,
+            background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${progressPercent}%, rgba(255, 255, 255, 0.08) ${progressPercent}%, rgba(255, 255, 255, 0.08) 100%)`,
           }}
-          className="w-full h-1.5 rounded-full appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[hsl(var(--primary))]"
+          className="w-full h-1.5 rounded-full appearance-none cursor-pointer focus:outline-none disabled:opacity-40 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[hsl(var(--primary))]"
         />
 
         {/* Playback Controls Row */}
@@ -183,7 +181,8 @@ export const DynamicAnimationInspector: React.FC = () => {
             <button
               type="button"
               onClick={togglePlay}
-              className="w-7 h-7 rounded-lg bg-[hsl(var(--primary))] text-black hover:bg-[hsl(var(--primary))] flex items-center justify-center transition-all cursor-pointer font-bold shadow-sm active:scale-95"
+              disabled={!hasClip || isExporting}
+              className="w-7 h-7 rounded-lg bg-[hsl(var(--primary))] text-black hover:opacity-90 flex items-center justify-center transition-opacity cursor-pointer font-bold disabled:opacity-40"
               aria-label={isPlaying ? 'Pause' : 'Play'}
             >
               {isPlaying ? <Pause className="w-3.5 h-3.5 fill-black" /> : <Play className="w-3.5 h-3.5 fill-black ml-0.5" />}
@@ -195,8 +194,10 @@ export const DynamicAnimationInspector: React.FC = () => {
                 setCurrentTime(0);
                 setIsPlaying(false);
               }}
-              className="w-7 h-7 rounded-lg bg-black/40 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/[0.06] flex items-center justify-center transition-colors cursor-pointer"
-              title="Reset to Start"
+              disabled={!hasClip || isExporting}
+              className="w-7 h-7 rounded-lg bg-[hsl(var(--surface-1))] hover:bg-[hsl(var(--surface-3))] text-zinc-300 hover:text-white border border-white/[0.08] flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40"
+              aria-label="Reset to start"
+              title="Reset to start"
             >
               <RotateCcw className="w-3 h-3" />
             </button>
@@ -204,8 +205,12 @@ export const DynamicAnimationInspector: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsLooping(!isLooping)}
+              aria-label={isLooping ? 'Disable loop' : 'Enable loop'}
+              aria-pressed={isLooping}
               className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-colors cursor-pointer ${
-                isLooping ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-400' : 'bg-black/40 border-white/[0.06] text-zinc-500'
+                isLooping
+                  ? 'bg-[hsl(var(--accent))]/20 border-[hsl(var(--accent))]/50 text-[hsl(var(--accent))]'
+                  : 'bg-[hsl(var(--surface-1))] border-white/[0.08] text-zinc-400 hover:text-white'
               }`}
               title={isLooping ? 'Looping Active' : 'Looping Off'}
             >
@@ -214,14 +219,14 @@ export const DynamicAnimationInspector: React.FC = () => {
           </div>
 
           {/* Speed Pills */}
-          <div className="flex items-center gap-1 bg-black/30 p-0.5 rounded-lg border border-white/[0.06]">
+          <div className="flex items-center gap-0.5 bg-[hsl(var(--surface-1))] p-0.5 rounded-lg border border-white/[0.08]">
             {([0.5, 1.0, 2.0] as const).map((spd) => (
               <button
                 key={spd}
                 type="button"
                 onClick={() => setPlaybackSpeed(spd)}
-                className={`h-6 px-1.5 rounded text-[10px] font-mono font-semibold transition-all cursor-pointer ${
-                  playbackSpeed === spd ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                className={`h-6 px-1.5 rounded text-[11px] font-mono font-semibold transition-colors cursor-pointer ${
+                  playbackSpeed === spd ? 'bg-[hsl(var(--accent))] text-white' : 'text-zinc-400 hover:text-white'
                 }`}
               >
                 {spd}x
@@ -231,57 +236,53 @@ export const DynamicAnimationInspector: React.FC = () => {
         </div>
       </div>
 
-      {/* Diagnostics */}
-      <div className="p-2 rounded-xl bg-[hsl(var(--surface-1))] border border-white/[0.08] flex items-center justify-between">
-        <span className="text-[10px] text-zinc-400">Foot Contact Lock</span>
-        <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1 font-semibold">
-          <Footprints className="w-3 h-3 text-emerald-400" />
-          <span>Locked (0.01mm)</span>
-        </span>
-      </div>
-
       {/* 3D Overlays */}
-      <div className="space-y-1.5 p-2 rounded-xl bg-[hsl(var(--surface-1))] border border-white/[0.08]">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] text-zinc-200 font-medium">Skeleton Armature</span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={displayOptions.showSkeleton}
-            onClick={() => setDisplayOptions({ showSkeleton: !displayOptions.showSkeleton })}
-            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${displayOptions.showSkeleton ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'}`}
-          >
-            <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${displayOptions.showSkeleton ? 'translate-x-3 bg-black' : 'translate-x-0'}`} />
-          </button>
-        </div>
-
-        <div className="flex items-center justify-between border-t border-white/[0.04] pt-1.5">
-          <span className="text-[11px] text-zinc-200 font-medium">Trajectory Arc</span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={showTrajectory}
-            onClick={() => setShowTrajectory(!showTrajectory)}
-            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${showTrajectory ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'}`}
-          >
-            <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${showTrajectory ? 'translate-x-3 bg-black' : 'translate-x-0'}`} />
-          </button>
-        </div>
+      <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.08] flex items-center justify-between">
+        <span className="text-xs text-zinc-200 font-medium">Skeleton Armature</span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={displayOptions.showSkeleton}
+          aria-label="Toggle skeleton armature"
+          onClick={() => setDisplayOptions({ showSkeleton: !displayOptions.showSkeleton })}
+          className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${
+            displayOptions.showSkeleton ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'
+          }`}
+        >
+          <div
+            className={`w-3 h-3 rounded-full shadow-sm transition-transform ${
+              displayOptions.showSkeleton ? 'translate-x-3 bg-black' : 'translate-x-0 bg-white'
+            }`}
+          />
+        </button>
       </div>
 
-      {/* Real Export Button */}
-      <button
-        type="button"
-        onClick={handleExportClip}
-        disabled={isExporting}
-        className="w-full h-8 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.1] text-white text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98]"
-      >
-        <Download className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
-        <span>{isExporting ? 'Packaging Motion Clip...' : 'Export Motion Clip (.GLB)'}</span>
-      </button>
-      {exportError && (
-        <div className="text-[10px] text-rose-400">{exportError}</div>
-      )}
+      {/* Actions */}
+      <div className="space-y-1.5">
+        {activeMotionClip && (
+          <button
+            type="button"
+            onClick={handleSaveToLocal}
+            disabled={isSavingLocal}
+            className="w-full h-8 px-3 rounded-xl bg-[hsl(var(--surface-2))] hover:bg-[hsl(var(--surface-3))] border border-white/[0.08] text-zinc-200 text-xs font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50"
+          >
+            <span>{isSavingLocal ? 'Saving...' : 'Save Clip Locally'}</span>
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={handleExportClip}
+          disabled={isExporting || !activeModelObject}
+          className="w-full h-8 px-3 rounded-xl bg-[hsl(var(--surface-2))] hover:bg-[hsl(var(--surface-3))] border border-white/[0.08] text-white text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50"
+        >
+          <Download className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
+          <span>{isExporting ? 'Exporting Motion Clip...' : 'Export Motion Clip (.GLB)'}</span>
+        </button>
+        {exportError && (
+          <div role="alert" className="text-[11px] text-rose-400">{exportError}</div>
+        )}
+      </div>
     </div>
   );
 };

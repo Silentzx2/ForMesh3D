@@ -4,41 +4,44 @@
 
 :root {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-mono-fallback: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-  --background: 0 0% 3.1%;
+  --background: 240 6% 7%;
   --foreground: 0 0% 96%;
-  --card: 0 0% 6.7%;
+  --card: 240 6% 10%;
   --card-foreground: 0 0% 96%;
-  --popover: 0 0% 10.2%;
+  --popover: 240 6% 14%;
   --popover-foreground: 0 0% 96%;
-  --primary: 48 100% 50%;
+  --primary: 44 90% 61%;
   --primary-foreground: 0 0% 5%;
-  --secondary: 0 0% 10.2%;
+  --secondary: 240 6% 14%;
   --secondary-foreground: 0 0% 96%;
-  --muted: 0 0% 14.1%;
-  --muted-foreground: 0 0% 63%;
-  --accent: 48 100% 50%;
-  --accent-foreground: 0 0% 5%;
+  --muted: 240 6% 14%;
+  --muted-foreground: 240 5% 65%;
+  --accent: 241 73% 63%;
+  --accent-foreground: 0 0% 100%;
+  --selection: 241 73% 63%;
+  --selection-foreground: 0 0% 100%;
   --destructive: 0 72% 56%;
   --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 22%;
-  --input: 0 0% 14.1%;
-  --ring: 48 100% 50%;
-  --surface-0: 0 0% 6%;
-  --surface-1: 0 0% 7.5%;
-  --surface-2: 0 0% 14%;
-  --surface-3: 0 0% 15.5%;
-  --surface-4: 0 0% 22%;
-  --studio-gray-1: 0 0% 3.1%;
-  --studio-gray-2: 0 0% 7.5%;
-  --studio-gray-3: 0 0% 11.5%;
-  --studio-gray-4: 0 0% 15.5%;
+  --border: 240 5% 19%;
+  --input: 240 6% 14%;
+  --ring: 44 90% 61%;
+  --surface-0: 240 6% 7%;
+  --surface-1: 240 6% 10%;
+  --surface-2: 240 6% 14%;
+  --surface-3: 240 6% 18%;
+  --surface-4: 240 6% 22%;
+  --studio-gray-1: 240 6% 7%;
+  --studio-gray-2: 240 6% 10%;
+  --studio-gray-3: 240 6% 14%;
+  --studio-gray-4: 240 6% 18%;
   --studio-gray-100: 0 0% 96%;
   --studio-gray-200: 0 0% 75%;
-  --studio-gray-300: 0 0% 63%;
-  --studio-yellow-1: 48 100% 50%;
+  --studio-gray-300: 240 5% 65%;
+  --studio-yellow-1: 44 90% 61%;
   --studio-white-5: 0 0% 100% / 0.05;
+  --studio-white-8: 0 0% 100% / 0.08;
   --studio-white-10: 0 0% 100% / 0.1;
   --neon-purple: 48 100% 50%;
   --neon-amber: 48 100% 50%;
@@ -79,6 +82,8 @@
   --color-muted-foreground: hsl(var(--muted-foreground));
   --color-accent: hsl(var(--accent));
   --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-selection: hsl(var(--selection));
+  --color-selection-foreground: hsl(var(--selection-foreground));
   --color-destructive: hsl(var(--destructive));
   --color-destructive-foreground: hsl(var(--destructive-foreground));
   --color-border: hsl(var(--border));
@@ -101,6 +106,7 @@
   --color-accent-dark: #E0A800;
   --color-accent-light: #FFD866;
   --color-studio-white-5: hsl(var(--studio-white-5));
+  --color-studio-white-8: hsl(var(--studio-white-8));
   --color-studio-white-10: hsl(var(--studio-white-10));
   --shadow-header-float: 0 2px 40px 0 rgba(0, 0, 0, 0.3);
   --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 1px rgba(255, 255, 255, 0.1) inset;
@@ -128,11 +134,12 @@
 }
 
 
-/* Workspace tool panels stay fixed and clean instead of relying on hidden scrollbars. */
+/* Workspace tool panels scroll vertically so controls and sticky CTAs never clip on 1280x720. */
 .workspace-tool-body {
   min-height: 0;
-  overflow: hidden;
-  overscroll-behavior: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .workspace-upload-preview,
@@ -175,7 +182,7 @@
     line-height: 1.4;
   }
   ::selection {
-    background: hsl(var(--studio-yellow-1) / 0.3);
+    background: hsl(var(--selection) / 0.35);
     color: hsl(var(--foreground));
   }
 }
@@ -334,62 +341,7 @@
     transform: scale(0.97);
   }
 
-  /* ── Interactive Specular Lighting & Button Shine ── */
-  .btn-lighting-shine {
-    position: relative;
-    overflow: hidden !important;
-    isolation: isolate;
-  }
-  .btn-lighting-shine::after {
-    content: '';
-    position: absolute;
-    top: -50%;
-    left: -150%;
-    width: 60%;
-    height: 200%;
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(255, 255, 255, 0.2) 20%,
-      rgba(255, 255, 255, 0.75) 50%,
-      rgba(255, 204, 0, 0.8) 70%,
-      transparent 100%
-    );
-    transform: rotate(25deg);
-    pointer-events: none;
-    opacity: 0;
-    z-index: 2;
-  }
-  .btn-lighting-shine:hover::after {
-    opacity: 0.9;
-    animation: btn-specular-sweep 1.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-  }
-  .btn-lighting-shine:active::after {
-    opacity: 1;
-    animation: btn-specular-sweep 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  }
-  .btn-lighting-shine.is-executing::after {
-    opacity: 1;
-    animation: btn-specular-sweep 1.2s linear infinite;
-  }
-
-  @keyframes btn-specular-sweep {
-    0% {
-      left: -150%;
-    }
-    100% {
-      left: 220%;
-    }
-  }
-
-  /* ── Glassmorphic Surface & Elevation ── */
-  .glass-panel {
-    background: rgba(17, 17, 17, 0.88);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  }
+  /* ── Surface & Elevation ── */
 
   .glass-card-interactive {
     background: linear-gradient(180deg, rgba(24, 24, 24, 0.85) 0%, rgba(14, 14, 14, 0.92) 100%);
@@ -557,52 +509,6 @@
   }
   .spotlight:hover::after { opacity: 1; }
 
-  /* ── Holographic Effects ────────────────────────────────── */
-
-  .holographic {
-    position: relative;
-    overflow: hidden;
-  }
-  .holographic::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      135deg,
-      hsl(var(--primary) / 0.04) 0%,
-      transparent 25%,
-      hsl(var(--primary) / 0.02) 50%,
-      transparent 75%,
-      hsl(var(--primary) / 0.04) 100%
-    );
-    background-size: 200% 200%;
-    animation: holographic-shift 8s ease infinite;
-    pointer-events: none;
-  }
-
-  .holographic-shine {
-    position: relative;
-    overflow: hidden;
-  }
-  .holographic-shine::after {
-    content: '';
-    position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: linear-gradient(
-      45deg,
-      transparent 40%,
-      hsl(var(--foreground) / 0.03) 45%,
-      hsl(var(--foreground) / 0.06) 50%,
-      hsl(var(--foreground) / 0.03) 55%,
-      transparent 60%
-    );
-    animation: shine-sweep 3s ease-in-out infinite;
-    pointer-events: none;
-  }
-
   /* ── Floating & Depth Effects ───────────────────────────── */
 
   .float-subtle {
@@ -722,20 +628,6 @@
   }
   .underline-animated:hover::after {
     transform: scaleX(1);
-  }
-
-  /* ── Blob Background ────────────────────────────────────── */
-
-  .blob-bg {
-    position: relative;
-    overflow: hidden;
-  }
-  .blob-bg > .blob {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(80px);
-    opacity: 0.5;
-    pointer-events: none;
   }
 
   /* ── Skeleton & Shimmer ─────────────────────────────────── */
@@ -1329,11 +1221,6 @@
   100% { transform: rotate(360deg); }
 }
 
-@keyframes holographic-shift {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-}
-
 @keyframes shine-sweep {
   0% { transform: translateX(-100%) translateY(-100%); }
   100% { transform: translateX(100%) translateY(100%); }
@@ -1545,63 +1432,6 @@ button, a, input, textarea, select {
 .animate-fade-up {
   animation: fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   opacity: 0;
-}
-
-/* --- Cyberpunk Loading Animations --- */
-
-/* Glitch Text Effect */
-.cyber-glitch {
-  position: relative;
-  animation: flicker 3s linear infinite;
-}
-.cyber-glitch::before,
-.cyber-glitch::after {
-  content: attr(data-text);
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-}
-.cyber-glitch::before {
-  left: 2px;
-  text-shadow: -1px 0 hsl(var(--primary));
-  clip-path: inset(0 0 0 0);
-  animation: glitch-anim-1 2s infinite linear alternate-reverse;
-}
-.cyber-glitch::after {
-  left: -2px;
-  text-shadow: 1px 0 hsl(var(--border));
-  clip-path: inset(0 0 0 0);
-  animation: glitch-anim-2 2s infinite linear alternate-reverse;
-}
-
-@keyframes glitch-anim-1 {
-  0% { clip-path: inset(20% 0 80% 0); }
-  10% { clip-path: inset(60% 0 10% 0); }
-  20% { clip-path: inset(10% 0 70% 0); }
-  30% { clip-path: inset(80% 0 5% 0); }
-  40% { clip-path: inset(30% 0 50% 0); }
-  50% { clip-path: inset(50% 0 30% 0); }
-  60% { clip-path: inset(5% 0 85% 0); }
-  70% { clip-path: inset(70% 0 15% 0); }
-  80% { clip-path: inset(15% 0 60% 0); }
-  90% { clip-path: inset(45% 0 40% 0); }
-  100% { clip-path: inset(25% 0 55% 0); }
-}
-
-@keyframes glitch-anim-2 {
-  0% { clip-path: inset(65% 0 10% 0); }
-  10% { clip-path: inset(15% 0 65% 0); }
-  20% { clip-path: inset(80% 0 5% 0); }
-  30% { clip-path: inset(25% 0 55% 0); }
-  40% { clip-path: inset(50% 0 20% 0); }
-  50% { clip-path: inset(10% 0 70% 0); }
-  60% { clip-path: inset(40% 0 30% 0); }
-  70% { clip-path: inset(5% 0 80% 0); }
-  80% { clip-path: inset(60% 0 15% 0); }
-  90% { clip-path: inset(20% 0 60% 0); }
-  100% { clip-path: inset(75% 0 5% 0); }
 }
 
 @keyframes flicker {
@@ -2604,6 +2434,7 @@ html.reduced-animations *::after {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;

@@ -433,7 +433,11 @@ class ApiClient {
     return response.data;
   }
 
-  async uploadMeshFile(file: File, onProgress?: (loadedBytes: number, totalBytes?: number) => void): Promise<FileUploadResponse> {
+  async uploadMeshFile(
+    file: File,
+    onProgress?: (loadedBytes: number, totalBytes?: number) => void,
+    signal?: AbortSignal,
+  ): Promise<FileUploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -444,6 +448,7 @@ class ApiClient {
         headers: {
           'Content-Type': 'multipart/form-data'
         },
+        signal,
         onUploadProgress: (progressEvent) => {
           if (onProgress) onProgress(progressEvent.loaded, progressEvent.total);
         }

@@ -39,7 +39,7 @@ def test_remesh_contract_keeps_triflow_default():
     panel = (ROOT / "features" / "workspace" / "Panels" / "RemeshPanel.tsx").read_text(encoding="utf-8")
     workspace = (ROOT / "features" / "workspace" / "store" / "WorkspaceContext.tsx").read_text(encoding="utf-8")
     workspace_types = (ROOT / "features" / "workspace" / "types.ts").read_text(encoding="utf-8")
-    registry = (ROOT / "constants" / "models.ts").read_text(encoding="utf-8")
+    registry = (ROOT / "backend" / "config" / "models.yaml").read_text(encoding="utf-8")
     api = (ROOT / "backend" / "api" / "routers" / "mesh_retopology.py").read_text(encoding="utf-8")
     factory = (ROOT / "backend" / "core" / "scheduler" / "model_factory.py").read_text(encoding="utf-8")
     inspector = (ROOT / "features" / "workspace" / "RightPanel" / "RightPropertyPanel.tsx").read_text(encoding="utf-8")
@@ -83,8 +83,8 @@ def test_runtime_probe_inventory_includes_enabled_specialist_adapters():
         "triflow_retopology",
         "partfield_segmentation",
     } <= installed
-    assert _ADAPTER_MAP["triflow_retopology"] == "backend.adapters.triflow_adapter"
-    assert _ADAPTER_MAP["partfield_segmentation"] == "backend.adapters.partfield_adapter"
+    assert _ADAPTER_MAP["triflow_retopology"] == "adapters.triflow_adapter"
+    assert _ADAPTER_MAP["partfield_segmentation"] == "adapters.partfield_adapter"
     assert "fastmesh_v1k_retopology" not in _ADAPTER_MAP
 
 
@@ -96,19 +96,19 @@ def test_trellis_text_painting_manifest_alias_is_registered():
     manifest = load_models_config(str(ROOT / "backend" / "config" / "models.yaml"))
     model = manifest["text_mesh_painting"]["trellis_text_mesh_painting"]
 
-    assert model.enabled is True
-    assert model.model_type == "texture"
-    assert model.vram_requirement == 11776
-    assert model.model_path == "backend/pretrained/TRELLIS"
-    assert model.capabilities["texture_generation"] is True
+    # Text-conditioned TRELLIS painting remains registered for compatibility but disabled.
+    assert model.enabled is False
+    assert model.alias_of == "trellis_image_mesh_painting"
+    assert model.label == "Unsupported"
+    assert "Disabled:" in model.description
 
-    scheduler_config = get_model_configs_from_settings(manifest)["trellis_text_mesh_painting"]
-    assert scheduler_config["feature_type"] == "text_mesh_painting"
+    scheduler_configs = get_model_configs_from_settings(manifest)
+    assert "trellis_text_mesh_painting" not in scheduler_configs
     assert ModelFactory.ADAPTER_REGISTRY["trellis_text_mesh_painting"] == {
         "module": "adapters.trellis_adapter",
         "class": "TrellisTextMeshPaintingAdapter",
     }
-    assert _ADAPTER_MAP["trellis_text_mesh_painting"] == "backend.adapters.trellis_adapter"
+    assert _ADAPTER_MAP["trellis_text_mesh_painting"] == "adapters.trellis_adapter"
 
 
 

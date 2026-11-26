@@ -17,7 +17,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
-  FilterIcon,
   FolderOpenIcon,
   GridIcon,
   MoreVerticalIcon,
@@ -25,7 +24,6 @@ import {
   Trash2,
   ZoomInIcon,
 } from '@hugeicons/core-free-icons';
-import { settingsPersistence } from '@/services/settingsPersistence';
 import { QualityBadge } from '../Panels/GeneratePanel';
 
 export const RightAssetsPanel: React.FC = () => {
@@ -48,12 +46,10 @@ export const RightAssetsPanel: React.FC = () => {
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
   const [collectionMenuOpen, setCollectionMenuOpen] = useState(false);
   const [failedThumbnails, setFailedThumbnails] = useState<Set<string>>(() => new Set());
-  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [activeMenuAssetId, setActiveMenuAssetId] = useState<string | null>(null);
   const [collectionName, setCollectionName] = useState('');
   const [collectionAssetId, setCollectionAssetId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const filterMenuRef = useRef<HTMLDivElement>(null);
   const collectionMenuRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const { state: meshUploadState, upload: uploadMesh, reset: resetMeshUpload } = useMeshAssetUpload();
@@ -68,9 +64,6 @@ export const RightAssetsPanel: React.FC = () => {
   // Handle outside click and Escape key for dropdown menus
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (filterMenuRef.current && !filterMenuRef.current.contains(e.target as Node)) {
-        setFilterMenuOpen(false);
-      }
       if (collectionMenuRef.current && !collectionMenuRef.current.contains(e.target as Node)) {
         setCollectionMenuOpen(false);
       }
@@ -81,7 +74,6 @@ export const RightAssetsPanel: React.FC = () => {
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setFilterMenuOpen(false);
         setCollectionMenuOpen(false);
         setActiveMenuAssetId(null);
       }
@@ -126,17 +118,46 @@ export const RightAssetsPanel: React.FC = () => {
   };
 
   const scopedBaseAssets = React.useMemo(() => {
-    const DERIVED_CATEGORIES = new Set(['retopology', 'remesh', 'uv', 'segmentation', 'rigging', 'animation']);
-    const isDerivedToolAsset = (asset: typeof assets[number]) => {
+    const DERIVED_TYPES = new Set([
+      'retopology',
+      'remesh',
+      'uv',
+      'segmentation',
+      'segment',
+      'rigging',
+      'rig',
+      'animation',
+      'animate',
+      'texture',
+      'pbr',
+      'edit',
+      'refine',
+    ]);
+
+    const isDerivedOrTempAsset = (asset: typeof assets[number]) => {
       if (asset.isLocalDuplicate) return false;
+      if (asset.id.startsWith('preview_')) return true;
       if (asset.is_base_mesh === false) return true;
+
+      // Exclude temp / unsaved generation previews
+      const persistenceStatus = (asset as { persistence_status?: string }).persistence_status;
+      if (persistenceStatus === 'not_saved' || persistenceStatus === 'discarded') return true;
+      if (asset.source?.subfolder === 'temp' || asset.source?.type === 'temp') return true;
+
+      // Exclude post-operation derived meshes unless explicitly marked as a base mesh
+      const opType = String(asset.operation_type || '').toLowerCase();
+      if (opType && DERIVED_TYPES.has(opType) && asset.is_base_mesh !== true) return true;
+
       const cat = String(asset.category || '').toLowerCase();
-      if (DERIVED_CATEGORIES.has(cat)) return true;
+      if (DERIVED_TYPES.has(cat)) return true;
+
       return false;
     };
 
+    const stripIdPrefix = (id: string) => id.replace(/^(?:hist_|upload_|local_|job-)/, '');
+
     const withFavorites = assets
-      .filter((asset) => !asset.id.startsWith('preview_') && !isDerivedToolAsset(asset))
+      .filter((asset) => !isDerivedOrTempAsset(asset))
       .map((asset) => {
         const favoriteKey = asset.isLocalDuplicate
           ? asset.id
@@ -148,14 +169,25 @@ export const RightAssetsPanel: React.FC = () => {
           : { ...asset, isFavorite: assetFavorites[favoriteKey] };
       });
 
-    // Deduplicate base meshes across local/history/upload sources while keeping local duplicates distinct
+    // Deduplicate uploaded & base workspace meshes by canonical identity (workspace_id + fileId / id)
     const seen = new Map<string, typeof withFavorites[number]>();
     for (const asset of withFavorites) {
+      const rawFileId = (asset.source?.fileId || asset.fileId || '').replace(/^job-/, '');
       const key = asset.isLocalDuplicate
         ? `dup:${asset.id}`
-        : (asset.workspace_id || asset.source?.fileId || asset.fileId || asset.id.replace(/^(?:hist_|upload_|local_|job-)/, ''));
+        : asset.workspace_id && rawFileId
+          ? `ws:${asset.workspace_id}:${rawFileId}`
+          : asset.workspace_id
+            ? `ws:${asset.workspace_id}`
+            : `id:${rawFileId || stripIdPrefix(asset.id)}`;
+
       const existing = seen.get(key);
-      if (!existing || (asset.is_base_mesh && !existing.is_base_mesh) || (asset.thumbnail && !existing.thumbnail)) {
+      if (
+        !existing ||
+        (asset.is_base_mesh && !existing.is_base_mesh) ||
+        (asset.sourceType === 'upload' && existing.sourceType !== 'upload') ||
+        (asset.thumbnail && !existing.thumbnail)
+      ) {
         seen.set(key, asset);
       }
     }
@@ -168,7 +200,6 @@ export const RightAssetsPanel: React.FC = () => {
     if (selectedCollection && collection !== selectedCollection && !a.tags?.includes(selectedCollection)) return false;
     if (assetFilter === 'all') return true;
     if (assetFilter === 'models') return a.category === 'generation' || a.category === 'mesh';
-    if (assetFilter === 'textures') return a.category === 'texture' || a.tags?.includes('PBR');
     return true;
   });
 
@@ -204,8 +235,8 @@ export const RightAssetsPanel: React.FC = () => {
                 onClick={() => { setShowFavoritesOnly(false); setAssetFilter('all'); }}
                 className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                   !showFavoritesOnly && assetFilter === 'all'
-                    ? 'bg-white/10 text-[#F9CF00]'
-                    : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
+                    ? 'bg-[hsl(var(--surface-2))] text-primary'
+                    : 'text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface-2))]/60'
                 }`}
               >
                 <HugeiconsIcon icon={GridIcon} size={15} />
@@ -220,8 +251,8 @@ export const RightAssetsPanel: React.FC = () => {
                 onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
                 className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                   showFavoritesOnly
-                    ? 'bg-white/10 text-[#F9CF00]'
-                    : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
+                    ? 'bg-[hsl(var(--surface-2))] text-primary'
+                    : 'text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface-2))]/60'
                 }`}
               >
                 <HugeiconsIcon icon={StarIcon} size={15} />
@@ -233,18 +264,18 @@ export const RightAssetsPanel: React.FC = () => {
           <div className="relative" ref={collectionMenuRef}>
             <button type="button" aria-label="Filter by collection" aria-expanded={collectionMenuOpen}
               onClick={() => setCollectionMenuOpen((open) => !open)}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${selectedCollection ? 'text-primary bg-primary/10 border-primary/30' : 'text-zinc-300 hover:text-white bg-white/[0.06] hover:bg-white/[0.1] border-white/[0.08]'}`}>
-              <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} className="text-zinc-400" />
+              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors cursor-pointer flex items-center gap-1.5 ${selectedCollection ? 'text-primary bg-primary/10 border-primary/30' : 'text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface-3))] bg-[hsl(var(--surface-2))] border-[hsl(var(--border))]'}`}>
+              <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} className="text-[hsl(var(--muted-foreground))]" />
               <span>{selectedCollection || 'Collections'}</span>
             </button>
-            {collectionMenuOpen && <div className="absolute right-0 top-full mt-1.5 w-52 max-h-56 overflow-y-auto rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.1] shadow-2xl z-50 py-1 text-xs">
-              <button type="button" onClick={() => { setSelectedCollection(null); setCollectionMenuOpen(false); }} className="w-full px-3 py-2 text-left text-zinc-200 hover:bg-white/[0.06] flex items-center justify-between">
+            {collectionMenuOpen && <div className="absolute right-0 top-full mt-1.5 w-52 max-h-56 overflow-y-auto rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] shadow-2xl z-50 py-1 text-xs">
+              <button type="button" onClick={() => { setSelectedCollection(null); setCollectionMenuOpen(false); }} className="w-full px-3 py-2 text-left text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface-3))] flex items-center justify-between cursor-pointer">
                 <span>All collections</span>{!selectedCollection && <HugeiconsIcon icon={CheckIcon} size={13} className="text-primary" />}
               </button>
-              {assetCollections.map((collection) => <button key={collection} type="button" onClick={() => { setSelectedCollection(collection); setCollectionMenuOpen(false); }} className="w-full px-3 py-2 text-left text-zinc-300 hover:bg-white/[0.06] flex items-center justify-between">
+              {assetCollections.map((collection) => <button key={collection} type="button" onClick={() => { setSelectedCollection(collection); setCollectionMenuOpen(false); }} className="w-full px-3 py-2 text-left text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface-3))] flex items-center justify-between cursor-pointer">
                 <span className="truncate">{collection}</span>{selectedCollection === collection && <HugeiconsIcon icon={CheckIcon} size={13} className="text-primary" />}
               </button>)}
-              {assetCollections.length === 0 && <div className="px-3 py-2 text-zinc-500">No collections yet</div>}
+              {assetCollections.length === 0 && <div className="px-3 py-2 text-[hsl(var(--muted-foreground))]">No collections yet</div>}
             </div>}
           </div>
         </div>
@@ -254,7 +285,7 @@ export const RightAssetsPanel: React.FC = () => {
       <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
         <MeshUploadStatus state={meshUploadState} onDismiss={resetMeshUpload} />
 
-        {/* Upload 3D Model Dropzone Card - Matching Studio Reference */}
+        {/* Upload 3D Model Dropzone Card */}
         <div
           id="btn-upload-3d-model-card"
           role="button"
@@ -273,34 +304,33 @@ export const RightAssetsPanel: React.FC = () => {
           aria-disabled={uploadActive}
           className={`group relative w-full rounded-2xl border border-dashed ${
             uploadActive ? 'cursor-wait opacity-60' : 'cursor-pointer'
-          } p-4 flex flex-col items-center justify-center text-center transition-all shadow-inner [background-image:linear-gradient(45deg,#18192A_25%,transparent_25%),linear-gradient(-45deg,#18192A_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#18192A_75%),linear-gradient(-45deg,transparent_75%,#18192A_75%)] [background-size:14px_14px] [background-position:0_0,0_7px,7px_-7px,-7px_0px] ${
+          } p-4 flex flex-col items-center justify-center text-center transition-colors bg-[hsl(var(--surface-0))] ${
             isDragOver
-              ? 'border-[#F9CF00] bg-[#1e2038] ring-2 ring-[#F9CF00]/40 scale-[1.01] shadow-[0_0_18px_rgba(249,207,0,0.3)]'
-              : 'border-[#48457D]/50 hover:border-[#6366F1] bg-[#12131F]'
+              ? 'border-primary bg-[hsl(var(--surface-2))] ring-2 ring-primary/30'
+              : 'border-[hsl(var(--border))] hover:border-[hsl(var(--accent))] hover:bg-[hsl(var(--surface-2))]/50'
           }`}
         >
           <div className="flex flex-col items-center justify-center">
-            {/* Purple / Indigo circular button with upward arrow matching reference */}
-            <div className="w-10 h-10 rounded-full bg-gradient-to-b from-[#6366F1] to-[#4F46E5] text-white flex items-center justify-center shadow-lg shadow-indigo-500/25 group-hover:scale-105 transition-transform mb-2.5">
+            <div className="w-10 h-10 rounded-full bg-[hsl(var(--accent))] text-[hsl(var(--accent-foreground))] flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform mb-2.5">
               <HugeiconsIcon icon={ArrowUp01Icon} size={18} className="stroke-[2.5]" />
             </div>
-            <span className="text-xs font-bold text-white tracking-wide">
+            <span className="text-xs font-semibold text-[hsl(var(--foreground))] tracking-wide">
               Upload 3D Model
             </span>
-            <span className="text-[10px] text-zinc-400 mt-1 font-medium">
+            <span className="text-[11px] text-[hsl(var(--muted-foreground))] mt-1">
               GLB, GLTF, OBJ, FBX, STL, PLY
             </span>
-            <span className="text-[9.5px] text-zinc-500 font-mono mt-0.5">
+            <span className="text-[10px] text-[hsl(var(--muted-foreground))]/80 font-mono mt-0.5">
               Size ≤ 200MB
             </span>
           </div>
         </div>
 
         {filteredAssets.length === 0 ? (
-          <div className="py-6 px-2 text-center text-zinc-400">
-            <HugeiconsIcon icon={FolderOpenIcon} size={16} className="w-8 h-8 mx-auto mb-2 text-zinc-500" />
-            <div className="text-xs font-bold text-zinc-300">No outputs yet</div>
-            <div className="text-[11px] mt-1 text-zinc-500">Run a generation workflow or import a 3D file above.</div>
+          <div className="py-6 px-2 text-center text-[hsl(var(--muted-foreground))]">
+            <HugeiconsIcon icon={FolderOpenIcon} size={16} className="w-8 h-8 mx-auto mb-2 opacity-60" />
+            <div className="text-xs font-semibold text-[hsl(var(--foreground))]">No base meshes yet</div>
+            <div className="text-[11px] mt-1">Generate a model or upload a 3D file above.</div>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2">
@@ -327,12 +357,12 @@ export const RightAssetsPanel: React.FC = () => {
                 className={`group relative rounded-xl cursor-grab active:cursor-grabbing transition-all aspect-square flex flex-col ${
                   isSelected
                     ? 'ring-2 ring-[hsl(var(--primary))] bg-[hsl(var(--surface-2))] shadow-md shadow-[hsl(var(--primary))]/15'
-                    : 'border border-white/[0.08] bg-[hsl(var(--surface-0))] hover:border-white/[0.2] hover:bg-[#1A1B1F]'
+                    : 'border border-[hsl(var(--border))] bg-[hsl(var(--surface-0))] hover:border-[hsl(var(--foreground))]/25 hover:bg-[hsl(var(--surface-2))]'
                 }`}
                 title={`Click or drag "${asset.name}" into 3D Viewport`}
               >
                 {/* 3D Asset Thumbnail */}
-                <div className="relative w-full flex-1 bg-[#121316] overflow-hidden rounded-t-xl">
+                <div className="relative w-full flex-1 bg-[hsl(var(--surface-0))] overflow-hidden rounded-t-xl">
                   {asset.thumbnail && !failedThumbnails.has(`${asset.id}:${asset.thumbnail}`) ? (
                     <img
                       src={asset.thumbnail}

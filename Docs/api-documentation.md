@@ -3,7 +3,7 @@
 > **Base URL:** `http://localhost:7842`  
 > **API prefix:** `/api/v1`  
 > **Live schema:** `/openapi.json` and `/docs`  
-> **Audited:** 2026-11-22
+> **Audited:** 2026-11-26
 
 This guide describes the route groups registered by the current FastAPI entrypoints. The generated OpenAPI schema is authoritative for request fields, response models, status codes and optional parameters. Do not rely on historical example payloads in older documentation.
 
@@ -96,6 +96,22 @@ Retopology, segmentation and UV are scheduler-backed AI routes. Their request mo
 `GET /api/v1/segment/readiness` reports whether PartField has a CUDA runtime, a complete Objaverse checkpoint, the vendored inference source, and its required Python modules. The Segmentation panel disables the run action when this probe is unavailable. This is an installation/readiness probe, not a promise that every mesh will fit the GPU or produce a successful inference.
 
 When `save_individual_parts=true`, PartField saves each generated part as an independent workspace mesh asset and writes a ZIP archive. Download the saved parts using the completed combined mesh asset ID: `GET /api/v1/system/jobs/{asset_id}/download?artifact_format=zip`. The combined colored GLB remains the active segmentation result.
+
+## Motion clips (ARDY & user uploads)
+
+Router prefix: /api/v1/motion. Motion clips use normalized MotionClipV1 (schema version 1, quaternion_xyzw rotations, source-supported y_up axis, source_native translation units). Handedness and physical units are not asserted until a real NPZ from the supported checkpoint is verified.
+
+- GET /api/v1/motion/presets — List bundled, read-only premade presets from backend/motion_presets/. Only approved tracked NPZ files are listed.
+- GET /api/v1/motion/presets/{id}/thumbnail — Serve a sibling PNG/WEBP thumbnail for a validated premade preset ID; no arbitrary file serving.
+- GET /api/v1/motion/clips/{clip_id} — Return normalized MotionClipV1 for a premade ID, user preset ID (upl_ or gen_), or completed ARDY job/asset ID. No filesystem paths are exposed.
+- POST /api/v1/motion/clips/preview — Multipart file (.npz). Temporary validation/preview only; never persists to storage or either preset library.
+- GET /api/v1/motion/uploads — List user-owned uploaded/generated presets from backend/storage/presets/<preset_id>/; entries include source: uploaded | generated.
+- POST /api/v1/motion/uploads — Validate and persist an uploaded NPZ as backend/storage/presets/<upl_id>/motion.npz with one metadata.json in that preset directory.
+- POST /api/v1/motion/uploads/from-clip/{clip_id} — Copy a completed ARDY job/asset NPZ into a deterministic gen_<hex12> user preset. Repeated calls for the same immutable source are idempotent.
+- DELETE /api/v1/motion/uploads/{clip_id} — Delete only the identified user preset directory. Legacy flat backend/storage/motion_uploads/ files remain readable during migration; new writes never target that directory.
+
+Evidence gate: parser unit tests use synthetic NPZ fixtures. Real checkpoint output has not yet been supplied/verified, so end-to-end retargeting, handedness, and physical translation units remain unverified.
+
 
 ## Database administration
 

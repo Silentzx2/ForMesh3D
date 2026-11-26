@@ -5,16 +5,36 @@ Provides endpoints for text-to-motion generation and interactive animation synth
 """
 
 import logging
+import re
+import tempfile
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.dependencies import get_scheduler, sanitize_error_message
 from core.scheduler.database_manager import DatabaseManager
 from core.scheduler.job_queue import JobRequest
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
-from core.utils.file_utils import get_workspace_storage_manager
+from core.utils.file_utils import get_storage_base_dir, get_workspace_storage_manager
+from services.motion_clips import (
+    MAX_COMPRESSED_UPLOAD_BYTES,
+    MotionClipError,
+    MotionClipV1,
+    MotionPresetListResponse,
+    MotionUploadListResponse,
+    delete_uploaded_motion_clip,
+    list_motion_presets,
+    list_uploaded_motion_clips,
+    normalize_ardy_npz_bytes,
+    resolve_preset_npz_path,
+    resolve_preset_thumbnail_path,
+    resolve_upload_npz_path,
+    save_uploaded_motion_clip,
+    save_generated_motion_clip,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +150,7 @@ async def generate_motion(
             "target_bones": request.target_bones,
             "constraints": request.constraints,
             "workspace_id": target_ws_id,
+            "input_asset_id": request.input_asset_id,
             "operation_id": operation_id,
             **(request.model_parameters or {}),
         }
@@ -272,3 +293,223 @@ async def get_supported_formats():
         },
         "artifact_type": "motion",
     }
+
+
+_SAFE_CLIP_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+async def _resolve_job_or_asset_motion_npz(
+    clip_id: str,
+    scheduler: MultiprocessModelScheduler,
+) -> tuple[Path, str]:
+    """
+    Resolve a completed ARDY job or motion asset ID to a contained .npz path
+    inside backend/storage/ without exposing filesystem paths.
+    """
+    if not _SAFE_CLIP_ID_RE.fullmatch(clip_id):
+        raise HTTPException(status_code=404, detail="Motion clip not found")
+
+    storage_base = get_storage_base_dir().resolve()
+    db = DatabaseManager()
+
+    # 1. Try asset_id directly (e.g. ast_...)
+    asset = db.get_asset(clip_id)
+    if asset is not None:
+        if asset.file_type != "motion":
+            raise HTTPException(status_code=404, detail="Motion clip not found")
+        candidate = (storage_base / asset.workspace_id / asset.relative_path)
+        if candidate.is_symlink():
+            raise HTTPException(status_code=404, detail="Motion clip not found")
+        resolved = candidate.resolve()
+        if not resolved.is_relative_to(storage_base) or not resolved.is_file():
+            raise HTTPException(status_code=404, detail="Motion clip not found")
+        return resolved, asset.original_filename or clip_id
+
+    # 2. Try job_id (accepting either raw job_id or "job-<job_id>")
+    raw_job_id = clip_id[4:] if clip_id.startswith("job-") else clip_id
+    job_status = await scheduler.get_job_status(raw_job_id)
+    if job_status is None:
+        raise HTTPException(status_code=404, detail="Motion clip not found")
+    if job_status.get("status") != "completed":
+        raise HTTPException(status_code=404, detail="Motion clip not ready")
+
+    result = job_status.get("result") or {}
+    if result.get("artifact_type") != "motion":
+        raise HTTPException(status_code=404, detail="Motion clip not found")
+
+    if result.get("asset_id"):
+        asset = db.get_asset(str(result["asset_id"]))
+        if asset is not None and asset.file_type == "motion":
+            candidate = storage_base / asset.workspace_id / asset.relative_path
+            if not candidate.is_symlink():
+                resolved = candidate.resolve()
+                if resolved.is_relative_to(storage_base) and resolved.is_file():
+                    return resolved, asset.original_filename or clip_id
+
+    for path_key in ("output_motion_path", "output_path", "file_path"):
+        raw_path = result.get(path_key)
+        if not raw_path:
+            continue
+        candidate = Path(str(raw_path))
+        if candidate.is_symlink():
+            continue
+        try:
+            resolved = candidate.resolve(strict=True)
+        except OSError:
+            continue
+        if resolved.is_relative_to(storage_base) and resolved.is_file():
+            return resolved, resolved.stem
+
+    raise HTTPException(status_code=404, detail="Motion clip not found")
+
+
+@router.get("/presets", response_model=MotionPresetListResponse)
+async def get_motion_presets():
+    """List only bundled, read-only premade motion presets from backend/motion_presets/."""
+    return list_motion_presets()
+
+
+@router.get("/presets/{preset_id}/thumbnail")
+async def get_motion_preset_thumbnail(preset_id: str):
+    """Serve sibling PNG/WEBP thumbnail for a validated preset ID."""
+    try:
+        thumb_path, media_type = resolve_preset_thumbnail_path(preset_id)
+    except MotionClipError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+    return FileResponse(path=str(thumb_path), media_type=media_type)
+
+
+async def _read_bounded_npz_upload(file: UploadFile) -> tuple[bytes, str]:
+    """Read a multipart .npz upload with strict size bounds and guaranteed close."""
+    filename = (file.filename or "").strip()
+    if not filename.lower().endswith(".npz"):
+        await file.close()
+        raise HTTPException(
+            status_code=415,
+            detail="Unsupported media type: expected a .npz motion archive",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="formesh_motion_upload_") as tmp_dir:
+        tmp_path = Path(tmp_dir) / "upload.npz"
+        total_read = 0
+        try:
+            with tmp_path.open("wb") as out_handle:
+                while True:
+                    chunk = await file.read(65536)
+                    if not chunk:
+                        break
+                    total_read += len(chunk)
+                    if total_read > MAX_COMPRESSED_UPLOAD_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail="NPZ upload exceeds maximum compressed size limit",
+                        )
+                    out_handle.write(chunk)
+        finally:
+            await file.close()
+
+        if total_read == 0:
+            raise HTTPException(status_code=400, detail="Uploaded NPZ file is empty")
+
+        return tmp_path.read_bytes(), filename
+
+
+@router.get("/uploads", response_model=MotionUploadListResponse)
+async def get_uploaded_motion_clips():
+    """List user-uploaded and generated presets from backend/storage/presets/."""
+    return list_uploaded_motion_clips()
+
+
+@router.post("/uploads", response_model=MotionClipV1)
+async def upload_motion_clip(file: UploadFile = File(...)):
+    """
+    Validate and permanently save an uploaded NPZ in backend/storage/presets/.
+    This is separate from bundled premade presets and workspace asset directories.
+    """
+    raw_bytes, filename = await _read_bounded_npz_upload(file)
+    try:
+        return save_uploaded_motion_clip(raw_bytes, filename=filename)
+    except MotionClipError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+
+
+@router.post("/uploads/from-clip/{clip_id}", response_model=MotionClipV1)
+async def save_generated_motion_clip_to_library(
+    clip_id: str,
+    scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
+):
+    """Copy a completed ARDY job/asset artifact into the persistent user preset library."""
+    npz_path, source_name = await _resolve_job_or_asset_motion_npz(clip_id, scheduler)
+    try:
+        if npz_path.stat().st_size > MAX_COMPRESSED_UPLOAD_BYTES:
+            raise MotionClipError(413, "Generated NPZ exceeds maximum compressed size limit")
+        return save_generated_motion_clip(npz_path.read_bytes(), source_clip_id=clip_id, name=source_name)
+    except MotionClipError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+    except OSError:
+        raise HTTPException(status_code=404, detail="Generated motion clip not found") from None
+
+
+@router.delete("/uploads/{clip_id}")
+async def remove_uploaded_motion_clip(clip_id: str):
+    """Delete a user-owned preset directory from backend/storage/presets/."""
+    try:
+        delete_uploaded_motion_clip(clip_id)
+    except MotionClipError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+    return {"deleted": True, "id": clip_id}
+
+
+@router.post("/clips/preview", response_model=MotionClipV1)
+async def preview_motion_clip(file: UploadFile = File(...)):
+    """
+    Validate and normalize an uploaded NPZ motion clip without persisting it
+    to backend/storage/ or backend/motion_presets/.
+    """
+    raw_bytes, filename = await _read_bounded_npz_upload(file)
+    clip_name = Path(filename).stem or "Preview Motion"
+    try:
+        return normalize_ardy_npz_bytes(
+            raw_bytes,
+            clip_id="preview",
+            name_override=clip_name,
+        )
+    except MotionClipError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+
+
+@router.get("/clips/{clip_id}", response_model=MotionClipV1)
+async def get_motion_clip(
+    clip_id: str,
+    scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
+):
+    """
+    Return normalized MotionClipV1 for:
+    (a) a bundled preset ID in backend/motion_presets/,
+    (b) a user-owned preset ID in backend/storage/presets/ (including legacy uploads), or
+    (c) a completed ARDY job/asset ID (motion_clip_id).
+    """
+    # 1. Check presets directory
+    try:
+        preset_path = resolve_preset_npz_path(clip_id)
+        return normalize_ardy_npz_bytes(preset_path.read_bytes(), clip_id=clip_id)
+    except MotionClipError as exc:
+        if exc.status_code != 404:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+
+    # 2. Check user-uploaded clips directory
+    try:
+        upload_path, name_override = resolve_upload_npz_path(clip_id)
+        return normalize_ardy_npz_bytes(
+            upload_path.read_bytes(), clip_id=clip_id, name_override=name_override
+        )
+    except MotionClipError as exc:
+        if exc.status_code != 404:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+
+    # 3. Check completed ARDY job / motion asset
+    npz_path, _ = await _resolve_job_or_asset_motion_npz(clip_id, scheduler)
+    try:
+        return normalize_ardy_npz_bytes(npz_path.read_bytes(), clip_id=clip_id)
+    except MotionClipError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None

@@ -2,20 +2,15 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { useWorkspace } from '../store/WorkspaceContext';
-import type { ModelAsset } from '../types';
 import { useFeatureAvailability } from '@/hooks/useFeatureAvailability';
 import { getNativeTargetCapability, type NativeTargetCapability } from '../utils/buildGenerationParameters';
-import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import {
   Sparkles,
   ImageIcon,
   Box,
   RotateCw,
   Lightbulb,
-  SlidersHorizontal,
-  ChevronRight,
   ChevronDown,
-  CancelIcon,
   Trash2,
   Edit2,
   ThumbsUp,
@@ -24,14 +19,7 @@ import {
 } from '@/components/icons/hugeicons-components';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
-  CheckIcon,
-  TriangleAlertIcon,
-  UploadIcon,
-  Cancel,
-  FolderOpenIcon,
-  ViewIcon,
   HelpCircleIcon,
-  SparklesIcon,
 } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
@@ -39,219 +27,8 @@ import { MeshUploadStatus } from './MeshUploadStatus';
 import { getApiClient } from '@/services/apiClient';
 import { GlowButton, JobProgressBar, JobProgressStage } from '../components';
 
-// ==========================================
-// 1. Quality Metrics & QualityBadge Export
-// ==========================================
-export interface QualityMetrics {
-  triangles: number;
-  nonManifoldEdges: number;
-  holes: number;
-  featureEdgeRetention: number | null;
-  warnings: string[];
-  passedGate: boolean;
-  status: 'Sharp' | 'Clean' | 'Needs Review';
-}
-
-export function computeQualityMetrics(
-  asset?: ModelAsset | null,
-  rawResult?: Record<string, any> | null
-): QualityMetrics {
-  const qaReport = (
-    asset?.artifacts?.qaReport ||
-    (asset as any)?.qa_report ||
-    (asset as any)?.quality_trace?.game_ready?.qa ||
-    rawResult?.qa_report ||
-    rawResult?.quality_report ||
-    rawResult?.artifacts?.qaReport
-  ) as Record<string, any> | undefined;
-
-  const afterMetrics = qaReport?.after_postprocess?.metrics || qaReport?.metrics || rawResult?.metrics || {};
-  const masterToDeriv = qaReport?.master_to_derivative || rawResult?.master_to_derivative || {};
-  const meshDetails = ((asset?.meshDetails || rawResult?.mesh_details) || {}) as Record<string, any>;
-
-  const triangles = Number(
-    asset?.triangles ||
-    asset?.faces ||
-    afterMetrics.triangle_count ||
-    afterMetrics.triangles ||
-    meshDetails.triangle_count ||
-    meshDetails.triangles ||
-    rawResult?.triangle_count ||
-    0
-  );
-
-  const nonManifoldEdges = Number(
-    asset?.nonManifoldEdges ??
-    afterMetrics.non_manifold_edges ??
-    meshDetails.non_manifold_edges ??
-    rawResult?.non_manifold_edges ??
-    (asset?.isManifold === false ? 1 : 0)
-  );
-
-  const holes = Number(
-    afterMetrics.hole_count ??
-    afterMetrics.holes ??
-    meshDetails.hole_count ??
-    meshDetails.holes ??
-    rawResult?.hole_count ??
-    0
-  );
-
-  const rawRetention =
-    masterToDeriv.feature_edge_retention ??
-    afterMetrics.feature_edge_retention ??
-    qaReport?.feature_edge_retention ??
-    meshDetails.feature_edge_retention ??
-    rawResult?.feature_edge_retention;
-
-  const featureEdgeRetention = (rawRetention !== undefined && rawRetention !== null && !isNaN(Number(rawRetention)))
-    ? Number(rawRetention)
-    : null;
-
-  const warnings: string[] = [];
-  if (Array.isArray(asset?.qaWarnings)) warnings.push(...asset!.qaWarnings);
-  if (Array.isArray(asset?.degradedReasons)) warnings.push(...asset!.degradedReasons);
-  if (Array.isArray(qaReport?.warnings)) warnings.push(...qaReport!.warnings);
-  if (Array.isArray(rawResult?.warnings)) warnings.push(...rawResult!.warnings);
-  if (Array.isArray(rawResult?.degraded_reasons)) warnings.push(...rawResult!.degraded_reasons);
-
-  const topoGate = qaReport?.topology_gate || rawResult?.topology_gate;
-  const qualGate = qaReport?.quality_gate || masterToDeriv.quality_gate || rawResult?.quality_gate;
-  const gateFailed = (topoGate && topoGate.passed_clean === false) || (qualGate && qualGate.passed === false);
-  const passedGate = !gateFailed && asset?.qaStatus !== 'fail';
-
-  let status: 'Sharp' | 'Clean' | 'Needs Review';
-  const backendTier = asset?.qualityTier || rawResult?.quality_tier || qaReport?.quality_tier || (rawResult?.quality_trace as any)?.quality_tier;
-  if (backendTier && (String(backendTier).toLowerCase() === 'sharp' || String(backendTier).toLowerCase() === 'clean')) {
-    status = String(backendTier).toLowerCase() === 'sharp' ? 'Sharp' : 'Clean';
-  } else if (
-    asset?.productionStatus === 'degraded' ||
-    asset?.qaStatus === 'fail' ||
-    asset?.qaStatus === 'warn' ||
-    warnings.length > 0 ||
-    gateFailed ||
-    nonManifoldEdges > 0 ||
-    holes > 0
-  ) {
-    status = 'Needs Review';
-  } else if (featureEdgeRetention !== null && featureEdgeRetention >= 0.85) {
-    status = 'Sharp';
-  } else {
-    status = 'Clean';
-  }
-
-  return {
-    triangles,
-    nonManifoldEdges,
-    holes,
-    featureEdgeRetention,
-    warnings,
-    passedGate,
-    status,
-  };
-}
-
-export interface QualityBadgeProps {
-  asset?: ModelAsset | null;
-  rawResult?: Record<string, any> | null;
-  metrics?: Partial<QualityMetrics>;
-  className?: string;
-  size?: 'sm' | 'md';
-}
-
-export const QualityBadge: React.FC<QualityBadgeProps> = React.memo(({
-  asset,
-  rawResult,
-  metrics: customMetrics,
-  className = '',
-  size = 'md',
-}) => {
-  const computed = useMemo(() => {
-    const base = computeQualityMetrics(asset, rawResult);
-    return { ...base, ...customMetrics };
-  }, [asset, rawResult, customMetrics]);
-
-  const { status, triangles, nonManifoldEdges, holes, featureEdgeRetention, warnings } = computed;
-
-  const badgeConfig = {
-    Sharp: {
-      label: 'Sharp',
-      icon: SparklesIcon,
-      style: 'bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] border-[hsl(var(--primary))]/30 shadow-[0_0_8px_rgba(249,207,0,0.15)]',
-      dotStyle: 'bg-[hsl(var(--primary))]',
-    },
-    Clean: {
-      label: 'Clean',
-      icon: CheckIcon,
-      style: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 shadow-[0_0_8px_rgba(52,211,153,0.15)]',
-      dotStyle: 'bg-emerald-400',
-    },
-    'Needs Review': {
-      label: 'Needs Review',
-      icon: TriangleAlertIcon,
-      style: 'bg-amber-500/15 text-amber-300 border-amber-500/30 shadow-[0_0_8px_rgba(251,191,36,0.15)]',
-      dotStyle: 'bg-amber-400',
-    },
-  }[status];
-
-  const retentionDisplay = featureEdgeRetention !== null
-    ? `${(featureEdgeRetention <= 1 ? featureEdgeRetention * 100 : featureEdgeRetention).toFixed(1)}%`
-    : '100.0%';
-
-  const tooltipContent = (
-    <div className="space-y-1.5 text-left py-1 px-0.5 text-[9.5px]">
-      <div className="font-bold border-b border-white/10 pb-1 flex items-center justify-between gap-3">
-        <span className="text-white">Mesh Quality Report</span>
-        <span className={`px-1.5 py-0.2 rounded text-[8px] font-mono font-bold ${badgeConfig.style}`}>
-          {status}
-        </span>
-      </div>
-      <div className="space-y-1">
-        <div className="flex justify-between gap-4 text-zinc-300">
-          <span>Triangles</span>
-          <span className="font-mono text-white font-bold">{triangles.toLocaleString()}</span>
-        </div>
-        <div className="flex justify-between gap-4 text-zinc-300">
-          <span>Non-Manifold Edges</span>
-          <span className={`font-mono font-bold ${nonManifoldEdges > 0 ? 'text-amber-300' : 'text-emerald-300'}`}>
-            {nonManifoldEdges}
-          </span>
-        </div>
-        <div className="flex justify-between gap-4 text-zinc-300">
-          <span>Holes</span>
-          <span className={`font-mono font-bold ${holes > 0 ? 'text-amber-300' : 'text-emerald-300'}`}>
-            {holes}
-          </span>
-        </div>
-        <div className="flex justify-between gap-4 text-zinc-300">
-          <span>Feature Edge Retention</span>
-          <span className="font-mono text-[hsl(var(--primary))] font-bold">{retentionDisplay}</span>
-        </div>
-      </div>
-      {warnings.length > 0 && (
-        <div className="pt-1 border-t border-white/10 text-[8px] text-amber-300/90 leading-tight">
-          ⚠ {warnings[0]}
-        </div>
-      )}
-    </div>
-  );
-
-  return (
-    <SimpleTooltip label={tooltipContent} side="top">
-      <span
-        data-testid="quality-badge"
-        className={`inline-flex items-center gap-1 font-bold rounded-md border tracking-wider transition-all cursor-help ${
-          size === 'sm' ? 'px-1.5 py-0.2 text-[8px]' : 'px-2 py-0.5 text-[9.5px]'
-        } ${badgeConfig.style} ${className}`}
-      >
-        <span className={`w-1.5 h-1.5 rounded-full ${badgeConfig.dotStyle}`} />
-        <HugeiconsIcon icon={badgeConfig.icon} size={size === 'sm' ? 11 : 13} className="stroke-[2.5]" />
-        <span>{badgeConfig.label}</span>
-      </span>
-    </SimpleTooltip>
-  );
-});
-QualityBadge.displayName = 'QualityBadge';
+export { QualityBadge, computeQualityMetrics } from '../components/QualityBadge';
+export type { QualityMetrics, QualityBadgeProps } from '../components/QualityBadge';
 
 // ==========================================
 // 2. Focused GeneratePanel Component
@@ -262,6 +39,7 @@ export const GeneratePanel: React.FC = () => {
     executionProgress,
     executionStep,
     executionStatus,
+    activeTask,
     cancelExecution,
     generate3DModel,
     isExportModalOpen,
@@ -1202,13 +980,17 @@ export const GeneratePanel: React.FC = () => {
         {isExecuting && (
           <div className="p-3 rounded-2xl bg-[hsl(var(--surface-1))] border border-[hsl(var(--primary))]/30 shadow-xl space-y-2 animate-in fade-in">
             <JobProgressStage
-              label={executionStep || 'Generating 3D model...'}
+              label={executionStatus === 'queued'
+                ? (typeof activeTask?.queuePosition === 'number' ? `Queued · position ${activeTask.queuePosition}` : 'Queued · waiting for a worker')
+                : executionStep || 'Generating 3D model...'}
               status={executionStatus === 'completed' ? 'completed' : executionStatus === 'failed' || executionStatus === 'interrupted' ? 'error' : 'loading'}
             />
             <JobProgressBar
-              progress={executionProgress}
-              label={executionStep || 'Generating 3D model...'}
-              status={executionStatus === 'completed' ? 'completed' : executionStatus === 'failed' || executionStatus === 'interrupted' ? 'error' : 'loading'}
+              progress={executionStatus === 'queued' ? null : executionProgress}
+              queuePosition={activeTask?.queuePosition}
+              totalPending={activeTask?.totalPending}
+              label={executionStatus === 'queued' ? 'Waiting for a worker' : executionStep || 'Generating 3D model...'}
+              status={executionStatus === 'queued' ? 'queued' : executionStatus === 'completed' ? 'completed' : executionStatus === 'failed' || executionStatus === 'interrupted' ? 'error' : 'loading'}
             />
           </div>
         )}

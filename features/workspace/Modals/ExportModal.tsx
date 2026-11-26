@@ -1,14 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import * as THREE from 'three';
 import { useWorkspace } from '../store/WorkspaceContext';
-import { motion, AnimatePresence } from 'motion/react';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { Archive, BookmarkIcon, Cancel, CheckIcon, DownloadIcon, FileBoxIcon, LoaderCircle, Plus, ShieldCheckIcon, Trash2, TriangleAlertIcon } from '@hugeicons/core-free-icons';
+import { Archive, BookmarkIcon, Cancel, DownloadIcon, FileBoxIcon, LoaderCircle, Plus, ShieldCheckIcon, Trash2, TriangleAlertIcon } from '@hugeicons/core-free-icons';
 import { downloadArtifact } from '../lib/artifactDownload';
 import { settingsPersistence, type ExportQuickProfile } from '@/services/settingsPersistence';
 import { SimplifyModifier } from 'three/examples/jsm/modifiers/SimplifyModifier.js';
 import { exportThreeObject, downloadBlob, type ClientSupportedExportFormat } from '../utils/clientExporters';
 import { useViewerStore } from '@/stores/useViewerStore';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export const ExportModal: React.FC = () => {
   const { isExportModalOpen, setIsExportModalOpen, currentAsset } = useWorkspace();
@@ -75,18 +81,6 @@ export const ExportModal: React.FC = () => {
       handleApplyProfile(refreshed[0].id);
     }
   };
-
-  // Dismiss on Escape
-  useEffect(() => {
-    if (!isExportModalOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsExportModalOpen(false);
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isExportModalOpen, setIsExportModalOpen]);
-
-  if (!isExportModalOpen) return null;
 
   const assetName = currentAsset?.name || 'character';
   const assetBaseName = assetName.replace(/\.[^.]+$/, '');
@@ -275,29 +269,22 @@ export const ExportModal: React.FC = () => {
   };
 
   return (
-    <div
-      onClick={(e) => { if (e.target === e.currentTarget) setIsExportModalOpen(false); }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-3 sm:p-4 text-xs select-none"
-    >
-      <div className="w-full max-w-lg max-w-[calc(100vw-1.5rem)] max-h-[90vh] flex flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[hsl(var(--surface-1))] shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+    <Dialog open={isExportModalOpen} onOpenChange={setIsExportModalOpen}>
+      <DialogContent className="w-full max-w-lg max-w-[calc(100vw-1.5rem)] max-h-[90vh] p-0 gap-0 flex flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[hsl(var(--surface-1))] shadow-2xl text-xs select-none">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/[0.08] bg-[hsl(var(--surface-2))] px-4 sm:px-5 py-3.5 flex-shrink-0">
+        <DialogHeader className="border-b border-white/[0.08] bg-[hsl(var(--surface-2))] px-4 sm:px-5 py-3.5 pr-12 flex-shrink-0 text-left">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/15 text-primary border border-primary/30">
               <HugeiconsIcon icon={FileBoxIcon} size={16} className="h-5 w-5 stroke-[2.2]" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-white">Production Export Engine</h2>
-              <p className="text-[11px] text-zinc-400 truncate max-w-[200px] sm:max-w-[280px]">{assetName}</p>
+              <DialogTitle className="text-sm font-bold text-white">Production Export Engine</DialogTitle>
+              <DialogDescription className="text-[11px] text-zinc-400 truncate max-w-[200px] sm:max-w-[280px]">
+                {assetName}
+              </DialogDescription>
             </div>
           </div>
-          <button
-            onClick={() => setIsExportModalOpen(false)}
-            className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/[0.08] hover:text-white transition-colors cursor-pointer"
-          >
-            <HugeiconsIcon icon={Cancel} size={16} className="h-4 w-4" />
-          </button>
-        </div>
+        </DialogHeader>
 
         <div className="space-y-4 p-4 sm:p-5 flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
           {/* QA Quality Score Banner */}
@@ -543,15 +530,17 @@ export const ExportModal: React.FC = () => {
           </span>
           <div className="flex items-center justify-end gap-2.5">
           <button
+            type="button"
             onClick={() => setIsExportModalOpen(false)}
             className="flex-1 sm:flex-initial rounded-xl px-4 h-8 text-xs font-semibold text-zinc-300 hover:bg-white/[0.08] hover:text-white transition-colors cursor-pointer flex items-center justify-center"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={() => void handleExport()}
             disabled={isExporting}
-            className={`flex-1 sm:flex-initial px-5 sm:px-6 h-8 text-xs font-semibold rounded-xl bg-primary text-black hover:brightness-105 shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 btn-lighting-shine ${isExporting ? 'is-executing' : ''}`}
+            className="flex-1 sm:flex-initial px-5 sm:px-6 h-8 text-xs font-semibold rounded-xl bg-primary text-black hover:brightness-105 shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {isExporting ? (
               <>
@@ -567,7 +556,7 @@ export const ExportModal: React.FC = () => {
           </button>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };

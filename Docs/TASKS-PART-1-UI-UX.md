@@ -282,7 +282,7 @@ Primary file: app/globals.css.
 
 The UI must be built around a verified clip contract, not assumed raw NPZ array names.
 
-- [ ] Refine Animation panel to match the inspected reference: clear Create Motion area, multiline prompt, duration control, primary Generate action, and compact Preset/Saved library.
+- [ ] Refine Animation panel to match the inspected reference: clear Create Motion area, multiline prompt, duration control, primary Generate action, and compact Premade/My Presets library.
 - [ ] Preserve existing ARDY text-to-motion workflow.
 - [ ] Keep only generation controls verified by current backend request and loaded checkpoint. Current repository inspection shows the adapter reports FPS from its loaded motion representation and loads the Core 20FPS checkpoint; do not expose selectable 24/30/60 FPS or Core/G1 options unless Part 2 proves the corresponding model/checkpoint is actually loaded and applied.
 - [ ] Duration must respect the existing API validation range (currently 0.5–30 seconds) unless Part 2 deliberately changes the schema.
@@ -291,8 +291,8 @@ The UI must be built around a verified clip contract, not assumed raw NPZ array 
 - [ ] Build a typed frontend client around the Part 2 API contract below. Use the existing API client/proxy pattern. Do not add a mock backend, fake results, or a Next.js-only endpoint that bypasses FastAPI.
 - [ ] Preset cards must load real names, duration, FPS, and thumbnail metadata from the API. Empty, loading, error, malformed, and unavailable states must be explicit.
 - [ ] User-uploaded NPZ preview must use the Part 2 preview endpoint. Do not parse arbitrary untrusted ZIP/NPY data in the browser as an improvised shortcut.
-- [ ] Saved local clips must use IndexedDB (or an existing durable browser-storage helper) for actual clip data. Metadata-only localStorage entries must not be described as saved clips if clip data is gone after reload.
-- [ ] Keep user/premade presets outside backend/storage/. This UI must not write preset files to backend storage.
+- [ ] My Presets must be backed by the server library in backend/storage/presets/<preset_id>/; IndexedDB may be used only as a local cache/fallback and is never the source of truth for uploaded/generated user presets.
+- [ ] Keep bundled premade presets in backend/motion_presets/. User-uploaded and generated presets belong in backend/storage/presets/<preset_id>/, never in workspace asset directories.
 - [ ] The viewport player must use the existing useAnimationStore, existing playback clock, and existing THREE.AnimationMixer lifecycle. Do not add a second requestAnimationFrame loop.
 - [ ] Switching active mesh must stop the old action, unbind/clear the old clip, and prevent animation bleed onto the new mesh.
 - [ ] Malformed/incompatible clip errors must preserve the current mesh and return the player to a safe idle/error state.
@@ -395,13 +395,21 @@ GET /api/v1/motion/presets/{id}/thumbnail
 
 Returns a verified PNG/WEBP image or a normal not-found response. The UI must not render filesystem paths or trust filename fragments.
 
-### 7.4 User-supplied NPZ preview (no preset persistence)
+### 7.4 User-supplied NPZ preview (temporary, no preset persistence)
 
 POST /api/v1/motion/clips/preview
 
 - Multipart upload field: file.
 - Returns the same normalized MotionClipV1 response.
 - Preview/inspection only. It must not save the upload into backend/storage/ or silently add it to the server preset library.
+
+### 7.4a User preset import and library
+
+- POST /api/v1/motion/uploads validates and permanently saves an imported NPZ under backend/storage/presets/<upl_id>/motion.npz with one metadata.json in that preset directory.
+- GET /api/v1/motion/uploads lists uploaded and generated user presets and reports source: uploaded | generated.
+- DELETE /api/v1/motion/uploads/{clip_id} deletes only that user's preset directory.
+- Completed ARDY artifacts are copied into the same user library by POST /api/v1/motion/uploads/from-clip/{clip_id}. Generated preset IDs are deterministic/idempotent for a source job/asset.
+- The UI must present bundled Premade presets and My Presets as separate sections. Imports and generated clips appear only in My Presets.
 - The UI must show actual validation/resource-limit errors.
 - Backend owns archive validation and bounded parsing; the UI must not implement a second unsafe NPZ parser.
 
@@ -474,9 +482,9 @@ For downstream tools:
 
 - Create Motion card with multiline prompt, duration, seed, and Generate.
 - Do not show selectable FPS or skeleton variants unless the backend really loads/applies them.
-- Preset and Saved tabs must have honest loading, empty, error, and ready states.
+- Premade and My Presets tabs must have honest loading, empty, error, and ready states.
 - Preset cards show actual metadata and optional thumbnails.
-- Saved means data is persisted in IndexedDB (or existing durable browser storage), not just a localStorage label.
+- My Presets means data is persisted by the backend under backend/storage/presets/<preset_id>/; IndexedDB is only an optional cache.
 - Player appears only when a valid compatible clip is attached to the active rigged model.
 - The player reuses existing store clock and Mixer lifecycle.
 - Reset, play/pause, loop, speed, scrub, frame/time labels, and export must work on the real clip.
@@ -575,7 +583,7 @@ Reuse existing event conventions where possible. If changing an event:
 - [ ] No unsupported model/settings controls.
 - [ ] No mobile-first rebuild.
 - [ ] No new renderer, duplicate animation clock, duplicate store, or duplicate asset state.
-- [ ] No persistence of user presets in backend/storage.
+- [ ] User uploads and generated clips persist only under backend/storage/presets/<preset_id>/; bundled premade presets remain outside storage.
 - [ ] No invented NPZ schema or joint ordering.
 - [ ] No broad refactor unrelated to the specified UI.
 
@@ -622,3 +630,15 @@ The UI agent must provide:
 Do not mark the whole project complete while Part 2 endpoints are missing. The UI may be visually complete with a clearly reported backend integration blocker.
 
 **End of Part 1.** Read Part 2 before implementation and treat it as the companion backend contract, not permission to cross ownership boundary.
+
+
+## Implementation status note — 2026-11-26
+
+The current dev implementation has separate Premade and My Presets data sources, server-backed NPZ import, and generated-clip persistence. Browser visual acceptance is still pending a real browser session; TypeScript checks alone are insufficient. Motion auto-binding requires the original active rigged asset and a loaded skeleton. See the Part 2 real-artifact gate before claiming end-to-end ARDY playback is verified.
+
+
+## UI telemetry verification correction — 2026-11-26
+
+- Missing QA fields must remain unknown (`Not assessed` / `Not reported`), never default to zero defects or 100% retention.
+- Queued jobs show queue position when the backend supplies it and use indeterminate progress; only backend-reported progress is determinate.
+- Missing aggregate GPU telemetry must be derived from actual per-GPU readings or shown unavailable, never coerced to zero.

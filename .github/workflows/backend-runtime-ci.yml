@@ -59,6 +59,9 @@ jobs:
           backend/tests/test_hunyuan21_metadata.py
           backend/tests/test_trellis_text_capability.py
 
+      - name: Run motion clip service and API contracts
+        run: python -m pytest -q backend/tests/test_motion_clips_api.py
+
       - name: Run workspace lifecycle, regeneration, and API integration contracts
         run: >-
           python -m pytest -q

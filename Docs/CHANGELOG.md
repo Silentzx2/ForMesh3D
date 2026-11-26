@@ -1,7 +1,11 @@
 # Change Log
 
+**2026-11-26** – Implemented ARDY motion clip service layer and frontend motion pipeline: normalized `MotionClipV1` API (`GET /api/v1/motion/presets`, `GET /api/v1/motion/presets/{id}/thumbnail`, `GET /api/v1/motion/clips/{clip_id}`, `POST /api/v1/motion/clips/preview`, `GET/POST /api/v1/motion/uploads; POST /api/v1/motion/uploads/from-clip/{clip_id}; DELETE /api/v1/motion/uploads/{clip_id}`), safe bounded pure-Python NPZ/NPY parsing (no pickle, ZIP/NPY size & entry limits), `backend/motion_presets/` premade presets plus `backend/storage/presets/<preset_id>/` user uploads/generated presets, server-persisted user presets with IndexedDB as an optional cache, and UI pieces `AnimationPlayerBar`, `CameraTriad`, `ActiveMeshBar`, `QualityBadge`, `services/motionClient.ts`, `services/motionStorage.ts`, wired into the Animation panel and viewport overlay.
+
 **2026-11-26** – Fixed `install.sh` `torchmcubes` wheel fallback, TripoSR upright Z-up-to-Y-up rotation and `mc_resolution: 512`, TriFlow `verbose=True` sampling progress, SF3D `remesh_option="none"` default + `4K` UI option, HY 2.1 `texture_enabled` resolution, HY 2.0 Paint `rglob` checkpoint check + `subfolder` fallback, and `WorkspaceContext` URL-based asset deduplication.
 
 **2026-11-25** – Removed the decorative generation hologram/point cloud and the extra thinking/progress card. Kept the existing lightweight viewport progress bar; removed the unused card component.
 
-**2026‑11‑25** – Completed comprehensive adapter audit. Added detailed Task Report, risk scores, line‑count statistics, and a refactoring vision. Updated documentation to explain why adapters should delegate to upstream model code and how shared helpers will be centralised.
+**2026-11-26 (verification correction)** – Bundled premade assets are version-controlled in backend/motion_presets/; uploaded and generated user presets are persisted under backend/storage/presets/<preset_id>/motion.npz with one metadata.json per preset. Added generated-job copy endpoint and idempotent save. Real ARDY NPZ retarget verification remains blocked pending a real checkpoint output; no adapter/model code was changed.
+
+**2026-11-26 (UI evidence correction)** – Unknown mesh QA metrics now render as Not assessed/Not reported instead of fabricated zero/100% values. Queued jobs display queue state/position with indeterminate progress; determinate progress is reserved for backend-reported percentages. Multi-GPU VRAM aggregates are derived from per-GPU telemetry or shown unavailable.

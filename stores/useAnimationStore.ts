@@ -1,4 +1,17 @@
 import { create } from 'zustand';
+import type * as THREE from 'three';
+import type { MotionClipV1 } from '@/services/motionClient';
+
+export type AnimationClipState =
+  | 'idle'
+  | 'loading_clip'
+  | 'validating_clip'
+  | 'binding_clip'
+  | 'ready'
+  | 'playing'
+  | 'paused'
+  | 'exporting'
+  | 'clip_error';
 
 export type AnimationStudioMode =
   | 'text_to_motion'
@@ -373,6 +386,22 @@ interface AnimationState {
   // Quick-Apply Preset Library
   applyPresetClip: (clipId: string) => boolean;
 
+  // Normalized MotionClipV1 & Single-Clock Playback Lifecycle
+  clipState: AnimationClipState;
+  clipError: string | null;
+  activeMotionClip: MotionClipV1 | null;
+  activeThreeClip: THREE.AnimationClip | null;
+  pendingMotionClipId: string | null;
+  pendingMotionClipAssetId: string | null;
+  setClipState: (clipState: AnimationClipState, error?: string | null) => void;
+  setPendingMotionClipId: (clipId: string | null) => void;
+  setPendingMotionClipAssetId: (assetId: string | null) => void;
+  bindEmbeddedClip: (clip: THREE.AnimationClip) => void;
+  bindMotionClip: (clip: MotionClipV1, threeClip: THREE.AnimationClip) => void;
+  setClipError: (message: string) => void;
+  dismissClipError: () => void;
+  clearClipOnAssetSwitch: () => void;
+
   // Modals
   isExportModalOpen: boolean;
   setIsExportModalOpen: (open: boolean) => void;
@@ -428,17 +457,37 @@ export const useAnimationStore = create<AnimationState>((set, get) => ({
   isPlaying: false,
   setIsPlaying: (isPlaying) => {
     (useAnimationStore as any)._lastTick = 0;
-    set({ isPlaying });
+    set((s) => ({
+      isPlaying,
+      clipState: isPlaying
+        ? 'playing'
+        : s.clipState === 'playing'
+          ? 'paused'
+          : s.clipState,
+    }));
   },
   togglePlay: () => {
     (useAnimationStore as any)._lastTick = 0;
-    set((s) => ({ isPlaying: !s.isPlaying }));
+    set((s) => {
+      const nextPlaying = !s.isPlaying;
+      return {
+        isPlaying: nextPlaying,
+        clipState: nextPlaying
+          ? 'playing'
+          : s.clipState === 'playing'
+            ? 'paused'
+            : s.clipState,
+      };
+    });
   },
   currentTime: 0,
-  setCurrentTime: (currentTime) => set({ currentTime }),
+  setCurrentTime: (currentTime) =>
+    set((s) => ({
+      currentTime: s.duration > 0 ? Math.max(0, Math.min(currentTime, s.duration)) : Math.max(0, currentTime),
+    })),
   duration: 2.0,
   setDuration: (duration) => set({ duration }),
-  fps: 24,
+  fps: 20,
   setFps: (fps) => set({ fps }),
   playbackSpeed: 1.0,
   setPlaybackSpeed: (playbackSpeed) => set({ playbackSpeed }),
@@ -449,7 +498,7 @@ export const useAnimationStore = create<AnimationState>((set, get) => ({
     if (!s.isPlaying || s.duration <= 0) return;
     const last = (useAnimationStore as any)._lastTick || 0;
     const elapsed = (now - last) / 1000;
-    if (last > 0 && elapsed < 0.002) return; // avoid duplicate ticks from multiple mounted timeline components in same frame
+    if (last > 0 && elapsed < 0.002) return; // avoid duplicate ticks from multiple callers in same frame
     (useAnimationStore as any)._lastTick = now;
     const delta = last === 0 ? 0 : Math.min(elapsed, 0.1);
     const speed = typeof s.playbackSpeed === 'number' && s.playbackSpeed > 0 ? s.playbackSpeed : 1.0;
@@ -459,7 +508,11 @@ export const useAnimationStore = create<AnimationState>((set, get) => ({
         next = s.duration > 0 ? next % s.duration : 0;
       } else {
         (useAnimationStore as any)._lastTick = 0;
-        set({ currentTime: s.duration, isPlaying: false });
+        set({
+          currentTime: s.duration,
+          isPlaying: false,
+          clipState: s.clipState === 'playing' ? 'paused' : s.clipState,
+        });
         return;
       }
     }
@@ -902,6 +955,77 @@ export const useAnimationStore = create<AnimationState>((set, get) => ({
       tracks: updatedTracks,
     });
     return true;
+  },
+
+  clipState: 'idle',
+  clipError: null,
+  activeMotionClip: null,
+  activeThreeClip: null,
+  pendingMotionClipId: null,
+  pendingMotionClipAssetId: null,
+  setClipState: (clipState, error) =>
+    set((s) => ({
+      clipState,
+      clipError: error !== undefined ? error : s.clipError,
+    })),
+  setPendingMotionClipId: (pendingMotionClipId) => set((s) => ({
+    pendingMotionClipId,
+    ...(pendingMotionClipId === null ? { pendingMotionClipAssetId: null } : {}),
+  })),
+  setPendingMotionClipAssetId: (pendingMotionClipAssetId) => set({ pendingMotionClipAssetId }),
+  bindEmbeddedClip: (clip) => {
+    (useAnimationStore as any)._lastTick = 0;
+    set({
+      activeMotionClip: null,
+      activeThreeClip: clip,
+      duration: clip.duration > 0 ? clip.duration : 0,
+      currentTime: 0,
+      isPlaying: true,
+      clipState: 'playing',
+      clipError: null,
+    });
+  },
+  bindMotionClip: (clip, threeClip) => {
+    (useAnimationStore as any)._lastTick = 0;
+    set({
+      activeMotionClip: clip,
+      activeThreeClip: threeClip,
+      duration: clip.duration,
+      fps: clip.fps,
+      currentTime: 0,
+      isPlaying: true,
+      clipState: 'playing',
+      clipError: null,
+      pendingMotionClipId: null,
+      pendingMotionClipAssetId: null,
+    });
+  },
+  setClipError: (message) => {
+    (useAnimationStore as any)._lastTick = 0;
+    set({
+      clipState: 'clip_error',
+      clipError: message,
+      isPlaying: false,
+    });
+  },
+  dismissClipError: () =>
+    set((s) => ({
+      clipError: null,
+      clipState: s.activeThreeClip ? 'paused' : 'idle',
+    })),
+  clearClipOnAssetSwitch: () => {
+    (useAnimationStore as any)._lastTick = 0;
+    set({
+      activeMotionClip: null,
+      activeThreeClip: null,
+      pendingMotionClipId: null,
+      pendingMotionClipAssetId: null,
+      isPlaying: false,
+      currentTime: 0,
+      duration: 0,
+      clipState: 'idle',
+      clipError: null,
+    });
   },
 
   isExportModalOpen: false,

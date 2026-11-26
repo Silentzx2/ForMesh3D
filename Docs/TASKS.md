@@ -33,8 +33,17 @@ The previous oversized single plan has been split into two complete implementati
 - No fake controls, fake progress, fake data, fake holograms, fake point clouds, duplicate generation cards, or extra progress cards.
 - Keep the simple horizontal generation progress line.
 - Do not assume ARDY NPZ field names, shapes, joint ordering, FPS options, or coordinate conventions. Verify them from real output and upstream source.
-- Never store user/premade motion presets in backend/storage/.
+- Bundled premade presets are committed in backend/motion_presets/; user-uploaded/generated presets live under backend/storage/presets/<preset_id>/ with one metadata.json per preset directory. Never place user presets in workspace asset directories.
 - Preserve protected model adapters, patcher isolation, scheduler, and SM80+ inference parity.
 - Update docs only after implementation matches actual behaviour.
 
 See both linked specifications for phases, TODO/NOT-TO-DO lists, API schema, security limits, tests, acceptance criteria, and handoff requirements.
+
+
+## Current implementation status (2026-11-26)
+
+- The two task specifications are retained as authoritative references; do not delete them.
+- Premade and user motion libraries are separate. The premade directory currently contains no bundled NPZ assets; do not fabricate sample presets.
+- Uploaded/generated user presets are server-backed in backend/storage/presets/<preset_id>/.
+- Real ARDY NPZ evidence is still missing. MotionClipV1 retarget/playback acceptance remains blocked until a real output from the supported checkpoint is inspected.
+- Visual UI acceptance requires a browser screenshot/session; TypeScript checks alone are insufficient.

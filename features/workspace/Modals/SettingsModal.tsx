@@ -1,14 +1,20 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { GenerationPresetDrawer } from './GenerationPresetDrawer';
 import Link from 'next/link';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { apiClient } from '../lib/api';
-import { SimpleTooltip } from '@/components/ui/simple-tooltip';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 import { HugeiconsIcon } from '@hugeicons/react';
-import { AlertCircle, BrushIcon, Cancel, CheckIcon, CheckmarkCircle02Icon, GridIcon, LayoutGridIcon, Monitor, RefreshCw, ServerIcon, SlidersHorizontalIcon, SparklesIcon } from '@hugeicons/core-free-icons';
+import { AlertCircle, BrushIcon, CheckIcon, CheckmarkCircle02Icon, GridIcon, LayoutGridIcon, Monitor, RefreshCw, ServerIcon, SlidersHorizontalIcon, SparklesIcon } from '@hugeicons/core-free-icons';
 type SettingsTab = 'server' | 'viewport' | 'sculpt' | 'ai';
 
 export const SettingsModal: React.FC = () => {
@@ -30,16 +36,6 @@ export const SettingsModal: React.FC = () => {
   } = useWorkspace();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('server');
-
-  // Close on Escape key
-  useEffect(() => {
-    if (!isSettingsOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsSettingsOpen(false);
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isSettingsOpen, setIsSettingsOpen]);
 
   const getVramColor = (percent: number) => {
     if (percent >= 90) return 'text-rose-400';
@@ -72,8 +68,6 @@ export const SettingsModal: React.FC = () => {
       return true;
     }
   });
-
-  if (!isSettingsOpen) return null;
 
   const handleTestConnection = async () => {
     setTesting(true);
@@ -122,31 +116,22 @@ export const SettingsModal: React.FC = () => {
   };
 
   return (
-    <div
-      onClick={(e) => {
-        if (e.target === e.currentTarget) setIsSettingsOpen(false);
-      }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4 select-none animate-in fade-in duration-150"
-    >
-      <div className="w-full max-w-2xl max-h-[88vh] rounded-2xl bg-[hsl(var(--surface-1))] border border-white/[0.12] shadow-2xl overflow-hidden flex flex-col">
+    <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+      <DialogContent className="w-full max-w-2xl max-h-[88vh] p-0 gap-0 rounded-2xl bg-[hsl(var(--surface-1))] border border-white/[0.08] shadow-2xl overflow-hidden flex flex-col select-none">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 bg-[hsl(var(--surface-2))] border-b border-white/[0.08] flex-shrink-0">
+        <DialogHeader className="px-5 py-3.5 pr-12 bg-[hsl(var(--surface-2))] border-b border-white/[0.08] flex-shrink-0 text-left">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg bg-primary/20 border border-primary/30 flex items-center justify-center text-primary">
               <HugeiconsIcon icon={SlidersHorizontalIcon} size={16} className="w-4 h-4 stroke-[2.2]" />
             </div>
             <div>
-              <h3 className="font-bold text-sm text-white">Studio Settings</h3>
-              <p className="text-[10.5px] text-zinc-400">Configure viewport, pipeline defaults, and local AI runtime</p>
+              <DialogTitle className="font-bold text-sm text-white">Studio Settings</DialogTitle>
+              <DialogDescription className="text-[10.5px] text-zinc-400">
+                Configure viewport, pipeline defaults, and local AI runtime
+              </DialogDescription>
             </div>
           </div>
-          <button
-            onClick={() => setIsSettingsOpen(false)}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
-          >
-            <HugeiconsIcon icon={Cancel} size={16} className="w-4 h-4" />
-          </button>
-        </div>
+        </DialogHeader>
 
         {/* Tab Navigation */}
         <div className="flex items-center gap-1 px-5 pt-2.5 bg-[hsl(var(--surface-2))] border-b border-white/[0.08] flex-shrink-0">
@@ -612,12 +597,14 @@ export const SettingsModal: React.FC = () => {
           </Link>
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={() => setIsSettingsOpen(false)}
               className="px-4 py-2 rounded-xl bg-white/[0.04] text-zinc-400 hover:bg-white/[0.08] hover:text-white font-medium text-xs transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
+              type="button"
               onClick={handleSave}
               className="px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 active:scale-95 text-black font-extrabold text-xs shadow-md shadow-primary/20 transition-all cursor-pointer"
             >
@@ -625,7 +612,7 @@ export const SettingsModal: React.FC = () => {
             </button>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };

@@ -3,7 +3,6 @@ import dynamic from 'next/dynamic';
 import * as THREE from 'three';
 import { invalidateViewportRender } from '../Viewport/viewportEvents';
 import { useWorkspace } from '../store/WorkspaceContext';
-import { ShadingMode, ModelAsset } from '../types';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import { toast } from 'sonner';
 import { downloadArtifact } from '../lib/artifactDownload';
@@ -16,7 +15,6 @@ import {
   DownloadIcon,
   EyeIcon,
   HexagonIcon,
-  LayersIcon,
   Lock,
   MoveIcon,
   PaletteIcon,
@@ -31,9 +29,33 @@ import { useViewerStore } from '@/stores/useViewerStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Grid3X3, Scissors, Film, Bone } from '@/components/icons/hugeicons-components';
+
 const InspectorLoadingFallback = () => (
-  <div className="flex min-h-24 items-center justify-center text-[10px] text-[hsl(var(--muted-foreground))]">
+  <div className="flex min-h-24 items-center justify-center text-xs text-[hsl(var(--muted-foreground))]">
     Loading inspector…
+  </div>
+);
+
+interface InspectorHeaderProps {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+}
+
+const InspectorHeader: React.FC<InspectorHeaderProps> = ({ icon, title, subtitle }) => (
+  <div className="px-3 py-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between gap-2 flex-shrink-0">
+    <div className="flex items-center gap-2 min-w-0">
+      <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/30 flex items-center justify-center text-primary flex-shrink-0">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <h2 className="font-semibold text-xs text-[hsl(var(--foreground))] truncate">{title}</h2>
+        <span className="text-[11px] text-[hsl(var(--muted-foreground))] block truncate">{subtitle}</span>
+      </div>
+    </div>
+    <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-primary/10 border border-primary/30 text-primary flex-shrink-0">
+      Active
+    </span>
   </div>
 );
 
@@ -57,7 +79,6 @@ const DynamicRiggingInspector = dynamic(
 export const RightPropertyPanel: React.FC = () => {
   const {
     currentAsset,
-    setCurrentAsset,
     activeTool,
     shadingMode,
     setShadingMode,
@@ -66,7 +87,6 @@ export const RightPropertyPanel: React.FC = () => {
     remeshSettings,
     generationSettings,
     updateMaterialConfig,
-    assets = []
   } = useWorkspace();
 
   const modelStats = useViewerStore((s) => s.modelStats);
@@ -77,15 +97,11 @@ export const RightPropertyPanel: React.FC = () => {
   const requestAssetSelection = useViewerStore((s) => s.requestAssetSelection);
   const verifyAsset = useViewerStore((s) => s.verifyAsset);
   const beginAssetLoad = useViewerStore((s) => s.beginAssetLoad);
-  const completeAssetLoad = useViewerStore((s) => s.completeAssetLoad);
-  const failAssetLoad = useViewerStore((s) => s.failAssetLoad);
 
   // Accordion state persisted in UI store
   const rightPanelSections = useUIStore((s) => s.rightPanelSections);
   const setRightPanelSectionExpanded = useUIStore((s) => s.setRightPanelSectionExpanded);
   const toggleRightPanelSection = useUIStore((s) => s.toggleRightPanelSection);
-
-  // Model comparison state
 
   // Auto-expand section matching activeTool; manual toggle overrides auto behavior
   const manualOverridesRef = useRef<Set<string>>(new Set());
@@ -182,14 +198,11 @@ export const RightPropertyPanel: React.FC = () => {
 
   // Material & PBR Shader Settings
   const [materialSettings, setMaterialSettings] = useState({
-    albedoColor: 'hsl(0, 0%, 100%)',
     roughness: 0.45,
     metallic: 0.15,
     normalStrength: 1.0,
     ambientOcclusion: 0.85,
-    displacementScale: 0.05,
     normalFormat: 'OpenGL' as 'OpenGL' | 'DirectX',
-    uvProjection: 'Smart UV (xatlas)'
   });
 
   // Live THREE.MeshStandardMaterial uniform updates in textured mode
@@ -333,20 +346,11 @@ export const RightPropertyPanel: React.FC = () => {
   if (activeTool === 'uv') {
     return (
       <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
-        <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-              <Grid3X3 className="w-4 h-4 text-[#F9CF00]" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Smart UV Inspector</h2>
-              <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Atlas Preview &amp; Quality Metrics</span>
-            </div>
-          </div>
-          <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
-            Active
-          </span>
-        </div>
+        <InspectorHeader
+          icon={<Grid3X3 className="w-4 h-4 text-primary" />}
+          title="Smart UV Inspector"
+          subtitle="Atlas Preview & Quality Metrics"
+        />
         <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
           <DynamicUVInspector />
         </div>
@@ -357,20 +361,11 @@ export const RightPropertyPanel: React.FC = () => {
   if (activeTool === 'segment') {
     return (
       <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
-        <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-              <Scissors className="w-4 h-4 text-[#F9CF00]" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Segmentation Inspector</h2>
-              <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Part Layers &amp; Assembly Tree</span>
-            </div>
-          </div>
-          <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
-            Active
-          </span>
-        </div>
+        <InspectorHeader
+          icon={<Scissors className="w-4 h-4 text-primary" />}
+          title="Segmentation Inspector"
+          subtitle="Part Layers & Assembly Tree"
+        />
         <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
           <DynamicSegmentationInspector />
         </div>
@@ -381,20 +376,11 @@ export const RightPropertyPanel: React.FC = () => {
   if (activeTool === 'animation') {
     return (
       <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
-        <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-              <Film className="w-4 h-4 text-[#F9CF00]" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Motion Inspector</h2>
-              <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Playback Scrubber &amp; Diagnostics</span>
-            </div>
-          </div>
-          <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
-            Active
-          </span>
-        </div>
+        <InspectorHeader
+          icon={<Film className="w-4 h-4 text-primary" />}
+          title="Motion Inspector"
+          subtitle="Playback Scrubber & Diagnostics"
+        />
         <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
           <DynamicAnimationInspector />
         </div>
@@ -405,20 +391,11 @@ export const RightPropertyPanel: React.FC = () => {
   if (activeTool === 'rigging') {
     return (
       <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
-        <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-              <Bone className="w-4 h-4 text-[#F9CF00]" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Auto-Rigging & Armature</h2>
-              <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Interactive Armature &amp; Joint Hierarchy</span>
-            </div>
-          </div>
-          <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
-            Active
-          </span>
-        </div>
+        <InspectorHeader
+          icon={<Bone className="w-4 h-4 text-primary" />}
+          title="Auto-Rigging & Armature"
+          subtitle="Interactive Armature & Joint Hierarchy"
+        />
         <div className="flex-1 min-h-0 overflow-hidden p-2.5 space-y-2.5">
           <DynamicRiggingInspector />
         </div>
@@ -429,52 +406,43 @@ export const RightPropertyPanel: React.FC = () => {
   if (activeTool === 'remesh') {
     return (
       <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
-        <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-              <HugeiconsIcon icon={HexagonIcon} size={16} className="w-4 h-4 text-[#F9CF00]" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">Quad Retopology Inspector</h2>
-              <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Topology Flow &amp; Polygon Budget</span>
-            </div>
-          </div>
-          <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
-            Active
-          </span>
-        </div>
+        <InspectorHeader
+          icon={<HugeiconsIcon icon={HexagonIcon} size={16} className="w-4 h-4 text-primary" />}
+          title="Quad Retopology Inspector"
+          subtitle="Topology Flow & Polygon Budget"
+        />
         <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2.5">
-          <div className="p-3 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-2.5">
-            <div className="flex justify-between items-center text-xs border-t border-[hsl(var(--border))]/50 pt-2">
+          <div className="p-3 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-2">
+            <div className="flex justify-between items-center text-xs">
               <span className="text-[hsl(var(--muted-foreground))]">Output Polygons</span>
-              <span className="font-mono text-[hsl(var(--neon-blue))] uppercase font-bold">{remeshSettings.polyType}</span>
+              <span className="font-mono text-primary uppercase font-semibold">{remeshSettings.polyType}</span>
             </div>
             <div className="flex justify-between items-center text-xs border-t border-[hsl(var(--border))]/50 pt-2">
               <span className="text-[hsl(var(--muted-foreground))]">Current Topology</span>
-              <span className="font-mono text-[hsl(var(--neon-green))] font-bold">{currentAsset?.topology || 'Triangle'}</span>
+              <span className="font-mono text-emerald-400 font-semibold">{currentAsset?.topology || 'Triangle'}</span>
             </div>
             <div className="flex justify-between items-center text-xs border-t border-[hsl(var(--border))]/50 pt-2">
               <span className="text-[hsl(var(--muted-foreground))]">Face Count</span>
-              <span className="font-mono text-[hsl(var(--foreground))]">{currentAsset?.statsAvailable ? currentAsset.faces.toLocaleString() : (currentAsset?.faces ? currentAsset.faces.toLocaleString() : '—')}</span>
+              <span className="font-mono text-[hsl(var(--foreground))]">{currentAsset?.faces ? currentAsset.faces.toLocaleString() : '—'}</span>
             </div>
             <div className="flex justify-between items-center text-xs border-t border-[hsl(var(--border))]/50 pt-2">
               <span className="text-[hsl(var(--muted-foreground))]">Vertex Count</span>
-              <span className="font-mono text-[hsl(var(--foreground))]">{currentAsset?.statsAvailable ? currentAsset.vertices.toLocaleString() : (currentAsset?.vertices ? currentAsset.vertices.toLocaleString() : '—')}</span>
+              <span className="font-mono text-[hsl(var(--foreground))]">{currentAsset?.vertices ? currentAsset.vertices.toLocaleString() : '—'}</span>
             </div>
           </div>
 
           <div className="p-3 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
-              Wireframe & Shading Overrides
+            <span className="text-[11px] font-medium text-[hsl(var(--muted-foreground))]">
+              Wireframe &amp; Shading Overrides
             </span>
-            <div className="grid grid-cols-2 gap-2 pt-1">
+            <div className="grid grid-cols-2 gap-2 pt-0.5">
               <button
                 type="button"
                 onClick={() => setShowWireframe(!showWireframe)}
-                className={`py-2 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                className={`py-2 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
                   showWireframe
-                    ? 'bg-[hsl(var(--neon-green))]/20 text-[hsl(var(--neon-green))] border border-[hsl(var(--neon-green))]/40'
-                    : 'bg-[hsl(var(--surface-1))] text-[hsl(var(--muted-foreground))] hover:text-white border border-[hsl(var(--border))]'
+                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/40'
+                    : 'bg-[hsl(var(--surface-1))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))]'
                 }`}
               >
                 <span>Wireframe Overlay</span>
@@ -482,10 +450,10 @@ export const RightPropertyPanel: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShadingMode(shadingMode === 'wireframe' ? 'clay' : 'wireframe')}
-                className={`py-2 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                className={`py-2 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
                   shadingMode === 'wireframe'
-                    ? 'bg-primary text-black font-bold'
-                    : 'bg-[hsl(var(--surface-1))] text-[hsl(var(--muted-foreground))] hover:text-white border border-[hsl(var(--border))]'
+                    ? 'bg-primary text-[hsl(var(--primary-foreground))] font-bold'
+                    : 'bg-[hsl(var(--surface-1))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))]'
                 }`}
               >
                 <span>Wire Solo</span>
@@ -500,20 +468,11 @@ export const RightPropertyPanel: React.FC = () => {
   if (activeTool === 'texture' || activeTool === 'pbr') {
     return (
       <div id="panel-properties-inspector" className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden">
-        <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-[#F9CF00]/10 border border-[#F9CF00]/30 flex items-center justify-center text-[#F9CF00] flex-shrink-0">
-              <HugeiconsIcon icon={PaletteIcon} size={16} className="w-4 h-4 text-[#F9CF00]" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="font-bold text-xs text-[hsl(var(--foreground))] uppercase tracking-wide">PBR Material Inspector</h2>
-              <span className="text-[10px] text-[hsl(var(--muted-foreground))] block">Material Channels &amp; Texture Maps</span>
-            </div>
-          </div>
-          <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[#F9CF00]/15 border border-[#F9CF00]/30 text-[#F9CF00] flex-shrink-0">
-            Active
-          </span>
-        </div>
+        <InspectorHeader
+          icon={<HugeiconsIcon icon={PaletteIcon} size={16} className="w-4 h-4 text-primary" />}
+          title="PBR Material Inspector"
+          subtitle="Material Channels & Texture Maps"
+        />
         <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2.5">
           {/* Roughness */}
           <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-1.5">
@@ -644,62 +603,16 @@ export const RightPropertyPanel: React.FC = () => {
   if (!currentAsset) {
     return (
       <div id="panel-properties-inspector" className="flex flex-col h-full items-center justify-center bg-[hsl(var(--surface-1))] px-6 text-center select-none">
-        <div className="w-12 h-12 rounded-2xl bg-[hsl(var(--surface-0))] border border-white/[0.08] flex items-center justify-center text-zinc-500 mb-3 shadow-inner">
-          <HugeiconsIcon icon={Box} size={16} className="w-6 h-6 text-zinc-400 stroke-[1.5]" />
+        <div className="w-12 h-12 rounded-2xl bg-[hsl(var(--surface-0))] border border-[hsl(var(--border))] flex items-center justify-center text-[hsl(var(--muted-foreground))] mb-3">
+          <HugeiconsIcon icon={Box} size={16} className="w-6 h-6 stroke-[1.5]" />
         </div>
-        <div className="text-xs font-bold text-white tracking-wide">No Active 3D Asset</div>
-        <div className="text-[11px] text-zinc-400 mt-1.5 leading-relaxed max-w-[210px]">
+        <div className="text-xs font-semibold text-[hsl(var(--foreground))]">No Active 3D Asset</div>
+        <div className="text-[11px] text-[hsl(var(--muted-foreground))] mt-1.5 leading-relaxed max-w-[210px]">
           Generate a model or select one from the Assets tab to inspect geometry, PBR maps, and exports.
         </div>
       </div>
     );
   }
-
-  // Group workspace assets into parent/base mesh + derived meshes by operation type.
-  // Version labels (v001, v002…) assigned by creation order within each group.
-  const renderMeshHierarchy = (allAssets: ModelAsset[]) => {
-    const base = allAssets.filter(
-      (a) => a.is_base_mesh || !a.operation_type
-    );
-    const derived = allAssets.filter(
-      (a) => !a.is_base_mesh && Boolean(a.operation_type)
-    );
-    const byType = new Map<string, ModelAsset[]>();
-    derived.forEach((a) => {
-      const key = a.operation_type || 'other';
-      if (!byType.has(key)) byType.set(key, []);
-      byType.get(key)!.push(a);
-    });
-    const rows: React.ReactNode[] = [];
-    if (base.length) {
-      const baseAsset = base[0];
-      const handleBaseClick = () => setCurrentAsset(baseAsset);
-      rows.push(
-        <div key="base" className="flex items-center gap-1 px-1 py-1 rounded bg-[hsl(var(--surface-2))] cursor-pointer" onClick={handleBaseClick}>
-          <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
-          <span className="text-[9px] font-medium text-[hsl(var(--muted-foreground))] truncate">Parent / Base Mesh</span>
-          <span className="ml-auto text-[9px] font-mono text-[hsl(var(--muted-foreground))]">{baseAsset.format}</span>
-        </div>
-      );
-    }
-    byType.forEach((group, type) => {
-      group.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
-      group.forEach((a, i) => {
-        const isCurrent = currentAsset?.id === a.id;
-        const handleDerivedClick = () => setCurrentAsset(a);
-        rows.push(
-          <div key={a.id} className="flex items-center gap-1 px-1 py-1 rounded cursor-pointer" onClick={handleDerivedClick}>
-            <span className={`w-2 h-2 rounded-full shrink-0 ${isCurrent ? 'bg-primary' : 'bg-[hsl(var(--surface-3))]'}`} />
-            <span className={`text-[9px] font-medium truncate ${isCurrent ? 'text-primary' : 'text-[hsl(var(--muted-foreground))]'}`}>
-              {type.charAt(0).toUpperCase() + type.slice(1)} · v{i + 1}
-            </span>
-            <span className="ml-auto text-[9px] font-mono text-[hsl(var(--muted-foreground))]">{a.format}</span>
-          </div>
-        );
-      });
-    });
-    return rows;
-  };
 
   return (
     <div 
@@ -707,84 +620,74 @@ export const RightPropertyPanel: React.FC = () => {
       className="flex flex-col h-full bg-[hsl(var(--surface-1))] text-xs select-none overflow-hidden"
     >
       {/* Header with Asset Meta */}
-      <div className="p-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between">
+      <div className="px-3 py-2.5 border-b border-[hsl(var(--border))] flex items-center justify-between gap-2 flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-7 h-7 rounded-lg bg-[hsl(var(--surface-3))] border border-[hsl(var(--border))] flex items-center justify-center text-primary flex-shrink-0">
+          <div className="w-7 h-7 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] flex items-center justify-center text-primary flex-shrink-0">
             <HugeiconsIcon icon={SlidersHorizontalIcon} size={16} className="w-4 h-4" />
           </div>
           <div className="min-w-0">
-            <h2 className="font-bold text-sm text-[hsl(var(--foreground))] truncate">{currentAsset.name}</h2>
-            <span className="text-xs text-[hsl(var(--muted-foreground))] block">Inspector & Properties</span>
+            <h2 className="font-semibold text-xs text-[hsl(var(--foreground))] truncate">{currentAsset.name}</h2>
+            <span className="text-[11px] text-[hsl(var(--muted-foreground))] block">Inspector &amp; Properties</span>
           </div>
         </div>
-        <span className="text-xs uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-[hsl(var(--surface-3))] border border-[hsl(var(--border))] text-primary flex-shrink-0">
+        <span className="text-[11px] uppercase font-mono font-semibold px-2 py-0.5 rounded-md bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] text-primary flex-shrink-0">
           {currentAsset.format}
         </span>
       </div>
 
       {/* Mesh Selection State */}
       {assetSelectionState !== 'idle' && assetSelectionState !== 'ready' && (
-        <div className="px-2.5 py-2 border-b border-[hsl(var(--border))] bg-[hsl(var(--surface-0))]/40 flex flex-col gap-1">
+        <div className="px-3 py-2 border-b border-[hsl(var(--border))] bg-[hsl(var(--surface-0))]/40 flex flex-col gap-1.5 flex-shrink-0">
           <div className="flex items-center gap-2">
-            <span className={`w-1.5 h-1.5 rounded-full ${assetSelectionState === 'loading' ? 'bg-primary animate-pulse' : 'bg-amber-500'}`} />
-            <span className="text-[9px] font-mono font-semibold text-[hsl(var(--muted-foreground))]">
+            <span className={`w-1.5 h-1.5 rounded-full ${assetSelectionState === 'loading' ? 'bg-primary animate-pulse' : 'bg-amber-400'}`} />
+            <span className="text-[11px] font-mono text-[hsl(var(--muted-foreground))]">
               {assetSelectionState === 'loading' ? 'Loading mesh…' : assetSelectionState === 'verifying' ? 'Verifying…' : 'Selecting…'}
             </span>
           </div>
           {assetSelectionState === 'error' && assetLoadError && (
-            <div className="text-[9px] text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-1.5 py-1">
-              {assetLoadError}
-            </div>
+            <>
+              <div className="text-[11px] text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2 py-1">
+                {assetLoadError}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const requestId = requestAssetSelection(selectedAsset);
+                  verifyAsset(requestId);
+                  beginAssetLoad(requestId);
+                }}
+                className="self-start inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[hsl(var(--foreground))] text-[hsl(var(--background))] text-[11px] font-semibold cursor-pointer transition-colors hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <HugeiconsIcon icon={RefreshCw} size={12} />
+                <span>Retry</span>
+              </button>
+            </>
           )}
-          {assetSelectionState === 'error' && assetLoadError && (
-            <button
-              type="button"
-              onClick={() => {
-                const requestId = requestAssetSelection(selectedAsset);
-                verifyAsset(requestId);
-                beginAssetLoad(requestId);
-              }}
-              className="mt-1 inline-flex items-center gap-1 px-2 py-1 rounded bg-[#F8FAFC] text-[#080808] text-[10px] font-semibold cursor-pointer transition-colors duration-200 hover:bg-[#F8FAFC]/90 focus-visible:ring-2 focus-visible:ring-[#000]"
-            >
-              <HugeiconsIcon icon={RefreshCw} size={12} className="text-[#080808]" />
-              <span>Retry</span>
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Mesh Hierarchy: Parent + Derived grouped by operation type */}
-      {assets.length > 1 && (
-        <div className="px-2.5 border-b border-[hsl(var(--border))]">
-          <h3 className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1.5 px-1">
-            Workspace Mesh Hierarchy
-          </h3>
-          <div className="space-y-1">{renderMeshHierarchy(assets)}</div>
         </div>
       )}
 
       <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2.5">
-        {/* 3. 3D AI Generator Pipeline (Shown exclusively on Model page) */}
-        {activeTool === 'model' && isSectionExpanded('context') && (
+        {/* 1. 3D AI Generator Pipeline (Shown exclusively on Model page) */}
+        {activeTool === 'model' && (
           <Collapsible
             open={isSectionExpanded('context')}
             onOpenChange={() => handleManualToggle('context')}
-            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden transition-all"
+            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden"
           >
-            <div className="flex items-center justify-between p-2.5 hover:bg-[hsl(var(--surface-2))]/40 transition-colors">
+            <div className="flex items-center justify-between px-2.5 py-2 hover:bg-[hsl(var(--surface-2))]/40 transition-colors">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="flex items-center gap-1.5 flex-1 text-left select-none cursor-pointer group"
+                  className="flex items-center gap-2 flex-1 text-left select-none cursor-pointer group"
                 >
-                  <HugeiconsIcon icon={SparklesIcon} size={16} className="w-3.5 h-3.5 text-primary shrink-0" />
-                  <span className="font-bold text-xs text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--foreground))] uppercase tracking-wider transition-colors">
-                    3D AI Generator Pipeline
+                  <HugeiconsIcon icon={SparklesIcon} size={15} className="w-3.5 h-3.5 text-primary shrink-0" />
+                  <span className="font-semibold text-xs text-[hsl(var(--foreground))]">
+                    Generator Pipeline
                   </span>
                   <HugeiconsIcon
                     icon={ChevronDown}
                     size={14}
-                    className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
+                    className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto transition-transform duration-200 ${
                       isSectionExpanded('context') ? 'rotate-180 text-primary' : ''
                     }`}
                   />
@@ -792,210 +695,201 @@ export const RightPropertyPanel: React.FC = () => {
               </CollapsibleTrigger>
             </div>
 
-            <CollapsibleContent className="px-2.5 pb-3 space-y-2 pt-1 border-t border-[hsl(var(--border))]/40">
-              <div className="space-y-1.5 text-xs">
-                <div className="flex justify-between text-[hsl(var(--foreground))]">
-                  <span>Model Engine</span>
-                  <span className="font-mono text-primary">{generationSettings.aiModel}</span>
-                </div>
-                <div className="flex justify-between text-[hsl(var(--foreground))]">
-                  <span>Octree Depth</span>
-                  <span className="font-mono text-[hsl(var(--foreground))]">Workflow-defined</span>
-                </div>
-                <div className="flex justify-between text-[hsl(var(--foreground))]">
-                  <span>Diffusion Steps</span>
-                  <span className="font-mono text-[hsl(var(--foreground))]">Workflow-defined</span>
-                </div>
-                <div className="flex justify-between text-[hsl(var(--foreground))]">
-                  <span>Cutout RMBG</span>
-                  <span className="font-mono text-[hsl(var(--neon-green))]">{generationSettings.removeBackground ? 'Requested' : 'Off'}</span>
-                </div>
+            <CollapsibleContent className="px-2.5 pb-2.5 pt-2 space-y-1.5 text-xs border-t border-[hsl(var(--border))]/50">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[hsl(var(--muted-foreground))]">Model Engine</span>
+                <span className="font-mono text-[11px] text-primary truncate">{generationSettings.aiModel}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[hsl(var(--muted-foreground))]">Cutout RMBG</span>
+                <span className={`font-mono text-[11px] ${generationSettings.removeBackground ? 'text-emerald-400' : 'text-[hsl(var(--muted-foreground))]'}`}>
+                  {generationSettings.removeBackground ? 'Enabled' : 'Off'}
+                </span>
               </div>
             </CollapsibleContent>
           </Collapsible>
         )}
-        {/* 1. Object Transform Section */}
-        {isSectionExpanded('transform') && (
-          <Collapsible
-            open={isSectionExpanded('transform')}
-            onOpenChange={() => handleManualToggle('transform')}
-            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden transition-all"
-          >
-            <div className="flex items-center justify-between p-2.5 hover:bg-[hsl(var(--surface-2))]/40 transition-colors">
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-1.5 flex-1 text-left select-none cursor-pointer group"
-                >
-                  <HugeiconsIcon icon={MoveIcon} size={16} className="w-3.5 h-3.5 text-primary shrink-0" />
-                  <span className="font-bold text-xs text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--foreground))] uppercase tracking-wider transition-colors">
-                    Object Transform
-                  </span>
-                  <HugeiconsIcon
-                    icon={ChevronDown}
-                    size={14}
-                    className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
-                      isSectionExpanded('transform') ? 'rotate-180 text-primary' : ''
-                    }`}
-                  />
-                </button>
-              </CollapsibleTrigger>
+
+        {/* 2. Object Transform Section */}
+        <Collapsible
+          open={isSectionExpanded('transform')}
+          onOpenChange={() => handleManualToggle('transform')}
+          className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden"
+        >
+          <div className="flex items-center justify-between px-2.5 py-2 hover:bg-[hsl(var(--surface-2))]/40 transition-colors">
+            <CollapsibleTrigger asChild>
               <button
                 type="button"
+                className="flex items-center gap-2 flex-1 text-left select-none cursor-pointer group"
+              >
+                <HugeiconsIcon icon={MoveIcon} size={15} className="w-3.5 h-3.5 text-primary shrink-0" />
+                <span className="font-semibold text-xs text-[hsl(var(--foreground))]">
+                  Object Transform
+                </span>
+                <HugeiconsIcon
+                  icon={ChevronDown}
+                  size={14}
+                  className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
+                    isSectionExpanded('transform') ? 'rotate-180 text-primary' : ''
+                  }`}
+                />
+              </button>
+            </CollapsibleTrigger>
+            <SimpleTooltip label="Reset Transform">
+              <button
+                type="button"
+                aria-label="Reset Transform"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleResetTransform();
                 }}
-                className="p-1 rounded text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface-2))] transition-colors"
+                className="p-1 rounded-md text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface-2))] transition-colors cursor-pointer"
               >
-                <SimpleTooltip label="Reset Transform">
-                  <HugeiconsIcon icon={RefreshCw} size={16} className="w-3.5 h-3.5" />
-                </SimpleTooltip>
+                <HugeiconsIcon icon={RefreshCw} size={14} className="w-3.5 h-3.5" />
               </button>
+            </SimpleTooltip>
+          </div>
+
+          <CollapsibleContent className="px-2.5 pb-2.5 pt-2 space-y-2.5 border-t border-[hsl(var(--border))]/50">
+            {/* Position (m) */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[11px] text-[hsl(var(--muted-foreground))]">
+                <span className="font-medium">Position (m)</span>
+                <span className="font-mono">World</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5 font-mono text-[11px]">
+                <label className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] focus-within:border-[hsl(var(--ring))]">
+                  <span className="text-rose-400 font-semibold mr-1">X</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    aria-label="Position X"
+                    value={transform.posX}
+                    onChange={(e) => setTransform(p => ({ ...p, posX: parseFloat(e.target.value) || 0 }))}
+                    className="w-full min-w-0 bg-transparent text-[hsl(var(--foreground))] outline-none"
+                  />
+                </label>
+                <label className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] focus-within:border-[hsl(var(--ring))]">
+                  <span className="text-emerald-400 font-semibold mr-1">Y</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    aria-label="Position Y"
+                    value={transform.posY}
+                    onChange={(e) => setTransform(p => ({ ...p, posY: parseFloat(e.target.value) || 0 }))}
+                    className="w-full min-w-0 bg-transparent text-[hsl(var(--foreground))] outline-none"
+                  />
+                </label>
+                <label className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] focus-within:border-[hsl(var(--ring))]">
+                  <span className="text-sky-400 font-semibold mr-1">Z</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    aria-label="Position Z"
+                    value={transform.posZ}
+                    onChange={(e) => setTransform(p => ({ ...p, posZ: parseFloat(e.target.value) || 0 }))}
+                    className="w-full min-w-0 bg-transparent text-[hsl(var(--foreground))] outline-none"
+                  />
+                </label>
+              </div>
             </div>
 
-            <CollapsibleContent className="px-2.5 pb-3 space-y-2 pt-1 border-t border-[hsl(var(--border))]/40">
-              {/* Position (m) */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs text-[hsl(var(--muted-foreground))]">
-                  <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">Position (m)</span>
-                  <span className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">World Space</span>
-                </div>
-                <div className="grid grid-cols-3 gap-1.5 font-mono text-xs">
-                  <div className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-[hsl(var(--destructive))] font-bold mr-1 text-xs">X</span>
-                    <input 
-                      type="number" 
-                      step="0.1" 
-                      value={transform.posX} 
-                      onChange={(e) => setTransform(p => ({ ...p, posX: parseFloat(e.target.value) || 0 }))}
-                      className="w-full bg-transparent text-[hsl(var(--foreground))] outline-none" 
-                    />
-                  </div>
-                  <div className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-[hsl(var(--neon-green))] font-bold mr-1 text-xs">Y</span>
-                    <input 
-                      type="number" 
-                      step="0.1" 
-                      value={transform.posY} 
-                      onChange={(e) => setTransform(p => ({ ...p, posY: parseFloat(e.target.value) || 0 }))}
-                      className="w-full bg-transparent text-[hsl(var(--foreground))] outline-none" 
-                    />
-                  </div>
-                  <div className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-[hsl(var(--neon-blue))] font-bold mr-1 text-xs">Z</span>
-                    <input 
-                      type="number" 
-                      step="0.1" 
-                      value={transform.posZ} 
-                      onChange={(e) => setTransform(p => ({ ...p, posZ: parseFloat(e.target.value) || 0 }))}
-                      className="w-full bg-transparent text-[hsl(var(--foreground))] outline-none" 
-                    />
-                  </div>
-                </div>
+            {/* Rotation (°) */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[11px] text-[hsl(var(--muted-foreground))]">
+                <span className="font-medium">Rotation (°)</span>
+                <span className="font-mono">Euler</span>
               </div>
-
-              {/* Rotation (°) */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs text-[hsl(var(--muted-foreground))]">
-                  <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">Rotation (Euler °)</span>
-                </div>
-                <div className="grid grid-cols-3 gap-1.5 font-mono text-xs">
-                  <div className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-[hsl(var(--destructive))] font-bold mr-1 text-xs">X</span>
-                    <input 
-                      type="number" 
-                      value={transform.rotX} 
-                      onChange={(e) => setTransform(p => ({ ...p, rotX: parseFloat(e.target.value) || 0 }))}
-                      className="w-full bg-transparent text-[hsl(var(--foreground))] outline-none" 
-                    />
-                  </div>
-                  <div className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-[hsl(var(--neon-green))] font-bold mr-1 text-xs">Y</span>
-                    <input 
-                      type="number" 
-                      value={transform.rotY} 
-                      onChange={(e) => setTransform(p => ({ ...p, rotY: parseFloat(e.target.value) || 0 }))}
-                      className="w-full bg-transparent text-[hsl(var(--foreground))] outline-none" 
-                    />
-                  </div>
-                  <div className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-[hsl(var(--neon-blue))] font-bold mr-1 text-xs">Z</span>
-                    <input 
-                      type="number" 
-                      value={transform.rotZ} 
-                      onChange={(e) => setTransform(p => ({ ...p, rotZ: parseFloat(e.target.value) || 0 }))}
-                      className="w-full bg-transparent text-[hsl(var(--foreground))] outline-none" 
-                    />
-                  </div>
-                </div>
+              <div className="grid grid-cols-3 gap-1.5 font-mono text-[11px]">
+                <label className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] focus-within:border-[hsl(var(--ring))]">
+                  <span className="text-rose-400 font-semibold mr-1">X</span>
+                  <input
+                    type="number"
+                    aria-label="Rotation X"
+                    value={transform.rotX}
+                    onChange={(e) => setTransform(p => ({ ...p, rotX: parseFloat(e.target.value) || 0 }))}
+                    className="w-full min-w-0 bg-transparent text-[hsl(var(--foreground))] outline-none"
+                  />
+                </label>
+                <label className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] focus-within:border-[hsl(var(--ring))]">
+                  <span className="text-emerald-400 font-semibold mr-1">Y</span>
+                  <input
+                    type="number"
+                    aria-label="Rotation Y"
+                    value={transform.rotY}
+                    onChange={(e) => setTransform(p => ({ ...p, rotY: parseFloat(e.target.value) || 0 }))}
+                    className="w-full min-w-0 bg-transparent text-[hsl(var(--foreground))] outline-none"
+                  />
+                </label>
+                <label className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] focus-within:border-[hsl(var(--ring))]">
+                  <span className="text-sky-400 font-semibold mr-1">Z</span>
+                  <input
+                    type="number"
+                    aria-label="Rotation Z"
+                    value={transform.rotZ}
+                    onChange={(e) => setTransform(p => ({ ...p, rotZ: parseFloat(e.target.value) || 0 }))}
+                    className="w-full min-w-0 bg-transparent text-[hsl(var(--foreground))] outline-none"
+                  />
+                </label>
               </div>
+            </div>
 
-              {/* Scale */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))]">
-                  <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">Scale Ratio</span>
-                  <button
-                    onClick={() => setTransform(p => ({ ...p, lockScale: !p.lockScale }))}
-                    className="flex items-center gap-1 text-primary hover:underline text-[11px]"
-                  >
-                    {transform.lockScale ? <HugeiconsIcon icon={Lock} size={16} className="w-3 h-3" /> : <HugeiconsIcon icon={Unlock} size={16} className="w-3 h-3" />}
-                    <span>{transform.lockScale ? 'Uniform Locked' : 'Independent'}</span>
-                  </button>
-                </div>
-                <div className="grid grid-cols-3 gap-1.5 font-mono text-xs">
-                  <div className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-[hsl(var(--destructive))] font-bold mr-1 text-xs">X</span>
-                    <input 
-                      type="number" 
-                      step="0.05" 
-                      value={transform.scaleX} 
-                      onChange={(e) => handleScaleChange(parseFloat(e.target.value) || 1)}
-                      className="w-full bg-transparent text-[hsl(var(--foreground))] outline-none" 
-                    />
-                  </div>
-                  <div className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-[hsl(var(--neon-green))] font-bold mr-1 text-xs">Y</span>
-                    <input 
-                      type="number" 
-                      step="0.05" 
-                      value={transform.scaleY} 
-                      onChange={(e) => setTransform(p => ({ ...p, scaleY: parseFloat(e.target.value) || 1 }))}
-                      disabled={transform.lockScale}
-                      className={`w-full bg-transparent text-[hsl(var(--foreground))] outline-none ${transform.lockScale ? 'opacity-70' : ''}`} 
-                    />
-                  </div>
-                  <div className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-[hsl(var(--neon-blue))] font-bold mr-1 text-xs">Z</span>
-                    <input 
-                      type="number" 
-                      step="0.05" 
-                      value={transform.scaleZ} 
-                      onChange={(e) => setTransform(p => ({ ...p, scaleZ: parseFloat(e.target.value) || 1 }))}
-                      disabled={transform.lockScale}
-                      className={`w-full bg-transparent text-[hsl(var(--foreground))] outline-none ${transform.lockScale ? 'opacity-70' : ''}`} 
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Reset to Identity Transform */}
-              <div className="pt-2 flex justify-end">
+            {/* Scale */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[11px] text-[hsl(var(--muted-foreground))]">
+                <span className="font-medium">Scale</span>
                 <button
                   type="button"
-                  onClick={handleResetTransform}
-                  className="h-7 px-2.5 rounded-lg bg-[hsl(var(--surface-2))] hover:bg-[hsl(var(--surface-3))] border border-[hsl(var(--border))] text-[hsl(var(--foreground))] text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  onClick={() => setTransform(p => ({ ...p, lockScale: !p.lockScale }))}
+                  className="flex items-center gap-1 text-primary hover:underline cursor-pointer"
                 >
-                  <HugeiconsIcon icon={RefreshCw} size={12} className="w-3 h-3 text-[hsl(var(--muted-foreground))]" />
-                  <span>Reset Transform</span>
+                  {transform.lockScale ? <HugeiconsIcon icon={Lock} size={12} className="w-3 h-3" /> : <HugeiconsIcon icon={Unlock} size={12} className="w-3 h-3" />}
+                  <span>{transform.lockScale ? 'Uniform' : 'Independent'}</span>
                 </button>
               </div>
-            </CollapsibleContent>
-          </Collapsible>
-        )}
+              <div className="grid grid-cols-3 gap-1.5 font-mono text-[11px]">
+                <label className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] focus-within:border-[hsl(var(--ring))]">
+                  <span className="text-rose-400 font-semibold mr-1">X</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    aria-label="Scale X"
+                    value={transform.scaleX}
+                    onChange={(e) => handleScaleChange(parseFloat(e.target.value) || 1)}
+                    className="w-full min-w-0 bg-transparent text-[hsl(var(--foreground))] outline-none"
+                  />
+                </label>
+                <label className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] focus-within:border-[hsl(var(--ring))]">
+                  <span className="text-emerald-400 font-semibold mr-1">Y</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    aria-label="Scale Y"
+                    value={transform.scaleY}
+                    onChange={(e) => setTransform(p => ({ ...p, scaleY: parseFloat(e.target.value) || 1 }))}
+                    disabled={transform.lockScale}
+                    className={`w-full min-w-0 bg-transparent text-[hsl(var(--foreground))] outline-none ${transform.lockScale ? 'opacity-60' : ''}`}
+                  />
+                </label>
+                <label className="flex items-center px-2 py-1 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] focus-within:border-[hsl(var(--ring))]">
+                  <span className="text-sky-400 font-semibold mr-1">Z</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    aria-label="Scale Z"
+                    value={transform.scaleZ}
+                    onChange={(e) => setTransform(p => ({ ...p, scaleZ: parseFloat(e.target.value) || 1 }))}
+                    disabled={transform.lockScale}
+                    className={`w-full min-w-0 bg-transparent text-[hsl(var(--foreground))] outline-none ${transform.lockScale ? 'opacity-60' : ''}`}
+                  />
+                </label>
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
 
-        {/* 2. Geometry Statistics & Topology Health */}
-        {isSectionExpanded('geometry') && (() => {
+        {/* 3. Geometry Statistics & Topology Health */}
+        {(() => {
           const verticesDisplay = currentAsset.statsAvailable
             ? currentAsset.vertices.toLocaleString()
             : currentAsset.vertices > 0
@@ -1023,103 +917,98 @@ export const RightPropertyPanel: React.FC = () => {
             <Collapsible
               open={isSectionExpanded('geometry')}
               onOpenChange={() => handleManualToggle('geometry')}
-              className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden transition-all"
+              className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden"
             >
-              <div className="flex items-center justify-between p-2.5 hover:bg-[hsl(var(--surface-2))]/40 transition-colors">
+              <div className="flex items-center justify-between px-2.5 py-2 hover:bg-[hsl(var(--surface-2))]/40 transition-colors gap-1.5">
                 <CollapsibleTrigger asChild>
                   <button
                     type="button"
-                    className="flex items-center gap-1.5 flex-1 text-left select-none cursor-pointer group"
+                    className="flex items-center gap-2 flex-1 min-w-0 text-left select-none cursor-pointer group"
                   >
-                    <HugeiconsIcon icon={Box} size={16} className="w-3.5 h-3.5 text-primary shrink-0" />
-                    <span className="font-bold text-xs text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--foreground))] uppercase tracking-wider transition-colors">
-                      Geometry & Topology
+                    <HugeiconsIcon icon={Box} size={15} className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span className="font-semibold text-xs text-[hsl(var(--foreground))] truncate">
+                      Geometry &amp; Topology
                     </span>
                     <HugeiconsIcon
                       icon={ChevronDown}
                       size={14}
-                      className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
+                      className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto transition-transform duration-200 shrink-0 ${
                         isSectionExpanded('geometry') ? 'rotate-180 text-primary' : ''
                       }`}
                     />
                   </button>
                 </CollapsibleTrigger>
                 {manifoldStatus === 'manifold' ? (
-                  <span className="flex items-center gap-1 text-[10px] text-[hsl(var(--neon-green))] font-mono px-1.5 py-0.5 rounded bg-[hsl(var(--neon-green))]/10 border border-[hsl(var(--neon-green))]/30">
-                    <HugeiconsIcon icon={ShieldCheckIcon} size={16} className="w-3 h-3" />
+                  <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 shrink-0">
+                    <HugeiconsIcon icon={ShieldCheckIcon} size={12} className="w-3 h-3" />
                     Manifold
                   </span>
                 ) : manifoldStatus === 'non-manifold' ? (
-                  <span className="flex items-center gap-1 text-[10px] text-amber-400 font-mono px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30">
-                    <HugeiconsIcon icon={TriangleAlertIcon} size={16} className="w-3 h-3" />
+                  <span className="flex items-center gap-1 text-[10px] text-amber-400 font-mono px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 shrink-0">
+                    <HugeiconsIcon icon={TriangleAlertIcon} size={12} className="w-3 h-3" />
                     Non-Manifold{nonManifoldEdges !== undefined ? ` (${nonManifoldEdges})` : ''}
                   </span>
                 ) : (
-                  <span className="text-[10px] text-[hsl(var(--muted-foreground))] font-mono px-1.5 py-0.5 rounded border border-[hsl(var(--border))]">
-                    Not analyzed
+                  <span className="text-[10px] text-[hsl(var(--muted-foreground))] font-mono px-1.5 py-0.5 rounded border border-[hsl(var(--border))] shrink-0">
+                    Pending
                   </span>
                 )}
               </div>
 
-              <CollapsibleContent className="px-2.5 pb-3 space-y-2.5 pt-1 border-t border-[hsl(var(--border))]/40">
-                {/* Counts & Flow */}
-                <div className="grid grid-cols-3 gap-1.5 font-mono text-xs">
+              <CollapsibleContent className="px-2.5 pb-2.5 pt-2 space-y-2 border-t border-[hsl(var(--border))]/50">
+                <div className="grid grid-cols-2 gap-1.5 font-mono text-[11px]">
                   <div className="p-2 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-[hsl(var(--muted-foreground))] block text-[10px]">Vertices</span>
-                    <span className="font-bold text-[hsl(var(--foreground))]">{verticesDisplay}</span>
+                    <span className="text-[hsl(var(--muted-foreground))] block text-[10px] font-sans">Vertices</span>
+                    <span className="font-semibold text-[hsl(var(--foreground))]">{verticesDisplay}</span>
                   </div>
                   <div className="p-2 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-[hsl(var(--muted-foreground))] block text-[10px]">Polygons</span>
-                    <span className="font-bold text-primary">{facesDisplay}</span>
+                    <span className="text-[hsl(var(--muted-foreground))] block text-[10px] font-sans">Polygons</span>
+                    <span className="font-semibold text-primary">{facesDisplay}</span>
                   </div>
                   <div className="p-2 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-[hsl(var(--muted-foreground))] block text-[10px]">Topology</span>
-                    <span className="font-bold text-[hsl(var(--neon-blue))] truncate block">{currentAsset.topology || 'Triangle'}</span>
-                  </div>
-                </div>
-
-                {/* Physical Telemetry: Surface Area, Volume, UV Charts */}
-                <div className="grid grid-cols-3 gap-1.5 font-mono text-xs">
-                  <div className="p-2 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-[hsl(var(--muted-foreground))] block text-[10px]">Surface Area</span>
-                    <span className="font-bold text-[hsl(var(--foreground))]">{surfaceArea !== undefined ? `${surfaceArea} m²` : '—'}</span>
+                    <span className="text-[hsl(var(--muted-foreground))] block text-[10px] font-sans">Topology</span>
+                    <span className="font-semibold text-[hsl(var(--foreground))] truncate block">{currentAsset.topology || 'Triangle'}</span>
                   </div>
                   <div className="p-2 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-[hsl(var(--muted-foreground))] block text-[10px]">Volume</span>
-                    <span className="font-bold text-primary">{volume !== undefined ? `${volume} m³` : '—'}</span>
+                    <span className="text-[hsl(var(--muted-foreground))] block text-[10px] font-sans">UV Islands</span>
+                    <span className="font-semibold text-emerald-400">{uvCharts !== undefined ? `${uvCharts} charts` : '—'}</span>
                   </div>
                   <div className="p-2 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
-                    <span className="text-[hsl(var(--muted-foreground))] block text-[10px]">UV Islands</span>
-                    <span className="font-bold text-[hsl(var(--neon-green))]">{uvCharts !== undefined ? `${uvCharts} charts` : '—'}</span>
+                    <span className="text-[hsl(var(--muted-foreground))] block text-[10px] font-sans">Surface Area</span>
+                    <span className="font-semibold text-[hsl(var(--foreground))]">{surfaceArea !== undefined ? `${surfaceArea} m²` : '—'}</span>
+                  </div>
+                  <div className="p-2 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))]">
+                    <span className="text-[hsl(var(--muted-foreground))] block text-[10px] font-sans">Volume</span>
+                    <span className="font-semibold text-[hsl(var(--foreground))]">{volume !== undefined ? `${volume} m³` : '—'}</span>
                   </div>
                 </div>
 
                 {currentAsset.dimensions && (
-                  <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))] pt-1 border-t border-[hsl(var(--border))]">
-                    <span>Dimensions (X×Y×Z)</span>
-                    <span className="font-mono text-[hsl(var(--foreground))]">{currentAsset.dimensions.x} × {currentAsset.dimensions.y} × {currentAsset.dimensions.z} m</span>
+                  <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))] pt-1.5 border-t border-[hsl(var(--border))]/50">
+                    <span>Dimensions</span>
+                    <span className="font-mono text-[11px] text-[hsl(var(--foreground))]">{currentAsset.dimensions.x} × {currentAsset.dimensions.y} × {currentAsset.dimensions.z} m</span>
                   </div>
                 )}
                 {currentAsset.fileSize && (
-                  <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))] pt-1 border-t border-[hsl(var(--border))]">
+                  <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))] pt-1.5 border-t border-[hsl(var(--border))]/50">
                     <span>File Size</span>
-                    <span className="font-mono text-[hsl(var(--foreground))]">{currentAsset.fileSize}</span>
+                    <span className="font-mono text-[11px] text-[hsl(var(--foreground))]">{currentAsset.fileSize}</span>
                   </div>
                 )}
                 {currentAsset.componentCount !== undefined && (
-                  <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))] pt-1 border-t border-[hsl(var(--border))]">
-                    <span>Components / Parts</span>
-                    <span className="font-mono text-[hsl(var(--foreground))]">{currentAsset.componentCount > 0 ? `${currentAsset.componentCount} connected parts` : '1 part'}</span>
+                  <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))] pt-1.5 border-t border-[hsl(var(--border))]/50">
+                    <span>Components</span>
+                    <span className="font-mono text-[11px] text-[hsl(var(--foreground))]">{currentAsset.componentCount > 0 ? `${currentAsset.componentCount} parts` : '1 part'}</span>
                   </div>
                 )}
                 {currentAsset.meshDetails && (
-                  <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))] pt-1 border-t border-[hsl(var(--border))]">
-                    <span>Semantic Details</span>
-                    <span className="font-mono text-[hsl(var(--foreground))]">
+                  <div className="flex items-center justify-between gap-2 text-xs text-[hsl(var(--muted-foreground))] pt-1.5 border-t border-[hsl(var(--border))]/50">
+                    <span className="shrink-0">Semantic Parts</span>
+                    <span className="font-mono text-[11px] text-[hsl(var(--foreground))] truncate">
                       {Array.isArray((currentAsset.meshDetails as any)?.semantic_parts)
                         ? ((currentAsset.meshDetails as any).semantic_parts.length > 0
                           ? (currentAsset.meshDetails as any).semantic_parts.join(', ')
-                          : 'Not analyzed / monolithic')
+                          : 'Monolithic')
                         : typeof (currentAsset.meshDetails as any)?.semantic_parts === 'string'
                           ? (currentAsset.meshDetails as any).semantic_parts
                           : 'Unsupported'}
@@ -1131,227 +1020,150 @@ export const RightPropertyPanel: React.FC = () => {
           );
         })()}
 
-
-
         {/* 4. Shading & Render Viewport Overrides */}
-        {isSectionExpanded('shading') && (
-          <Collapsible
-            open={isSectionExpanded('shading')}
-            onOpenChange={() => handleManualToggle('shading')}
-            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden transition-all"
-          >
-            <div className="flex items-center justify-between p-2.5 hover:bg-[hsl(var(--surface-2))]/40 transition-colors">
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-1.5 flex-1 text-left select-none cursor-pointer group"
-                >
-                  <HugeiconsIcon icon={EyeIcon} size={16} className="w-3.5 h-3.5 text-primary shrink-0" />
-                  <span className="font-bold text-xs text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--foreground))] uppercase tracking-wider transition-colors">
-                    Viewport Shading
-                  </span>
-                  <HugeiconsIcon
-                    icon={ChevronDown}
-                    size={14}
-                    className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
-                      isSectionExpanded('shading') ? 'rotate-180 text-primary' : ''
-                    }`}
-                  />
-                </button>
-              </CollapsibleTrigger>
-            </div>
-
-            <CollapsibleContent className="px-2.5 pb-3 pt-1 border-t border-[hsl(var(--border))]/40">
-              <div className="grid grid-cols-4 gap-1.5">
-                <button
-                  onClick={() => setShadingMode('textured')}
-                  className={`py-1.5 px-1.5 rounded-lg text-xs font-semibold transition-all text-center truncate ${
-                    shadingMode === 'textured'
-                      ? 'bg-primary text-[hsl(var(--primary-foreground))] font-bold shadow'
-                      : 'bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))]'
-                  }`}
-                >
-                  PBR Lit
-                </button>
-
-                <button
-                  onClick={() => setShadingMode('clay')}
-                  className={`py-1.5 px-1.5 rounded-lg text-xs font-semibold transition-all text-center truncate ${
-                    shadingMode === 'clay'
-                      ? 'bg-primary text-[hsl(var(--primary-foreground))] font-bold shadow'
-                      : 'bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))]'
-                  }`}
-                >
-                  Clay
-                </button>
-
-                <button
-                  onClick={() => setShadingMode('matcap-gold')}
-                  className={`py-1.5 px-1.5 rounded-lg text-xs font-semibold transition-all text-center truncate ${
-                    shadingMode === 'matcap-gold'
-                      ? 'bg-amber-400 text-black font-bold shadow'
-                      : 'bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))]'
-                  }`}
-                >
-                  Gold
-                </button>
-
-                <button
-                  onClick={() => setShadingMode('matcap-chrome')}
-                  className={`py-1.5 px-1.5 rounded-lg text-xs font-semibold transition-all text-center truncate ${
-                    shadingMode === 'matcap-chrome'
-                      ? 'bg-zinc-200 text-black font-bold shadow'
-                      : 'bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))]'
-                  }`}
-                >
-                  Chrome
-                </button>
-
-                <button
-                  onClick={() => setShadingMode('matcap-ceramic')}
-                  className={`py-1.5 px-1.5 rounded-lg text-xs font-semibold transition-all text-center truncate ${
-                    shadingMode === 'matcap-ceramic' || shadingMode === 'matcap'
-                      ? 'bg-primary text-[hsl(var(--primary-foreground))] font-bold shadow'
-                      : 'bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))]'
-                  }`}
-                >
-                  Ceramic
-                </button>
-
-                <button
-                  onClick={() => setShadingMode('matcap-normal')}
-                  className={`py-1.5 px-1.5 rounded-lg text-xs font-semibold transition-all text-center truncate ${
-                    shadingMode === 'matcap-normal' || shadingMode === 'normals'
-                      ? 'bg-sky-400 text-black font-bold shadow'
-                      : 'bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))]'
-                  }`}
-                >
-                  Normals
-                </button>
-
-                <button
-                  onClick={() => setShadingMode('wireframe')}
-                  className={`py-1.5 px-1.5 rounded-lg text-xs font-semibold transition-all text-center truncate ${
-                    shadingMode === 'wireframe'
-                      ? 'bg-primary text-[hsl(var(--primary-foreground))] font-bold shadow'
-                      : 'bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))]'
-                  }`}
-                >
-                  Wire Solo
-                </button>
-
-                <button
-                  onClick={() => setShowWireframe(!showWireframe)}
-                  className={`py-1.5 px-1.5 rounded-lg text-xs font-semibold transition-all text-center truncate ${
-                    showWireframe
-                      ? 'bg-[hsl(var(--neon-green))]/20 text-[hsl(var(--neon-green))] font-bold border border-[hsl(var(--neon-green))]/40'
-                      : 'bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))]'
-                  }`}
-                >
-                  + Overlay
-                </button>
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-        )}
-
-        {/* 7. Production Export Section */}
-        {isSectionExpanded('export') && (
-          <Collapsible
-            open={isSectionExpanded('export')}
-            onOpenChange={() => handleManualToggle('export')}
-            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden transition-all"
-          >
-            <div className="flex items-center justify-between p-2.5 hover:bg-[hsl(var(--surface-2))]/40 transition-colors">
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-1.5 flex-1 text-left select-none cursor-pointer group"
-                >
-                  <HugeiconsIcon icon={DownloadIcon} size={16} className="w-3.5 h-3.5 text-primary shrink-0" />
-                  <span className="font-bold text-xs text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--foreground))] uppercase tracking-wider transition-colors">
-                    Quick Export Asset
-                  </span>
-                  <HugeiconsIcon
-                    icon={ChevronDown}
-                    size={14}
-                    className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto mr-1 transition-transform duration-200 ${
-                      isSectionExpanded('export') ? 'rotate-180 text-primary' : ''
-                    }`}
-                  />
-                </button>
-              </CollapsibleTrigger>
-            </div>
-
-            <CollapsibleContent className="px-2.5 pb-3 space-y-3 pt-1 border-t border-[hsl(var(--border))]/40">
-              {/* Formats Grid */}
-              <div className="grid grid-cols-6 gap-1">
-                {(['glb', 'gltf', 'fbx', 'obj', 'stl', 'ply'] as const).map((fmt) => (
-                  <button
-                    key={fmt}
-                    onClick={() => setExportFormat(fmt)}
-                    className={`py-1.5 rounded-lg uppercase font-mono font-bold text-xs transition-colors ${
-                      exportFormat === fmt
-                        ? 'bg-primary text-[hsl(var(--primary-foreground))]'
-                        : 'bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))]'
-                    }`}
-                  >
-                    {fmt}
-                  </button>
-                ))}
-              </div>
-
-              {/* Target Format Specification & Pipeline Info */}
-              <div className="p-2.5 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-1">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-[hsl(var(--muted-foreground))]">Pipeline Target</span>
-                  <span className="font-mono text-primary font-bold">{exportFormat.toUpperCase()}</span>
-                </div>
-                <div className="text-[10px] text-[hsl(var(--muted-foreground))] leading-relaxed">
-                  {exportFormat === 'glb' && 'glTF 2.0 Binary: Standard real-time 3D delivery with packed PBR textures.'}
-                  {exportFormat === 'gltf' && 'glTF 2.0 Embedded: Human-readable JSON wrapper with embedded base64 buffers.'}
-                  {exportFormat === 'fbx' && 'Autodesk FBX: Preserves skeletal bones, joint hierarchy, and skin weights.'}
-                  {exportFormat === 'obj' && 'Wavefront OBJ: Universally compatible polygonal geometry definition.'}
-                  {exportFormat === 'stl' && 'Standard Tessellation: Watertight surface triangular mesh for 3D printing.'}
-                  {exportFormat === 'ply' && 'Polygon File Format: Point and face coordinates for scanners and CAD suites.'}
-                </div>
-              </div>
-
-              {/* Download Button */}
+        <Collapsible
+          open={isSectionExpanded('shading')}
+          onOpenChange={() => handleManualToggle('shading')}
+          className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden"
+        >
+          <div className="flex items-center justify-between px-2.5 py-2 hover:bg-[hsl(var(--surface-2))]/40 transition-colors">
+            <CollapsibleTrigger asChild>
               <button
-                id="btn-export-download"
-                onClick={handleExportDownload}
-                disabled={isExporting}
-                className="w-full h-8 rounded-xl bg-[hsl(var(--surface-3))] hover:bg-[hsl(var(--surface-4))] border border-[hsl(var(--border))] text-primary font-semibold text-xs flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-md cursor-pointer"
+                type="button"
+                className="flex items-center gap-2 flex-1 text-left select-none cursor-pointer group"
               >
-                {isExporting ? (
-                  <HugeiconsIcon icon={RefreshCw} size={16} className="w-4 h-4 animate-spin text-primary" />
-                ) : exportSuccess ? (
-                  <HugeiconsIcon icon={CheckIcon} size={16} className="w-4 h-4 text-[hsl(var(--neon-green))]"/>
-                ) : (
-                  <HugeiconsIcon icon={DownloadIcon} size={16} className="w-4 h-4 text-primary" />
-                )}
-                <span>
-                  {isExporting ? 'Packing 3D Bundle...' : exportSuccess ? 'Export Saved!' : `Download ${exportFormat.toUpperCase()}`}
+                <HugeiconsIcon icon={EyeIcon} size={15} className="w-3.5 h-3.5 text-primary shrink-0" />
+                <span className="font-semibold text-xs text-[hsl(var(--foreground))]">
+                  Viewport Shading
                 </span>
+                <HugeiconsIcon
+                  icon={ChevronDown}
+                  size={14}
+                  className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto transition-transform duration-200 ${
+                    isSectionExpanded('shading') ? 'rotate-180 text-primary' : ''
+                  }`}
+                />
               </button>
-            </CollapsibleContent>
-          </Collapsible>
-        )}
+            </CollapsibleTrigger>
+          </div>
+
+          <CollapsibleContent className="px-2.5 pb-2.5 pt-2 border-t border-[hsl(var(--border))]/50">
+            <div className="grid grid-cols-2 gap-1.5">
+              {(
+                [
+                  { id: 'textured', label: 'PBR Lit', active: shadingMode === 'textured' },
+                  { id: 'clay', label: 'Clay', active: shadingMode === 'clay' },
+                  { id: 'matcap-gold', label: 'Gold', active: shadingMode === 'matcap-gold' },
+                  { id: 'matcap-chrome', label: 'Chrome', active: shadingMode === 'matcap-chrome' },
+                  { id: 'matcap-ceramic', label: 'Ceramic', active: shadingMode === 'matcap-ceramic' || shadingMode === 'matcap' },
+                  { id: 'matcap-normal', label: 'Normals', active: shadingMode === 'matcap-normal' || shadingMode === 'normals' },
+                  { id: 'wireframe', label: 'Wire Solo', active: shadingMode === 'wireframe' },
+                ] as const
+              ).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setShadingMode(item.id)}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-colors text-center cursor-pointer ${
+                    item.active
+                      ? 'bg-[hsl(var(--accent))] text-[hsl(var(--accent-foreground))] font-semibold'
+                      : 'bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))]'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setShowWireframe(!showWireframe)}
+                className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-colors text-center cursor-pointer ${
+                  showWireframe
+                    ? 'bg-emerald-500/15 text-emerald-400 font-semibold border border-emerald-500/40'
+                    : 'bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))]'
+                }`}
+              >
+                + Wire Overlay
+              </button>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+
+        {/* 5. Export Format Section */}
+        <Collapsible
+          open={isSectionExpanded('export')}
+          onOpenChange={() => handleManualToggle('export')}
+          className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] overflow-hidden"
+        >
+          <div className="flex items-center justify-between px-2.5 py-2 hover:bg-[hsl(var(--surface-2))]/40 transition-colors">
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-2 flex-1 text-left select-none cursor-pointer group"
+              >
+                <HugeiconsIcon icon={DownloadIcon} size={15} className="w-3.5 h-3.5 text-primary shrink-0" />
+                <span className="font-semibold text-xs text-[hsl(var(--foreground))]">
+                  Export Format
+                </span>
+                <HugeiconsIcon
+                  icon={ChevronDown}
+                  size={14}
+                  className={`w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] ml-auto transition-transform duration-200 ${
+                    isSectionExpanded('export') ? 'rotate-180 text-primary' : ''
+                  }`}
+                />
+              </button>
+            </CollapsibleTrigger>
+          </div>
+
+          <CollapsibleContent className="px-2.5 pb-2.5 pt-2 space-y-2 border-t border-[hsl(var(--border))]/50">
+            <div className="grid grid-cols-3 gap-1.5">
+              {(['glb', 'gltf', 'fbx', 'obj', 'stl', 'ply'] as const).map((fmt) => (
+                <button
+                  key={fmt}
+                  type="button"
+                  onClick={() => setExportFormat(fmt)}
+                  className={`py-1.5 rounded-lg uppercase font-mono font-semibold text-[11px] transition-colors cursor-pointer ${
+                    exportFormat === fmt
+                      ? 'bg-[hsl(var(--accent))] text-[hsl(var(--accent-foreground))]'
+                      : 'bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))]'
+                  }`}
+                >
+                  {fmt}
+                </button>
+              ))}
+            </div>
+
+            <div className="p-2 rounded-lg bg-[hsl(var(--surface-2))] border border-[hsl(var(--border))] space-y-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-[hsl(var(--muted-foreground))]">Pipeline Target</span>
+                <span className="font-mono text-primary font-semibold">{exportFormat.toUpperCase()}</span>
+              </div>
+              <div className="text-[11px] text-[hsl(var(--muted-foreground))] leading-relaxed">
+                {exportFormat === 'glb' && 'glTF 2.0 Binary with packed PBR textures.'}
+                {exportFormat === 'gltf' && 'glTF 2.0 JSON with embedded base64 buffers.'}
+                {exportFormat === 'fbx' && 'Autodesk FBX with skeleton and skin weights.'}
+                {exportFormat === 'obj' && 'Wavefront OBJ polygonal geometry.'}
+                {exportFormat === 'stl' && 'Watertight triangular mesh for 3D printing.'}
+                {exportFormat === 'ply' && 'Polygon File Format for point/face data.'}
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       </div>
 
-      {/* Pinned Bottom Export Action Bar */}
+      {/* Single Pinned Bottom Export Action */}
       <div className="p-2.5 border-t border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] flex-shrink-0">
         <button
           id="btn-pinned-export-download"
+          type="button"
           onClick={handleExportDownload}
           disabled={isExporting || !currentAsset}
-          className="w-full h-9 rounded-xl bg-primary hover:bg-primary/90 text-[hsl(var(--primary-foreground))] font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-md cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          className="w-full h-9 rounded-xl bg-primary hover:bg-primary/90 text-[hsl(var(--primary-foreground))] font-bold text-xs flex items-center justify-center gap-2 transition-colors active:scale-[0.98] shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {isExporting ? (
             <HugeiconsIcon icon={RefreshCw} size={16} className="w-4 h-4 animate-spin" />
           ) : exportSuccess ? (
-            <HugeiconsIcon icon={CheckIcon} size={16} className="w-4 h-4 text-emerald-400" />
+            <HugeiconsIcon icon={CheckIcon} size={16} className="w-4 h-4 text-emerald-700" />
           ) : (
             <HugeiconsIcon icon={DownloadIcon} size={16} className="w-4 h-4" />
           )}

@@ -1405,6 +1405,10 @@ async def get_job_status(job_id: str, request: Request):
                 and Path(str(mesh_path)).suffix.lower() in {".glb", ".gltf", ".obj", ".fbx", ".stl", ".ply"}
                 and result.get("artifact_type") != "motion"
             )
+            if result.get("artifact_type") == "motion":
+                clip_ref = result.get("asset_id") or f"job-{job_id}"
+                result.setdefault("motion_clip_id", str(clip_ref))
+                result.setdefault("clip_url", f"/api/v1/motion/clips/{result['motion_clip_id']}")
 
             if mesh_path and os.path.exists(mesh_path) and _is_mesh_artifact:
                 # Create URL for mesh file

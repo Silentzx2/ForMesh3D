@@ -68,43 +68,39 @@ export const ResourceMonitor: React.FC = () => {
   }, [fetchStats]);
 
   const getStatusColor = (percent: number) => {
-    if (percent >= 85) return { 
-      text: 'text-[#FF3366]', 
-      bg: 'bg-gradient-to-t from-[#FF0055] to-[#FF3366] shadow-[0_0_8px_rgba(255,51,102,0.8)]', 
-      border: 'border-[#FF3366]/40',
-      fill: '#f40000'
+    if (percent >= 85) return {
+      text: 'text-rose-400',
+      bg: 'bg-rose-500',
+      border: 'border-rose-500/30',
+      fill: '#f43f5e'
     };
-    if (percent >= 70) return { 
-      text: 'text-[#FF9900]', 
-      bg: 'bg-gradient-to-t from-[#FF7700] to-[#FFB700] shadow-[0_0_8px_rgba(255,153,0,0.8)]', 
-      border: 'border-[#FF9900]/40',
-      fill: '#FF9900'
+    if (percent >= 70) return {
+      text: 'text-orange-400',
+      bg: 'bg-orange-400',
+      border: 'border-orange-400/30',
+      fill: '#fb923c'
     };
-    if (percent >= 45) return { 
-      text: 'text-[#FFD700]', 
-      bg: 'bg-gradient-to-t from-[#FFB800] to-[#FFE600] shadow-[0_0_8px_rgba(255,215,0,0.8)]', 
-      border: 'border-[#FFD700]/40',
-      fill: '#ffd900'
+    if (percent >= 45) return {
+      text: 'text-amber-400',
+      bg: 'bg-amber-400',
+      border: 'border-amber-400/30',
+      fill: '#fbbf24'
     };
-    return { 
-      text: 'text-[#00FF88]', 
-      bg: 'bg-gradient-to-t from-[#00CC66] to-[#00FF88] shadow-[0_0_8px_rgba(0,255,136,0.8)]', 
-      border: 'border-[#00FF88]/40',
-      fill: '#00b209'
+    return {
+      text: 'text-emerald-400',
+      bg: 'bg-emerald-500',
+      border: 'border-emerald-500/30',
+      fill: '#10b981'
     };
   };
 
   const getColor = (percent: number) => getStatusColor(percent).text;
 
-  const getBgColor = (percent: number) => {
-    if (percent >= 85) return 'bg-[#FF3366]/20 border-[#FF3366]/30';
-    if (percent >= 70) return 'bg-[#FF9900]/20 border-[#FF9900]/30';
-    if (percent >= 45) return 'bg-[#FFD700]/20 border-[#FFD700]/30';
-    return 'bg-[#00FF88]/20 border-[#00FF88]/30';
-  };
-
   const formatPercent = (val: number) => `${Math.round(val)}%`;
-  const formatGB = (used: number, total: number) => `${used.toFixed(1)}/${total.toFixed(1)} GB`;
+  const formatGB = (used: number | null | undefined, total: number | null | undefined) =>
+    typeof used === 'number' && Number.isFinite(used) && typeof total === 'number' && Number.isFinite(total) && total > 0
+      ? `${used.toFixed(1)}/${total.toFixed(1)} GB`
+      : '—';
 
   useEffect(() => {
     const closeOther = (event: Event) => {
@@ -141,8 +137,18 @@ export const ResourceMonitor: React.FC = () => {
     );
   }
 
-  // Determine VRAM percentage to display in collapsed view: use average if available, else fallback to primary GPU
-  const vramPercentToShow = stats.avg_vram_percent !== undefined ? stats.avg_vram_percent : stats.vram_percent;
+  // Derive aggregate VRAM from per-GPU readings when aggregate fields are absent.
+  const aggregateVram = stats.gpus && stats.gpus.length > 1 ? (() => {
+    const derivedUsed = stats.gpus!.reduce((sum, gpu) => sum + (Number.isFinite(gpu.memory_used_mb) ? gpu.memory_used_mb : 0), 0) / 1024;
+    const derivedTotal = stats.gpus!.reduce((sum, gpu) => sum + (Number.isFinite(gpu.memory_total_mb) ? gpu.memory_total_mb : 0), 0) / 1024;
+    const used = typeof stats.total_vram_used_gb === 'number' && Number.isFinite(stats.total_vram_used_gb) ? stats.total_vram_used_gb : derivedUsed;
+    const total = typeof stats.total_vram_total_gb === 'number' && Number.isFinite(stats.total_vram_total_gb) ? stats.total_vram_total_gb : derivedTotal;
+    const percent = typeof stats.avg_vram_percent === 'number' && Number.isFinite(stats.avg_vram_percent)
+      ? stats.avg_vram_percent : total > 0 ? (used / total) * 100 : null;
+    return { used, total, percent };
+  })() : null;
+  const vramPercentToShow = typeof stats.avg_vram_percent === 'number' && Number.isFinite(stats.avg_vram_percent)
+    ? stats.avg_vram_percent : stats.vram_percent;
 
   const metrics = [
     { id: 'gpu', label: 'GPU', value: vramPercentToShow, icon: GpuIcon },
@@ -157,9 +163,10 @@ export const ResourceMonitor: React.FC = () => {
       {/* Collapsed View - vertical pipes with live load colors and percentages */}
       <SimpleTooltip label="System Telemetry (GPU / RAM / CPU) • Click to open details" side="bottom">
         <button
+          type="button"
           onClick={() => { const nextOpen = !isExpanded; if (nextOpen) window.dispatchEvent(new CustomEvent('workspace-header-popover-open', { detail: 'resources' })); setIsExpanded(nextOpen); }}
-          className={`group flex items-center gap-1.5 h-6 px-2 rounded-full bg-[hsl(var(--surface-0))] border transition-all cursor-pointer select-none active:scale-95 ${
-            isExpanded ? 'border-primary/50 bg-[hsl(var(--surface-2))] shadow-sm' : 'border-white/[0.08] hover:border-white/[0.18] hover:bg-[hsl(var(--surface-2))]'
+          className={`group flex items-center gap-1.5 h-6 px-2 rounded-full bg-[hsl(var(--surface-0))] border transition-colors cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+            isExpanded ? 'border-primary/50 bg-[hsl(var(--surface-2))]' : 'border-white/[0.08] hover:border-white/[0.16] hover:bg-[hsl(var(--surface-2))]'
           }`}
           aria-label={`${metricsSummaryText} - ${isExpanded ? 'Collapse resource monitor' : 'Expand resource monitor'}`}
           aria-expanded={isExpanded}
@@ -209,11 +216,11 @@ export const ResourceMonitor: React.FC = () => {
 
           {/* Panel */}
           <motion.div
-            initial={{ opacity: 0, y: -8, scale: 0.98 }}
+            initial={{ opacity: 0, y: -6, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.98 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-            className="fixed right-2 md:right-4 top-[48px] z-50 w-[280px] bg-[hsl(var(--surface-1))]/95 backdrop-blur-xl border border-white/[0.12] rounded-xl shadow-2xl overflow-hidden"
+            exit={{ opacity: 0, y: -6, scale: 0.98 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+            className="fixed right-2 md:right-4 top-[48px] z-50 w-[280px] bg-[hsl(var(--surface-1))] border border-white/[0.08] rounded-xl shadow-2xl overflow-hidden"
             role="region"
             aria-label="System resource details"
           >
@@ -286,20 +293,20 @@ export const ResourceMonitor: React.FC = () => {
                       <div className="pt-2 border-t border-white/[0.06] space-y-1.5">
                         <div className="flex items-center justify-between">
                           <span className="font-semibold text-zinc-200 text-xs">Total VRAM</span>
-                          <span className={`font-mono text-[10px] font-bold ${getColor(stats.avg_vram_percent ?? 0)}`}>
-                            {formatPercent(stats.avg_vram_percent ?? 0)}
+                          <span className={`font-mono text-[10px] font-bold ${aggregateVram?.percent === null ? 'text-zinc-400' : getColor(aggregateVram?.percent ?? 0)}`}>
+                            {aggregateVram?.percent === null ? '—' : formatPercent(aggregateVram?.percent ?? 0)}
                           </span>
                         </div>
                         <div className="w-full h-2 bg-black/40 border border-white/[0.06] rounded-full overflow-hidden p-[1px]">
                           <motion.div
                             initial={{ width: 0 }}
-                            animate={{ width: `${Math.min(stats.avg_vram_percent ?? 0, 100)}%` }}
+                            animate={{ width: `${Math.min(aggregateVram?.percent ?? 0, 100)}%` }}
                             transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-                            className={`h-full rounded-full transition-all duration-300 ${getStatusColor(stats.avg_vram_percent ?? 0).bg}`}
+                            className={`h-full rounded-full transition-all duration-300 ${aggregateVram?.percent === null ? 'bg-zinc-500/40' : getStatusColor(aggregateVram?.percent ?? 0).bg}`}
                           />
                         </div>
                         <div className="flex items-center justify-between text-[9px] text-zinc-400">
-                          <span>{formatGB(stats.total_vram_used_gb ?? 0, stats.total_vram_total_gb ?? 0)}</span>
+                          <span>{formatGB(aggregateVram?.used, aggregateVram?.total)}</span>
                         </div>
                       </div>
                     )}
