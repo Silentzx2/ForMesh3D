@@ -140,8 +140,16 @@ class SkinTokensAdapter(BaseModel):
             logger.info("Loading SkinTokens model from %s", ckpt_path or "default")
             _load_cwd = os.getcwd()
             # TokenRig.__init__ loads cfg['pretrained_vae'] via a relative path
-            # ('experiments/skin_vae_.../last.ckpt'); run from weights_dir if present.
+            # ('experiments/skin_vae_.../last.ckpt'); run from weights_dir if present,
+            # and ensure configs/ (e.g. configs/skeleton/vroid.yaml) resolves there too.
             if weights_dir.is_dir():
+                _cfg_link = weights_dir / "configs"
+                _src_cfg = skintokens_root / "configs"
+                if not _cfg_link.exists() and _src_cfg.is_dir():
+                    try:
+                        _cfg_link.symlink_to(_src_cfg)
+                    except OSError:
+                        pass
                 os.chdir(str(weights_dir))
             try:
                 demo.load_model(model_ckpt=ckpt_path or "", hf_path=None)
