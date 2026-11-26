@@ -676,7 +676,8 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     if [ -d "$THIRDPARTY_DIR/PartUV" ]; then
         echo "[INFO] Building PartUV C++ extension..."
         sed -i 's/cmake\.verbose = true/build.verbose = true/' "$THIRDPARTY_DIR/PartUV/pyproject.toml"
-        $UV_PIP install --no-build-isolation -e "$THIRDPARTY_DIR/PartUV" || echo "[WARN] PartUV build failed"
+        CUDAARCHS="75;80;86;89;90" CMAKE_CUDA_ARCHITECTURES="75;80;86;89;90" \
+            $UV_PIP install --no-build-isolation -e "$THIRDPARTY_DIR/PartUV" || echo "[WARN] PartUV build failed"
         git -C "$THIRDPARTY_DIR/PartUV" checkout -- pyproject.toml 2>/dev/null || true
     fi
 
