@@ -1069,9 +1069,20 @@ def _ensure_production_result_urls(job_id: str, result: dict) -> dict:
     if not isinstance(result, dict) or not job_id:
         return result
     base = f"/api/v1/system/jobs/{job_id}"
-    result.setdefault("model_url", f"{base}/download?artifact_format=glb")
-    result.setdefault("game_ready_url", f"{base}/download?artifact_format=glb")
-    result.setdefault("download_url", f"{base}/download?artifact_format=glb")
+    fmt = ""
+    for candidate in (result.get("output_mesh_path"), result.get("mesh_path"), result.get("output_path")):
+        if isinstance(candidate, str) and "." in candidate:
+            fmt = Path(candidate).suffix.lower().lstrip(".")
+            break
+    if not fmt:
+        gen_info = result.get("generation_info") if isinstance(result.get("generation_info"), dict) else {}
+        raw_fmt = gen_info.get("output_format") or result.get("format") or ""
+        fmt = str(raw_fmt).lower().lstrip(".")
+    if fmt not in {"glb", "gltf", "obj", "fbx", "ply", "stl"}:
+        fmt = "glb"
+    result.setdefault("model_url", f"{base}/download?artifact_format={fmt}")
+    result.setdefault("game_ready_url", f"{base}/download?artifact_format={fmt}")
+    result.setdefault("download_url", f"{base}/download?artifact_format={fmt}")
     result.setdefault("source_model_url", f"{base}/download?artifact_format=master")
     result.setdefault("high_fidelity_url", f"{base}/download?artifact_format=master")
     result.setdefault("thumbnail_url", f"{base}/thumbnail")
@@ -1786,7 +1797,11 @@ async def download_job_result(
     try:
         if job_id.startswith("preview_"):
             job_id = job_id[len("preview_"):]
-        requested_artifact_format = artifact_format.strip().lower() if isinstance(artifact_format, str) else "glb"
+        requested_artifact_format = (
+            artifact_format.strip().lower()
+            if isinstance(artifact_format, str) and artifact_format.strip()
+            else None
+        )
         scheduler = await get_scheduler(request)
         job_status = await scheduler.get_job_status(job_id)
 
@@ -2159,6 +2174,10 @@ async def download_job_result(
                         if p.is_file() and p.suffix.lower() == f".{target_ext}":
                             output_path = p
                             break
+                if output_path is None and canonical_format == "glb":
+                    fallback = first_result_path(result)
+                    if fallback and Path(fallback).is_file():
+                        output_path = Path(fallback).resolve()
             elif canonical_format == "textured":
                 output_path = asset_root_path / "texture" / "textured.glb"
                 if not output_path.exists() and asset_name:
