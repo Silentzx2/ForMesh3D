@@ -4,18 +4,22 @@ Motion Generation API endpoints (ARDY and future motion models).
 Provides endpoints for text-to-motion generation and interactive animation synthesis.
 """
 
+import hashlib
 import logging
 import re
+import shutil
+import struct
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.dependencies import get_scheduler, sanitize_error_message
-from core.scheduler.database_manager import DatabaseManager
+from core.scheduler.database_manager import DatabaseManager, ProcessFileLock
+from core.scheduler.database_models import generate_asset_id, generate_operation_id
 from core.scheduler.job_queue import JobRequest
 from core.scheduler.multiprocess_scheduler import MultiprocessModelScheduler
 from core.utils.file_utils import get_storage_base_dir, get_workspace_storage_manager
@@ -476,6 +480,284 @@ async def preview_motion_clip(file: UploadFile = File(...)):
         )
     except MotionClipError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+
+
+
+_MAX_ANIMATED_GLB_BYTES = 200 * 1024 * 1024
+
+
+async def _write_bounded_glb_upload(file: UploadFile, destination: Path) -> str:
+    """Stream a browser-exported GLB to a temporary file and verify its GLB 2 header."""
+    filename = (file.filename or "").strip()
+    if not filename.lower().endswith(".glb"):
+        await file.close()
+        raise HTTPException(status_code=415, detail="Animated workspace assets must be binary GLB files")
+    total = 0
+    try:
+        with destination.open("wb") as handle:
+            while True:
+                chunk = await file.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > _MAX_ANIMATED_GLB_BYTES:
+                    raise HTTPException(status_code=413, detail="Animated GLB exceeds the 200 MB limit")
+                handle.write(chunk)
+    finally:
+        await file.close()
+    if total < 12:
+        raise HTTPException(status_code=400, detail="Animated GLB is incomplete")
+    with destination.open("rb") as handle:
+        magic, version, declared_length = struct.unpack("<4sII", handle.read(12))
+    if magic != b"glTF" or version != 2 or declared_length != total:
+        raise HTTPException(status_code=415, detail="Invalid GLB 2.0 binary payload")
+    return filename
+
+
+async def _resolve_motion_npz_for_export(
+    clip_id: str,
+    scheduler: MultiprocessModelScheduler,
+) -> Path:
+    if not _SAFE_CLIP_ID_RE.fullmatch(clip_id):
+        raise HTTPException(status_code=404, detail="Motion clip not found")
+    try:
+        return resolve_preset_npz_path(clip_id)
+    except MotionClipError as exc:
+        if exc.status_code != 404:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+    try:
+        path, _ = resolve_upload_npz_path(clip_id)
+        return path
+    except MotionClipError as exc:
+        if exc.status_code != 404:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+    path, _ = await _resolve_job_or_asset_motion_npz(clip_id, scheduler)
+    return path
+
+
+def _workspace_animation_asset_payload(asset, workspace_id: str) -> Dict[str, Any]:
+    return {
+        "id": asset.asset_id,
+        "asset_id": asset.asset_id,
+        "asset_type": asset.asset_type,
+        "workspace_id": asset.workspace_id,
+        "operation_id": asset.operation_id,
+        "operation_type": asset.operation_type,
+        "source_asset_id": asset.source_asset_id,
+        "motion_clip_id": asset.motion_clip_id,
+        "name": Path(asset.original_filename).stem,
+        "category": "mesh",
+        "format": "GLB",
+        "file_size_mb": round(asset.byte_size / (1024 * 1024), 2),
+        "thumbnail": "",
+        "dateCreated": asset.created_at.isoformat() if asset.created_at else None,
+        "tags": ["Animation", "Workspace"],
+        "is_base_mesh": False,
+        "source": {
+            "filename": asset.original_filename,
+            "subfolder": "animation",
+            "type": "mesh",
+            "fileId": asset.asset_id,
+            "viewUrl": f"/api/v1/motion/workspaces/{workspace_id}/animations/{asset.asset_id}/download",
+        },
+        "file_url": f"/api/v1/motion/workspaces/{workspace_id}/animations/{asset.asset_id}/download",
+    }
+
+
+@router.post("/workspaces/{workspace_id}/animations")
+async def save_animated_mesh_to_workspace(
+    workspace_id: str,
+    file: UploadFile = File(...),
+    source_asset_id: str = Form(...),
+    motion_clip_id: str = Form(...),
+    clip_name: str = Form(...),
+    scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
+):
+    """Persist one animated GLB and its original NPZ as an immutable workspace asset."""
+    storage = get_workspace_storage_manager()
+    try:
+        storage.assert_safe_id(workspace_id)
+        storage.assert_safe_id(source_asset_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Workspace or source asset not found") from None
+
+    workspace_dir = storage.get_workspace_dir(workspace_id)
+    db = DatabaseManager()
+    workspace = db.get_workspace(workspace_id)
+    source_asset = db.get_asset(source_asset_id)
+    if workspace is None or source_asset is None or source_asset.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Workspace or source asset not found")
+    if source_asset.file_type != "mesh" or source_asset.status not in (None, "available"):
+        raise HTTPException(status_code=422, detail="Source asset must be an available rigged mesh")
+    source_path = workspace_dir / source_asset.relative_path
+    if source_path.is_symlink():
+        raise HTTPException(status_code=404, detail="Source rigged mesh file not found")
+    try:
+        resolved_source_path = source_path.resolve(strict=True)
+        resolved_source_path.relative_to(workspace_dir)
+    except (OSError, ValueError):
+        raise HTTPException(status_code=404, detail="Source rigged mesh file not found") from None
+    if not resolved_source_path.is_file():
+        raise HTTPException(status_code=404, detail="Source rigged mesh file not found")
+
+    motion_npz = await _resolve_motion_npz_for_export(motion_clip_id, scheduler)
+    try:
+        if motion_npz.stat().st_size > MAX_COMPRESSED_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Source motion clip exceeds the size limit")
+        # Re-validate the source artifact before retaining its exact bytes.
+        normalize_ardy_npz_bytes(motion_npz.read_bytes(), clip_id=motion_clip_id)
+    except MotionClipError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+    except OSError:
+        raise HTTPException(status_code=404, detail="Source motion clip not found") from None
+
+    safe_clip_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", Path(clip_name).stem).strip("_")[:48]
+    if not safe_clip_name:
+        safe_clip_name = "animation"
+
+    operation_id = generate_operation_id()
+    try:
+        db.create_persistence_operation(
+            operation_id=operation_id,
+            workspace_id=workspace_id,
+            operation_type="animation",
+            input_asset_id=source_asset_id,
+            settings={"motion_clip_id": motion_clip_id, "clip_name": safe_clip_name, "output_format": "glb"},
+        )
+    except Exception:
+        logger.exception("Could not register workspace animation persistence operation")
+        raise HTTPException(status_code=500, detail="Could not register animation save operation") from None
+
+    published = None
+    asset_registered = False
+    try:
+        with tempfile.TemporaryDirectory(prefix="formesh_animated_asset_") as tmp:
+            glb_path = Path(tmp) / "animated.glb"
+            await _write_bounded_glb_upload(file, glb_path)
+            with ProcessFileLock(lock_path=storage.storage_root / ".workspace_persistence.lock"):
+                published = storage.publish_animation_asset(
+                    workspace_id,
+                    safe_clip_name,
+                    glb_path,
+                    motion_npz,
+                )
+            asset_id = generate_asset_id()
+            final_path = published["mesh_path"]
+            digest_state = hashlib.sha256()
+            with final_path.open("rb") as final_handle:
+                for chunk in iter(lambda: final_handle.read(1024 * 1024), b""):
+                    digest_state.update(chunk)
+            digest = digest_state.hexdigest()
+            asset = db.add_asset(
+                asset_id=asset_id,
+                workspace_id=workspace_id,
+                file_type="mesh",
+                relative_path=published["relative_mesh_path"],
+                original_filename=f"{published['folder_name']}.glb",
+                byte_size=final_path.stat().st_size,
+                sha256=digest,
+                operation_id=operation_id,
+                operation_type="animation",
+                asset_type="animated_mesh",
+                source_asset_id=source_asset_id,
+                motion_clip_id=motion_clip_id,
+                is_retained=True,
+                status="available",
+            )
+            asset_registered = True
+        operation_result = {
+            "asset_id": asset_id,
+            "asset_type": "animated_mesh",
+            "source_asset_id": source_asset_id,
+            "motion_clip_id": motion_clip_id,
+            "relative_path": published["relative_mesh_path"],
+            "motion_relative_path": published["relative_motion_path"],
+        }
+        db.update_operation_execution_status(operation_id, "completed", progress=1.0, result=operation_result)
+        db.update_operation_persistence_status(operation_id, "saved")
+        try:
+            storage.build_manifest_projection(workspace_id, db)
+        except Exception:
+            # SQLite remains authoritative; a later projection rebuild can repair this file.
+            logger.exception("Could not refresh workspace metadata projection for %s", workspace_id)
+        return {
+            "success": True,
+            "asset": _workspace_animation_asset_payload(asset, workspace_id),
+            "version": published["version"],
+            "folder": published["folder_name"],
+        }
+    except HTTPException:
+        if published and not asset_registered and published.get("asset_dir"):
+            shutil.rmtree(published["asset_dir"], ignore_errors=True)
+        try:
+            db.update_operation_execution_status(operation_id, "failed", error={"code": "ANIMATION_SAVE_FAILED", "message": "Animation asset save failed"})
+            db.update_operation_persistence_status(operation_id, "save_failed")
+        except Exception:
+            logger.exception("Could not mark failed animation persistence operation %s", operation_id)
+        raise
+    except Exception as exc:
+        if published and not asset_registered and published.get("asset_dir"):
+            shutil.rmtree(published["asset_dir"], ignore_errors=True)
+        try:
+            db.update_operation_execution_status(operation_id, "failed", error={"code": "ANIMATION_SAVE_FAILED", "message": str(exc)})
+            db.update_operation_persistence_status(operation_id, "save_failed")
+        except Exception:
+            logger.exception("Could not mark failed animation persistence operation %s", operation_id)
+        logger.exception("Failed to persist animated mesh in workspace %s", workspace_id)
+        raise HTTPException(status_code=500, detail="Failed to save animated mesh to workspace") from None
+
+
+@router.get("/workspaces/{workspace_id}/animations")
+async def list_workspace_animated_meshes(workspace_id: str):
+    """List verified animated GLB assets for a workspace from the authoritative DB."""
+    storage = get_workspace_storage_manager()
+    try:
+        ws_dir = storage.get_workspace_dir(workspace_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Workspace not found") from None
+    db = DatabaseManager()
+    if db.get_workspace(workspace_id) is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    payload = []
+    for asset in db.list_workspace_assets(workspace_id):
+        if asset.asset_type != "animated_mesh" or asset.status != "available":
+            continue
+        candidate = ws_dir / asset.relative_path
+        if candidate.is_symlink():
+            continue
+        try:
+            resolved = candidate.resolve(strict=True)
+            resolved.relative_to(ws_dir)
+        except (OSError, ValueError):
+            continue
+        if resolved.is_file():
+            payload.append(_workspace_animation_asset_payload(asset, workspace_id))
+    return {"success": True, "assets": payload}
+
+
+@router.get("/workspaces/{workspace_id}/animations/{asset_id}/download")
+async def download_workspace_animated_mesh(workspace_id: str, asset_id: str):
+    """Download a verified immutable animated GLB from its owning workspace."""
+    storage = get_workspace_storage_manager()
+    try:
+        ws_dir = storage.get_workspace_dir(workspace_id)
+        storage.assert_safe_id(asset_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Animated mesh not found") from None
+    asset = DatabaseManager().get_asset(asset_id)
+    if asset is None or asset.workspace_id != workspace_id or asset.asset_type != "animated_mesh":
+        raise HTTPException(status_code=404, detail="Animated mesh not found")
+    candidate = ws_dir / asset.relative_path
+    if candidate.is_symlink():
+        raise HTTPException(status_code=404, detail="Animated mesh not found")
+    try:
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(ws_dir)
+    except (OSError, ValueError):
+        raise HTTPException(status_code=404, detail="Animated mesh not found") from None
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail="Animated mesh not found")
+    return FileResponse(path=str(resolved), media_type="model/gltf-binary", filename=asset.original_filename)
 
 
 @router.get("/clips/{clip_id}", response_model=MotionClipV1)

@@ -30,7 +30,7 @@ import { getApiClient, normalizeBackendAssetUrl } from '@/services/apiClient';
 import { useAppStore } from '@/stores/useAppStore';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
 import { useAnimationStore } from '@/stores/useAnimationStore';
-import { saveGeneratedMotionClip } from '@/services/motionClient';
+import { listWorkspaceAnimatedMeshes, saveGeneratedMotionClip } from '@/services/motionClient';
 import { findTaskKeyForBackendJob } from '../lib/taskIdentity';
 import { useTaskManager } from '@/hooks/useTaskManager';
 import { useTaskPolling } from '@/hooks/useTaskPolling';
@@ -238,6 +238,7 @@ const DERIVED_OPERATION_TYPES = new Set([
 
 function isDerivedOrTempAsset(asset: ModelAsset): boolean {
   if (!asset) return false;
+  if (asset.asset_type === 'animated_mesh') return false;
   if (asset.id.startsWith('preview_')) return true;
   if (asset.is_base_mesh === false) return true;
   const opType = (asset.operation_type || '').toLowerCase();
@@ -546,6 +547,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   });
 
   const [assets, setAssets] = useState<ModelAsset[]>([]);
+  const [workspaceAnimationAssets, setWorkspaceAnimationAssets] = useState<ModelAsset[]>([]);
 
   const refreshAssets = useCallback(async () => {
     await Promise.allSettled([
@@ -564,7 +566,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // Prioritize local session assets, then uploaded, then history
       // When merging, preserve authoritative metadata from prevAssets if incoming has statsAvailable: false
       const prevMap = new Map((prevAssets || []).map(a => [a.id, a]));
-      const all = [...local, ...uploaded, ...history].map(rawItem => {
+      const all = [...local, ...uploaded, ...history, ...workspaceAnimationAssets].map(rawItem => {
         const a = normalizeModelAsset(rawItem);
         // Add prefix to IDs to prevent collisions (MED-002)
         if (local.includes(rawItem as any)) {
@@ -655,12 +657,30 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
       return filtered;
     });
-  }, [historyAssets, uploadedAssets, localAssets, deletedAssetIds]);
+  }, [historyAssets, uploadedAssets, localAssets, workspaceAnimationAssets, deletedAssetIds]);
 
   const [workspaceId, setWorkspaceIdState] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
     return parseWorkspaceRouteIdentity(window.location.pathname).workspaceId;
   });
+
+  useEffect(() => {
+    if (!workspaceId) {
+      setWorkspaceAnimationAssets([]);
+      return;
+    }
+    let cancelled = false;
+    listWorkspaceAnimatedMeshes(workspaceId)
+      .then((items) => {
+        if (cancelled) return;
+        setWorkspaceAnimationAssets(items.map((item) => normalizeModelAsset(item as unknown as Record<string, any>)));
+      })
+      .catch((error) => {
+        if (!cancelled) console.warn('Workspace animation assets could not be loaded:', error);
+      });
+    return () => { cancelled = true; };
+  }, [workspaceId]);
+
   const workspaceIdRef = useRef<string | null>(workspaceId);
 
   const [activeMeshAssetId, setActiveMeshAssetIdState] = useState<string | null>(null);
@@ -940,6 +960,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const matchesExistingAsset = (candidate: ModelAsset) => {
       if (candidate.id === normalized.id) return true;
       if (normalized.isLocalDuplicate || candidate.isLocalDuplicate) return false;
+      if (normalized.asset_type === 'animated_mesh' || candidate.asset_type === 'animated_mesh') return false;
       const sameWorkspace = normalized.workspace_id === candidate.workspace_id;
       const normUrl = stripQuery(normalized.source?.viewUrl);
       const candUrl = stripQuery(candidate.source?.viewUrl);

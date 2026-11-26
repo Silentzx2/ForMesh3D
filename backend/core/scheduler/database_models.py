@@ -285,6 +285,9 @@ class AssetModel(Base):
     workspace_id = Column(String(64), nullable=False, index=True)
     operation_id = Column(String(64), nullable=True, index=True)
     operation_type = Column(String(32), nullable=True)
+    asset_type = Column(String(32), nullable=True, index=True)
+    source_asset_id = Column(String(64), nullable=True, index=True)
+    motion_clip_id = Column(String(128), nullable=True)
     file_type = Column(String(32), nullable=False)
     relative_path = Column(String(512), nullable=False)
     original_filename = Column(String(256), nullable=False)
@@ -306,6 +309,9 @@ class AssetModel(Base):
             "workspace_id": self.workspace_id,
             "operation_id": self.operation_id,
             "operation_type": self.operation_type,
+            "asset_type": self.asset_type,
+            "source_asset_id": self.source_asset_id,
+            "motion_clip_id": self.motion_clip_id,
             "file_type": self.file_type,
             "relative_path": self.relative_path,
             "original_filename": self.original_filename,

@@ -1,49 +1,33 @@
 # ForMesh3D — Task Plan Index
 
 > Updated: 2026-11-26  
-> Execution: Two independent coding agents, separate scopes and separate worktrees  
-> Vision: Crisp, calm, Tripo-inspired desktop 3D studio; ForMesh 3D branding; no AI slop; no mobile-first redesign.
+> Execution: implementation is maintained in source, tests, and focused architecture/API documentation.  
+> Vision: crisp, calm, Tripo-inspired desktop 3D studio; ForMesh 3D branding; no AI slop; no mobile-first redesign.
 
-The previous oversized single plan has been split into two complete implementation specifications. **Both agents must read both files fully before coding.**
+## Task documentation
 
-## Task files
+The former split implementation specifications (`TASKS-PART-1-UI-UX.md` and `TASKS-PART-2-BACKEND.md`) have been retired and removed. The root `promt.md` agent prompt file has also been retired. This index is intentionally retained.
 
-1. **[Part 1 — UI/UX & Frontend](TASKS-PART-1-UI-UX.md)**  
-   UI agent owns frontend implementation only. It may inspect backend code and OpenAPI read-only to verify capability contracts. It must not edit anything under backend/ or patcher/.
-
-2. **[Part 2 — Backend & API](TASKS-PART-2-BACKEND.md)**  
-   A different backend agent owns FastAPI, backend services, validation, storage boundaries, and backend tests only. It may inspect Part 1/frontend code read-only. It must not edit frontend components, CSS, hooks, stores, or types.
-
-## Agent coordination
-
-- Read Part 1 and Part 2 completely, plus AGENTS.md and linked project docs.
-- Work in separate worktrees/branches. Never edit the same worktree or shared branch simultaneously.
-- Freeze the UI-owned API contract in Part 1 before Part 2 implements endpoints.
-- Part 1 creates a typed frontend API client and honest loading/error states; it does not fake or implement FastAPI endpoints.
-- Part 2 implements the exact endpoint/response contract and makes completed job artifacts resolvable by a stable server-issued clip ID.
-- Part 2 does not restyle or change frontend code. Any needed frontend change is handed back to the UI agent.
-- Do not mark the overall feature complete until both frontend and backend acceptance gates pass.
+The current animation persistence contract is documented in [ANIMATION-ASSET-STORAGE.md](ANIMATION-ASSET-STORAGE.md). API routes are documented in [api-documentation.md](api-documentation.md), and architecture decisions are recorded in [DECISIONS.md](DECISIONS.md).
 
 ## Shared non-negotiables
 
-- Desktop-first, primarily 1280×720 through 4K. No mobile-first redesign.
-- Deeply inspect every image under .brain/ recursively, including new images added later. Record the file-to-requirement map.
-- Keep existing personal operator tools and model capabilities.
+- Keep the personal single-user/VPS architecture simple and reliable.
 - Reuse current workspace, job, asset, Zustand, Three.js Mixer, and animation-clock lifecycles.
 - No fake controls, fake progress, fake data, fake holograms, fake point clouds, duplicate generation cards, or extra progress cards.
 - Keep the simple horizontal generation progress line.
 - Do not assume ARDY NPZ field names, shapes, joint ordering, FPS options, or coordinate conventions. Verify them from real output and upstream source.
-- Bundled premade presets are committed in backend/motion_presets/; user-uploaded/generated presets live under backend/storage/presets/<preset_id>/ with one metadata.json per preset directory. Never place user presets in workspace asset directories.
-- Preserve protected model adapters, patcher isolation, scheduler, and SM80+ inference parity.
-- Update docs only after implementation matches actual behaviour.
-
-See both linked specifications for phases, TODO/NOT-TO-DO lists, API schema, security limits, tests, acceptance criteria, and handoff requirements.
-
+- Bundled premade presets belong in `backend/motion_presets/`; user-uploaded/generated reusable presets belong in `backend/storage/presets/<preset_id>/`.
+- Workspace animated exports belong in `backend/storage/<workspace_id>/animation/<clip-name>_vNNN/`; each folder contains `animated.glb` and `motion.npz`.
+- SQLite is authoritative. One workspace-root `metadata.json` is a write-only projection; do not create per-animation metadata files.
+- Preserve protected model adapters, patcher isolation, scheduler behaviour, and SM80+ inference parity.
+- Update documentation only after implementation matches actual behaviour.
 
 ## Current implementation status (2026-11-26)
 
-- The two task specifications are retained as authoritative references; do not delete them.
-- Premade and user motion libraries are separate. The premade directory currently contains no bundled NPZ assets; do not fabricate sample presets.
-- Uploaded/generated user presets are server-backed in backend/storage/presets/<preset_id>/.
-- Real ARDY NPZ evidence is still missing. MotionClipV1 retarget/playback acceptance remains blocked until a real output from the supported checkpoint is inspected.
-- Visual UI acceptance requires a browser screenshot/session; TypeScript checks alone are insufficient.
+- MotionClipV1 preset discovery, validation, preview, and reusable user-preset persistence are implemented.
+- Workspace animation export is wired to versioned workspace storage and DB asset lineage. GLB download remains available separately.
+- Premade multi-select export creates one independent workspace asset per selected preset.
+- No bundled premade NPZ files are fabricated or added by this change.
+- Real ARDY NPZ retarget verification remains blocked until a real output from the supported checkpoint is inspected.
+- Runtime/browser verification and CI status must be recorded from actual workflow results; source-level changes alone do not establish end-to-end success.

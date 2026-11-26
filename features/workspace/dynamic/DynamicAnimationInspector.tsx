@@ -5,7 +5,7 @@ import { useWorkspace } from '../store/WorkspaceContext';
 import { useViewerStore } from '@/stores/useViewerStore';
 import { useAnimationStore } from '@/stores/useAnimationStore';
 import { saveMotionClip } from '@/services/motionStorage';
-import { exportAnimatedModelAsGlb } from './exportAnimatedGlb';
+import { downloadAnimatedGlb, exportAnimatedModelAsGlb } from './exportAnimatedGlb';
 import {
   Film,
   Play,
@@ -58,12 +58,8 @@ export const DynamicAnimationInspector: React.FC = () => {
     setExportError(null);
     toast.info('Preparing animation motion clip export...');
     try {
-      await exportAnimatedModelAsGlb({
-        activeModelObject,
-        activeThreeClip,
-        assetId: currentAsset?.id,
-        assetName: currentAsset?.name || clipName,
-      });
+      const glb = await exportAnimatedModelAsGlb({ activeModelObject, activeThreeClip });
+      downloadAnimatedGlb(glb, currentAsset?.name || clipName);
       toast.success('Animation motion clip exported (.glb)');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Export failed';
