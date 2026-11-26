@@ -44,7 +44,30 @@ def apply_patch(gpu_id: Optional[int] = None) -> None:
     _inject_michelangelo_models_stub()
     _shim_gradio_if_missing()
     register_qwen3_if_missing()
+    _patch_dataloader_num_workers()
     _patch_attention_and_precision(gpu_id=gpu_id)
+
+
+def _patch_dataloader_num_workers() -> None:
+    """Force num_workers=0 in SkinTokens DatasetConfig.parse to avoid CUDA IPC pidfd_getfd errors."""
+    try:
+        from src.data.dataset import DatasetConfig
+    except ImportError:
+        return
+    if getattr(DatasetConfig, "_skintokens_nw_patched", False):
+        return
+    orig_parse = DatasetConfig.parse.__func__
+
+    @classmethod
+    def _patched_parse(cls: Any, *args: Any, **kwargs: Any) -> Any:
+        if kwargs.get("num_workers", 0):
+            kwargs["num_workers"] = 0
+            kwargs["persistent_workers"] = False
+            kwargs["pin_memory"] = False
+        return orig_parse(cls, *args, **kwargs)
+
+    DatasetConfig.parse = _patched_parse  # type: ignore[assignment]
+    DatasetConfig._skintokens_nw_patched = True  # type: ignore[attr-defined]
 
 
 def _inject_michelangelo_models_stub() -> None:
