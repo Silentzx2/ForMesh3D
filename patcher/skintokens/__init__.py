@@ -45,7 +45,33 @@ def apply_patch(gpu_id: Optional[int] = None) -> None:
     _shim_gradio_if_missing()
     register_qwen3_if_missing()
     _patch_dataloader_num_workers()
+    _patch_vocab_logits_processor()
     _patch_attention_and_precision(gpu_id=gpu_id)
+
+
+def _patch_vocab_logits_processor() -> None:
+    """Guard VocabSwitchingLogitsProcessor against NaN/inf or all-masked rows during beam search."""
+    if torch is None:
+        return
+    try:
+        from src.model.tokenrig import VocabSwitchingLogitsProcessor
+    except ImportError:
+        return
+    if getattr(VocabSwitchingLogitsProcessor, "_skintokens_logits_patched", False):
+        return
+    orig_call = VocabSwitchingLogitsProcessor.__call__
+
+    def _safe_call(self: Any, input_ids: Any, scores: Any) -> Any:
+        # Clamp NaN/+inf before masking so (+inf) + (-inf) never turns into NaN.
+        scores = torch.nan_to_num(scores.float(), nan=0.0, posinf=1e4, neginf=-1e4)
+        out = orig_call(self, input_ids, scores)
+        for row_idx in range(out.shape[0]):
+            if not torch.isfinite(out[row_idx]).any():
+                out[row_idx, self.eos_token_id] = 0.0
+        return out
+
+    VocabSwitchingLogitsProcessor.__call__ = _safe_call  # type: ignore[method-assign]
+    VocabSwitchingLogitsProcessor._skintokens_logits_patched = True  # type: ignore[attr-defined]
 
 
 def _patch_dataloader_num_workers() -> None:

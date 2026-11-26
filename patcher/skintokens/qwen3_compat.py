@@ -122,6 +122,8 @@ if _HAS_QWEN2:
             causal_mask = attention_mask
             if attention_mask is not None:
                 causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+                if causal_mask.dtype != torch.bool and causal_mask.dtype != query_states.dtype:
+                    causal_mask = causal_mask.to(query_states.dtype)
 
             if query_states.device.type == "cuda" and causal_mask is not None:
                 query_states = query_states.contiguous()
