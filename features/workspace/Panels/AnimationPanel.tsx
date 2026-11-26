@@ -4,8 +4,11 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { ActiveMeshBar, isValidMeshAsset } from '../components';
 import { useAnimationStore } from '@/stores/useAnimationStore';
+import { useViewerStore } from '@/stores/useViewerStore';
+import { exportAnimatedModelAsGlb } from '../dynamic/exportAnimatedGlb';
 import {
   listMotionPresets,
+  saveAnimatedMeshToWorkspace,
   listUploadedMotionClips,
   uploadMotionClip,
   deleteUploadedMotionClip,
@@ -39,49 +42,51 @@ const DURATION_MAX = 30.0;
 interface PresetCardProps {
   preset: MotionPresetItem;
   isActive: boolean;
+  isExportSelected: boolean;
   onSelect: (preset: MotionPresetItem) => void;
+  onToggleExport: (presetId: string) => void;
 }
 
-const PresetCard: React.FC<PresetCardProps> = ({ preset, isActive, onSelect }) => {
+const PresetCard: React.FC<PresetCardProps> = ({ preset, isActive, isExportSelected, onSelect, onToggleExport }) => {
   const [imgFailed, setImgFailed] = useState(false);
   const thumbUrl = getPresetThumbnailUrl(preset);
 
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(preset)}
-      className={`group text-left rounded-xl border p-2 transition-colors cursor-pointer flex flex-col gap-1.5 ${
-        isActive
-          ? 'bg-[hsl(var(--accent))]/15 border-[hsl(var(--accent))] text-white'
-          : 'bg-[hsl(var(--surface-2))] border-white/[0.08] hover:border-white/20 text-zinc-200'
-      }`}
-    >
-      <div className="w-full aspect-square rounded-lg bg-[hsl(var(--surface-0))] border border-white/[0.06] overflow-hidden flex items-center justify-center">
-        {thumbUrl && !imgFailed ? (
-          <img
-            src={thumbUrl}
-            alt={preset.name}
-            onError={() => setImgFailed(true)}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <Film className="w-6 h-6 text-zinc-500" />
-        )}
-      </div>
-      <div className="min-w-0 space-y-0.5">
-        <div className="text-xs font-medium text-white truncate">{preset.name}</div>
-        {(preset.duration !== null || preset.fps !== null) && (
-          <div className="text-[11px] font-mono text-zinc-400 truncate">
-            {[
-              preset.duration !== null ? `${preset.duration.toFixed(1)}s` : null,
-              preset.fps !== null ? `${preset.fps} FPS` : null,
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-          </div>
-        )}
-      </div>
-    </button>
+    <div className={`relative rounded-xl border p-2 transition-colors ${isActive
+      ? 'bg-[hsl(var(--accent))]/15 border-[hsl(var(--accent))] text-white'
+      : 'bg-[hsl(var(--surface-2))] border-white/[0.08] text-zinc-200'}`}>
+      <button type="button" onClick={() => onSelect(preset)} className="w-full text-left cursor-pointer flex flex-col gap-1.5">
+        <div className="w-full aspect-square rounded-lg bg-[hsl(var(--surface-0))] border border-white/[0.06] overflow-hidden flex items-center justify-center">
+          {thumbUrl && !imgFailed ? (
+            <img src={thumbUrl} alt={preset.name} onError={() => setImgFailed(true)} className="w-full h-full object-cover" />
+          ) : (
+            <Film className="w-6 h-6 text-zinc-500" />
+          )}
+        </div>
+        <div className="min-w-0 space-y-0.5 pr-1">
+          <div className="text-xs font-medium text-white truncate">{preset.name}</div>
+          {(preset.duration !== null || preset.fps !== null) && (
+            <div className="text-[11px] font-mono text-zinc-400 truncate">
+              {[
+                preset.duration !== null ? `${preset.duration.toFixed(1)}s` : null,
+                preset.fps !== null ? `${preset.fps} FPS` : null,
+              ].filter(Boolean).join(' · ')}
+            </div>
+          )}
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={() => onToggleExport(preset.id)}
+        aria-pressed={isExportSelected}
+        aria-label={isExportSelected ? 'Remove preset from workspace export selection' : 'Select preset for workspace export'}
+        className={`absolute top-3 right-3 min-w-6 h-6 px-1.5 rounded-md border text-[10px] font-semibold cursor-pointer ${isExportSelected
+          ? 'bg-[hsl(var(--primary))] text-black border-[hsl(var(--primary))]'
+          : 'bg-black/60 text-white border-white/20 hover:bg-black/80'}`}
+      >
+        {isExportSelected ? '✓' : '+'}
+      </button>
+    </div>
   );
 };
 
@@ -92,18 +97,27 @@ export const AnimationPanel: React.FC = () => {
     executionStep,
     cancelExecution,
     currentAsset,
+    workspaceId,
+    addAsset,
     runMotionGeneration,
   } = useWorkspace();
 
+  const activeModelObject = useViewerStore((s) => s.activeModelObject);
   const loadedSkeletonBoneNames = useAnimationStore((s) => s.loadedSkeletonBoneNames);
   const retargetMapping = useAnimationStore((s) => s.retargetMapping);
   const activeMotionClip = useAnimationStore((s) => s.activeMotionClip);
   const setClipState = useAnimationStore((s) => s.setClipState);
+  const setIsPlaying = useAnimationStore((s) => s.setIsPlaying);
   const bindMotionClip = useAnimationStore((s) => s.bindMotionClip);
   const setClipError = useAnimationStore((s) => s.setClipError);
 
   const hasValidMesh = isValidMeshAsset(currentAsset);
   const hasRiggedMesh = hasValidMesh && Boolean(loadedSkeletonBoneNames?.length);
+  const sourceCandidate = (currentAsset as any)?.asset_id || currentAsset?.id;
+  const sourceAssetId = typeof sourceCandidate === 'string' && /^ast_[a-f0-9]{12}$/i.test(sourceCandidate)
+    ? sourceCandidate
+    : null;
+  const targetWorkspaceId = workspaceId || currentAsset?.workspace_id || null;
 
   // Create Motion state
   const [motionPrompt, setMotionPrompt] = useState<string>('');
@@ -118,6 +132,8 @@ export const AnimationPanel: React.FC = () => {
   // Preset state
   const [presetStatus, setPresetStatus] = useState<LoadStatus>('loading');
   const [presets, setPresets] = useState<MotionPresetItem[]>([]);
+  const [selectedExportPresetIds, setSelectedExportPresetIds] = useState<string[]>([]);
+  const [isBatchExporting, setIsBatchExporting] = useState(false);
   const [presetError, setPresetError] = useState<string | null>(null);
 
   // My Presets state (server uploads/generated copies + IndexedDB cache)
@@ -188,6 +204,10 @@ export const AnimationPanel: React.FC = () => {
     clipRequestIdRef.current += 1;
   }, [currentAsset?.id]);
 
+  useEffect(() => {
+    setSelectedExportPresetIds([]);
+  }, [currentAsset?.id]);
+
   const bindValidatedClip = useCallback(
     (clip: MotionClipV1) => {
       if (!hasRiggedMesh) {
@@ -223,6 +243,80 @@ export const AnimationPanel: React.FC = () => {
       const msg = err instanceof Error ? err.message : 'Failed to load preset clip.';
       setClipError(msg);
       toast.error(msg);
+    }
+  };
+
+  const toggleExportPreset = (presetId: string) => {
+    setSelectedExportPresetIds((current) => current.includes(presetId)
+      ? current.filter((id) => id !== presetId)
+      : [...current, presetId]);
+  };
+
+  const handleSaveSelectedPresets = async () => {
+    if (!hasRiggedMesh || !activeModelObject || !targetWorkspaceId || !sourceAssetId ||
+        (currentAsset as any)?.asset_type === 'animated_mesh' || selectedExportPresetIds.length === 0) {
+      toast.error('Select the original rigged workspace mesh and at least one preset.');
+      return;
+    }
+
+    setIsBatchExporting(true);
+    setIsPlaying(false);
+    setClipState('exporting', null);
+    let savedCount = 0;
+    const savedAssets: any[] = [];
+    const failures: string[] = [];
+    try {
+      for (const presetId of selectedExportPresetIds) {
+        const preset = presets.find((item) => item.id === presetId);
+        if (!preset) continue;
+        try {
+          const clip = await getMotionClipFromUrl(preset.clip_url);
+          const { threeClip } = motionClipV1ToThreeClip(clip, loadedSkeletonBoneNames, retargetMapping);
+          const glb = await exportAnimatedModelAsGlb({ activeModelObject, activeThreeClip: threeClip });
+          const saved = await saveAnimatedMeshToWorkspace({
+            workspaceId: targetWorkspaceId,
+            sourceAssetId,
+            motionClipId: clip.id,
+            clipName: clip.name,
+            glb,
+          });
+          savedAssets.push({
+            id: saved.asset_id,
+            asset_id: saved.asset_id,
+            asset_type: 'animated_mesh',
+            workspace_id: saved.workspace_id,
+            operation_id: saved.operation_id,
+            operation_type: 'animation',
+            source_asset_id: saved.source_asset_id,
+            motion_clip_id: saved.motion_clip_id,
+            is_base_mesh: false,
+            name: saved.name,
+            category: 'mesh',
+            thumbnail: '',
+            meshType: 'custom',
+            faces: 0,
+            vertices: 0,
+            triangles: 0,
+            statsAvailable: false,
+            topology: 'Triangle',
+            format: 'GLB',
+            dateCreated: saved.dateCreated || new Date().toISOString(),
+            tags: ['Animation', 'Workspace'],
+            fileId: saved.asset_id,
+            source: saved.source,
+          } as any);
+          savedCount += 1;
+        } catch (error) {
+          failures.push(preset.name + ': ' + (error instanceof Error ? error.message : 'save failed'));
+        }
+      }
+      savedAssets.forEach((asset) => addAsset(asset));
+      if (savedCount > 0) toast.success('Saved ' + savedCount + ' animated mesh asset' + (savedCount === 1 ? '' : 's') + ' to workspace');
+      if (failures.length > 0) toast.warning(failures.length + ' preset export(s) failed: ' + failures.slice(0, 2).join('; '));
+      setSelectedExportPresetIds([]);
+    } finally {
+      setIsBatchExporting(false);
+      setClipState('paused', null);
     }
   };
 
@@ -612,15 +706,29 @@ export const AnimationPanel: React.FC = () => {
                 </div>
               )}
               {presetStatus === 'ready' && filteredPresets.length > 0 && (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveSelectedPresets()}
+                    disabled={isBatchExporting || !hasRiggedMesh || !activeModelObject || selectedExportPresetIds.length === 0 ||
+                      !targetWorkspaceId || !sourceAssetId || (currentAsset as any)?.asset_type === 'animated_mesh'}
+                    className="w-full h-7 rounded-lg bg-[hsl(var(--primary))] text-black text-[11px] font-semibold disabled:opacity-40 cursor-pointer"
+                    title="Each selected preset is exported as a separate immutable animated GLB in this workspace"
+                  >
+                    {isBatchExporting ? 'Saving selected...' : 'Save selected to Workspace (' + selectedExportPresetIds.length + ')'}
+                  </button>
+                  <div className="grid grid-cols-2 gap-2">
                   {filteredPresets.map((preset) => (
                     <PresetCard
                       key={preset.id}
                       preset={preset}
                       isActive={activeMotionClip?.id === preset.id}
+                      isExportSelected={selectedExportPresetIds.includes(preset.id)}
                       onSelect={handleSelectPreset}
+                      onToggleExport={toggleExportPreset}
                     />
                   ))}
+                  </div>
                 </div>
               )}
             </div>

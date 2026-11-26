@@ -135,6 +135,7 @@ export const RightAssetsPanel: React.FC = () => {
     ]);
 
     const isDerivedOrTempAsset = (asset: typeof assets[number]) => {
+      if (asset.asset_type === 'animated_mesh') return false;
       if (asset.isLocalDuplicate) return false;
       if (asset.id.startsWith('preview_')) return true;
       if (asset.is_base_mesh === false) return true;

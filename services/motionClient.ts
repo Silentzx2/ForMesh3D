@@ -264,6 +264,70 @@ export async function listMotionPresets(): Promise<MotionPresetsResponse> {
   }
 }
 
+
+export interface WorkspaceAnimatedAsset {
+  id: string;
+  asset_id: string;
+  asset_type: 'animated_mesh';
+  workspace_id: string;
+  operation_id: string;
+  source_asset_id: string;
+  motion_clip_id: string;
+  name: string;
+  category: 'mesh';
+  format: 'GLB';
+  file_size_mb: number;
+  thumbnail: string;
+  dateCreated: string | null;
+  tags: string[];
+  is_base_mesh: false;
+  source: { filename: string; subfolder: string; type: string; fileId: string; viewUrl: string };
+  file_url: string;
+}
+
+export async function listWorkspaceAnimatedMeshes(workspaceId: string): Promise<WorkspaceAnimatedAsset[]> {
+  if (!isNonEmptyString(workspaceId)) throw new MotionClientError('Workspace ID is required.', 'BAD_REQUEST', 400);
+  try {
+    const data = await getApiClient().get<unknown>('/api/v1/motion/workspaces/' + encodeURIComponent(workspaceId) + '/animations');
+    if (!isPlainObject(data) || !Array.isArray(data.assets)) {
+      throw new MotionClientError('Invalid workspace animation list response.', 'MALFORMED_RESPONSE');
+    }
+    return data.assets as WorkspaceAnimatedAsset[];
+  } catch (err) {
+    throw toMotionClientError(err, 'Failed to load workspace animations.');
+  }
+}
+
+export async function saveAnimatedMeshToWorkspace(args: {
+  workspaceId: string;
+  sourceAssetId: string;
+  motionClipId: string;
+  clipName: string;
+  glb: Blob;
+}): Promise<WorkspaceAnimatedAsset> {
+  if (!isNonEmptyString(args.workspaceId) || !isNonEmptyString(args.sourceAssetId) || !isNonEmptyString(args.motionClipId)) {
+    throw new MotionClientError('Workspace, source asset and motion clip IDs are required.', 'BAD_REQUEST', 400);
+  }
+  const safeName = (args.clipName || 'animation').replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 48) || 'animation';
+  const formData = new FormData();
+  formData.append('file', new File([args.glb], safeName + '.glb', { type: 'model/gltf-binary' }));
+  formData.append('source_asset_id', args.sourceAssetId);
+  formData.append('motion_clip_id', args.motionClipId);
+  formData.append('clip_name', safeName);
+  try {
+    const data = await getApiClient().post<unknown>(
+      '/api/v1/motion/workspaces/' + encodeURIComponent(args.workspaceId) + '/animations',
+      formData,
+    );
+    if (!isPlainObject(data) || !isPlainObject(data.asset) || !isNonEmptyString(data.asset.asset_id) || !isNonEmptyString(data.asset.file_url)) {
+      throw new MotionClientError('Invalid saved workspace animation response.', 'MALFORMED_RESPONSE');
+    }
+    return data.asset as unknown as WorkspaceAnimatedAsset;
+  } catch (err) {
+    throw toMotionClientError(err, 'Failed to save animated mesh to workspace.');
+  }
+}
+
 export async function saveGeneratedMotionClip(clipId: string): Promise<MotionClipV1> {
   if (!isNonEmptyString(clipId)) {
     throw new MotionClientError('Clip ID is required.', 'BAD_REQUEST', 400);

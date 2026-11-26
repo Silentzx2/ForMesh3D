@@ -952,6 +952,53 @@ class WorkspaceStorageManager:
                         logger.warning("Could not remove partial publication %s: %s", partial_path, cleanup_exc)
             raise
 
+    def publish_animation_asset(
+        self,
+        workspace_id: str,
+        clip_name: str,
+        animated_glb_path: Path,
+        motion_npz_path: Path,
+    ) -> Dict[str, Any]:
+        """Atomically publish one immutable animation version and its source NPZ."""
+        self.assert_safe_id(workspace_id)
+        ws_dir = self.get_workspace_dir(workspace_id)
+        if not ws_dir.is_dir():
+            raise FileNotFoundError("Workspace does not exist")
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", Path(clip_name).stem).strip("_").lower()[:48] or "animation"
+        animation_root = (ws_dir / "animation").resolve()
+        if not animation_root.is_relative_to(ws_dir):
+            raise ValueError("Animation directory is outside its workspace")
+        animation_root.mkdir(parents=True, exist_ok=True)
+        version = 1
+        while True:
+            folder_name = f"{safe_name}_v{version:03d}"
+            final_dir = animation_root / folder_name
+            if not final_dir.exists() and not final_dir.is_symlink():
+                break
+            version += 1
+        staging_dir = animation_root / f".staging_{uuid.uuid4().hex}"
+        try:
+            staging_dir.mkdir()
+            shutil.copy2(animated_glb_path, staging_dir / "animated.glb")
+            shutil.copy2(motion_npz_path, staging_dir / "motion.npz")
+            os.replace(staging_dir, final_dir)
+            final_glb = final_dir / "animated.glb"
+            final_npz = final_dir / "motion.npz"
+            return {
+                "asset_dir": final_dir,
+                "relative_dir": str(final_dir.relative_to(ws_dir)),
+                "mesh_path": final_glb,
+                "relative_mesh_path": str(final_glb.relative_to(ws_dir)),
+                "motion_path": final_npz,
+                "relative_motion_path": str(final_npz.relative_to(ws_dir)),
+                "version": version,
+                "folder_name": folder_name,
+            }
+        except Exception:
+            if staging_dir.exists() and not staging_dir.is_symlink():
+                shutil.rmtree(staging_dir, ignore_errors=True)
+            raise
+
     def write_manifest(self, workspace_id: str, manifest_data: Dict[str, Any]) -> Path:
         """Atomic write of unified workspace metadata.json."""
         ws_dir = self.get_workspace_dir(workspace_id)
@@ -992,6 +1039,10 @@ class WorkspaceStorageManager:
             "assets": [
                 {
                     "asset_id": a.asset_id,
+                    "operation_id": a.operation_id,
+                    "asset_type": a.asset_type,
+                    "source_asset_id": a.source_asset_id,
+                    "motion_clip_id": a.motion_clip_id,
                     "relative_path": a.relative_path,
                     "file_type": a.file_type,
                     "original_filename": a.original_filename,

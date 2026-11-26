@@ -110,6 +110,10 @@ Router prefix: /api/v1/motion. Motion clips use normalized MotionClipV1 (schema 
 - POST /api/v1/motion/uploads/from-clip/{clip_id} — Copy a completed ARDY job/asset NPZ into a deterministic gen_<hex12> user preset. Repeated calls for the same immutable source are idempotent.
 - DELETE /api/v1/motion/uploads/{clip_id} — Delete only the identified user preset directory. Legacy flat backend/storage/motion_uploads/ files remain readable during migration; new writes never target that directory.
 
+- POST /api/v1/motion/workspaces/{workspace_id}/animations — Multipart GLB plus source_asset_id, motion_clip_id and clip_name. Stores a separate immutable animated_mesh asset and copies the validated source NPZ into the workspace animation version folder.
+- GET /api/v1/motion/workspaces/{workspace_id}/animations — List only DB-registered animated assets whose files still resolve inside the workspace.
+- GET /api/v1/motion/workspaces/{workspace_id}/animations/{asset_id}/download — Download one verified animated GLB from its owning workspace.
+
 Evidence gate: parser unit tests use synthetic NPZ fixtures. Real checkpoint output has not yet been supplied/verified, so end-to-end retargeting, handedness, and physical translation units remain unverified.
 
 

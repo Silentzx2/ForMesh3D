@@ -6,11 +6,12 @@ import { useViewerStore } from '@/stores/useViewerStore';
 import { useAnimationStore } from '@/stores/useAnimationStore';
 import {
   getMotionClip,
+  saveAnimatedMeshToWorkspace,
   saveGeneratedMotionClip,
   motionClipV1ToThreeClip,
 } from '@/services/motionClient';
 import { saveMotionClip } from '@/services/motionStorage';
-import { exportAnimatedModelAsGlb } from '../dynamic/exportAnimatedGlb';
+import { downloadAnimatedGlb, exportAnimatedModelAsGlb } from '../dynamic/exportAnimatedGlb';
 import {
   Play,
   Pause,
@@ -22,7 +23,7 @@ import {
 import { toast } from 'sonner';
 
 export const AnimationPlayerBar: React.FC = () => {
-  const { currentAsset } = useWorkspace();
+  const { currentAsset, workspaceId, addAsset } = useWorkspace();
   const activeModelObject = useViewerStore((s) => s.activeModelObject);
 
   const clipState = useAnimationStore((s) => s.clipState);
@@ -184,20 +185,78 @@ export const AnimationPlayerBar: React.FC = () => {
   const isExporting = clipState === 'exporting';
   const clipName = activeMotionClip?.name ?? activeThreeClip.name ?? 'Motion Clip';
 
-  const handleExport = async () => {
+  const exportOptions = { activeModelObject, activeThreeClip };
+  const handleDownload = async () => {
     setIsPlaying(false);
     setClipState('exporting');
     try {
-      await exportAnimatedModelAsGlb({
-        activeModelObject,
-        activeThreeClip,
-        assetId: currentAsset?.id,
-        assetName: currentAsset?.name || clipName,
-      });
-      toast.success('Exported animated GLB');
+      const blob = await exportAnimatedModelAsGlb(exportOptions);
+      downloadAnimatedGlb(blob, clipName);
+      toast.success('Animated GLB downloaded');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Export failed';
-      toast.error(msg);
+      toast.error(err instanceof Error ? err.message : 'Export failed');
+    } finally {
+      setClipState('paused');
+    }
+  };
+
+  const sourceCandidate = (currentAsset as any)?.asset_id || currentAsset?.id;
+  const sourceAssetId = typeof sourceCandidate === 'string' && /^ast_[a-f0-9]{12}$/i.test(sourceCandidate)
+    ? sourceCandidate
+    : null;
+  const targetWorkspaceId = workspaceId || currentAsset?.workspace_id || null;
+  const canSaveToWorkspace = Boolean(
+    targetWorkspaceId &&
+    sourceAssetId &&
+    activeMotionClip?.id &&
+    activeMotionClip.id !== 'preview' &&
+    (currentAsset as any)?.asset_type !== 'animated_mesh'
+  );
+
+  const handleSaveToWorkspace = async () => {
+    if (!canSaveToWorkspace || !targetWorkspaceId || !sourceAssetId || !activeMotionClip?.id) {
+      toast.error('Select the original rigged mesh inside a workspace before saving.');
+      return;
+    }
+    setIsPlaying(false);
+    setClipState('exporting');
+    try {
+      const blob = await exportAnimatedModelAsGlb(exportOptions);
+      const saved = await saveAnimatedMeshToWorkspace({
+        workspaceId: targetWorkspaceId,
+        sourceAssetId,
+        motionClipId: activeMotionClip.id,
+        clipName,
+        glb: blob,
+      });
+      addAsset({
+        id: saved.asset_id,
+        asset_id: saved.asset_id,
+        asset_type: 'animated_mesh',
+        workspace_id: saved.workspace_id,
+        operation_id: saved.operation_id,
+        operation_type: 'animation',
+        source_asset_id: saved.source_asset_id,
+        motion_clip_id: saved.motion_clip_id,
+        is_base_mesh: false,
+        name: saved.name,
+        category: 'mesh',
+        thumbnail: '',
+        meshType: 'custom',
+        faces: 0,
+        vertices: 0,
+        triangles: 0,
+        statsAvailable: false,
+        topology: 'Triangle',
+        format: 'GLB',
+        dateCreated: saved.dateCreated || new Date().toISOString(),
+        tags: ['Animation', 'Workspace'],
+        fileId: saved.asset_id,
+        source: saved.source,
+      } as any);
+      toast.success('Animated mesh saved to workspace');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Could not save animated mesh');
     } finally {
       setClipState('paused');
     }
@@ -300,17 +359,27 @@ export const AnimationPlayerBar: React.FC = () => {
         ))}
       </div>
 
-      {/* Export GLB */}
+      {/* Persist the animated mesh in this workspace or download a standalone GLB. */}
       <button
         type="button"
-        onClick={handleExport}
+        onClick={handleSaveToWorkspace}
+        disabled={isExporting || !activeModelObject || !canSaveToWorkspace}
+        aria-label="Save animated mesh to workspace"
+        title={canSaveToWorkspace ? 'Save an immutable animated mesh version to this workspace' : 'Select the original rigged workspace mesh to save'}
+        className="h-7 px-2.5 rounded-lg bg-[hsl(var(--primary))] hover:opacity-90 text-black text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-40"
+      >
+        <span>{isExporting ? 'Saving...' : 'Save'}</span>
+      </button>
+      <button
+        type="button"
+        onClick={handleDownload}
         disabled={isExporting || !activeModelObject}
-        aria-label="Export animated GLB"
-        title="Export animated GLB"
+        aria-label="Download animated GLB"
+        title="Download animated GLB to this device"
         className="h-7 px-2.5 rounded-lg bg-[hsl(var(--surface-2))] hover:bg-[hsl(var(--surface-3))] border border-white/[0.08] text-zinc-200 hover:text-white text-[11px] font-medium flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
       >
         <Download className="w-3 h-3 text-[hsl(var(--primary))]" />
-        <span>{isExporting ? 'Exporting...' : 'GLB'}</span>
+        <span>Download</span>
       </button>
     </div>
   );
