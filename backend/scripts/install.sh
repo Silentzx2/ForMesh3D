@@ -675,10 +675,10 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     # PartUV — C++ UV unwrapping extension (backend/thirdparty/PartUV)
     if [ -d "$THIRDPARTY_DIR/PartUV" ]; then
         echo "[INFO] Building PartUV C++ extension..."
-        if ! find /usr -name "CGALConfig.cmake" -o -name "cgal-config.cmake" 2>/dev/null | grep -q .; then
+        if ! find /usr -name "CGALConfig.cmake" -o -name "cgal-config.cmake" 2>/dev/null | grep -q . || ! find /usr -name "yaml-cpp-config.cmake" 2>/dev/null | grep -q .; then
             if command -v apt-get >/dev/null 2>&1; then
-                echo "[INFO] Installing CGAL/Eigen build dependencies for PartUV..."
-                apt-get update -qq && apt-get install -y --no-install-recommends libcgal-dev libeigen3-dev libgmp-dev libmpfr-dev || true
+                echo "[INFO] Installing CGAL/Eigen/TBB/yaml-cpp build dependencies for PartUV..."
+                apt-get update -qq && apt-get install -y --no-install-recommends libcgal-dev libeigen3-dev libgmp-dev libmpfr-dev libyaml-cpp-dev libtbb-dev || true
             fi
         fi
         sed -i 's/cmake\.verbose = true/build.verbose = true/' "$THIRDPARTY_DIR/PartUV/pyproject.toml"
@@ -686,12 +686,16 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
             python3 -c '
 p = "'"$THIRDPARTY_DIR"'/PartUV/CMakeLists.txt"
 s = open(p).read()
-s = s.replace("find_package(easy_profiler REQUIRED", "include_directories(\"${CMAKE_CURRENT_SOURCE_DIR}/extern/easy_profiler/include\")\n# find_package(easy_profiler REQUIRED")
-s = s.replace("HINTS \"${CMAKE_CURRENT_SOURCE_DIR}/extern/easy_profiler/lib/cmake/easy_profiler\"", "# HINTS")
-s = s.replace("get_target_property(_EP_SO", "# get_target_property(_EP_SO")
-s = s.replace("  get_target_property(_EP_SO", "#   get_target_property(_EP_SO")
+old_block = """find_package(easy_profiler REQUIRED
+    HINTS "${CMAKE_CURRENT_SOURCE_DIR}/extern/easy_profiler/lib/cmake/easy_profiler"
+) 
+get_target_property(_EP_SO easy_profiler IMPORTED_LOCATION_RELEASE)
+if(NOT _EP_SO)
+  get_target_property(_EP_SO easy_profiler IMPORTED_LOCATION)  # fallback if only generic set
+endif()
+install(FILES "${_EP_SO}" DESTINATION partuv/.libs)"""
+s = s.replace(old_block, "include_directories(\"${CMAKE_CURRENT_SOURCE_DIR}/extern/easy_profiler/include\")")
 s = s.replace("        easy_profiler\n", "")
-s = s.replace("easy_profiler", "")
 open(p, "w").write(s)
 '
         fi
@@ -731,7 +735,7 @@ if command -v apt-get >/dev/null 2>&1 || command -v apt >/dev/null 2>&1; then
         echo "[ERROR] Failed to update apt repositories."
         exit 1
     fi
-    if ! $SUDO_CMD "$APT_BIN" install -y --no-install-recommends libsm6 libegl-mesa0 libgl1-mesa-dev libcgal-dev libeigen3-dev libgmp-dev libmpfr-dev; then
+    if ! $SUDO_CMD "$APT_BIN" install -y --no-install-recommends libsm6 libegl-mesa0 libgl1-mesa-dev libcgal-dev libeigen3-dev libgmp-dev libmpfr-dev libyaml-cpp-dev libtbb-dev; then
         echo "[ERROR] Failed to install system runtime libraries."
         exit 1
     fi
