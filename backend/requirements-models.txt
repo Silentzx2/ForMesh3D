@@ -118,4 +118,7 @@ mesh2sdf>=1.1.0             # [PARTFIELD] dataloader.py SDF remeshing
 tetgen>=0.6.5               # [PARTFIELD] dataloader.py tetrahedral mesh generation
 simple-parsing>=0.1.7       # [PARTFIELD] demo argument parsing
 arrgh>=1.0.0                # [PARTFIELD] demo command CLI
+
+# ── ARDY (Text-to-Motion Generation) extra deps (backend/thirdparty/ardy) ─────
+vector-quantize-pytorch>=1.25,<1.26  # [ARDY] FSQ autoencoder
 polyscope>=2.4.0            # [PARTFIELD] interactive mesh visualization
