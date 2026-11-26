@@ -11,33 +11,27 @@ import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 
+try:
+    from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
+    from transformers.models.qwen2.modeling_qwen2 import (
+        Qwen2ForCausalLM,
+        Qwen2RMSNorm,
+        Qwen2RotaryEmbedding,
+        apply_rotary_pos_emb,
+        repeat_kv,
+    )
+    _HAS_QWEN2 = True
+except ImportError:
+    Qwen2Config = object  # type: ignore
+    Qwen2ForCausalLM = nn.Module  # type: ignore
+    _HAS_QWEN2 = False
 
-def register_qwen3_if_missing() -> None:
-    """Register Qwen3Config and Qwen3ForCausalLM into transformers if 'qwen3' is absent."""
-    try:
-        import transformers
-        from transformers import AutoConfig, AutoModelForCausalLM
-        from transformers.models.auto.configuration_auto import CONFIG_MAPPING
-    except ImportError:
-        return
 
-    if "qwen3" in CONFIG_MAPPING:
-        return
-
-    try:
-        from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
-        from transformers.models.qwen2.modeling_qwen2 import (
-            Qwen2ForCausalLM,
-            Qwen2RMSNorm,
-            Qwen2RotaryEmbedding,
-            apply_rotary_pos_emb,
-            repeat_kv,
-        )
-    except ImportError as exc:
-        logger.warning("SkinTokens patcher: cannot register Qwen3 compat shim: %s", exc)
-        return
+if _HAS_QWEN2:
 
     class Qwen3Config(Qwen2Config):
+        """Module-level Qwen3Config (picklable across DataLoader spawn workers)."""
+
         model_type = "qwen3"
 
         def __init__(
@@ -144,6 +138,8 @@ def register_qwen3_if_missing() -> None:
             return attn_output, None, past_key_value
 
     class Qwen3ForCausalLM(Qwen2ForCausalLM):
+        """Module-level Qwen3ForCausalLM (picklable across DataLoader spawn workers)."""
+
         config_class = Qwen3Config
 
         def __init__(self, config: Qwen3Config) -> None:
@@ -151,6 +147,21 @@ def register_qwen3_if_missing() -> None:
             for idx, layer in enumerate(self.model.layers):
                 layer.self_attn = Qwen3Attention(config, layer_idx=idx)
             self.post_init()
+
+
+def register_qwen3_if_missing() -> None:
+    """Register Qwen3Config and Qwen3ForCausalLM into transformers if 'qwen3' is absent."""
+    if not _HAS_QWEN2:
+        return
+    try:
+        import transformers
+        from transformers import AutoConfig, AutoModelForCausalLM
+        from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+    except ImportError:
+        return
+
+    if "qwen3" in CONFIG_MAPPING:
+        return
 
     AutoConfig.register("qwen3", Qwen3Config)
     AutoModelForCausalLM.register(Qwen3Config, Qwen3ForCausalLM)
