@@ -675,7 +675,9 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     # PartUV — C++ UV unwrapping extension (backend/thirdparty/PartUV)
     if [ -d "$THIRDPARTY_DIR/PartUV" ]; then
         echo "[INFO] Building PartUV C++ extension..."
+        sed -i 's/cmake\.verbose = true/build.verbose = true/' "$THIRDPARTY_DIR/PartUV/pyproject.toml"
         $UV_PIP install --no-build-isolation -e "$THIRDPARTY_DIR/PartUV" || echo "[WARN] PartUV build failed"
+        git -C "$THIRDPARTY_DIR/PartUV" checkout -- pyproject.toml 2>/dev/null || true
     fi
 
     # PartField — NVIDIA 3D Feature Fields for Part Segmentation (backend/thirdparty/PartField)
