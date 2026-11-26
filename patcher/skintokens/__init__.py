@@ -51,7 +51,7 @@ def apply_patch(gpu_id: Optional[int] = None) -> None:
 
 
 def _patch_tokenrig_generate(gpu_id: Optional[int] = None) -> None:
-    """Guard TokenRig.generate against T4 bfloat16 NaN and multinomial beam-search asserts."""
+    """Fix T4 bfloat16 precision and transformers 4.44 beam_search+do_sample EOS invariant."""
     if torch is None:
         return
     try:
@@ -70,28 +70,18 @@ def _patch_tokenrig_generate(gpu_id: Optional[int] = None) -> None:
             self.float()
             self._skintokens_fp32_cast = True
 
-        orig_multinomial = torch.multinomial
+        # In transformers==4.44, beam_search + do_sample=True uses multinomial over
+        # (num_beams * vocab), which fails BeamSearchScorer's n_eos <= num_beams check
+        # when VocabSwitchingLogitsProcessor masks all tokens except eos_token_id.
+        if kwargs.get("num_beams", 1) > 1 and kwargs.get("do_sample", False):
+            kwargs["do_sample"] = False
+            for k in ("top_k", "top_p", "temperature"):
+                kwargs.pop(k, None)
 
-        def _safe_multinomial(input_probs: Any, num_samples: int, replacement: bool = False, **m_kw: Any) -> Any:
-            p = torch.nan_to_num(input_probs.float(), nan=0.0, posinf=1.0, neginf=0.0).clamp(min=0.0)
-            row_sums = p.sum(dim=-1, keepdim=True)
-            zero_rows = row_sums <= 0
-            if zero_rows.any():
-                p = torch.where(zero_rows, torch.ones_like(p), p)
-            if not replacement:
-                min_nonzero = int((p > 0).sum(dim=-1).min().item())
-                if min_nonzero < num_samples:
-                    replacement = True
-            return orig_multinomial(p, num_samples, replacement=replacement, **m_kw)
-
-        torch.multinomial = _safe_multinomial  # type: ignore[assignment]
-        try:
-            if is_pre_ampere:
-                with torch.amp.autocast("cuda", enabled=False):
-                    return orig_generate.__wrapped__(self, *args, **kwargs) if hasattr(orig_generate, "__wrapped__") else orig_generate(self, *args, **kwargs)
-            return orig_generate(self, *args, **kwargs)
-        finally:
-            torch.multinomial = orig_multinomial
+        if is_pre_ampere:
+            with torch.amp.autocast("cuda", enabled=False):
+                return orig_generate.__wrapped__(self, *args, **kwargs) if hasattr(orig_generate, "__wrapped__") else orig_generate(self, *args, **kwargs)
+        return orig_generate(self, *args, **kwargs)
 
     TokenRig.generate = _safe_generate  # type: ignore[method-assign]
     TokenRig._skintokens_gen_patched = True  # type: ignore[attr-defined]
