@@ -34,6 +34,7 @@ except ImportError:  # pragma: no cover
     torch = None
 
 from patcher.doctor import GPUDoctor
+from patcher.skintokens.qwen3_compat import register_qwen3_if_missing
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ def apply_patch(gpu_id: Optional[int] = None) -> None:
     """Apply SkinTokens pre-Ampere and import compatibility patches."""
     _inject_michelangelo_models_stub()
     _shim_gradio_if_missing()
+    register_qwen3_if_missing()
     _patch_attention_and_precision(gpu_id=gpu_id)
 
 

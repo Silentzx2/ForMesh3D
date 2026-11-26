@@ -237,6 +237,18 @@ class TriFlowRetopologyAdapter(BaseModel):
 
         # Real Neural Pipeline Execution
         try:
+            # meshlib >= 3.1 renamed MeshProjectionResult._offsetof_mtp -> _offsetof_tp;
+            # keep compatibility inside this TriFlow worker process.
+            try:
+                import meshlib.mrmeshpy as _mrmesh  # type: ignore
+
+                if not hasattr(_mrmesh.MeshProjectionResult, "_offsetof_mtp") and hasattr(
+                    _mrmesh.MeshProjectionResult, "_offsetof_tp"
+                ):
+                    _mrmesh.MeshProjectionResult._offsetof_mtp = _mrmesh.MeshProjectionResult._offsetof_tp
+            except Exception:
+                pass
+
             from triflow.utils.mesh_processing import process_one_mesh, robust_remesh
             from triflow.utils.mesh_reconstruction import topology_flow2mesh_QEM
             from triflow.utils.sampling import FlowEulerSampler
