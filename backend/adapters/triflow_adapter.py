@@ -221,6 +221,12 @@ class TriFlowRetopologyAdapter(BaseModel):
         adaptive = bool(inputs.get("adaptive") if "adaptive" in inputs else inputs.get("adaptiveDensity", True))
         default_format = "obj" if poly_type == "quad" else "glb"
         output_format = str(inputs.get("output_format") or default_format).lower().lstrip(".")
+        if poly_type == "quad" and quad_ratio > 0.0 and output_format in ("glb", "gltf"):
+            logger.info(
+                "[TRIFLOW] Quad topology requested; exporting .obj instead of .%s (glTF/GLB only supports triangles).",
+                output_format,
+            )
+            output_format = "obj"
 
         repo_root = Path(__file__).resolve().parents[2]
         triflow_root = _setup_triflow_sys_paths(repo_root)
