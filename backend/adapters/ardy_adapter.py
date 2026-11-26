@@ -176,14 +176,18 @@ class ArdyMotionGenerationAdapter(BaseModel):
 
         return {
             "success": True,
-            "output_mesh_path": str(out),
-            "mesh_path": str(out),
+            "output_motion_path": str(out),
+            "output_path": str(out),
+            "file_path": str(out),
+            "format": "npz",
+            "artifact_type": "motion",
             "generation_info": {
                 "seed": seed,
                 "duration": duration,
                 "fps": float(fps),
                 "num_frames": num_frames,
                 "checkpoint": checkpoint,
+                "output_format": "npz",
             },
         }
 

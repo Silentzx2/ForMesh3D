@@ -1008,6 +1008,20 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       undefined
     ) || `/api/v1/system/jobs/${encodeURIComponent(jobId)}/download?artifact_format=${encodeURIComponent(inferredFormat)}`;
 
+    const isMotionArtifact =
+      result?.artifact_type === 'motion' ||
+      inferredFormat === 'npz' ||
+      inferredFormat === 'bvh';
+
+    if (isMotionArtifact) {
+      void refreshAssets();
+      if (shouldActivatePreview) {
+        setExecutionState('completed');
+        setPersistenceState('saved');
+      }
+      return undefined;
+    }
+
     if (resolvedModelUrl) {
       // Ensure the preview URL is same-origin proxied so MeshViewer can always
       // reach generated assets (raw output_mesh_path/download URLs otherwise

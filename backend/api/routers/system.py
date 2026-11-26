@@ -1398,10 +1398,15 @@ async def get_job_status(job_id: str, request: Request):
         if job_status.get("status") == "completed" and job_status.get("result"):
             result = job_status["result"]
 
-            # Convert mesh file path to URL
+            # Convert output file path to URL
             mesh_path = first_result_path(result)
+            _is_mesh_artifact = bool(
+                mesh_path
+                and Path(str(mesh_path)).suffix.lower() in {".glb", ".gltf", ".obj", ".fbx", ".stl", ".ply"}
+                and result.get("artifact_type") != "motion"
+            )
 
-            if mesh_path and os.path.exists(mesh_path):
+            if mesh_path and os.path.exists(mesh_path) and _is_mesh_artifact:
                 # Create URL for mesh file
                 mesh_url = f"{request.base_url}api/v1/system/jobs/{job_id}/download?artifact_format=glb"
                 result["mesh_url"] = mesh_url
@@ -1464,7 +1469,7 @@ async def get_job_status(job_id: str, request: Request):
                         break
 
             # If thumbnail is absent or 3D mesh thumbnail not found, prioritize auto-generating 3D mesh thumbnail
-            if (not thumbnail_path or not os.path.exists(thumbnail_path)) and mesh_path and os.path.exists(mesh_path):
+            if (not thumbnail_path or not os.path.exists(thumbnail_path)) and mesh_path and os.path.exists(mesh_path) and _is_mesh_artifact:
                 try:
                     from core.utils.thumbnail_utils import generate_mesh_thumbnail
                     m_p = Path(mesh_path)
@@ -2178,6 +2183,16 @@ async def download_job_result(
                     fallback = first_result_path(result)
                     if fallback and Path(fallback).is_file():
                         output_path = Path(fallback).resolve()
+            elif canonical_format in {"npz", "json", "bvh", "motion"}:
+                motion_candidate = (
+                    result.get("output_motion_path")
+                    or result.get("output_path")
+                    or first_result_path(result)
+                )
+                if motion_candidate:
+                    p = Path(motion_candidate).resolve()
+                    if p.is_file() and (canonical_format == "motion" or p.suffix.lower() == f".{canonical_format}"):
+                        output_path = p
             elif canonical_format == "textured":
                 output_path = asset_root_path / "texture" / "textured.glb"
                 if not output_path.exists() and asset_name:
