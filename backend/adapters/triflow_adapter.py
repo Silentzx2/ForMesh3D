@@ -219,7 +219,8 @@ class TriFlowRetopologyAdapter(BaseModel):
 
         watertight = bool(inputs.get("watertight") or inputs.get("watertightHealing", False))
         adaptive = bool(inputs.get("adaptive") if "adaptive" in inputs else inputs.get("adaptiveDensity", True))
-        output_format = str(inputs.get("output_format", "glb")).lower().lstrip(".")
+        default_format = "obj" if poly_type == "quad" else "glb"
+        output_format = str(inputs.get("output_format") or default_format).lower().lstrip(".")
 
         repo_root = Path(__file__).resolve().parents[2]
         triflow_root = _setup_triflow_sys_paths(repo_root)

@@ -36,6 +36,53 @@ const sharedFBXLoader = new FBXLoader();
 const sharedSTLLoader = new STLLoader();
 const sharedPLYLoader = new PLYLoader();
 
+/**
+ * Extract outer polygon edges from an OBJ text when it contains quads/n-gons,
+ * so wireframe overlay shows true quad topology instead of triangulated diagonals.
+ */
+function extractObjQuadEdgesGeometry(objText: string): THREE.BufferGeometry | null {
+  const verts: number[] = [];
+  const edgePositions: number[] = [];
+  let hasQuadOrNgon = false;
+
+  const lines = objText.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line || line[0] === '#') continue;
+    if (line[0] === 'v' && (line[1] === ' ' || line[1] === '\t')) {
+      const parts = line.split(/\s+/);
+      if (parts.length >= 4) {
+        verts.push(parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3]));
+      }
+    } else if (line[0] === 'f' && (line[1] === ' ' || line[1] === '\t')) {
+      const parts = line.split(/\s+/).slice(1);
+      if (parts.length < 3) continue;
+      if (parts.length >= 4) hasQuadOrNgon = true;
+      const vCount = verts.length / 3;
+      const indices: number[] = [];
+      for (const p of parts) {
+        const raw = parseInt(p.split('/')[0], 10);
+        if (Number.isNaN(raw)) continue;
+        const idx = raw > 0 ? raw - 1 : vCount + raw;
+        if (idx >= 0 && idx < vCount) indices.push(idx);
+      }
+      for (let j = 0; j < indices.length; j++) {
+        const a = indices[j] * 3;
+        const b = indices[(j + 1) % indices.length] * 3;
+        edgePositions.push(
+          verts[a], verts[a + 1], verts[a + 2],
+          verts[b], verts[b + 1], verts[b + 2],
+        );
+      }
+    }
+  }
+
+  if (!hasQuadOrNgon || edgePositions.length === 0) return null;
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(edgePositions, 3));
+  return geom;
+}
+
 export type LightTone = 'studio' | 'warm' | 'cool' | 'neutral';
 
 export interface EnvironmentPreset {
@@ -886,19 +933,29 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     const activeWireMode = wireframe ? (wireframeModeRef.current === 'xray' ? 'xray' : 'overlay') : 'off';
 
     // Manage surface wireframe overlay child (solid mesh stays visible underneath; internal faces hidden)
-    let overlayChild = mesh.children.find((c) => c.userData?.__isWireframeOverlay) as THREE.Mesh | undefined;
+    let overlayChild = mesh.children.find((c) => c.userData?.__isWireframeOverlay) as THREE.Object3D | undefined;
     if (activeWireMode === 'overlay' && mode !== 'wireframe') {
       if (!overlayChild) {
-        const overlayMat = new THREE.MeshBasicMaterial({
-          color: 0xf9cf00,
-          wireframe: true,
-          polygonOffset: true,
-          polygonOffsetFactor: -1,
-          polygonOffsetUnits: -1,
-          transparent: true,
-          opacity: 0.45,
-        });
-        overlayChild = new THREE.Mesh(mesh.geometry, overlayMat);
+        const quadEdges = mesh.userData.__quadEdgesGeometry as THREE.BufferGeometry | undefined;
+        if (quadEdges) {
+          const lineMat = new THREE.LineBasicMaterial({
+            color: 0xf9cf00,
+            transparent: true,
+            opacity: 0.55,
+          });
+          overlayChild = new THREE.LineSegments(quadEdges, lineMat);
+        } else {
+          const overlayMat = new THREE.MeshBasicMaterial({
+            color: 0xf9cf00,
+            wireframe: true,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: -1,
+            transparent: true,
+            opacity: 0.45,
+          });
+          overlayChild = new THREE.Mesh(mesh.geometry, overlayMat);
+        }
         overlayChild.userData.__isWireframeOverlay = true;
         overlayChild.raycast = () => {};
         mesh.add(overlayChild);
@@ -1233,18 +1290,28 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         handleLoadFailure(`Failed to load 3D model: ${err instanceof Error ? err.message : 'Network error'}`);
       });
     } else if (format === 'obj') {
-      sharedOBJLoader.load(
-        modelUrl,
-        (obj) => {
+      void fetch(modelUrl, { signal: abortController.signal })
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.text();
+        })
+        .then((objText) => {
           if (isCancelled || abortController.signal.aborted) return;
+          const obj = sharedOBJLoader.parse(objText);
+          const quadEdgesGeo = extractObjQuadEdgesGeometry(objText);
+          if (quadEdgesGeo) {
+            obj.traverse((child) => {
+              if ((child as THREE.Mesh).isMesh) {
+                child.userData.__quadEdgesGeometry = quadEdgesGeo;
+              }
+            });
+          }
           handleObjectLoaded(obj);
-        },
-        undefined,
-        (err: unknown) => {
+        })
+        .catch((err: unknown) => {
           if (isCancelled || abortController.signal.aborted) return;
           handleLoadFailure(`Failed to load OBJ: ${(err as any)?.message || 'Error'}`);
-        }
-      );
+        });
     } else if (format === 'fbx') {
       sharedFBXLoader.load(
         modelUrl,

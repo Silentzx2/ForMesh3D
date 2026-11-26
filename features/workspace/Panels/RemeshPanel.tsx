@@ -278,7 +278,9 @@ export const RemeshPanel: React.FC = () => {
   const [featureAngle, setFeatureAngle] = useState<30 | 45 | 60>(45);
   const [adaptiveDensity, setAdaptiveDensity] = useState(true);
   const [watertightHealing, setWatertightHealing] = useState(true);
-  const [outputFormat, setOutputFormat] = useState<'glb' | 'obj'>('glb');
+  const [outputFormat, setOutputFormat] = useState<'glb' | 'obj'>(
+    (remeshSettings.polyType || 'quad') === 'quad' ? 'obj' : 'glb'
+  );
 
   // Debounce ref for smooth non-blocking slider interaction
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -679,7 +681,10 @@ export const RemeshPanel: React.FC = () => {
             <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
               <button
                 type="button"
-                onClick={() => setPolyType('quad')}
+                onClick={() => {
+                  setPolyType('quad');
+                  setOutputFormat('obj');
+                }}
                 className={`h-8 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                   polyType === 'quad'
                     ? 'bg-white text-black shadow-sm font-extrabold'
@@ -690,7 +695,10 @@ export const RemeshPanel: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => setPolyType('tri')}
+                onClick={() => {
+                  setPolyType('tri');
+                  setOutputFormat('glb');
+                }}
                 className={`h-8 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                   polyType === 'tri'
                     ? 'bg-white text-black shadow-sm font-extrabold'
