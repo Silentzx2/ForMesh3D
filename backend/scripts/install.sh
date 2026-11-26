@@ -682,9 +682,22 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
             fi
         fi
         sed -i 's/cmake\.verbose = true/build.verbose = true/' "$THIRDPARTY_DIR/PartUV/pyproject.toml"
+        if [ ! -f "$THIRDPARTY_DIR/PartUV/extern/easy_profiler/lib/libeasy_profiler.so" ]; then
+            python3 -c '
+p = "'"$THIRDPARTY_DIR"'/PartUV/CMakeLists.txt"
+s = open(p).read()
+s = s.replace("find_package(easy_profiler REQUIRED", "include_directories(\"${CMAKE_CURRENT_SOURCE_DIR}/extern/easy_profiler/include\")\n# find_package(easy_profiler REQUIRED")
+s = s.replace("HINTS \"${CMAKE_CURRENT_SOURCE_DIR}/extern/easy_profiler/lib/cmake/easy_profiler\"", "# HINTS")
+s = s.replace("get_target_property(_EP_SO", "# get_target_property(_EP_SO")
+s = s.replace("  get_target_property(_EP_SO", "#   get_target_property(_EP_SO")
+s = s.replace("        easy_profiler\n", "")
+s = s.replace("easy_profiler", "")
+open(p, "w").write(s)
+'
+        fi
         CUDAARCHS="75;80;86;89;90" CMAKE_CUDA_ARCHITECTURES="75;80;86;89;90" \
             $UV_PIP install --no-build-isolation -e "$THIRDPARTY_DIR/PartUV" || echo "[WARN] PartUV build failed"
-        git -C "$THIRDPARTY_DIR/PartUV" checkout -- pyproject.toml 2>/dev/null || true
+        git -C "$THIRDPARTY_DIR/PartUV" checkout -- pyproject.toml CMakeLists.txt 2>/dev/null || true
     fi
 
     # PartField — NVIDIA 3D Feature Fields for Part Segmentation (backend/thirdparty/PartField)
