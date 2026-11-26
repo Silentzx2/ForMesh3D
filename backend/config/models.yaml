@@ -61,6 +61,8 @@ image_to_raw_mesh:
       guidance_scale: 7.5
       octree_resolution: 512
       num_chunks: 8000
+      enable_flashvdm: true
+      enable_realesrgan: true
 
   ## ============================================================================
   ## HY 2.0 Mini Turbo (Fast Low-VRAM Shape)
@@ -96,6 +98,8 @@ image_to_raw_mesh:
       guidance_scale: 5.0
       octree_resolution: 512
       num_chunks: 8000
+      enable_flashvdm: true
+      enable_realesrgan: true
 
   ## ============================================================================
   ## TripoSR (Fast Single-Image Mesh)
@@ -124,13 +128,13 @@ image_to_raw_mesh:
         - 2K
         - 4K
       default_texture_resolution: 2K
-      output_resolution: 256
+      output_resolution: 512
       supports_quad_topology: false
       default_topology: Triangle
       multi_gpu: false
     model_type: mesh
     default_parameters:
-      mc_resolution: 256
+      mc_resolution: 512
       chunk_size: 8192
       foreground_ratio: 0.85
 
@@ -199,6 +203,7 @@ image_to_raw_mesh:
         - '512'
         - 1K
         - 2K
+        - 4K
         - 4K
       default_texture_resolution: 2K
       multi_gpu: true
@@ -312,6 +317,7 @@ image_to_textured_mesh:
         - '512'
         - 1K
         - 2K
+        - 4K
       default_texture_resolution: 2K
       supports_pbr: true
       supports_delighting: true
@@ -432,7 +438,7 @@ image_mesh_painting:
       multi_gpu: false
     model_type: texture
     default_parameters:
-      mc_resolution: 256
+      mc_resolution: 512
       chunk_size: 8192
       foreground_ratio: 0.85
 

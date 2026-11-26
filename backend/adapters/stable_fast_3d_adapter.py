@@ -256,7 +256,7 @@ class StableFast3DAdapter(BaseModel):
         # Determine remeshing option:
         # 1. Explicit remesh_option input ("none", "triangle", "quad") takes precedence.
         # 2. Otherwise derive from topology_mode ("triangle" / "quad") or quad_topology flag.
-        # 3. Default to "triangle" so SF3D uses its native high-quality geometry remesher.
+        # 3. Default to "none" so SF3D outputs its raw mesh without automatic remeshing.
         remesh_input = inputs.get("remesh_option")
         if remesh_input is not None:
             remesh_option = str(remesh_input).strip().lower()
@@ -267,7 +267,7 @@ class StableFast3DAdapter(BaseModel):
             elif inputs.get("quad_topology"):
                 remesh_option = "quad"
             else:
-                remesh_option = "triangle"
+                remesh_option = "none"
 
         # Determine target vertex count:
         # - If remesh is "none", vertex count is ignored (-1).

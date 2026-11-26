@@ -600,10 +600,10 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     echo "[INFO] Installing o-voxel..."
     install_local_wheel "o_voxel-*.whl" "o-voxel" || { echo "[ERROR] o-voxel wheel not found in $WHEEL_DIR"; exit 1; }
 
-    # torchmcubes — TripoSR marching-cubes dependency; try prebuilt wheel, fall back to CUDA-matched source build if ABI mismatches.
+    # torchmcubes — TripoSR marching-cubes dependency; try prebuilt wheel, fall back to source build if wheel install fails.
     echo "[INFO] Installing torchmcubes..."
-    if ! install_local_wheel "torchmcubes-*.whl" "torchmcubes" || ! "$PYTHON_EXEC" -c "import torchmcubes" 2>/dev/null; then
-        echo "[WARN] Prebuilt torchmcubes wheel unavailable or incompatible with current CUDA; building from source..."
+    if ! install_local_wheel "torchmcubes-*.whl" "torchmcubes"; then
+        echo "[WARN] Prebuilt torchmcubes wheel unavailable; building from source..."
         $UV_PIP install --no-build-isolation "git+https://github.com/tatsy/torchmcubes.git" \
             || echo "[WARN] torchmcubes source build failed; TripoSR will use skimage marching_cubes fallback."
     fi

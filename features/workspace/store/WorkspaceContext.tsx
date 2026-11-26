@@ -925,13 +925,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           : (isUuid ? `local_${asset.id}` : `local_${cleanStem}_${shortHash}`));
     const friendlyName = asset.name ? asset.name.replace(/\.[^/.]+$/, '') : `${cleanStem.charAt(0).toUpperCase() + cleanStem.slice(1)} ${shortHash}`;
     const normalized: ModelAsset = { ...asset, id: finalId, name: friendlyName, sourceType: 'local' as const };
+    const stripQuery = (u?: string) => (u ? u.split('?')[0] : '');
     const matchesExistingAsset = (candidate: ModelAsset) => {
       if (candidate.id === normalized.id) return true;
       if (normalized.isLocalDuplicate || candidate.isLocalDuplicate) return false;
       const sameWorkspace = normalized.workspace_id === candidate.workspace_id;
+      const normUrl = stripQuery(normalized.source?.viewUrl);
+      const candUrl = stripQuery(candidate.source?.viewUrl);
       return sameWorkspace && (
         (normalized.source?.filename && candidate.source?.filename && normalized.source.filename !== 'model.glb' && candidate.source.filename === normalized.source.filename) ||
-        (normalized.source?.viewUrl && candidate.source?.viewUrl && candidate.source.viewUrl === normalized.source.viewUrl)
+        (normUrl && candUrl && normUrl === candUrl)
       );
     };
     setLocalAssets(prev => {

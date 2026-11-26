@@ -312,7 +312,7 @@ class TriFlowRetopologyAdapter(BaseModel):
             sampling_started = time.perf_counter()
             with torch.no_grad():
                 with accelerator.autocast():
-                    res = sampler.sample(model, noise=noise, cond=c, steps=50, verbose=False)
+                    res = sampler.sample(model, noise=noise, cond=c, steps=50, verbose=True)
             logger.info(
                 "[TRIFLOW] Latent sampling completed elapsed=%.2fs",
                 time.perf_counter() - sampling_started,

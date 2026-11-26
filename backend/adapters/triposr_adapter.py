@@ -95,7 +95,10 @@ class TripoSRAdapter(BaseModel):
         temp = self._create_temporary_output_dir(prefix.removeprefix("triposr_") or "triposr")
         output = temp / "triposr_output.glb"
         try:
+            z_up_to_y_up = trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
             if baked is None:
+                mesh = mesh.copy()
+                mesh.apply_transform(z_up_to_y_up)
                 mesh.export(str(output), file_type="glb")
             else:
                 vmapping = np.asarray(baked["vmapping"], dtype=np.int64)
@@ -112,6 +115,7 @@ class TripoSRAdapter(BaseModel):
                     vertices=np.asarray(mesh.vertices)[vmapping], faces=baked["indices"],
                     vertex_normals=np.asarray(mesh.vertex_normals)[vmapping],
                     visual=TextureVisuals(uv=baked["uvs"], material=material), process=False)
+                painted.apply_transform(z_up_to_y_up)
                 painted.export(str(output), file_type="glb")
             if not output.is_file() or output.read_bytes()[:4] != b"glTF":
                 raise RuntimeError("TripoSR did not produce a valid GLB")
