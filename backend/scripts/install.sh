@@ -672,20 +672,13 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
         $UV_PIP install -e "$THIRDPARTY_DIR/triflow/third_party/pyfqmr-triflow" || echo "[WARN] pyfqmr-triflow install failed"
     fi
 
-    # PartUV — C++ UV unwrapping extension (backend/thirdparty/PartUV)
-    if [ -d "$THIRDPARTY_DIR/PartUV" ]; then
-        echo "[INFO] Building PartUV C++ extension..."
-        if ! find /usr -name "CGALConfig.cmake" -o -name "cgal-config.cmake" 2>/dev/null | grep -q . || ! find /usr -name "yaml-cpp-config.cmake" 2>/dev/null | grep -q .; then
-            if command -v apt-get >/dev/null 2>&1; then
-                echo "[INFO] Installing CGAL/Eigen/TBB/yaml-cpp build dependencies for PartUV..."
-                apt-get update -qq && apt-get install -y --no-install-recommends libcgal-dev libeigen3-dev libgmp-dev libmpfr-dev libyaml-cpp-dev libtbb-dev || true
-            fi
-        fi
-        sed -i 's/cmake\.verbose = true/build.verbose = true/' "$THIRDPARTY_DIR/PartUV/pyproject.toml"
-        CUDAARCHS="75;80;86;89;90" CMAKE_CUDA_ARCHITECTURES="75;80;86;89;90" \
-            $UV_PIP install --no-build-isolation -e "$THIRDPARTY_DIR/PartUV" || echo "[WARN] PartUV build failed"
-        git -C "$THIRDPARTY_DIR/PartUV" checkout -- pyproject.toml 2>/dev/null || true
-    fi
+    # PartUV — prebuilt PyPI wheel (no C++/CGAL source build; --no-deps keeps trimesh>=4.12)
+    echo "[INFO] Installing partuv (prebuilt PyPI wheel)..."
+    $UV_PIP install --no-deps "partuv==0.1.2" || echo "[WARN] partuv wheel install failed"
+
+    # bpy — Blender Python 4.0 wheel for SkinTokens & PartUV packing (Python 3.10 compatible)
+    echo "[INFO] Installing bpy==4.0.0 from Blender PyPI..."
+    $UV_PIP install "bpy==4.0.0" --extra-index-url https://download.blender.org/pypi/ || echo "[WARN] bpy install failed"
 
     # PartField — NVIDIA 3D Feature Fields for Part Segmentation (backend/thirdparty/PartField)
     if [ -d "backend/thirdparty/PartField" ]; then
@@ -718,7 +711,7 @@ if command -v apt-get >/dev/null 2>&1 || command -v apt >/dev/null 2>&1; then
         echo "[ERROR] Failed to update apt repositories."
         exit 1
     fi
-    if ! $SUDO_CMD "$APT_BIN" install -y --no-install-recommends libsm6 libegl-mesa0 libgl1-mesa-dev libcgal-dev libeigen3-dev libgmp-dev libmpfr-dev libyaml-cpp-dev libtbb-dev; then
+    if ! $SUDO_CMD "$APT_BIN" install -y --no-install-recommends libsm6 libegl-mesa0 libgl1-mesa-dev; then
         echo "[ERROR] Failed to install system runtime libraries."
         exit 1
     fi

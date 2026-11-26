@@ -117,7 +117,8 @@ class PartUVUnwrappingAdapter(BaseModel):
         # per TASKS.md §3.3 — not a global patch, not in loader.py.
         _partuv_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "PartUV")
         if _partuv_root not in sys.path:
-            sys.path.insert(0, _partuv_root)
+            # Append (not insert at 0) so a prebuilt site-packages `partuv` wheel is not shadowed.
+            sys.path.append(_partuv_root)
         try:
             # Upstream partuv.preprocess imports this as a package-relative module,
             # while the vendored source keeps preprocess_utils at the repository root.
