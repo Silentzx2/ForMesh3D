@@ -61,7 +61,11 @@ def _inject_michelangelo_models_stub() -> None:
     if torch is None:
         return
 
+    import importlib.util
     import types
+
+    if importlib.util.find_spec("src.model.michelangelo.models.tsal.sal_perceiver") is not None:
+        return
 
     # Only register packages that are actually missing from disk.
     # src, src.model, src.model.michelangelo exist on disk (with __init__.py)
