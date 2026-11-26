@@ -118,6 +118,9 @@ class ArdyMotionGenerationAdapter(BaseModel):
         seed = int(inputs.get("seed", DEFAULT_SEED))
         duration = float(inputs["duration"])
         num_denoising_steps = int(inputs["num_denoising_steps"])
+        max_steps = getattr(getattr(model, "diffusion", None), "num_timesteps", None)
+        if isinstance(max_steps, int) and max_steps > 0:
+            num_denoising_steps = max(1, min(num_denoising_steps, max_steps))
         cfg_weight = float(inputs["cfg_weight"])
         checkpoint = inputs["checkpoint"]
 
