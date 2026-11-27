@@ -591,6 +591,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           camera.aspect = w / h;
           camera.updateProjectionMatrix();
           renderer.setSize(w, h);
+          controls.handleResize();
           invalidateRenderRef.current();
         }
       }

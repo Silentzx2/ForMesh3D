@@ -204,6 +204,7 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
     root.position.sub(center).multiplyScalar(scale);
     root.scale.setScalar(scale);
     group.add(root);
+    group.updateMatrixWorld(true);
 
     // Rigging Armature setup
     if (mode === 'rigging') {

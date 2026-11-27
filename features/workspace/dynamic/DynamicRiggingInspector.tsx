@@ -84,16 +84,19 @@ export const DynamicRiggingInspector: React.FC = () => {
 
   useEffect(() => {
     if (!activeModelObject || !isRealRig || !xrayMode) return;
+    activeModelObject.updateMatrixWorld(true);
     const helper = new THREE.SkeletonHelper(activeModelObject);
     helper.name = '__rigging_skeleton_helper';
     const mat = helper.material as THREE.LineBasicMaterial;
     mat.depthTest = false;
     mat.transparent = true;
     mat.opacity = 0.85;
-    activeModelObject.add(helper);
+    // SkeletonHelper operates in world space; attach to parent (scene) to avoid double-transforming
+    const host = activeModelObject.parent ?? activeModelObject;
+    host.add(helper);
     invalidateViewportRender();
     return () => {
-      activeModelObject.remove(helper);
+      host.remove(helper);
       helper.geometry.dispose();
       mat.dispose();
       invalidateViewportRender();
