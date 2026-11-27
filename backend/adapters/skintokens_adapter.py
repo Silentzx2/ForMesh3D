@@ -264,7 +264,15 @@ class SkinTokensAdapter(BaseModel):
         except Exception as exc:
             if "RemoteDisconnected" in repr(exc) or "Connection aborted" in repr(exc):
                 if use_transfer:
-                    logger.warning("[SKINTOKENS] bpy_server disconnected during transfer; retrying with use_transfer=False")
+                    logger.warning("[SKINTOKENS] bpy_server disconnected during transfer; restarting bpy_server and retrying with use_transfer=False")
+                    self._stop_bpy_server()
+                    skintokens_root = Path(__file__).resolve().parent.parent / "thirdparty" / "SkinTokens"
+                    repo_root = Path(__file__).resolve().parent.parent.parent
+                    self._bpy_proc = subprocess.Popen(
+                        bpy_server_popen_args(str(skintokens_root), str(repo_root)),
+                        cwd=str(skintokens_root),
+                    )
+                    demo.wait_for_bpy_server()
                     demo.run_rig(
                         filepaths=[Path(mesh_path)],
                         top_k=top_k,
