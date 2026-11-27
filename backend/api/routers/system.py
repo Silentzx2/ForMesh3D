@@ -3521,8 +3521,9 @@ async def delete_workspace(
     _: bool = Depends(verify_api_key),
 ):
     from backend.services.workspace_trash import trash_workspace
+    from core.scheduler.database_manager import DatabaseManager
 
-    db_manager = get_db_manager()
+    db_manager = DatabaseManager()
     try:
         return trash_workspace(db_manager, workspace_id, permanent=permanent)
     except ValueError as e:
@@ -3542,8 +3543,9 @@ async def delete_workspace_asset(
     _: bool = Depends(verify_api_key),
 ):
     from backend.services.workspace_trash import trash_workspace_asset
+    from core.scheduler.database_manager import DatabaseManager
 
-    db_manager = get_db_manager()
+    db_manager = DatabaseManager()
     try:
         return trash_workspace_asset(db_manager, workspace_id, asset_id, permanent=permanent)
     except ValueError as e:
@@ -3565,8 +3567,9 @@ async def get_trash_items(_: bool = Depends(verify_api_key)):
 @router.post("/trash/{trash_id}/restore", summary="Restore a trashed workspace or asset")
 async def restore_trash(trash_id: str, _: bool = Depends(verify_api_key)):
     from backend.services.workspace_trash import restore_trash_item
+    from core.scheduler.database_manager import DatabaseManager
 
-    db_manager = get_db_manager()
+    db_manager = DatabaseManager()
     try:
         return restore_trash_item(db_manager, trash_id)
     except ValueError as e:

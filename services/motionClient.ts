@@ -432,13 +432,16 @@ export function motionClipV1ToThreeClip(
   targetBoneNames?: string[] | null,
   preferredMapping?: Record<string, string>
 ): { threeClip: THREE.AnimationClip; mappedJointCount: number } {
-  const mapping =
+  const nameMapping =
     targetBoneNames && targetBoneNames.length > 0
       ? mapRetargetBones(clip.joint_names, targetBoneNames, preferredMapping)
       : Object.fromEntries(clip.joint_names.map((j) => [j, j]));
+  const usedIndexFallback =
+    Boolean(targetBoneNames && targetBoneNames.length > 0 && Object.keys(nameMapping).length === 0);
+  const mapping = { ...nameMapping };
 
   // Fallback for generic/numbered bone rigs (e.g., SkinTokens bone_0..N) when no names match
-  if (targetBoneNames && targetBoneNames.length > 0 && Object.keys(mapping).length === 0) {
+  if (usedIndexFallback && targetBoneNames) {
     const count = Math.min(clip.joint_names.length, targetBoneNames.length);
     for (let i = 0; i < count; i++) {
       mapping[clip.joint_names[i]] = targetBoneNames[i];
@@ -478,7 +481,7 @@ export function motionClipV1ToThreeClip(
     );
   }
 
-  const rootTarget = mapping[clip.joint_names[0]];
+  const rootTarget = !usedIndexFallback ? mapping[clip.joint_names[0]] : undefined;
   if (rootTarget) {
     const posValues = new Float32Array(clip.frame_count * 3);
     for (let f = 0; f < clip.frame_count; f++) {

@@ -207,8 +207,8 @@ export const RightAssetsPanel: React.FC = () => {
     ];
 
     const isDerivedOrTempAsset = (asset: typeof assets[number]) => {
-      if (asset.asset_type === 'animated_mesh') return false;
       if (asset.isLocalDuplicate) return false;
+      if (asset.asset_type === 'animated_mesh' || String(asset.format || '').toLowerCase() === 'npz') return true;
       if (asset.id.startsWith('preview_')) return true;
       if (asset.is_base_mesh === false) return true;
 
@@ -435,7 +435,7 @@ export const RightAssetsPanel: React.FC = () => {
                   e.dataTransfer.effectAllowed = 'copyMove';
                 }}
                 onClick={() => setCurrentAsset(asset)}
-                className={`group relative rounded-xl cursor-grab active:cursor-grabbing transition-all aspect-square flex flex-col overflow-hidden ${
+                className={`group relative rounded-xl cursor-grab active:cursor-grabbing transition-all aspect-square flex flex-col ${
                   isSelected
                     ? 'ring-2 ring-[hsl(var(--primary))] bg-[hsl(var(--surface-2))] shadow-md shadow-[hsl(var(--primary))]/15'
                     : 'border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))]/60 hover:border-[hsl(var(--foreground))]/25 hover:bg-[hsl(var(--surface-2))]'

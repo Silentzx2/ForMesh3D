@@ -444,13 +444,14 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     // TrackballControls: full 360° rotation with no gimbal lock
     const controls = new TrackballControls(camera, renderer.domElement);
     controls.staticMoving = false;
-    controls.dynamicDampingFactor = 0.15;
-    controls.rotateSpeed = 2.0;
+    controls.dynamicDampingFactor = 0.2;
+    controls.rotateSpeed = 2.4;
     controls.zoomSpeed = 1.2;
     controls.panSpeed = 0.8;
     controls.target.set(0, 0, 0);
     controls.maxDistance = 20;
     controls.minDistance = 0.5;
+    controls.handleResize();
     controlsRef.current = controls;
 
     // Lights - Natural Studio Lighting (balanced old + new for crisp details, no dark left side)
@@ -505,13 +506,16 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     // imported model animations and the optional turntable keep their own RAF alive.
     let animId: number | null = null;
     let isDisposed = false;
+    let isControlsActive = false;
+    const prevCamPos = new THREE.Vector3().copy(camera.position);
     const renderFrame = () => {
       animId = null;
       if (isDisposed) return;
 
+      prevCamPos.copy(camera.position);
       controls.update();
 
-      let keepAnimating = false;
+      let keepAnimating = isControlsActive || prevCamPos.distanceToSquared(camera.position) > 1e-8;
       const animState = useAnimationStore.getState();
       if (animState.isPlaying && animState.duration > 0) {
         animState.tickPlayback(performance.now());
@@ -578,6 +582,16 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       animId = requestAnimationFrame(renderFrame);
     };
     invalidateRenderRef.current = scheduleRender;
+    const onControlsStart = () => {
+      isControlsActive = true;
+      scheduleRender();
+    };
+    const onControlsEnd = () => {
+      isControlsActive = false;
+      scheduleRender();
+    };
+    controls.addEventListener('start', onControlsStart);
+    controls.addEventListener('end', onControlsEnd);
     controls.addEventListener('change', scheduleRender);
     const handleViewportInvalidation = () => scheduleRender();
     window.addEventListener(VIEWPORT_EVENTS.INVALIDATE_RENDER, handleViewportInvalidation);

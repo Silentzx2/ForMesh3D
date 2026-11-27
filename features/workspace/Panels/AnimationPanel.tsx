@@ -28,6 +28,7 @@ import {
   Film,
   RotateCw,
   Trash2,
+  Download,
 } from '@/components/icons/hugeicons-components';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Cancel, SearchIcon, UploadIcon } from '@hugeicons/core-free-icons';
@@ -802,14 +803,28 @@ export const AnimationPanel: React.FC = () => {
                           <div className="text-xs font-medium text-white truncate">{item.name}</div>
                           <div className="text-[11px] font-mono text-zinc-400">{item.subtitle}</div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={(e) => void handleDeleteSaved(item.id, item.isServerUpload, e)}
-                          aria-label={`Delete ${item.name}`}
-                          className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-white/10 cursor-pointer shrink-0"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {item.isServerUpload && (
+                            <a
+                              href={`/api/v1/motion/clips/${encodeURIComponent(item.id)}/download`}
+                              download={`${item.name.replace(/[^a-zA-Z0-9_-]/g, '_') || item.id}.npz`}
+                              onClick={(e) => e.stopPropagation()}
+                              aria-label={`Download ${item.name} NPZ`}
+                              title="Download .npz"
+                              className="p-1.5 rounded-lg text-zinc-400 hover:text-primary hover:bg-white/10 cursor-pointer"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </a>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => void handleDeleteSaved(item.id, item.isServerUpload, e)}
+                            aria-label={`Delete ${item.name}`}
+                            className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-white/10 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     );
                   })}

@@ -795,3 +795,27 @@ async def get_motion_clip(
         return normalize_ardy_npz_bytes(npz_path.read_bytes(), clip_id=clip_id)
     except MotionClipError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+
+
+@router.get("/clips/{clip_id}/download")
+async def download_motion_clip_npz(
+    clip_id: str,
+    scheduler: MultiprocessModelScheduler = Depends(get_scheduler),
+):
+    """Download the raw .npz file for a preset, user upload/generated clip, or completed ARDY job."""
+    try:
+        preset_path = resolve_preset_npz_path(clip_id)
+        return FileResponse(path=str(preset_path), media_type="application/octet-stream", filename=f"{clip_id}.npz")
+    except MotionClipError as exc:
+        if exc.status_code != 404:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+
+    try:
+        upload_path, _ = resolve_upload_npz_path(clip_id)
+        return FileResponse(path=str(upload_path), media_type="application/octet-stream", filename=f"{clip_id}.npz")
+    except MotionClipError as exc:
+        if exc.status_code != 404:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+
+    npz_path, _ = await _resolve_job_or_asset_motion_npz(clip_id, scheduler)
+    return FileResponse(path=str(npz_path), media_type="application/octet-stream", filename=f"{clip_id}.npz")

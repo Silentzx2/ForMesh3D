@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { useViewerStore } from '@/stores/useViewerStore';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { ThreeDRotateIcon, SparklesIcon } from '@hugeicons/core-free-icons';
@@ -175,8 +176,8 @@ export const RealModelPreviewCanvas: React.FC<RealModelPreviewCanvasProps> = ({
     }
     interactivesRef.current = [];
 
-    // Build model representation
-    const root = activeModel ? activeModel.clone(true) : new THREE.Mesh(
+    // Build model representation (SkeletonUtils.clone preserves SkinnedMesh bone bindings)
+    const root = activeModel ? SkeletonUtils.clone(activeModel) : new THREE.Mesh(
       new THREE.CylinderGeometry(0.3, 0.25, 0.9, 16),
       new THREE.MeshStandardMaterial({ color: 0x2e3248, roughness: 0.4 })
     );
