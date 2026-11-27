@@ -657,10 +657,12 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     fi
 
     # utils3d — pure-Python 3D vision/graphics library from Git source (TRELLIS texture / Pixal3D)
+    # Pinned to the commit TRELLIS was built against: newer master removed
+    # RastContext/rasterize_triangle_faces, which TRELLIS texture baking still uses.
     echo "[INFO] Installing utils3d..."
     if ! install_local_wheel "utils3d-*.whl" "utils3d"; then
         echo "[INFO] Installing utils3d from Git source..."
-        $UV_PIP install "git+https://github.com/EasternJournalist/utils3d.git" || { echo "[ERROR] utils3d install failed"; exit 1; }
+        $UV_PIP install "git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8" || { echo "[ERROR] utils3d install failed"; exit 1; }
     fi
 
     # pyfqmr-triflow — custom constrained QEM simplification for TriFlow neural retopology

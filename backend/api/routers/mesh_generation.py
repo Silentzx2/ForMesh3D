@@ -64,8 +64,8 @@ def _validate_regeneration_parent(
     if parent_settings != settings:
         raise HTTPException(status_code=409, detail="Regeneration settings must match the parent's original snapshot")
 
-_TEXTURE_RESOLUTION_PRESETS = {"1K": 1024, "2K": 2048, "4K": 4096, "8K": 8192}
-_SUPPORTED_TEXTURE_RESOLUTIONS = {1024, 2048, 4096, 8192}
+_TEXTURE_RESOLUTION_PRESETS = {"512": 512, "1K": 1024, "2K": 2048, "4K": 4096, "8K": 8192}
+_SUPPORTED_TEXTURE_RESOLUTIONS = {512, 1024, 2048, 4096, 8192}
 
 
 def _normalize_texture_resolution(value):
@@ -81,13 +81,13 @@ def _normalize_texture_resolution(value):
             if int_val in _SUPPORTED_TEXTURE_RESOLUTIONS:
                 return int_val
         raise ValueError(
-            f"Unsupported texture resolution '{value}'. Supported values: 1K (1024), 2K (2048), 4K (4096), 8K (8192)"
+            f"Unsupported texture resolution '{value}'. Supported values: 512, 1K (1024), 2K (2048), 4K (4096), 8K (8192)"
         )
     if isinstance(value, int):
         if value in _SUPPORTED_TEXTURE_RESOLUTIONS:
             return value
         raise ValueError(
-            f"Unsupported texture resolution {value}. Supported values: 1024 (1K), 2048 (2K), 4096 (4K), 8192 (8K)"
+            f"Unsupported texture resolution {value}. Supported values: 512, 1024 (1K), 2048 (2K), 4096 (4K), 8192 (8K)"
         )
     raise ValueError(
         f"Unsupported texture resolution type: {type(value).__name__}"

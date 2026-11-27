@@ -6,6 +6,7 @@
 ║  Weights  : backend/pretrained/TripoSR                                       ║
 ║  Patcher  : patcher.triposr (ensure_torchmcubes, patch_texture_baker)        ║
 ║  States   : UNLOADED -> LOADING -> LOADED -> PROCESSING -> LOADED / ERROR    ║
+║  Status   : STABLE & ACTIVE                                                  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 

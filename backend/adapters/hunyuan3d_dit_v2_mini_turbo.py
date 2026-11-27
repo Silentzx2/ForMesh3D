@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
-    MODEL_KEY = "Hunyuan3D-2mini"
+    MODEL_KEY = "tencent/Hunyuan3D-2mini"
     FEATURE_TYPE = "image_to_raw_mesh"
 
     def __init__(self, vram_requirement: int, **kwargs: Any):

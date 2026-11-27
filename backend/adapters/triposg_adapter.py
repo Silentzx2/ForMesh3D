@@ -6,6 +6,7 @@
 ║  Weights  : backend/pretrained/TripoSG (+ sibling RMBG-1.4)                  ║
 ║  Patcher  : patcher.triposg.apply_patch()                                    ║
 ║  States   : UNLOADED -> LOADING -> LOADED -> PROCESSING -> LOADED / ERROR    ║
+║  Status   : STABLE & ACTIVE                                                  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
