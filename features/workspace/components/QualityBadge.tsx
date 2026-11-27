@@ -122,7 +122,7 @@ export const QualityBadge: React.FC<QualityBadgeProps> = React.memo(({
   );
   return (
     <SimpleTooltip label={tooltipContent} side="top">
-      <span data-testid="quality-badge" className={`inline-flex items-center gap-1 font-semibold rounded-md border tracking-wide transition-colors cursor-help ${size === 'sm' ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[10px]'} ${badgeConfig.style}`}>
+      <span data-testid="quality-badge" className={`inline-flex items-center gap-1 whitespace-nowrap font-semibold rounded-md border tracking-wide transition-colors cursor-help ${size === 'sm' ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[10px]'} ${badgeConfig.style}`}>
         <span className={`w-1.5 h-1.5 rounded-full ${badgeConfig.dotStyle}`} />
         {badgeConfig.icon && <HugeiconsIcon icon={badgeConfig.icon} size={size === 'sm' ? 11 : 13} className="stroke-[2.5]" />}
         <span>{badgeConfig.label}</span>

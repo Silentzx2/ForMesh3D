@@ -888,9 +888,9 @@ export const GeneratePanel: React.FC = () => {
                 </span>
               </div>
               <div className={`grid gap-1.5 p-1 rounded-xl bg-black/30 border border-white/[0.06] ${
-                supportedResolutions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
+                Array.from(new Set(supportedResolutions)).length === 3 ? 'grid-cols-3' : 'grid-cols-2'
               }`}>
-                {supportedResolutions.map((res) => {
+                {Array.from(new Set(supportedResolutions)).map((res) => {
                   const isSelected = textureQuality === res;
                   return (
                     <button
@@ -907,7 +907,7 @@ export const GeneratePanel: React.FC = () => {
                       }}
                       className={`h-6.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                         isSelected
-                          ? 'bg-[#3b3577] text-white border border-[#6366F1] shadow-sm'
+                          ? 'bg-primary text-primary-foreground border border-primary/80 shadow-sm'
                           : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
                       }`}
                     >

@@ -111,12 +111,15 @@ export const LIGHT_TONES: Record<LightTone, { label: string; key: number; fill: 
   neutral: { label: 'Neutral', key: 0xffffff, fill: 0xe6e6e6, rim: 0xffffff },
 };
 
+const DEFAULT_VIEWPORT_BACKGROUND =
+  'radial-gradient(ellipse 70% 68% at 50% 48%, #484a4f 0%, #383a3e 28%, #27282b 55%, #1a1b1e 80%, #131416 100%)';
+
 export const BACKGROUND_OPTIONS = [
   {
     id: 'studio-vignette',
     label: 'Studio Vignette',
-    value: 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
-    preview: 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
+    value: DEFAULT_VIEWPORT_BACKGROUND,
+    preview: DEFAULT_VIEWPORT_BACKGROUND,
   },
   { id: 'transparent', label: 'Studio Dark', value: 'transparent', preview: 'radial-gradient(circle, #16181d 0%, #08090a 100%)' },
   { id: 'dark-gray', label: 'Dark Charcoal', value: '#131519', preview: '#131519' },
@@ -135,7 +138,7 @@ export const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
       exposure: 1.0,
       toneMapping: 'neutral',
       lightTone: 'studio',
-      backgroundColor: 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
+      backgroundColor: DEFAULT_VIEWPORT_BACKGROUND,
       gridVisible: true,
       floorShadowOpacity: 0.2,
       autoRotate: false,
@@ -1452,7 +1455,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       style={{
         background: environmentSettings?.backgroundColor && environmentSettings.backgroundColor !== 'transparent'
           ? environmentSettings.backgroundColor
-          : 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
+          : DEFAULT_VIEWPORT_BACKGROUND,
       }}
     >
       {/* WebGL unavailable fallback — shown when the renderer cannot create a context */}

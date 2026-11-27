@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { uploadMeshAsset, type MeshUploadStage, type ModelAsset } from '@/features/workspace/types';
 import { useWorkspace } from '@/features/workspace/store/WorkspaceContext';
 import { getUploadPercent } from '@/features/workspace/lib/uploadProgress';
+import { requestMeshOrientation } from '@/features/workspace/components/MeshOrientationModal';
 
 export interface MeshAssetUploadState {
   status: 'idle' | MeshUploadStage | 'saved' | 'cancelled' | 'error';
@@ -82,9 +83,13 @@ export function useMeshAssetUpload() {
     }, 1500);
   }, [setCurrentAsset]);
 
-  const upload = useCallback(async (file: File): Promise<ModelAsset | null> => {
+  const upload = useCallback(async (rawFile: File): Promise<ModelAsset | null> => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (uploadInProgress.current) return null;
+
+    const file = await requestMeshOrientation(rawFile);
+    if (!file) return null;
+
     uploadInProgress.current = true;
 
     const controller = new AbortController();

@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import dynamic from 'next/dynamic';
 import { useWorkspace } from './store/WorkspaceContext';
 import { TopHeader } from './Header/TopHeader';
+import { MeshOrientationModal } from './components/MeshOrientationModal';
 import { LeftNavigation } from './Navigation/LeftNavigation';
 
 
@@ -345,6 +346,7 @@ export const WorkspaceShell: React.FC = () => {
       <div className="flex-shrink-0 relative z-50">
         <TopHeader onMobileMenuToggle={() => setIsMobileNavOpen(!isMobileNavOpen)} isMobileNavOpen={isMobileNavOpen} />
       </div>
+      <MeshOrientationModal />
       <div className="flex flex-1 overflow-hidden relative bg-[hsl(var(--surface-0))]">
         {/* Mobile navigation drawer overlay */}
         <AnimatePresence>

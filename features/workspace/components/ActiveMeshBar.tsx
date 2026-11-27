@@ -231,7 +231,7 @@ export const ActiveMeshBar: React.FC<ActiveMeshBarProps> = ({
             <div className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-zinc-400 flex-shrink-0">
               <Box className="w-3.5 h-3.5" />
             </div>
-            <span className="text-xs text-zinc-400 truncate">No mesh selected</span>
+            <span className="text-[11px] text-zinc-400 whitespace-nowrap">No mesh</span>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             <button

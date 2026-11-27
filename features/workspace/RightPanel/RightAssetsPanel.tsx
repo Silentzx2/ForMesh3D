@@ -286,57 +286,58 @@ export const RightAssetsPanel: React.FC = () => {
       <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
         <MeshUploadStatus state={meshUploadState} onDismiss={resetMeshUpload} />
 
-        {/* Upload 3D Model Dropzone Card */}
-        <div
-          id="btn-upload-3d-model-card"
-          role="button"
-          tabIndex={0}
-          aria-label="Upload 3D model"
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={() => !uploadActive && fileInputRef.current?.click()}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              if (!uploadActive) fileInputRef.current?.click();
-            }
-          }}
-          aria-disabled={uploadActive}
-          className={`group relative w-full rounded-2xl border border-dashed ${
-            uploadActive ? 'cursor-wait opacity-60' : 'cursor-pointer'
-          } p-4 flex flex-col items-center justify-center text-center transition-colors bg-[hsl(var(--surface-0))] ${
-            isDragOver
-              ? 'border-primary bg-[hsl(var(--surface-2))] ring-2 ring-primary/30'
-              : 'border-[hsl(var(--border))] hover:border-[hsl(var(--accent))] hover:bg-[hsl(var(--surface-2))]/50'
-          }`}
-        >
-          <div className="flex flex-col items-center justify-center">
-            <div className="w-10 h-10 rounded-full bg-[hsl(var(--accent))] text-[hsl(var(--accent-foreground))] flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform mb-2.5">
-              <HugeiconsIcon icon={ArrowUp01Icon} size={18} className="stroke-[2.5]" />
+        <div className="grid grid-cols-2 gap-2">
+          {/* Upload 3D Model Dropzone Tile (first square in 2-col grid, matching Tripo) */}
+          <div
+            id="btn-upload-3d-model-card"
+            role="button"
+            tabIndex={0}
+            aria-label="Upload 3D model"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={() => !uploadActive && fileInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                if (!uploadActive) fileInputRef.current?.click();
+              }
+            }}
+            aria-disabled={uploadActive}
+            className={`group relative aspect-square rounded-xl border border-dashed ${
+              uploadActive ? 'cursor-wait opacity-60' : 'cursor-pointer'
+            } p-2.5 flex flex-col items-center justify-center text-center transition-colors bg-[hsl(var(--surface-0))] ${
+              isDragOver
+                ? 'border-primary bg-[hsl(var(--surface-2))] ring-2 ring-primary/30'
+                : 'border-[hsl(var(--border))] hover:border-[hsl(var(--accent))] hover:bg-[hsl(var(--surface-2))]/50'
+            }`}
+          >
+            <div className="flex flex-col items-center justify-center">
+              <div className="w-8 h-8 rounded-full bg-[hsl(var(--accent))] text-[hsl(var(--accent-foreground))] flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform mb-2">
+                <HugeiconsIcon icon={ArrowUp01Icon} size={16} className="stroke-[2.5]" />
+              </div>
+              <span className="text-[11px] font-semibold text-[hsl(var(--foreground))] leading-tight">
+                Upload 3D Model
+              </span>
+              <span className="text-[9px] text-[hsl(var(--muted-foreground))] mt-1 leading-tight">
+                GLB, OBJ, FBX, STL
+              </span>
+              <span className="text-[9px] text-[hsl(var(--muted-foreground))]/80 font-mono mt-0.5">
+                Size ≤ 200MB
+              </span>
             </div>
-            <span className="text-xs font-semibold text-[hsl(var(--foreground))] tracking-wide">
-              Upload 3D Model
-            </span>
-            <span className="text-[11px] text-[hsl(var(--muted-foreground))] mt-1">
-              GLB, GLTF, OBJ, FBX, STL, PLY
-            </span>
-            <span className="text-[10px] text-[hsl(var(--muted-foreground))]/80 font-mono mt-0.5">
-              Size ≤ 200MB
-            </span>
           </div>
-        </div>
 
-        {filteredAssets.length === 0 ? (
-          <div className="py-6 px-2 text-center text-[hsl(var(--muted-foreground))]">
-            <HugeiconsIcon icon={FolderOpenIcon} size={16} className="w-8 h-8 mx-auto mb-2 opacity-60" />
-            <div className="text-xs font-semibold text-[hsl(var(--foreground))]">No base meshes yet</div>
-            <div className="text-[11px] mt-1">Generate a model or upload a 3D file above.</div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-2">
-            {/* Asset Items */}
-            {paginatedAssets.map((asset) => {
+          {filteredAssets.length === 0 ? (
+            <div className="aspect-square rounded-xl border border-[hsl(var(--border))]/60 bg-[hsl(var(--surface-0))]/40 p-2.5 flex flex-col items-center justify-center text-center text-[hsl(var(--muted-foreground))]">
+              <HugeiconsIcon icon={FolderOpenIcon} size={16} className="w-6 h-6 mb-1.5 opacity-60" />
+              <div className="text-[11px] font-semibold text-[hsl(var(--foreground))]">No meshes yet</div>
+              <div className="text-[9px] mt-0.5 leading-tight">Generate or upload a 3D file.</div>
+            </div>
+          ) : (
+            <>
+              {/* Asset Items */}
+              {paginatedAssets.map((asset) => {
             const isSelected = currentAsset?.id === asset.id;
             const favoriteKey = asset.isLocalDuplicate
               ? asset.id
@@ -553,8 +554,9 @@ export const RightAssetsPanel: React.FC = () => {
               </div>
             );
           })}
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* Pagination Footer */}
