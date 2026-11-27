@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
@@ -341,7 +341,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const controlsRef = useRef<OrbitControls | null>(null);
+  const controlsRef = useRef<TrackballControls | null>(null);
   const invalidateRenderRef = useRef<() => void>(() => {});
   const isTurntableRef = useRef(isTurntable);
   isTurntableRef.current = isTurntable;
@@ -441,10 +441,13 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     renderer.domElement.addEventListener('webglcontextlost', handleContextLost);
     renderer.domElement.addEventListener('webglcontextrestored', handleContextRestored);
 
-    // OrbitControls
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
+    // TrackballControls: full 360° rotation with no gimbal lock
+    const controls = new TrackballControls(camera, renderer.domElement);
+    controls.staticMoving = false;
+    controls.dynamicDampingFactor = 0.15;
+    controls.rotateSpeed = 2.0;
+    controls.zoomSpeed = 1.2;
+    controls.panSpeed = 0.8;
     controls.target.set(0, 0, 0);
     controls.maxDistance = 20;
     controls.minDistance = 0.5;

@@ -263,11 +263,29 @@ class SkinTokensAdapter(BaseModel):
             )
         except Exception as exc:
             if "RemoteDisconnected" in repr(exc) or "Connection aborted" in repr(exc):
-                raise RuntimeError(
-                    "SkinTokens Blender worker (bpy_server) disconnected during rigging; "
-                    "the mesh may have caused Blender to crash or run out of memory."
-                ) from exc
-            raise
+                if use_transfer:
+                    logger.warning("[SKINTOKENS] bpy_server disconnected during transfer; retrying with use_transfer=False")
+                    demo.run_rig(
+                        filepaths=[Path(mesh_path)],
+                        top_k=top_k,
+                        top_p=top_p,
+                        temperature=temperature,
+                        repetition_penalty=repetition_penalty,
+                        num_beams=num_beams,
+                        use_skeleton=use_skeleton,
+                        use_transfer=False,
+                        use_postprocess=use_postprocess,
+                        output_paths=[out_file],
+                        model_ckpt=self._ckpt_path or "",
+                        hf_path=None,
+                    )
+                else:
+                    raise RuntimeError(
+                        "SkinTokens Blender worker (bpy_server) disconnected during rigging; "
+                        "the mesh may have caused Blender to crash or run out of memory."
+                    ) from exc
+            else:
+                raise
         logger.info("[SKINTOKENS] Rig decoding and GLB export completed elapsed=%.2fs output=%s", _time.perf_counter() - t_rig, out_file.name)
 
         if not out_file.is_file() or out_file.stat().st_size == 0:

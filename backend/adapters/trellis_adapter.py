@@ -247,9 +247,7 @@ class _TrellisBaseAdapter(BaseModel):
         verts = np.asarray(tmesh.vertices, dtype=float)
         centroid = verts.mean(axis=0)
         centred = verts - centroid
-        # TRELLIS outputs Z-up meshes; convert to Y-up (Rx(-90 deg): [x, y, z] -> [x, z, -y])
-        verts = centred
-        tmesh.vertices = np.stack([verts[:, 0], verts[:, 2], -verts[:, 1]], axis=1)
+        tmesh.vertices = centred
 
         tmesh.export(str(out))
 

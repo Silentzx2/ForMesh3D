@@ -177,7 +177,7 @@ export const ActiveMeshBar: React.FC<ActiveMeshBarProps> = ({
         </div>
       ) : validMesh ? (
         <div className="p-2 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
             {validMesh.thumbnail ? (
               <img
                 src={validMesh.thumbnail}
@@ -193,7 +193,7 @@ export const ActiveMeshBar: React.FC<ActiveMeshBarProps> = ({
               <p className="text-xs font-semibold text-zinc-100 truncate" title={validMesh.name}>
                 {validMesh.name}
               </p>
-              <div className="flex items-center gap-1.5 text-[11px] font-mono text-zinc-400">
+              <div className="flex items-center gap-1 text-[10px] font-mono text-zinc-400 whitespace-nowrap truncate">
                 <span>{validMesh.format || 'GLB'}</span>
                 {faceCount > 0 && (
                   <>
@@ -227,7 +227,7 @@ export const ActiveMeshBar: React.FC<ActiveMeshBarProps> = ({
         </div>
       ) : (
         <div className="p-2 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
             <div className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-zinc-400 flex-shrink-0">
               <Box className="w-3.5 h-3.5" />
             </div>
