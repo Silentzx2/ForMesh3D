@@ -95,7 +95,7 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
     <nav
       id="left-tool-rail"
       aria-label="Studio 3D Tools"
-      className={`h-full bg-[hsl(var(--surface-1))] flex flex-col items-center select-none ${
+      className={`h-full bg-[hsl(var(--surface-0))] flex flex-col items-center select-none ${
         isMobileDrawer ? 'w-full py-2 px-3' : 'w-[48px] py-1.5'
       }`}
     >

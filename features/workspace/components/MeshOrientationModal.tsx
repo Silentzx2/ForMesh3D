@@ -272,16 +272,23 @@ export function MeshOrientationModal() {
     try {
       const exportGroup = new THREE.Group();
       const cloned = modelRef.current.clone(true);
-      // Reset normalization scale/offset? Keep pivot rotation baked into a clean wrapper
-      const wrapper = new THREE.Group();
-      wrapper.rotation.set(
-        degToRad(rotationDeg.x),
-        degToRad(rotationDeg.y),
-        degToRad(rotationDeg.z)
+      const rotMatrix = new THREE.Matrix4().makeRotationFromEuler(
+        new THREE.Euler(
+          degToRad(rotationDeg.x),
+          degToRad(rotationDeg.y),
+          degToRad(rotationDeg.z),
+          'XYZ'
+        )
       );
-      wrapper.add(cloned);
-      wrapper.updateMatrixWorld(true);
-      exportGroup.add(wrapper);
+      cloned.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const mesh = child as THREE.Mesh;
+          mesh.geometry = mesh.geometry.clone();
+          mesh.geometry.applyMatrix4(rotMatrix);
+          mesh.geometry.computeVertexNormals();
+        }
+      });
+      exportGroup.add(cloned);
 
       const exporter = new GLTFExporter();
       const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
