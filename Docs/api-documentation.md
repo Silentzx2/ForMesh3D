@@ -40,6 +40,9 @@ Canonical system routes include:
 - `GET /api/v1/system/workspace/{workspace_id}` (retained compatibility alias)
 - `GET /api/v1/system/workspace/operations/{operation_id}`
 - `POST /api/v1/system/workspace/operations/{operation_id}/cancel`
+- `DELETE /api/v1/system/workspace/{workspace_id}` (`?permanent=false` moves to `/tmp/formesh3d_trash`; `true` deletes permanently)
+- `DELETE /api/v1/system/workspace/{workspace_id}/assets/{asset_id}` (trash/delete a single derived version)
+- `GET /api/v1/system/trash`, `POST /api/v1/system/trash/{trash_id}/restore`, `DELETE /api/v1/system/trash/{trash_id}`, `DELETE /api/v1/system/trash`
 
 The system router also exposes operational routes for queue statistics/reordering, storage reporting/cleanup, temporary cache cleanup, logs, result deletion, and candidate download/thumbnail/selection. Inspect `/docs` for their exact current schemas.
 

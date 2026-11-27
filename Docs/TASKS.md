@@ -1,33 +1,21 @@
-# ForMesh3D — Task Plan Index
+# ForMesh3D — Task Plan & Status
 
-> Updated: 2026-11-26  
-> Execution: implementation is maintained in source, tests, and focused architecture/API documentation.  
-> Vision: crisp, calm, Tripo-inspired desktop 3D studio; ForMesh 3D branding; no AI slop; no mobile-first redesign.
+> Updated: 2026-11-27 | Branch: `dev`  
+> Vision: Crisp, Tripo-inspired dark desktop 3D studio for personal/self-hosted use.
 
-## Task documentation
+## Active Architecture & Contracts
+- **Storage:** `backend/storage/<workspace_id>/` (`input/`, `mesh/`, `texture/`, `animation/<clip>_vNNN/`, `metadata.json`); SQLite is authoritative.
+- **Trash / Soft-Delete:** `backend/services/workspace_trash.py` moves soft-deleted workspaces or derived versions to `/tmp/formesh3d_trash/tr_<12hex>/` with a `manifest.json` DB snapshot, so machine restarts clear temp trash automatically and trashed items never appear in Assets or **Mesh Version**.
+- **Version Scoping & Auto-Selection:** Assets panel shows only base meshes, standalone uploads, and saved `animated_mesh` exports; derived operation outputs live in `workspaceVersions` (**Mesh Version** selector) and auto-select on tool switch (`findPreferredVersionForTool`).
+- **Docs:** [ANIMATION-ASSET-STORAGE.md](ANIMATION-ASSET-STORAGE.md), [api-documentation.md](api-documentation.md), [DESIGN.md](DESIGN.md), [DECISIONS.md](DECISIONS.md).
 
-The former split implementation specifications (`TASKS-PART-1-UI-UX.md` and `TASKS-PART-2-BACKEND.md`) have been retired and removed. The root `promt.md` agent prompt file has also been retired. This index is intentionally retained.
+## Completed (2026-11-27)
+- [x] Studio surface palette (`app/globals.css`), `LeftNavigation.tsx` contrast, `MeshViewer.tsx` radial gradient + `TrackballControls`.
+- [x] `"Find the Best Angle"` upload orientation modal (`MeshOrientationModal.tsx`) with baked vertex rotation.
+- [x] `RightAssetsPanel.tsx` 2-column grid, canonical URL deduplication, non-overlapping `QualityBadge`, `SimpleTooltip` upgrades, unified `AssetDeleteModal` (interactive 3D preview for specific version + 3s countdown for workspace delete), and `TrashBinModal`.
+- [x] Backend trash/delete endpoints (`DELETE /workspace/{id}`, `DELETE /workspace/{id}/assets/{asset_id}`, `GET /trash`, `POST /trash/{id}/restore`, `DELETE /trash/{id}`, `DELETE /trash`).
+- [x] `skintokens_adapter.py` `use_transfer=False` fallback with `bpy_server` restart; `trellis_adapter.py` native orientation; `motionClient.ts` index-based bone mapping fallback.
 
-The current animation persistence contract is documented in [ANIMATION-ASSET-STORAGE.md](ANIMATION-ASSET-STORAGE.md). API routes are documented in [api-documentation.md](api-documentation.md), and architecture decisions are recorded in [DECISIONS.md](DECISIONS.md).
-
-## Shared non-negotiables
-
-- Keep the personal single-user/VPS architecture simple and reliable.
-- Reuse current workspace, job, asset, Zustand, Three.js Mixer, and animation-clock lifecycles.
-- No fake controls, fake progress, fake data, fake holograms, fake point clouds, duplicate generation cards, or extra progress cards.
-- Keep the simple horizontal generation progress line.
-- Do not assume ARDY NPZ field names, shapes, joint ordering, FPS options, or coordinate conventions. Verify them from real output and upstream source.
-- Bundled premade presets belong in `backend/motion_presets/`; user-uploaded/generated reusable presets belong in `backend/storage/presets/<preset_id>/`.
-- Workspace animated exports belong in `backend/storage/<workspace_id>/animation/<clip-name>_vNNN/`; each folder contains `animated.glb` and `motion.npz`.
-- SQLite is authoritative. One workspace-root `metadata.json` is a write-only projection; do not create per-animation metadata files.
-- Preserve protected model adapters, patcher isolation, scheduler behaviour, and SM80+ inference parity.
-- Update documentation only after implementation matches actual behaviour.
-
-## Current implementation status (2026-11-26)
-
-- MotionClipV1 preset discovery, validation, preview, and reusable user-preset persistence are implemented.
-- Workspace animation export is wired to versioned workspace storage and DB asset lineage. GLB download remains available separately.
-- Premade multi-select export creates one independent workspace asset per selected preset.
-- No bundled premade NPZ files are fabricated or added by this change.
-- Real ARDY NPZ retarget verification remains blocked until a real output from the supported checkpoint is inspected.
-- Runtime/browser verification and CI status must be recorded from actual workflow results; source-level changes alone do not establish end-to-end success.
+## Pending / Next
+- [ ] Real ARDY NPZ retarget verification once real checkpoint output is inspected.
+- [ ] `POST /api/v1/generate` `422` reproduction if it recurs on specific inputs.

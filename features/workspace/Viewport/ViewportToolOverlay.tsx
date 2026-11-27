@@ -215,8 +215,8 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
       {/* Dynamic Mesh Versions Selector (Hidden if only base raw mesh exists) */}
       {workspaceMeshVersions.length > 1 && (
         <div className="pointer-events-auto absolute top-4 left-4 md:left-6 flex items-center gap-2 z-20">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[hsl(var(--surface-1))]/95 border border-white/[0.08] shadow-lg text-xs text-white">
-            <span className="text-[11px] font-semibold text-zinc-400">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[hsl(var(--surface-1))]/95 backdrop-blur-md border border-[hsl(var(--border))] shadow-lg text-xs text-foreground">
+            <span className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap">
               Mesh Version
             </span>
             <select
@@ -235,7 +235,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
                   toast.error('Selected mesh version is unavailable');
                 }
               }}
-              className="bg-transparent text-xs text-zinc-100 font-medium focus:outline-none cursor-pointer border-none py-0.5 pr-2"
+              className="bg-[hsl(var(--surface-2))] rounded-lg px-2 py-0.5 text-xs text-foreground font-medium focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer border border-[hsl(var(--border))]"
               aria-label="Select Mesh Version"
             >
               {workspaceMeshVersions.map((v) => (

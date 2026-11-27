@@ -3,6 +3,9 @@ import { useWorkspace } from '../store/WorkspaceContext';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
 import { MeshUploadStatus } from '../Panels/MeshUploadStatus';
+import { AssetDeleteModal, TrashBinModal, type TrashItem } from '../components/AssetDeleteModal';
+import type { ModelAsset, WorkspaceVersionItem } from '../types';
+import { useQueryClient } from '@tanstack/react-query';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -37,7 +40,53 @@ export const RightAssetsPanel: React.FC = () => {
     deleteAsset,
     updateAssetProperties,
     workspaceId,
+    workspaceVersions,
+    setWorkspaceVersions,
+    activeTool,
+    navigateToTool,
   } = useWorkspace();
+  const queryClient = useQueryClient();
+
+  const [deleteTarget, setDeleteTarget] = useState<ModelAsset | null>(null);
+  const [deleteDerivedVersions, setDeleteDerivedVersions] = useState<WorkspaceVersionItem[]>([]);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
+  const [trashLoading, setTrashLoading] = useState(false);
+
+  const loadTrashItems = useCallback(async () => {
+    setTrashLoading(true);
+    try {
+      const res = await fetch('/api/v1/system/trash');
+      if (res.ok) {
+        const data = await res.json();
+        setTrashItems(Array.isArray(data?.items) ? data.items : []);
+      }
+    } finally {
+      setTrashLoading(false);
+    }
+  }, []);
+
+  const openDeleteModal = useCallback(async (asset: ModelAsset) => {
+    if (asset.isLocalDuplicate) {
+      await deleteAsset(asset.id);
+      return;
+    }
+    let derived: WorkspaceVersionItem[] = [];
+    if (asset.workspace_id) {
+      try {
+        const res = await fetch(`/api/v1/system/workspace/generate/${encodeURIComponent(asset.workspace_id)}`);
+        if (res.ok) {
+          const data = await res.json();
+          const versions = (data?.versions || data?.data?.versions || []) as WorkspaceVersionItem[];
+          derived = versions.filter((v) => !v.is_base);
+        }
+      } catch {
+        // Fallback to empty derived list if offline
+      }
+    }
+    setDeleteDerivedVersions(derived);
+    setDeleteTarget(asset);
+  }, [deleteAsset]);
 
   const { assetCollections, addAssetCollection, assetCollectionAssignments, setAssetCollectionAssignment, assetFavorites, setAssetFavorite } = useAppStore();
 
@@ -120,19 +169,41 @@ export const RightAssetsPanel: React.FC = () => {
   const scopedBaseAssets = React.useMemo(() => {
     const DERIVED_TYPES = new Set([
       'retopology',
+      'mesh_retopology',
       'remesh',
       'uv',
+      'uv_unwrapping',
       'segmentation',
+      'mesh_segmentation',
       'segment',
       'rigging',
       'rig',
+      'auto_rig',
       'animation',
       'animate',
+      'motion_generation',
       'texture',
+      'texture_painting',
+      'mesh_painting',
       'pbr',
       'edit',
       'refine',
     ]);
+
+    const DERIVED_ID_PREFIXES = [
+      'auto_rig_',
+      'rig_',
+      'retopo_',
+      'mesh_retopology_',
+      'uv_',
+      'unwrap_',
+      'segment_',
+      'mesh_segmentation_',
+      'texture_',
+      'paint_',
+      'mesh_painting_',
+      'motion_generation_',
+    ];
 
     const isDerivedOrTempAsset = (asset: typeof assets[number]) => {
       if (asset.asset_type === 'animated_mesh') return false;
@@ -148,6 +219,9 @@ export const RightAssetsPanel: React.FC = () => {
       // Exclude post-operation derived meshes unless explicitly marked as a base mesh
       const opType = String(asset.operation_type || '').toLowerCase();
       if (opType && DERIVED_TYPES.has(opType) && asset.is_base_mesh !== true) return true;
+
+      const rawId = asset.id.replace(/^(?:hist_|local_|job-)/, '').toLowerCase();
+      if (DERIVED_ID_PREFIXES.some((prefix) => rawId.startsWith(prefix))) return true;
 
       const cat = String(asset.category || '').toLowerCase();
       if (DERIVED_TYPES.has(cat)) return true;
@@ -400,30 +474,33 @@ export const RightAssetsPanel: React.FC = () => {
                       className="absolute top-1.5 left-1.5 z-20 opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <a
-                        href={asset.thumbnail}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex p-1 rounded-md bg-black/75 hover:bg-black text-zinc-200 hover:text-primary border border-white/15 shadow transition-colors"
-                        title="Zoom preview"
-                      >
-                        <HugeiconsIcon icon={ZoomInIcon} size={14} className="w-3.5 h-3.5" />
-                      </a>
+                      <SimpleTooltip label="Zoom preview" side="top">
+                        <a
+                          href={asset.thumbnail}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex p-1 rounded-md bg-black/75 hover:bg-black text-zinc-200 hover:text-primary border border-white/15 shadow transition-colors"
+                          aria-label={`Zoom preview for ${asset.name}`}
+                        >
+                          <HugeiconsIcon icon={ZoomInIcon} size={14} className="w-3.5 h-3.5" />
+                        </a>
+                      </SimpleTooltip>
                     </div>
                   )}
 
-                  <button
-                    type="button"
-                    aria-label={`Delete ${asset.name}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteAsset(asset.id);
-                    }}
-                    className="absolute top-1.5 right-1.5 z-20 p-1 rounded-md bg-black/75 hover:bg-black text-zinc-200 hover:text-rose-400 border border-white/15 shadow opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
-                    title="Delete asset"
-                  >
-                    <HugeiconsIcon icon={Trash2} size={14} className="w-3.5 h-3.5" />
-                  </button>
+                  <SimpleTooltip label="Delete asset" side="top">
+                    <button
+                      type="button"
+                      aria-label={`Delete ${asset.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openDeleteModal(asset);
+                      }}
+                      className="absolute top-1.5 right-1.5 z-20 p-1 rounded-md bg-black/75 hover:bg-black text-zinc-200 hover:text-rose-400 border border-white/15 shadow opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                    >
+                      <HugeiconsIcon icon={Trash2} size={14} className="w-3.5 h-3.5" />
+                    </button>
+                  </SimpleTooltip>
 
                   {isSelected && (
                     <div className="absolute bottom-1.5 right-1.5 z-10 w-5 h-5 rounded-full bg-primary flex items-center justify-center text-black shadow-md">
@@ -546,10 +623,11 @@ export const RightAssetsPanel: React.FC = () => {
                            <span>Duplicate</span>
                          </button>
                          <button
+                           type="button"
                            onClick={(e) => {
                              e.stopPropagation();
-                             deleteAsset(asset.id);
                              setActiveMenuAssetId(null);
+                             openDeleteModal(asset);
                            }}
                            className="w-full text-left px-2.5 py-1.5 text-rose-400 hover:bg-rose-500/10 flex items-center gap-1.5 cursor-pointer"
                          >
@@ -568,11 +646,26 @@ export const RightAssetsPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* Pagination Footer */}
+      {/* Pagination Footer + Trash Bin */}
       <div className="px-3 py-2 border-t border-white/[0.08] bg-[hsl(var(--surface-1))] flex items-center justify-between text-xs text-zinc-400">
-        <span className="text-[10px] text-zinc-500 font-mono">
-          Page {safePage} of {totalPages}
-        </span>
+        <div className="flex items-center gap-2">
+          <SimpleTooltip label="Trash Bin" side="top">
+            <button
+              type="button"
+              aria-label="Open Trash Bin"
+              onClick={() => {
+                setTrashOpen(true);
+                loadTrashItems();
+              }}
+              className="p-1.5 rounded-lg bg-[hsl(var(--surface-2))]/70 hover:bg-[hsl(var(--surface-2))] text-zinc-300 hover:text-rose-300 border border-white/[0.06] transition-colors cursor-pointer"
+            >
+              <HugeiconsIcon icon={Trash2} size={14} className="w-3.5 h-3.5" />
+            </button>
+          </SimpleTooltip>
+          <span className="text-[10px] text-zinc-500 font-mono">
+            Page {safePage} of {totalPages}
+          </span>
+        </div>
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -635,6 +728,90 @@ export const RightAssetsPanel: React.FC = () => {
         </form>
       </DialogContent>
     </Dialog>
+
+    <AssetDeleteModal
+      asset={deleteTarget}
+      derivedVersions={deleteDerivedVersions}
+      onClose={() => setDeleteTarget(null)}
+      onDeleteWorkspace={async (wsId, permanent) => {
+        const res = await fetch(
+          `/api/v1/system/workspace/${encodeURIComponent(wsId)}?permanent=${permanent ? 'true' : 'false'}`,
+          { method: 'DELETE' }
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          toast.error(err?.detail || 'Failed to delete workspace');
+          return;
+        }
+        if (workspaceId === wsId) {
+          navigateToTool(activeTool);
+        }
+        setWorkspaceVersions((prev) => prev.filter((v) => !v.url.includes(wsId)));
+        queryClient.invalidateQueries({ queryKey: ['uploaded-assets'] });
+        queryClient.invalidateQueries({ queryKey: ['history-assets'] });
+        toast.success(permanent ? 'Workspace permanently deleted.' : 'Workspace moved to Trash.');
+      }}
+      onDeleteSpecificVersion={async (wsId, assetId, permanent) => {
+        const res = await fetch(
+          `/api/v1/system/workspace/${encodeURIComponent(wsId)}/assets/${encodeURIComponent(assetId)}?permanent=${permanent ? 'true' : 'false'}`,
+          { method: 'DELETE' }
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          toast.error(err?.detail || 'Failed to delete version');
+          return;
+        }
+        setWorkspaceVersions((prev) => prev.filter((v) => v.asset_id !== assetId));
+        if (currentAsset?.id === assetId) {
+          const base = workspaceVersions.find((v) => v.is_base);
+          if (base) {
+            setCurrentAsset(null);
+          }
+        }
+        queryClient.invalidateQueries({ queryKey: ['history-assets'] });
+        toast.success(permanent ? 'Version permanently deleted.' : 'Version moved to Trash.');
+      }}
+      onDeleteStandalone={async (asset) => {
+        await deleteAsset(asset.id);
+      }}
+    />
+
+    <TrashBinModal
+      open={trashOpen}
+      items={trashItems}
+      loading={trashLoading}
+      onClose={() => setTrashOpen(false)}
+      onRestore={async (trashId) => {
+        const res = await fetch(`/api/v1/system/trash/${encodeURIComponent(trashId)}/restore`, {
+          method: 'POST',
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          toast.error(err?.detail || 'Restore failed');
+          return;
+        }
+        toast.success('Restored from Trash.');
+        await loadTrashItems();
+        queryClient.invalidateQueries({ queryKey: ['uploaded-assets'] });
+        queryClient.invalidateQueries({ queryKey: ['history-assets'] });
+      }}
+      onPurge={async (trashId) => {
+        const res = await fetch(`/api/v1/system/trash/${encodeURIComponent(trashId)}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          toast.success('Permanently deleted.');
+          await loadTrashItems();
+        }
+      }}
+      onEmpty={async () => {
+        const res = await fetch('/api/v1/system/trash', { method: 'DELETE' });
+        if (res.ok) {
+          toast.success('Trash emptied.');
+          await loadTrashItems();
+        }
+      }}
+    />
     </>
   );
 };

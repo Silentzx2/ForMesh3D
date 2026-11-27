@@ -225,16 +225,40 @@ const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefin
 const DERIVED_OPERATION_TYPES = new Set([
   'remesh',
   'retopology',
+  'mesh_retopology',
   'texture',
+  'texture_painting',
+  'mesh_painting',
   'pbr',
   'uv',
+  'uv_unwrapping',
   'segment',
   'segmentation',
+  'mesh_segmentation',
+  'rig',
   'rigging',
+  'auto_rig',
   'animation',
+  'animate',
+  'motion_generation',
   'edit',
   'refine',
 ]);
+
+const DERIVED_JOB_PREFIXES = [
+  'auto_rig_',
+  'rig_',
+  'retopo_',
+  'mesh_retopology_',
+  'uv_',
+  'unwrap_',
+  'segment_',
+  'mesh_segmentation_',
+  'texture_',
+  'paint_',
+  'mesh_painting_',
+  'motion_generation_',
+];
 
 function isDerivedOrTempAsset(asset: ModelAsset): boolean {
   if (!asset) return false;
@@ -243,7 +267,47 @@ function isDerivedOrTempAsset(asset: ModelAsset): boolean {
   if (asset.is_base_mesh === false) return true;
   const opType = (asset.operation_type || '').toLowerCase();
   if (opType && DERIVED_OPERATION_TYPES.has(opType)) return true;
+  const rawId = asset.id.replace(/^(?:hist_|local_|job-)/, '').toLowerCase();
+  if (DERIVED_JOB_PREFIXES.some((prefix) => rawId.startsWith(prefix))) return true;
   return false;
+}
+
+function findPreferredVersionForTool(
+  versions: WorkspaceVersionItem[],
+  tool: ToolType
+): WorkspaceVersionItem | null {
+  if (!versions || versions.length === 0) return null;
+  const matchers: Partial<Record<ToolType, (v: WorkspaceVersionItem) => boolean>> = {
+    model: (v) =>
+      Boolean(v.is_base) ||
+      ['generate', 'generate_raw_mesh', 'generate_textured_mesh'].includes(
+        String(v.operation_type || '').toLowerCase()
+      ),
+    tools: (v) =>
+      Boolean(v.is_base) ||
+      ['generate', 'generate_raw_mesh', 'generate_textured_mesh'].includes(
+        String(v.operation_type || '').toLowerCase()
+      ),
+    texture: (v) => /texture|paint|pbr/i.test(`${v.operation_type || ''} ${v.name || ''} ${v.version_label || ''}`),
+    pbr: (v) => /texture|paint|pbr/i.test(`${v.operation_type || ''} ${v.name || ''} ${v.version_label || ''}`),
+    edit: (v) => /texture|paint|edit/i.test(`${v.operation_type || ''} ${v.name || ''} ${v.version_label || ''}`),
+    remesh: (v) => /retopo|remesh/i.test(`${v.operation_type || ''} ${v.name || ''} ${v.version_label || ''}`),
+    uv: (v) => /\buv\b|unwrap/i.test(`${v.operation_type || ''} ${v.name || ''} ${v.version_label || ''}`),
+    segment: (v) => /segment/i.test(`${v.operation_type || ''} ${v.name || ''} ${v.version_label || ''}`),
+    rigging: (v) => /rig/i.test(`${v.operation_type || ''} ${v.name || ''} ${v.version_label || ''}`),
+    animation: (v) => /rig/i.test(`${v.operation_type || ''} ${v.name || ''} ${v.version_label || ''}`),
+  };
+
+  const matcher = matchers[tool];
+  if (!matcher) return null;
+  // Prefer the latest matching derived version (or base mesh for model/tools)
+  if (tool === 'model' || tool === 'tools') {
+    return versions.find(matcher) || versions[0] || null;
+  }
+  for (let i = versions.length - 1; i >= 0; i--) {
+    if (matcher(versions[i])) return versions[i];
+  }
+  return null;
 }
 
 const TOOL_TO_ROUTE: Record<ToolType, string> = {
@@ -444,10 +508,11 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     queryFn: async () => {
       const history = await apiClient.getHistory() as Record<string, any>;
       return Object.entries(history)
-        .filter(([, h]) => {
+        .filter(([id, h]) => {
           if (!h.status?.completed) return false;
-          const opType = String(h.outputs?.operation_type || h.operation_type || '').toLowerCase();
+          const opType = String(h.outputs?.operation_type || h.operation_type || h.feature || h.outputs?.feature || '').toLowerCase();
           if (opType && DERIVED_OPERATION_TYPES.has(opType)) return false;
+          if (DERIVED_JOB_PREFIXES.some((prefix) => id.toLowerCase().startsWith(prefix))) return false;
           if (h.outputs?.is_base_mesh === false) return false;
           return true;
         })
@@ -458,7 +523,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           : null;
         const name = promptName || `Model_${id.slice(0, 8)}`;
         const outputs = (h.outputs || {}) as Record<string, any>;
-        const outputUrl = toProxyUrl(preferredGenerationPreviewUrl(outputs) || (outputs.glb as string) || (outputs.model_url as string) || (outputs.download_url as string) || `/api/v1/system/jobs/${id}/download?artifact_format=glb`);
+        const outputFormat = String(outputs.output_format || outputs.format || '').toLowerCase() || 'glb';
+        const outputUrl = toProxyUrl(preferredGenerationPreviewUrl(outputs) || (outputs.glb as string) || (outputs.fbx as string) || (outputs.obj as string) || (outputs.model_url as string) || (outputs.download_url as string) || `/api/v1/system/jobs/${id}/download?artifact_format=${encodeURIComponent(outputFormat)}`);
+        const histExt = (outputUrl || '').split('?')[0].match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() || outputFormat;
         const targetWsId = outputs.workspace_id || (h as any).workspace_id || id;
         return normalizeModelAsset({
           id: id || `hist-${i}`,
@@ -468,7 +535,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           name,
           category: 'generation',
           thumbnail: (outputs.thumbnail as string) || (outputs.thumbnail_url as string) || '',
-          source: { filename: `${id}.glb`, subfolder: 'generated', type: 'output', viewUrl: outputUrl, fileId: `job-${id}` },
+          source: { filename: `${id}.${histExt}`, subfolder: 'generated', type: 'output', viewUrl: outputUrl, fileId: `job-${id}` },
           meshType: 'custom',
           polygon_count: outputs.polygon_count,
           vertex_count: outputs.vertex_count,
@@ -477,7 +544,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           triangles: outputs.polygon_count ?? outputs.triangles,
           statsAvailable: outputs.statsAvailable ?? ((outputs.polygon_count ?? 0) > 0 || (outputs.vertex_count ?? 0) > 0),
           topology: outputs.topology || 'Triangle',
-          format: outputs.format || 'GLB',
+          format: (outputs.format || histExt.toUpperCase()) as ModelAsset['format'],
           dimensions: outputs.dimensions,
           boundingBox: outputs.bounding_box || outputs.boundingBox,
           objectCount: outputs.object_count ?? outputs.objectCount,
@@ -3276,6 +3343,35 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
       setActiveMeshAssetId(null);
       setWorkspaceId(null);
       useViewerStore.getState().setLoadedModel(null, null, null);
+    } else if (nextWorkspaceId) {
+      const preferred = findPreferredVersionForTool(workspaceVersionsRef.current, tool);
+      if (preferred && preferred.asset_id !== activeMeshAssetIdRef.current) {
+        const existingBase = assetsRef.current.find((a) => a.id === preferred.asset_id);
+        if (existingBase) {
+          selectAsset(existingBase.id);
+        } else {
+          const urlExt = preferred.url.split('?')[0].match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() || 'glb';
+          setCurrentAsset(
+            normalizeModelAsset({
+              id: preferred.asset_id,
+              workspace_id: nextWorkspaceId,
+              is_base_mesh: Boolean(preferred.is_base),
+              operation_type: preferred.operation_type || tool,
+              name: preferred.name || preferred.version_label || 'Mesh',
+              format: urlExt.toUpperCase() as ModelAsset['format'],
+              category: 'generation',
+              thumbnail: preferred.thumbnail_url || '',
+              source: {
+                filename: `${preferred.asset_id}.${urlExt}`,
+                subfolder: 'generated',
+                type: 'output',
+                viewUrl: preferred.url,
+                fileId: preferred.asset_id,
+              },
+            })
+          );
+        }
+      }
     }
 
     const route = nextWorkspaceId ? `${baseRoute}/${nextWorkspaceId}` : baseRoute;
