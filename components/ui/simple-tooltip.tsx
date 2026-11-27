@@ -1,6 +1,8 @@
 'use client';
 
 import * as React from 'react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 
 interface SimpleTooltipProps {
   label: React.ReactNode;
@@ -10,26 +12,31 @@ interface SimpleTooltipProps {
   tooltipClassName?: string;
 }
 
-export const SimpleTooltip: React.FC<SimpleTooltipProps> = ({ label, children, side = 'right', className = '', tooltipClassName = '' }) => {
+export const SimpleTooltip: React.FC<SimpleTooltipProps> = ({
+  label,
+  children,
+  side = 'right',
+  className = '',
+  tooltipClassName = '',
+}) => {
+  const triggerChild = React.isValidElement(children) ? (
+    children
+  ) : (
+    <span className={cn('inline-flex', className)}>{children}</span>
+  );
+
   return (
-    <div className={`relative inline-flex group ${className}`}>
-      {children}
-      <span
-        role="tooltip"
-        className={`pointer-events-none absolute z-50 px-2.5 py-1.5 text-[10px] font-medium text-[hsl(var(--tooltip-fg))] bg-[hsl(var(--tooltip-bg))] border border-[hsl(var(--tooltip-border))] rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity duration-150 ${
-          typeof label === 'string' ? 'whitespace-nowrap' : 'min-w-[180px] whitespace-normal'
-        } ${
-          side === 'top'
-            ? 'bottom-full left-1/2 -translate-x-1/2 mb-2'
-            : side === 'bottom'
-            ? 'top-full left-1/2 -translate-x-1/2 mt-2'
-            : side === 'left'
-            ? 'right-full top-1/2 -translate-y-1/2 mr-2'
-            : 'left-full top-1/2 -translate-y-1/2 ml-2'
-        } ${tooltipClassName}`}
+    <Tooltip delayDuration={200}>
+      <TooltipTrigger asChild>{triggerChild}</TooltipTrigger>
+      <TooltipContent
+        side={side}
+        className={cn(
+          typeof label === 'string' ? 'whitespace-nowrap' : 'min-w-[180px] whitespace-normal',
+          tooltipClassName
+        )}
       >
         {label}
-      </span>
-    </div>
+      </TooltipContent>
+    </Tooltip>
   );
 };

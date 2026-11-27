@@ -247,18 +247,7 @@ class _TrellisBaseAdapter(BaseModel):
         verts = np.asarray(tmesh.vertices, dtype=float)
         centroid = verts.mean(axis=0)
         centred = verts - centroid
-        cov = centred.T @ centred / max(len(centred), 1)
-        evals, evecs = np.linalg.eigh(cov)
-        principal = evecs[:, int(np.argmax(evals))]
-        up = np.array([0.0, 1.0, 0.0])
-        if float(principal @ up) < 0:
-            principal = -principal
-        v = np.cross(principal, up)
-        c = float(principal @ up)
-        if float(v @ v) > 1e-12:
-            vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-            rot = np.eye(3) + vx + vx @ vx * ((1.0 - c) / float(v @ v))
-            tmesh.vertices = centred @ rot.T
+        tmesh.vertices = centred
 
         tmesh.export(str(out))
 

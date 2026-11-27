@@ -1405,6 +1405,10 @@ async def get_job_status(job_id: str, request: Request):
                 and Path(str(mesh_path)).suffix.lower() in {".glb", ".gltf", ".obj", ".fbx", ".stl", ".ply"}
                 and result.get("artifact_type") != "motion"
             )
+            if result.get("artifact_type") == "motion":
+                clip_ref = result.get("asset_id") or f"job-{job_id}"
+                result.setdefault("motion_clip_id", str(clip_ref))
+                result.setdefault("clip_url", f"/api/v1/motion/clips/{result['motion_clip_id']}")
 
             if mesh_path and os.path.exists(mesh_path) and _is_mesh_artifact:
                 # Create URL for mesh file
@@ -3508,3 +3512,91 @@ async def update_logging_level(
         raise HTTPException(
             status_code=500, detail=f"Error updating logging level: {str(e)}"
         )
+
+
+@router.delete("/workspace/{workspace_id}", summary="Delete or trash an entire workspace")
+async def delete_workspace(
+    workspace_id: str,
+    permanent: bool = Query(False, description="Skip temp trash and delete permanently"),
+    _: bool = Depends(verify_api_key),
+):
+    from backend.services.workspace_trash import trash_workspace
+    from core.scheduler.database_manager import DatabaseManager
+
+    db_manager = DatabaseManager()
+    try:
+        return trash_workspace(db_manager, workspace_id, permanent=permanent)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error deleting workspace {workspace_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/workspace/{workspace_id}/assets/{asset_id}", summary="Delete or trash a specific derived workspace asset")
+async def delete_workspace_asset(
+    workspace_id: str,
+    asset_id: str,
+    permanent: bool = Query(False, description="Skip temp trash and delete permanently"),
+    _: bool = Depends(verify_api_key),
+):
+    from backend.services.workspace_trash import trash_workspace_asset
+    from core.scheduler.database_manager import DatabaseManager
+
+    db_manager = DatabaseManager()
+    try:
+        return trash_workspace_asset(db_manager, workspace_id, asset_id, permanent=permanent)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error deleting asset {asset_id} in {workspace_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/trash", summary="List soft-deleted workspaces and assets in temp trash")
+async def get_trash_items(_: bool = Depends(verify_api_key)):
+    from backend.services.workspace_trash import list_trash
+
+    return {"items": list_trash()}
+
+
+@router.post("/trash/{trash_id}/restore", summary="Restore a trashed workspace or asset")
+async def restore_trash(trash_id: str, _: bool = Depends(verify_api_key)):
+    from backend.services.workspace_trash import restore_trash_item
+    from core.scheduler.database_manager import DatabaseManager
+
+    db_manager = DatabaseManager()
+    try:
+        return restore_trash_item(db_manager, trash_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except FileExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error restoring trash item {trash_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/trash/{trash_id}", summary="Permanently remove a trashed item")
+async def delete_trash_item(trash_id: str, _: bool = Depends(verify_api_key)):
+    from backend.services.workspace_trash import purge_trash_item
+
+    try:
+        return purge_trash_item(trash_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/trash", summary="Empty all items from temp trash")
+async def clear_trash(_: bool = Depends(verify_api_key)):
+    from backend.services.workspace_trash import empty_trash
+
+    return empty_trash()

@@ -26,8 +26,6 @@ interface ToolConfig {
   label: string;
   tooltip: string;
   icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
-  badge?: string;
-  hasDropdown?: boolean;
 }
 
 export const LeftNavigation: React.FC<LeftNavigationProps> = ({
@@ -49,14 +47,12 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
       label: 'Texture',
       tooltip: '3D Texture Generator',
       icon: Palette,
-      hasDropdown: true,
     },
     {
       id: 'remesh',
       label: 'Retopo',
       tooltip: 'Quad Retopology & Remeshing',
       icon: RefreshCw,
-      hasDropdown: true,
     },
     {
       id: 'uv',
@@ -69,7 +65,6 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
       label: 'Segment',
       tooltip: 'Mesh Part Segmentation',
       icon: Scissors,
-      hasDropdown: true,
     },
     {
       id: 'rigging',
@@ -100,8 +95,8 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
     <nav
       id="left-tool-rail"
       aria-label="Studio 3D Tools"
-      className={`h-full bg-[hsl(var(--surface-1))] flex flex-col items-center select-none ${
-        isMobileDrawer ? 'w-full py-2 px-3' : 'w-[46px] py-1.5'
+      className={`h-full bg-[hsl(var(--surface-0))] flex flex-col items-center select-none ${
+        isMobileDrawer ? 'w-full py-2 px-3' : 'w-[48px] py-1.5'
       }`}
     >
       {/* Primary Tool Stack */}
@@ -112,49 +107,48 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
           const IconComp = t.icon;
 
           return (
-            <SimpleTooltip key={`${t.label}-${idx}`} label={t.tooltip} side="right">
+            <SimpleTooltip key={t.id} label={t.tooltip} side="right">
               <button
                 ref={idx === 0 ? firstToolButtonRef : undefined}
                 type="button"
                 onClick={() => handleSelect(t.id)}
                 aria-current={active ? 'page' : undefined}
-                className={`relative w-full group flex flex-col items-center justify-center py-1.5 px-0.5 rounded-lg transition-all duration-200 cursor-pointer ${
+                className={`relative w-full group flex flex-col items-center justify-center py-1.5 px-0.5 rounded-lg transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                   active
-                    ? 'text-[#F9CF00] bg-white/[0.08] font-bold shadow-sm'
-                    : 'text-zinc-200 hover:text-white hover:bg-white/[0.05]'
+                    ? 'text-primary bg-white/[0.08]'
+                    : 'text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.05]'
                 }`}
               >
-                {/* Active Indicator Bar on Left */}
+                {/* Gold Active Indicator Bar on Left */}
                 {active && (
-                  <span className="absolute left-0.5 top-1.5 bottom-1.5 w-[2px] rounded-r-full bg-[#F9CF00]" />
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0.5 top-1.5 bottom-1.5 w-[2px] rounded-r-full bg-primary"
+                  />
                 )}
 
-                {/* Solid, Bold High-Contrast Icon */}
                 <div className="relative mb-0.5">
                   <IconComp
-                    strokeWidth={active ? 2.5 : 2}
-                    className={`w-4 h-4 transition-transform duration-200 group-hover:scale-110 transition-colors duration-300 ${
-                      active
-                        ? 'text-[#F9CF00] drop-shadow-[0_0_10px_rgba(249,207,0,0.6)]'
-                        : 'text-[#A1A1AA] group-hover:text-[#F9CF00] group-hover:drop-shadow-[0_0_8px_rgba(249,207,0,0.4)]'
+                    strokeWidth={active ? 2.25 : 1.75}
+                    className={`w-[18px] h-[18px] transition-colors duration-150 ${
+                      active ? 'text-primary' : 'text-zinc-400 group-hover:text-zinc-100'
                     }`}
                   />
                   {executing && (
-                    <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-[#F9CF00] animate-ping" />
+                    <span
+                      aria-hidden="true"
+                      className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-primary animate-pulse"
+                    />
                   )}
                 </div>
 
-                {/* Label */}
-                <div className="flex items-center gap-0.5">
-                  <span className={`text-[9px] tracking-tight leading-none text-center font-medium ${
-                    active ? 'text-[#F9CF00] font-bold' : 'text-zinc-400 group-hover:text-zinc-200'
-                  }`}>
-                    {t.label}
-                  </span>
-                  {t.hasDropdown && (
-                    <span className="text-[7px] opacity-60 leading-none">▾</span>
-                  )}
-                </div>
+                <span
+                  className={`text-[9.5px] leading-tight tracking-tight text-center ${
+                    active ? 'text-primary font-semibold' : 'text-zinc-400 group-hover:text-zinc-200 font-medium'
+                  }`}
+                >
+                  {t.label}
+                </span>
               </button>
             </SimpleTooltip>
           );
@@ -162,16 +156,16 @@ export const LeftNavigation: React.FC<LeftNavigationProps> = ({
       </div>
 
       {/* Bottom Settings Icon */}
-      <div className="w-full mt-auto flex flex-col items-center px-0.5 pb-0.5 pt-1 border-t border-[hsl(var(--border))]">
+      <div className="w-full mt-auto flex flex-col items-center px-0.5 pb-0.5 pt-1 border-t border-white/[0.08]">
         <SimpleTooltip label="Studio Settings" side="right">
           <button
             type="button"
             onClick={() => setIsSettingsOpen(true)}
             aria-label="Open Studio Settings"
-            className="w-full py-1.5 flex flex-col items-center justify-center rounded-lg text-zinc-300 hover:text-white hover:bg-white/[0.05] transition-all duration-200 cursor-pointer"
+            className="group w-full py-1.5 flex flex-col items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.05] transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <Settings2 strokeWidth={2} className="w-4 h-4 mb-0.5 text-zinc-200 group-hover:text-white transition-colors" />
-            <span className="text-[8px] leading-none text-zinc-400 font-medium">Settings</span>
+            <Settings2 strokeWidth={1.75} className="w-[18px] h-[18px] mb-0.5 text-zinc-400 group-hover:text-zinc-100 transition-colors" />
+            <span className="text-[9.5px] leading-tight text-zinc-400 font-medium">Settings</span>
           </button>
         </SimpleTooltip>
       </div>

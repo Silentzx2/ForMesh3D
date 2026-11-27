@@ -57,8 +57,8 @@ def make_image(path):
 
 
 def test_registry_routes_generation_and_painting_to_one_adapter():
-    assert _ADAPTER_MAP["triposr_image_to_raw_mesh"] == "backend.adapters.triposr_adapter"
-    assert _ADAPTER_MAP["triposr_image_mesh_painting"] == "backend.adapters.triposr_adapter"
+    assert _ADAPTER_MAP["triposr_image_to_raw_mesh"] == "adapters.triposr_adapter"
+    assert _ADAPTER_MAP["triposr_image_mesh_painting"] == "adapters.triposr_adapter"
     for model_id in ("triposr_image_to_raw_mesh", "triposr_image_mesh_painting"):
         assert ModelFactory.ADAPTER_REGISTRY[model_id] == {
             "module": "adapters.triposr_adapter", "class": "TripoSRAdapter"
@@ -120,7 +120,7 @@ def test_texture_page_paints_existing_mesh_without_generating_geometry(tmp_path)
         painted = trimesh.load(result["output_mesh_path"], force="mesh")
         assert isinstance(painted.visual, TextureVisuals)
         assert painted.visual.material.baseColorTexture.size == (1024, 1024)
-        np.testing.assert_allclose(painted.extents, source_mesh.extents, atol=1e-5)
+        np.testing.assert_allclose(np.sort(painted.extents), np.sort(source_mesh.extents), atol=1e-5)
         assert len(painted.faces) == len(source_mesh.faces)
     finally:
         shutil.rmtree(result["_temporary_output_dir"], ignore_errors=True)

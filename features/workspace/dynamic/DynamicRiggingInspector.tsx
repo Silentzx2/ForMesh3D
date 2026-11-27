@@ -45,19 +45,63 @@ const CANONICAL_BONES: BoneJoint[] = [
   { id: 'foot_r', name: 'Right Foot Ankle', parent: 'knee_r', pos: [0.24, -0.88, 0.08], rot: [0, 0, 0], category: 'leg_r' },
 ];
 
+const BONE_ALIASES: Record<string, string[]> = {
+  root: ['root', 'hips', 'pelvis', 'hip'],
+  spine: ['spine', 'spine1', 'spine01', 'torso'],
+  chest: ['chest', 'spine2', 'spine02', 'upperchest'],
+  neck: ['neck', 'neck1'],
+  head: ['head', 'cranium'],
+  shoulder_l: ['shoulder_l', 'leftshoulder', 'l_shoulder', 'clavicle_l', 'leftclavicle'],
+  arm_l: ['arm_l', 'leftarm', 'leftupperarm', 'upperarm_l', 'l_arm', 'l_upperarm'],
+  hand_l: ['hand_l', 'lefthand', 'l_hand', 'wrist_l', 'leftwrist'],
+  shoulder_r: ['shoulder_r', 'rightshoulder', 'r_shoulder', 'clavicle_r', 'rightclavicle'],
+  arm_r: ['arm_r', 'rightarm', 'rightupperarm', 'upperarm_r', 'r_arm', 'r_upperarm'],
+  hand_r: ['hand_r', 'righthand', 'r_hand', 'wrist_r', 'rightwrist'],
+  hip_l: ['hip_l', 'leftupleg', 'leftthigh', 'thigh_l', 'l_thigh', 'l_hip'],
+  knee_l: ['knee_l', 'leftleg', 'leftcalf', 'calf_l', 'shin_l', 'l_knee', 'l_leg'],
+  foot_l: ['foot_l', 'leftfoot', 'l_foot', 'ankle_l'],
+  hip_r: ['hip_r', 'rightupleg', 'rightthigh', 'thigh_r', 'r_thigh', 'r_hip'],
+  knee_r: ['knee_r', 'rightleg', 'rightcalf', 'calf_r', 'shin_r', 'r_knee', 'r_leg'],
+  foot_r: ['foot_r', 'rightfoot', 'r_foot', 'ankle_r'],
+};
+
 function findBoneInHierarchy(root: THREE.Object3D, targetIdOrName: string): THREE.Bone | null {
-  let found: THREE.Bone | null = null;
-  const targetLower = targetIdOrName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const aliases = BONE_ALIASES[targetIdOrName] || [targetIdOrName];
+  const normalizedAliases = aliases.map((a) => a.toLowerCase().replace(/[^a-z0-9]/g, ''));
+
+  let exactMatch: THREE.Bone | null = null;
+  let partialMatch: THREE.Bone | null = null;
+
   root.traverse((node) => {
-    if (found) return;
+    if (exactMatch) return;
     if (node instanceof THREE.Bone) {
+      if (!node.userData.__restRot) {
+        node.userData.__restRot = [node.rotation.x, node.rotation.y, node.rotation.z];
+      }
       const nodeLower = node.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (node.name === targetIdOrName || nodeLower === targetLower || nodeLower.includes(targetLower)) {
-        found = node;
+      if (node.name === targetIdOrName || normalizedAliases.includes(nodeLower)) {
+        exactMatch = node;
+      } else if (!partialMatch && normalizedAliases.some((a) => nodeLower.includes(a))) {
+        partialMatch = node;
       }
     }
   });
-  return found;
+  return exactMatch || partialMatch;
+}
+
+function applyBoneRotationDeg(bone: THREE.Bone, rx: number, ry: number, rz: number) {
+  const rest = (bone.userData.__restRot as [number, number, number] | undefined) || [
+    bone.rotation.x,
+    bone.rotation.y,
+    bone.rotation.z,
+  ];
+  if (!bone.userData.__restRot) bone.userData.__restRot = rest;
+  bone.rotation.set(
+    rest[0] + THREE.MathUtils.degToRad(rx),
+    rest[1] + THREE.MathUtils.degToRad(ry),
+    rest[2] + THREE.MathUtils.degToRad(rz)
+  );
+  bone.updateMatrixWorld(true);
 }
 
 export const DynamicRiggingInspector: React.FC = () => {
@@ -84,16 +128,19 @@ export const DynamicRiggingInspector: React.FC = () => {
 
   useEffect(() => {
     if (!activeModelObject || !isRealRig || !xrayMode) return;
+    activeModelObject.updateMatrixWorld(true);
     const helper = new THREE.SkeletonHelper(activeModelObject);
     helper.name = '__rigging_skeleton_helper';
     const mat = helper.material as THREE.LineBasicMaterial;
     mat.depthTest = false;
     mat.transparent = true;
     mat.opacity = 0.85;
-    activeModelObject.add(helper);
+    // SkeletonHelper operates in world space; attach to parent (scene) to avoid double-transforming
+    const host = activeModelObject.parent ?? activeModelObject;
+    host.add(helper);
     invalidateViewportRender();
     return () => {
-      activeModelObject.remove(helper);
+      host.remove(helper);
       helper.geometry.dispose();
       mat.dispose();
       invalidateViewportRender();
@@ -129,10 +176,10 @@ export const DynamicRiggingInspector: React.FC = () => {
     if (activeModelObject) {
       const target = findBoneInHierarchy(activeModelObject, selectedBoneId);
       if (target) {
-        if (axis === 0) target.rotation.x = THREE.MathUtils.degToRad(val);
-        else if (axis === 1) target.rotation.y = THREE.MathUtils.degToRad(val);
-        else if (axis === 2) target.rotation.z = THREE.MathUtils.degToRad(val);
-        target.updateMatrixWorld(true);
+        const current = bones.find((b) => b.id === selectedBoneId)?.rot || [0, 0, 0];
+        const next: [number, number, number] = [...current];
+        next[axis] = val;
+        applyBoneRotationDeg(target, next[0], next[1], next[2]);
       }
       if (symmetrySnap) {
         const oppId = selectedBoneId.endsWith('_l')
@@ -143,11 +190,10 @@ export const DynamicRiggingInspector: React.FC = () => {
         if (oppId) {
           const opp = findBoneInHierarchy(activeModelObject, oppId);
           if (opp) {
-            const oppVal = axis === 1 ? -val : val;
-            if (axis === 0) opp.rotation.x = THREE.MathUtils.degToRad(oppVal);
-            else if (axis === 1) opp.rotation.y = THREE.MathUtils.degToRad(oppVal);
-            else if (axis === 2) opp.rotation.z = THREE.MathUtils.degToRad(oppVal);
-            opp.updateMatrixWorld(true);
+            const currentOpp = bones.find((b) => b.id === oppId)?.rot || [0, 0, 0];
+            const nextOpp: [number, number, number] = [...currentOpp];
+            nextOpp[axis] = axis === 1 ? -val : val;
+            applyBoneRotationDeg(opp, nextOpp[0], nextOpp[1], nextOpp[2]);
           }
         }
       }
@@ -183,12 +229,7 @@ export const DynamicRiggingInspector: React.FC = () => {
       Object.entries(presetMap).forEach(([boneId, rot]) => {
         const bone = findBoneInHierarchy(activeModelObject, boneId);
         if (bone) {
-          bone.rotation.set(
-            THREE.MathUtils.degToRad(rot[0]),
-            THREE.MathUtils.degToRad(rot[1]),
-            THREE.MathUtils.degToRad(rot[2])
-          );
-          bone.updateMatrixWorld(true);
+          applyBoneRotationDeg(bone, rot[0], rot[1], rot[2]);
         }
       });
     }

@@ -91,6 +91,10 @@ export type CameraViewPreset = 'perspective' | 'front' | 'back' | 'top' | 'botto
 
 export interface ModelAsset {
   id: string;
+  asset_id?: string;
+  asset_type?: 'animated_mesh' | string;
+  source_asset_id?: string;
+  motion_clip_id?: string;
   workspace_id?: string;
   operation_id?: string;
   operation_type?: string;
@@ -269,6 +273,10 @@ export function normalizeModelAsset(raw: Partial<ModelAsset> & Record<string, an
 
   return {
     id: String(raw.asset_id || raw.id || `asset-${Date.now()}`),
+    asset_id: raw.asset_id || raw.id,
+    asset_type: raw.asset_type || undefined,
+    source_asset_id: raw.source_asset_id || undefined,
+    motion_clip_id: raw.motion_clip_id || undefined,
     workspace_id: raw.workspace_id || raw.workspaceId,
     operation_id: raw.operation_id || raw.operationId,
     operation_type: raw.operation_type || raw.operationType || undefined,
@@ -333,6 +341,7 @@ export type MeshUploadStage = 'uploading' | 'verifying';
 export interface MeshUploadCallbacks {
   onProgress?: (loadedBytes: number, totalBytes?: number) => void;
   onStage?: (stage: MeshUploadStage) => void;
+  signal?: AbortSignal;
 }
 
 export async function uploadMeshAsset(file: File, callbacks: MeshUploadCallbacks = {}): Promise<ModelAsset> {
@@ -342,7 +351,7 @@ export async function uploadMeshAsset(file: File, callbacks: MeshUploadCallbacks
   if (file.size === 0) throw new Error('File is empty.');
 
   callbacks.onStage?.('uploading');
-  const result = await getApiClient().uploadMeshFile(file, callbacks.onProgress);
+  const result = await getApiClient().uploadMeshFile(file, callbacks.onProgress, callbacks.signal);
   callbacks.onStage?.('verifying');
   const fileId = requireUploadFileId(result?.file_id, 'mesh');
 

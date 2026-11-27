@@ -41,6 +41,10 @@
     "ui_extracted",
     "3daigc-api",
     "backend",
-    "**/__tests__/**"
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx"
   ]
 }

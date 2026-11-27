@@ -58,6 +58,22 @@ def validate_model_preference(
 
 
 # Request models
+class SkinTokensParameters(BaseModel):
+    """Verified SkinTokens inference parameters."""
+
+    seed: Optional[int] = Field(None, ge=0, description="Random seed")
+    top_k: Optional[int] = Field(None, ge=1, le=50, description="Top-k sampling threshold")
+    top_p: Optional[float] = Field(None, ge=0.0, le=1.0, description="Top-p sampling probability")
+    temperature: Optional[float] = Field(None, ge=0.01, le=2.0, description="Sampling temperature")
+    repetition_penalty: Optional[float] = Field(None, ge=1.0, le=5.0, description="Repetition penalty")
+    num_beams: Optional[int] = Field(None, ge=1, le=20, description="Beam search count")
+    use_skeleton: Optional[bool] = Field(None, description="Use existing mesh skeleton")
+    use_transfer: Optional[bool] = Field(None, description="Transfer original textures and scale")
+    use_postprocess: Optional[bool] = Field(None, description="Apply voxel skin postprocessing")
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class AutoRigRequest(BaseModel):
     """Request for auto-rigging"""
 
@@ -70,10 +86,38 @@ class AutoRigRequest(BaseModel):
     model_preference: str = Field(
         "skintokens_auto_rigging", description="Name of the auto-rigging model to use"
     )
-    model_parameters: Optional[dict] = Field(
-        None, 
-        description="Model-specific parameters (query /system/models/{model_id}/parameters for schema)"
+    use_skeleton: Optional[bool] = Field(None, description="Use existing mesh skeleton")
+    use_transfer: Optional[bool] = Field(None, description="Transfer original textures and scale")
+    use_postprocess: Optional[bool] = Field(None, description="Apply voxel skin postprocessing")
+    top_k: Optional[int] = Field(None, ge=1, le=50, description="Top-k sampling threshold")
+    top_p: Optional[float] = Field(None, ge=0.0, le=1.0, description="Top-p sampling probability")
+    temperature: Optional[float] = Field(None, ge=0.01, le=2.0, description="Sampling temperature")
+    repetition_penalty: Optional[float] = Field(None, ge=1.0, le=5.0, description="Repetition penalty")
+    num_beams: Optional[int] = Field(None, ge=1, le=20, description="Beam search count")
+    model_parameters: Optional[SkinTokensParameters] = Field(
+        None,
+        description="Model-specific SkinTokens parameters (query /system/models/{model_id}/parameters for schema)",
     )
+
+    def resolved_model_parameters(self) -> dict:
+        """Merge validated SkinTokens parameters from top-level fields and model_parameters."""
+        merged: dict = {}
+        if self.model_parameters is not None:
+            merged.update(self.model_parameters.model_dump(exclude_none=True))
+        for key in (
+            "use_skeleton",
+            "use_transfer",
+            "use_postprocess",
+            "top_k",
+            "top_p",
+            "temperature",
+            "repetition_penalty",
+            "num_beams",
+        ):
+            val = getattr(self, key)
+            if val is not None:
+                merged[key] = val
+        return merged
 
     @field_validator("output_format")
     @classmethod
@@ -215,6 +259,8 @@ async def generate_rig(
                 status_code=400, detail=f"Prerequisite failed: Unsupported mesh format {ext} for auto-rigging"
             )
 
+        resolved_params = request.resolved_model_parameters()
+
         operation_id = None
         if target_ws_id:
             gen_op_id = generate_operation_id()
@@ -226,7 +272,7 @@ async def generate_rig(
                 settings={
                     "rig_mode": request.rig_mode.lower(),
                     "output_format": request.output_format.lower().strip(),
-                    **(request.model_parameters or {}),
+                    **resolved_params,
                 },
             )
             op_row = op_res[0] if isinstance(op_res, tuple) else op_res
@@ -241,7 +287,7 @@ async def generate_rig(
                 "output_format": request.output_format.lower().strip(),
                 "workspace_id": target_ws_id,
                 "operation_id": operation_id,
-                **(request.model_parameters or {}),
+                **resolved_params,
             },
             model_preference=request.model_preference,
             priority=1,

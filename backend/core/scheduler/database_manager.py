@@ -232,6 +232,9 @@ class DatabaseManager:
         with self.engine.begin() as conn:
             for column_def in (
                 "ALTER TABLE assets ADD COLUMN operation_type VARCHAR(32)",
+                "ALTER TABLE assets ADD COLUMN asset_type VARCHAR(32)",
+                "ALTER TABLE assets ADD COLUMN source_asset_id VARCHAR(64)",
+                "ALTER TABLE assets ADD COLUMN motion_clip_id VARCHAR(128)",
                 "ALTER TABLE operations ADD COLUMN progress_logs_json TEXT",
             ):
                 try:
@@ -889,6 +892,9 @@ class DatabaseManager:
         operation_type: Optional[str] = None,
         is_retained: bool = True,
         status: str = "available",
+        asset_type: Optional[str] = None,
+        source_asset_id: Optional[str] = None,
+        motion_clip_id: Optional[str] = None,
     ) -> AssetModel:
         """Add or update an asset record."""
         with self.get_session() as session:
@@ -899,6 +905,12 @@ class DatabaseManager:
                 asset.operation_id = operation_id
                 if operation_type is not None:
                     asset.operation_type = operation_type
+                if asset_type is not None:
+                    asset.asset_type = asset_type
+                if source_asset_id is not None:
+                    asset.source_asset_id = source_asset_id
+                if motion_clip_id is not None:
+                    asset.motion_clip_id = motion_clip_id
                 asset.file_type = file_type
                 asset.relative_path = relative_path
                 asset.original_filename = original_filename
@@ -914,6 +926,9 @@ class DatabaseManager:
                     workspace_id=workspace_id,
                     operation_id=operation_id,
                     operation_type=operation_type,
+                    asset_type=asset_type,
+                    source_asset_id=source_asset_id,
+                    motion_clip_id=motion_clip_id,
                     file_type=file_type,
                     relative_path=relative_path,
                     original_filename=original_filename,
@@ -999,6 +1014,43 @@ class DatabaseManager:
                     session.expunge(op)
                     return op
         return None
+
+    def create_persistence_operation(
+        self,
+        operation_id: str,
+        workspace_id: str,
+        operation_type: str,
+        input_asset_id: Optional[str] = None,
+        settings: Optional[Dict[str, Any]] = None,
+    ) -> OperationModel:
+        """Register a synchronous persistence action without exposing it to worker queue claims."""
+        now = datetime.utcnow()
+        with self.get_session() as session:
+            if session.query(OperationModel).filter_by(operation_id=operation_id).first():
+                raise ValueError("Operation ID already exists")
+            operation = OperationModel(
+                operation_id=operation_id,
+                workspace_id=workspace_id,
+                input_asset_id=input_asset_id,
+                parent_operation_id=None,
+                operation_type=operation_type,
+                execution_status=ExecutionStatus.PROCESSING,
+                persistence_status=PersistenceStatus.SAVING,
+                progress=0.05,
+                worker_lease=None,
+                lease_heartbeat=None,
+                settings_snapshot=json.dumps(settings or {}),
+                temp_dir=None,
+                result_json=None,
+                error_json=None,
+                created_at=now,
+                completed_at=None,
+            )
+            session.add(operation)
+            session.commit()
+            session.refresh(operation)
+            session.expunge(operation)
+            return operation
 
     def enqueue_operation(
         self,

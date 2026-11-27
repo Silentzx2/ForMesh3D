@@ -288,7 +288,7 @@ class PartFieldSegmentationAdapter(BaseModel):
         min_face_island = max(0, int(inputs["min_face_island_threshold"]))
         colorize = bool(inputs["colorize_preview"])
         save_individual = bool(inputs["save_individual_parts"])
-        hierarchical = bool(inputs["hierarchical"])
+        hierarchical = bool(inputs.get("hierarchical", False))
         logger.info(
             "[PARTFIELD] save_individual_parts=%s num_parts=%d min_face_island=%d",
             save_individual, target_parts, min_face_island,
@@ -313,8 +313,8 @@ class PartFieldSegmentationAdapter(BaseModel):
             progress("Extracting trained PartField feature fields", 15, "inference")
         seed = int(inputs.get("seed", 42))
         sampling_started = time.perf_counter()
-        sample_on_faces = int(inputs["sample_on_faces"])
-        sample_batch_size = int(inputs["sample_batch_size"])
+        sample_on_faces = int(inputs.get("sample_on_faces", 10))
+        sample_batch_size = int(inputs.get("sample_batch_size", 8192))
         logger.info(
             "[PARTFIELD] Sampling face features: samples_per_face=%d batch_size=%d seed=%d",
             sample_on_faces, sample_batch_size, seed,

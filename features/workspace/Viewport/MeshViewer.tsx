@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
@@ -18,6 +18,7 @@ import { useAnimationStore } from '@/stores/useAnimationStore';
 import { getApiClient } from '@/services/apiClient';
 import { collectMeshStats } from './meshStats';
 import { loadGLBWithProgress } from '../lib/glbCache';
+import { dispatchCameraOrientation, VIEWPORT_EVENTS } from './viewportEvents';
 
 import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
@@ -110,12 +111,15 @@ export const LIGHT_TONES: Record<LightTone, { label: string; key: number; fill: 
   neutral: { label: 'Neutral', key: 0xffffff, fill: 0xe6e6e6, rim: 0xffffff },
 };
 
+const DEFAULT_VIEWPORT_BACKGROUND =
+  'radial-gradient(ellipse 70% 68% at 50% 48%, #484a4f 0%, #383a3e 28%, #27282b 55%, #1a1b1e 80%, #131416 100%)';
+
 export const BACKGROUND_OPTIONS = [
   {
     id: 'studio-vignette',
     label: 'Studio Vignette',
-    value: 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
-    preview: 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
+    value: DEFAULT_VIEWPORT_BACKGROUND,
+    preview: DEFAULT_VIEWPORT_BACKGROUND,
   },
   { id: 'transparent', label: 'Studio Dark', value: 'transparent', preview: 'radial-gradient(circle, #16181d 0%, #08090a 100%)' },
   { id: 'dark-gray', label: 'Dark Charcoal', value: '#131519', preview: '#131519' },
@@ -134,7 +138,7 @@ export const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
       exposure: 1.0,
       toneMapping: 'neutral',
       lightTone: 'studio',
-      backgroundColor: 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
+      backgroundColor: DEFAULT_VIEWPORT_BACKGROUND,
       gridVisible: true,
       floorShadowOpacity: 0.2,
       autoRotate: false,
@@ -257,6 +261,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     isTurntable,
     viewportResetTrigger,
     isExecuting,
+    executionStatus,
     executionProgress,
     environmentSettings,
     hoveredPartId,
@@ -336,7 +341,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const controlsRef = useRef<OrbitControls | null>(null);
+  const controlsRef = useRef<TrackballControls | null>(null);
   const invalidateRenderRef = useRef<() => void>(() => {});
   const isTurntableRef = useRef(isTurntable);
   isTurntableRef.current = isTurntable;
@@ -344,7 +349,21 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
   const modelGroupRef = useRef<THREE.Group | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
-  const clockRef = useRef<THREE.Clock>(new THREE.Clock());
+  const boundExternalClipRef = useRef<THREE.AnimationClip | null>(null);
+
+  const disposeMixer = useCallback((resetStore = true) => {
+    const mixer = mixerRef.current;
+    if (mixer) {
+      mixer.stopAllAction();
+      mixer.uncacheRoot(mixer.getRoot());
+      mixerRef.current = null;
+    }
+    boundExternalClipRef.current = null;
+    if (resetStore) {
+      useAnimationStore.getState().clearClipOnAssetSwitch();
+      useAnimationStore.getState().setLoadedSkeletonBoneNames(null);
+    }
+  }, []);
   const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
   const keyLightRef = useRef<THREE.DirectionalLight | null>(null);
   const fillLightRef = useRef<THREE.DirectionalLight | null>(null);
@@ -422,13 +441,17 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     renderer.domElement.addEventListener('webglcontextlost', handleContextLost);
     renderer.domElement.addEventListener('webglcontextrestored', handleContextRestored);
 
-    // OrbitControls
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
+    // TrackballControls: full 360° rotation with no gimbal lock
+    const controls = new TrackballControls(camera, renderer.domElement);
+    controls.staticMoving = false;
+    controls.dynamicDampingFactor = 0.2;
+    controls.rotateSpeed = 2.4;
+    controls.zoomSpeed = 1.2;
+    controls.panSpeed = 0.8;
     controls.target.set(0, 0, 0);
     controls.maxDistance = 20;
     controls.minDistance = 0.5;
+    controls.handleResize();
     controlsRef.current = controls;
 
     // Lights - Natural Studio Lighting (balanced old + new for crisp details, no dark left side)
@@ -483,17 +506,23 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     // imported model animations and the optional turntable keep their own RAF alive.
     let animId: number | null = null;
     let isDisposed = false;
+    let isControlsActive = false;
+    const prevCamPos = new THREE.Vector3().copy(camera.position);
     const renderFrame = () => {
       animId = null;
       if (isDisposed) return;
 
-      const delta = clockRef.current.getDelta();
+      prevCamPos.copy(camera.position);
       controls.update();
 
-      let keepAnimating = false;
-      if (mixerRef.current) {
-        mixerRef.current.update(delta);
+      let keepAnimating = isControlsActive || prevCamPos.distanceToSquared(camera.position) > 1e-8;
+      const animState = useAnimationStore.getState();
+      if (animState.isPlaying && animState.duration > 0) {
+        animState.tickPlayback(performance.now());
         keepAnimating = true;
+      }
+      if (mixerRef.current) {
+        mixerRef.current.setTime(useAnimationStore.getState().currentTime);
       }
 
       if (modelGroupRef.current && isTurntableRef.current) {
@@ -553,9 +582,19 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       animId = requestAnimationFrame(renderFrame);
     };
     invalidateRenderRef.current = scheduleRender;
+    const onControlsStart = () => {
+      isControlsActive = true;
+      scheduleRender();
+    };
+    const onControlsEnd = () => {
+      isControlsActive = false;
+      scheduleRender();
+    };
+    controls.addEventListener('start', onControlsStart);
+    controls.addEventListener('end', onControlsEnd);
     controls.addEventListener('change', scheduleRender);
     const handleViewportInvalidation = () => scheduleRender();
-    window.addEventListener('invalidateViewportRender', handleViewportInvalidation);
+    window.addEventListener(VIEWPORT_EVENTS.INVALIDATE_RENDER, handleViewportInvalidation);
     scheduleRender();
 
     // Resize observer
@@ -566,6 +605,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
           camera.aspect = w / h;
           camera.updateProjectionMatrix();
           renderer.setSize(w, h);
+          controls.handleResize();
           invalidateRenderRef.current();
         }
       }
@@ -578,8 +618,9 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       if (animId !== null) cancelAnimationFrame(animId);
       invalidateRenderRef.current = () => {};
       controls.removeEventListener('change', scheduleRender);
-      window.removeEventListener('invalidateViewportRender', handleViewportInvalidation);
+      window.removeEventListener(VIEWPORT_EVENTS.INVALIDATE_RENDER, handleViewportInvalidation);
       resizeObserver.disconnect();
+      disposeMixer(true);
       renderer.domElement.removeEventListener('webglcontextlost', handleContextLost);
       renderer.domElement.removeEventListener('webglcontextrestored', handleContextRestored);
       if (renderer.domElement.parentElement) {
@@ -782,68 +823,6 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     window.addEventListener('takeViewportSnapshot', handleSnapshotEvent as EventListener);
     return () => window.removeEventListener('takeViewportSnapshot', handleSnapshotEvent as EventListener);
   }, [captureSnapshot]);
-
-  // 4c. Header Snapshot Button — capture entire workspace as-is (no hiding helpers)
-  const captureWorkspace = useCallback(() => {
-    const renderer = rendererRef.current;
-    const scene = sceneRef.current;
-    const camera = cameraRef.current;
-    if (!renderer || !scene || !camera) {
-      toast.error('3D Viewport is not ready for snapshot');
-      return;
-    }
-
-    requestAnimationFrame(() => {
-      try {
-        const currentRenderer = rendererRef.current;
-        const currentScene = sceneRef.current;
-        const currentCamera = cameraRef.current;
-        if (!currentRenderer || !currentScene || !currentCamera) return;
-
-        const dom = currentRenderer.domElement;
-        const origWidth = dom.width;
-        const origHeight = dom.height;
-        const origPixelRatio = currentRenderer.getPixelRatio();
-        currentRenderer.setSize(1920, 1080, false);
-        currentRenderer.setPixelRatio(1);
-
-        currentRenderer.render(currentScene, currentCamera);
-
-        currentRenderer.domElement.toBlob(
-          (blob) => {
-            currentRenderer.setSize(origWidth, origHeight, false);
-            currentRenderer.setPixelRatio(origPixelRatio);
-
-            if (!blob) {
-              toast.error('Failed to create snapshot image');
-              return;
-            }
-            const blobUrl = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = blobUrl;
-
-            const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
-            const parts = pathname.replace('/workspace/', '').split('/');
-            const routeName = parts.length > 1 && parts[parts.length - 1]
-              ? parts[parts.length - 1]
-              : 'workspace';
-            a.download = `${routeName}-workspace.png`;
-
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
-            toast.success(`Snapshot saved as ${routeName}-workspace.png`);
-          },
-          'image/png',
-          1.0
-        );
-      } catch (err: any) {
-        console.error('Failed to capture snapshot:', err);
-        toast.error('Failed to capture snapshot');
-      }
-    });
-  }, [rendererRef, sceneRef, cameraRef, toast]);
 
   // 5. Preload all shading materials at model load time for butter-smooth switching
   const preloadShadingMaterials = useCallback((meshes: THREE.Mesh[]) => {
@@ -1155,10 +1134,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       }
       useViewerStore.getState().setActiveModelObject(null);
       useViewerStore.getState().setModelStats(null);
-      if (mixerRef.current) {
-        mixerRef.current.stopAllAction();
-        mixerRef.current = null;
-      }
+      disposeMixer(true);
       invalidateRenderRef.current();
       return;
     }
@@ -1176,10 +1152,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     }
     useViewerStore.getState().setActiveModelObject(null);
     useViewerStore.getState().setModelStats(null);
-    if (mixerRef.current) {
-      mixerRef.current.stopAllAction();
-      mixerRef.current = null;
-    }
+    disposeMixer(true);
     invalidateRenderRef.current();
 
     const detectedExt = modelUrl.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase();
@@ -1213,7 +1186,11 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       object.scale.setScalar(scale);
 
       const hasAnimations = Boolean(animations && animations.length > 0);
+      const boneNames: string[] = [];
       object.traverse((child) => {
+        if ((child as THREE.Bone).isBone && child.name) {
+          boneNames.push(child.name);
+        }
         if (child instanceof THREE.Mesh) {
           const triCount = child.geometry?.index
             ? child.geometry.index.count / 3
@@ -1235,15 +1212,18 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         try {
           const mixer = new THREE.AnimationMixer(object);
           mixerRef.current = mixer;
+          boundExternalClipRef.current = animations[0];
           const action = mixer.clipAction(animations[0]);
           action.play();
-          useAnimationStore.setState({ isPlaying: true, duration: animations[0].duration });
+          useAnimationStore.getState().bindEmbeddedClip(animations[0]);
+          mixer.setTime(0);
         } catch {
           // Skip if animation mixer cannot bind
         }
       }
 
       group.add(object);
+      useAnimationStore.getState().setLoadedSkeletonBoneNames(boneNames.length > 0 ? boneNames : null);
       useViewerStore.getState().setActiveModelObject(object);
       fitCameraToModel(object);
       if (!reducedMotionRef.current) {
@@ -1418,45 +1398,59 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     };
   }, [hoveredPartId]);
 
-  // 7. Broadcast live camera rotation so an external XYZ gizmo can reflect the active axis
+  // 7. Broadcast live camera quaternion so CameraTriad reflects orientation without React re-renders
   useEffect(() => {
     const controls = controlsRef.current;
     const camera = cameraRef.current;
     if (!controls || !camera) return;
 
     const update = () => {
-      if (!camera || !controls) return;
-      const dir = new THREE.Vector3();
-      camera.getWorldDirection(dir);
-      // Find which cardinal axis the camera is most aligned with
-      const absX = Math.abs(dir.dot(new THREE.Vector3(1, 0, 0)));
-      const absY = Math.abs(dir.dot(new THREE.Vector3(0, 1, 0)));
-      const absZ = Math.abs(dir.dot(new THREE.Vector3(0, 0, 1)));
-      const axis =
-        absX >= absY && absX >= absZ
-          ? dir.x > 0
-            ? 'right'
-            : 'left'
-          : absY >= absX && absY >= absZ
-          ? dir.y > 0
-            ? 'top'
-            : 'bottom'
-          : dir.z > 0
-          ? 'front'
-          : 'back';
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('setCameraRotation', { detail: axis }));
-      }
+      if (!camera) return;
+      dispatchCameraOrientation([
+        camera.quaternion.x,
+        camera.quaternion.y,
+        camera.quaternion.z,
+        camera.quaternion.w,
+      ]);
     };
 
-    // Initial broadcast so the gizmo reflects the starting view
+    // Initial broadcast so the triad reflects the starting view
     update();
     controls.addEventListener('change', update);
 
     return () => {
       controls.removeEventListener('change', update);
     };
-  }, []);
+  }, [webglInitKey]);
+
+  // 8. Single animation clock & external clip binding subscription
+  useEffect(() => {
+    const unsub = useAnimationStore.subscribe((state) => {
+      const activeClip = state.activeThreeClip;
+      const root = modelGroupRef.current?.children[0] ?? null;
+
+      if (activeClip && root && activeClip !== boundExternalClipRef.current) {
+        disposeMixer(false);
+        try {
+          const mixer = new THREE.AnimationMixer(root);
+          mixerRef.current = mixer;
+          boundExternalClipRef.current = activeClip;
+          const action = mixer.clipAction(activeClip);
+          action.play();
+          mixer.setTime(state.currentTime);
+        } catch {
+          disposeMixer(false);
+        }
+      } else if (!activeClip && boundExternalClipRef.current) {
+        disposeMixer(false);
+      }
+
+      if (mixerRef.current && (state.isPlaying || state.currentTime >= 0)) {
+        invalidateRenderRef.current();
+      }
+    });
+    return unsub;
+  }, [disposeMixer]);
 
   // Single source of truth for the viewport UI shell: one mutually exclusive
   // status replaces the previously overlapping JSX conditions (empty, loading,
@@ -1479,37 +1473,25 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       style={{
         background: environmentSettings?.backgroundColor && environmentSettings.backgroundColor !== 'transparent'
           ? environmentSettings.backgroundColor
-          : 'radial-gradient(ellipse 75% 70% at 50% 50%, #3a3c40 0%, #2d2f33 30%, #1e1f22 60%, #121315 85%, #08090a 100%)',
+          : DEFAULT_VIEWPORT_BACKGROUND,
       }}
     >
       {/* WebGL unavailable fallback — shown when the renderer cannot create a context */}
       {webglError && (
-        <div className="absolute top-0 left-0 right-0 z-50 flex flex-col items-center justify-center p-2 bg-black/90 text-white text-center border-b border-[#F9CF00]/40">
-          <HugeiconsIcon icon={AlertCircle} size={20} className="text-[#F9CF00] mr-2" />
+        <div className="absolute top-0 left-0 right-0 z-50 flex flex-col items-center justify-center p-2 bg-black/90 text-white text-center border-b border-primary/40">
+          <HugeiconsIcon icon={AlertCircle} size={20} className="text-primary mr-2" />
           <span className="text-xs text-zinc-200 font-medium">
             WebGL not available — 3D viewport disabled. {webglError}
           </span>
         </div>
       )}
-      {/* Snapshot Button — top-left of viewport */}
-      <div className="absolute top-3 left-3 z-50 flex gap-1 pointer-events-auto">
-        <button
-          onClick={() => {
-            captureWorkspace();
-          }}
-          className="px-3 py-1.5 rounded-lg bg-[#F9CF00] text-[#080808] font-bold shadow-[0_0_15px_rgba(249,207,0,0.4)] hover:scale-105 hover:bg-[#FFE04D] transition-all duration-200 cursor-pointer"
-          aria-label="Take snapshot"
-        >
-          📷 Snapshot
-        </button>
-      </div>
       {/* Sleek Empty State Watermark matching Reference */}
       {viewportStatus === 'empty' && (
         <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center z-10">
           <div className="flex flex-col items-center text-center px-4 max-w-sm select-none">
-            {/* ForMesh3D Electric Gold Brand Mark */}
-            <div className="w-14 h-14 rounded-2xl bg-[hsl(var(--surface-1))] border border-[#F9CF00]/40 flex items-center justify-center shadow-[0_4px_24px_rgba(0,0,0,0.4),0_0_24px_rgba(249,207,0,0.25)] mb-4 ring-1 ring-white/10">
-              <HugeiconsIcon icon={SparklesIcon} size={28} className="text-[#F9CF00] drop-shadow-[0_0_10px_rgba(249,207,0,0.6)]" />
+            {/* ForMesh3D Studio Gold Brand Mark */}
+            <div className="w-14 h-14 rounded-2xl bg-[hsl(var(--surface-1))] border border-primary/40 flex items-center justify-center shadow-[0_4px_24px_rgba(0,0,0,0.4)] mb-4 ring-1 ring-white/10">
+              <HugeiconsIcon icon={SparklesIcon} size={28} className="text-primary" />
             </div>
 
             <h2 className="text-xl font-bold tracking-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.6)] mb-1.5">
@@ -1526,7 +1508,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
         <div role="status" aria-live="polite" className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
           <div className="w-full max-w-xs mx-auto rounded-lg border border-white/10 bg-black/60 p-4 shadow-[0_0_24px_rgba(0,0,0,0.6)]">
             <div className="flex flex-col items-center gap-4 mb-3">
-              <HugeiconsIcon icon={SparklesIcon} size={26} className="text-[#F9CF00] drop-shadow-[0_0_10px_rgba(249,207,0,0.5)]" />
+              <HugeiconsIcon icon={SparklesIcon} size={26} className="text-primary" />
               <span className={`text-xs font-mono text-zinc-200 ${reducedMotion ? '' : 'animate-pulse'}`}>Loading 3D model…</span>
             </div>
             <div className="flex flex-col gap-2">
@@ -1539,7 +1521,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
       )}
 
       {/* Execution Progress Bar — bottom center */}
-      {isExecuting && (
+      {executionStatus === 'running' && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
           <div className="w-64 h-1.5 rounded-full bg-white/10 border border-white/5">
             <div

@@ -6,28 +6,14 @@ import { motion, AnimatePresence } from 'motion/react';
 import dynamic from 'next/dynamic';
 import { useWorkspace } from './store/WorkspaceContext';
 import { TopHeader } from './Header/TopHeader';
+import { MeshOrientationModal } from './components/MeshOrientationModal';
 import { LeftNavigation } from './Navigation/LeftNavigation';
 
 
 import { HugeiconsIcon } from '@hugeicons/react';
-import {
-  AlertCircle,
-  BoneIcon,
-  Cancel,
-  CheckmarkCircle02Icon,
-  CircleDashedIcon,
-  FilmIcon,
-  FolderOpenIcon,
-  GridIcon,
-  LayersIcon,
-  ScissorsIcon,
-  SlidersHorizontalIcon,
-} from '@hugeicons/core-free-icons';
-import { StudioToolTemplate } from './Panels/StudioToolTemplate';
+import { Cancel } from '@hugeicons/core-free-icons';
 import { settingsPersistence } from '@/services/settingsPersistence';
 import { useUIStore } from '@/stores/useUIStore';
-import { useAnimationStore } from '@/stores/useAnimationStore';
-import { toast } from 'sonner';
 // Dynamic imports for heavy 3D components and panels
 const MeshViewer = dynamic(() => import('./Viewport/MeshViewer').then(mod => mod.MeshViewer), {
   ssr: false,
@@ -96,7 +82,6 @@ const SettingsModal = dynamic(() => import('./Modals/SettingsModal').then(mod =>
   ssr: false,
 });
 import type { ToolType } from './types';
-import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 
 const ROUTE_SEGMENT_TO_TOOL: Record<string, ToolType> = {
   'generate': 'model',
@@ -357,11 +342,12 @@ export const WorkspaceShell: React.FC = () => {
   };
 
   return (
-    <div id="forge3d-app-root" className="flex flex-col h-screen w-screen overflow-hidden bg-[#0c0d12] text-[#E0E2E8]">
+    <div id="forge3d-app-root" className="flex flex-col h-screen w-screen overflow-hidden bg-[hsl(var(--surface-0))] text-foreground">
       <div className="flex-shrink-0 relative z-50">
         <TopHeader onMobileMenuToggle={() => setIsMobileNavOpen(!isMobileNavOpen)} isMobileNavOpen={isMobileNavOpen} />
       </div>
-      <div className="flex flex-1 overflow-hidden relative bg-[#0c0d12]">
+      <MeshOrientationModal />
+      <div className="flex flex-1 overflow-hidden relative bg-[hsl(var(--surface-0))]">
         {/* Mobile navigation drawer overlay */}
         <AnimatePresence>
           {isMobileNavOpen && (
@@ -407,40 +393,40 @@ export const WorkspaceShell: React.FC = () => {
           )}
         </AnimatePresence>
 
-        {/* Center Workspace & 3D Stage (Tripo-Style: Confined strictly between Left & Right Panels) */}
-        <div className="flex-1 h-full relative overflow-hidden min-w-0 bg-[#090a0f]">
+        {/* Center Workspace & 3D Stage (Confined strictly between Left & Right Panels) */}
+        <div className="flex-1 h-full relative overflow-hidden min-w-0 bg-[hsl(var(--surface-0))]">
           {/* Center 3D Viewport Stage: Never bleeds or renders behind the side panels */}
           {mainNav === 'workspace' && (
             <main
               id="center-viewport-stage"
-              className="absolute inset-0 md:left-[284px] md:right-[230px] lg:right-[270px] z-0 overflow-hidden bg-[#090a0f] md:rounded-2xl md:top-2 md:bottom-3 border md:border-white/[0.04]"
+              className={`absolute inset-0 ${isLeftPanelOpen ? 'md:left-[332px]' : 'md:left-2'} ${isRightPanelOpen ? 'md:right-[276px]' : 'md:right-2'} z-0 overflow-hidden bg-[hsl(var(--surface-0))] md:rounded-2xl md:top-2 md:bottom-3 border md:border-white/[0.08]`}
               style={{
                 background: environmentSettings?.backgroundColor && environmentSettings.backgroundColor !== 'transparent'
                   ? environmentSettings.backgroundColor
-                  : 'radial-gradient(ellipse 70% 65% at 50% 50%, #2e3036 0%, #202227 35%, #131418 70%, #090a0f 100%)',
+                  : 'radial-gradient(ellipse 70% 65% at 50% 50%, #2e3036 0%, #202227 35%, #131418 70%, #111113 100%)',
               }}
             >
               <MeshViewer />
-              <ViewportToolOverlay isRightPanelOpen={false} />
+              <ViewportToolOverlay isRightPanelOpen={isRightPanelOpen} />
             </main>
           )}
 
-          {/* Left Unified Studio Panel (Nav Rail 46px + Tool Content 228px Fused = 274px, Permanent / Non-Collapsible) */}
-          {mainNav === 'workspace' && (
+          {/* Left Unified Studio Panel (Nav Rail 48px + Tool Content 268px Fused = 316px) */}
+          {mainNav === 'workspace' && isLeftPanelOpen && (
             <aside
               id="left-unified-studio-panel"
               aria-label="Studio tools"
-              className="absolute left-2 top-2 bottom-3 z-20 hidden md:flex flex-row w-[274px] rounded-2xl border border-white/[0.08] shadow-2xl overflow-hidden bg-[#0c0d12]"
+              className="absolute left-2 top-2 bottom-3 z-20 hidden md:flex flex-row w-[316px] rounded-2xl border border-white/[0.08] shadow-2xl overflow-hidden bg-[hsl(var(--surface-1))]"
             >
-              {/* Left Rail Column: 46px */}
-              <div className="w-[46px] h-full flex-shrink-0 bg-[hsl(var(--surface-1))] border-r border-[hsl(var(--border))]">
+              {/* Left Rail Column: 48px */}
+              <div className="w-[48px] h-full flex-shrink-0 bg-[hsl(var(--surface-1))] border-r border-white/[0.08]">
                 <LeftNavigation firstToolButtonRef={firstToolButtonRef} />
               </div>
 
-              {/* Right Tool Content Column: 228px */}
+              {/* Right Tool Content Column: 268px */}
               <div
                 id="tool-content-drawer"
-                className="w-[228px] h-full flex flex-col overflow-hidden bg-[hsl(var(--surface-1))] relative"
+                className="w-[268px] h-full flex flex-col overflow-hidden bg-[hsl(var(--surface-1))] relative"
               >
                 {/* Immediate 0ms tool swap without blink */}
                 <div className="h-full w-full flex flex-col overflow-hidden">
@@ -450,12 +436,12 @@ export const WorkspaceShell: React.FC = () => {
             </aside>
           )}
 
-          {/* Context-Aware Control & Property Panel (Right, Permanent / Non-Collapsible) */}
-          {mainNav === 'workspace' && (
+          {/* Context-Aware Control & Property Panel (Right, 260px) */}
+          {mainNav === 'workspace' && isRightPanelOpen && (
             <aside
               id="right-inspector-assets-column"
               aria-label="Inspector and assets"
-              className="absolute inset-x-0 top-0 bottom-0 md:inset-auto md:right-2 md:top-2 md:bottom-3 w-full md:w-[220px] lg:w-[260px] md:rounded-2xl border border-white/[0.08] shadow-2xl overflow-hidden bg-[#0c0d12] flex flex-col z-20"
+              className="absolute inset-x-0 top-0 bottom-0 md:inset-auto md:right-2 md:top-2 md:bottom-3 w-full md:w-[260px] md:rounded-2xl border border-white/[0.08] shadow-2xl overflow-hidden bg-[hsl(var(--surface-1))] flex flex-col z-20"
             >
               <RightWorkspacePanel />
             </aside>

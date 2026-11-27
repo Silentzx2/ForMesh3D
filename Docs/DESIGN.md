@@ -1,6 +1,6 @@
 # ForMesh3D UI Design System
 
-> **Reviewed:** 2026-11-22  
+> **Reviewed:** 2026-11-26  
 > **Source of truth:** `app/globals.css`, current workspace components, and `lib/motion.ts`. This guide documents the implemented UI foundation, not historical mockups or removed components.
 
 ## 1. Visual foundation
@@ -62,12 +62,13 @@ Use only the currently exported shared presets. Prefer local CSS transitions for
 - Preserve loading, disabled, empty, success and error states when changing async UI.
 - Avoid hover-only functionality; touch and keyboard interaction must remain usable.
 - Respect reduced-motion preferences for non-essential movement.
-- Keep destructive actions visually distinct and require the existing confirmation pattern where one is already used.
+- Keep destructive actions visually distinct and require the existing confirmation pattern where one is already used. Delete/Trash dialogs keep keyboard focus contained, close with Escape when idle, and confirm irreversible purge/empty actions; failed server deletes keep the dialog open.
 - Reuse existing toast, dialog, tooltip, and progress primitives.
 
 ## 6. Workspace and viewport behavior
 
-- The viewport is a local Three.js viewer. It loads GLB/GLTF through `GLTFLoader` and supported OBJ, FBX, STL, and PLY meshes through their Three.js loaders; GLB downloads use the browser-side cache in `features/workspace/lib/glbCache.ts`.
+- The viewport is a local Three.js viewer (`TrackballControls` for full 360° gimbal-lock-free orbiting). It loads GLB/GLTF through `GLTFLoader` and supported OBJ, FBX, STL, and PLY meshes through their Three.js loaders; GLB downloads use the browser-side cache in `features/workspace/lib/glbCache.ts`.
+- Derived post-operation meshes (texture, retopology, UV, segmentation, rigging) are excluded from the Assets panel and selected via the viewport **Mesh Version** selector (`workspaceVersions`); switching tools auto-selects the matching workspace version (base mesh on Generate, texture on Texture, rigged mesh on Rigging and Animation).
 - The server-side WebSocket/WebRTC mesh-streaming design was removed. Do not implement new UI against the old streaming architecture.
 - Workspace panels use the existing constrained layout and `.workspace-tool-body` styles from `app/globals.css`; test narrow and short viewports before changing panel sizing.
 - Heavy inspectors should continue to load only when their corresponding tool is selected.
@@ -125,3 +126,18 @@ Use only the currently exported shared presets. Prefer local CSS transitions for
 - Batch submission has a single-run guard and one abort controller; cancellation stops pending submissions and cancels accepted jobs through the dedicated `/cancel` endpoint.
 - Batch cancellation resolves local task keys through their backend job identity. Retrying a failed batch item preserves its original input and settings snapshot.
 - Adaptive polling runs only while backend jobs are queued/running and ignores responses that arrive after a task has entered a terminal state.
+
+## 13. Animation player & motion clip UI
+
+- The Animation panel (`features/workspace/Panels/AnimationPanel.tsx`) creates ARDY text→motion clips, lists premade presets (`backend/motion_presets/`), user uploads/generated presets (backend/storage/presets/<preset_id>/), with IndexedDB as an optional cache, then binds a validated `MotionClipV1` to the active rigged mesh.
+- `ViewportToolOverlay.tsx` mounts `CameraTriad` (interactive SVG/CSS XYZ orientation triad driven by live camera quaternion events from `viewportEvents.ts`, no second WebGL context) and `AnimationPlayerBar` (play/pause, reset, loop, speed pills, scrubber, time/frame labels, export animated GLB) — both reuse `useAnimationStore` and its single `THREE.AnimationMixer` clock.
+- `ActiveMeshBar.tsx` is the compact downstream mesh selector/uploader (drag/drop, file picker, actual percent/bytes, cancel). `MeshOrientationModal.tsx` ("Find the Best Angle") intercepts mesh uploads to let users adjust X/Y/Z orientation before upload (baking rotated meshes to `.glb` via `GLTFExporter`). `QualityBadge.tsx` reports mesh QA tier (Sharp/Clean/Needs Review) from the asset QA report.
+- `services/motionClient.ts` is the typed frontend client for `GET /api/v1/motion/presets`, `GET /api/v1/motion/presets/{id}/thumbnail`, `GET /api/v1/motion/clips/{clip_id}`, `POST /api/v1/motion/clips/preview`, `GET/POST /api/v1/motion/uploads; POST /api/v1/motion/uploads/from-clip/{clip_id}; DELETE /api/v1/motion/uploads/{clip_id}`; it validates `MotionClipV1` (schema version 1, quaternion_xyzw, finite values, consistent duration/fps/frame_count) on every response. `services/motionStorage.ts` caches accepted clips in IndexedDB (`preset`, `preview`, `generated` sources); the backend user preset library is the source of truth.
+- No raw NPZ parsing happens in the browser. Bundled premade assets live in `backend/motion_presets/`; user imports/generated copies live in `backend/storage/presets/<preset_id>/`; user preset directories are separate from workspace asset directories.
+
+
+## Telemetry and evidence display
+
+- QualityBadge must show **Not assessed** and **Not reported** when the backend has not supplied QA metrics. Missing values must never be rendered as zero defects or 100% feature retention.
+- Queued jobs show queue position when supplied and an indeterminate progress indicator; a determinate percentage is shown only when reported by the backend.
+- Multi-GPU VRAM totals are calculated from actual per-GPU readings when aggregate fields are absent; unavailable totals are shown as unavailable, never as zero.
