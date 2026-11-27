@@ -437,6 +437,14 @@ export function motionClipV1ToThreeClip(
       ? mapRetargetBones(clip.joint_names, targetBoneNames, preferredMapping)
       : Object.fromEntries(clip.joint_names.map((j) => [j, j]));
 
+  // Fallback for generic/numbered bone rigs (e.g., SkinTokens bone_0..N) when no names match
+  if (targetBoneNames && targetBoneNames.length > 0 && Object.keys(mapping).length === 0) {
+    const count = Math.min(clip.joint_names.length, targetBoneNames.length);
+    for (let i = 0; i < count; i++) {
+      mapping[clip.joint_names[i]] = targetBoneNames[i];
+    }
+  }
+
   const times = new Float32Array(clip.frame_count);
   for (let f = 0; f < clip.frame_count; f++) {
     times[f] = f / clip.fps;
