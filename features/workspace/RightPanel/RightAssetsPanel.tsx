@@ -245,19 +245,20 @@ export const RightAssetsPanel: React.FC = () => {
           : { ...asset, isFavorite: assetFavorites[favoriteKey] };
       });
 
-    // Deduplicate uploaded & base workspace meshes by canonical URL or identity
+    // Deduplicate uploaded & base workspace meshes:
+    // A workspace has one base mesh; deduplicate by workspace_id first so history (job_id) and DB asset (ast_id) never double-render.
     const seen = new Map<string, typeof withFavorites[number]>();
     for (const asset of withFavorites) {
       const rawFileId = (asset.source?.fileId || asset.fileId || '').replace(/^job-/, '');
       const canonicalUrl = (asset.source?.viewUrl || asset.source?.localUrl || '').split('?')[0];
       const key = asset.isLocalDuplicate
         ? `dup:${asset.id}`
-        : canonicalUrl
-          ? `url:${canonicalUrl}`
-          : asset.workspace_id && rawFileId
-            ? `ws:${asset.workspace_id}:${rawFileId}`
-            : asset.workspace_id
-              ? `ws:${asset.workspace_id}`
+        : asset.asset_type === 'animated_mesh'
+          ? `anim:${asset.id}`
+          : asset.workspace_id
+            ? `ws:${asset.workspace_id}`
+            : canonicalUrl
+              ? `url:${canonicalUrl}`
               : `id:${rawFileId || stripIdPrefix(asset.id)}`;
 
       const existing = seen.get(key);
