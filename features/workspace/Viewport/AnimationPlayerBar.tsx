@@ -9,6 +9,7 @@ import {
   saveAnimatedMeshToWorkspace,
   saveGeneratedMotionClip,
   motionClipV1ToThreeClip,
+  extractTargetRestQuaternions,
 } from '@/services/motionClient';
 import { saveMotionClip } from '@/services/motionStorage';
 import { downloadAnimatedGlb, exportAnimatedModelAsGlb } from '../dynamic/exportAnimatedGlb';
@@ -30,6 +31,8 @@ export const AnimationPlayerBar: React.FC = () => {
   const clipError = useAnimationStore((s) => s.clipError);
   const activeMotionClip = useAnimationStore((s) => s.activeMotionClip);
   const activeThreeClip = useAnimationStore((s) => s.activeThreeClip);
+  const mappedJointCount = useAnimationStore((s) => s.mappedJointCount);
+  const hasRootMotion = useAnimationStore((s) => s.hasRootMotion);
   const pendingMotionClipId = useAnimationStore((s) => s.pendingMotionClipId);
   const pendingMotionClipAssetId = useAnimationStore((s) => s.pendingMotionClipAssetId);
   const currentAssetId = (currentAsset as any)?.asset_id || currentAsset?.id || null;
@@ -47,6 +50,7 @@ export const AnimationPlayerBar: React.FC = () => {
   const setCurrentTime = useAnimationStore((s) => s.setCurrentTime);
   const setPlaybackSpeed = useAnimationStore((s) => s.setPlaybackSpeed);
   const setIsLooping = useAnimationStore((s) => s.setIsLooping);
+  const setHasRootMotion = useAnimationStore((s) => s.setHasRootMotion);
   const setClipState = useAnimationStore((s) => s.setClipState);
   const setPendingMotionClipId = useAnimationStore((s) => s.setPendingMotionClipId);
   const bindMotionClip = useAnimationStore((s) => s.bindMotionClip);
@@ -112,9 +116,14 @@ export const AnimationPlayerBar: React.FC = () => {
           });
         }
         setClipState('binding_clip', null);
-        const { threeClip } = motionClipV1ToThreeClip(clip, loadedSkeletonBoneNames, retargetMapping);
+        const { threeClip, mappedJointCount: resolvedMapped } = motionClipV1ToThreeClip(
+          clip,
+          loadedSkeletonBoneNames,
+          retargetMapping,
+          { inPlace: !hasRootMotion, restQuaternions: extractTargetRestQuaternions(activeModelObject) }
+        );
         if (cancelledRef.current || !isMountedRef.current || requestIdRef.current !== reqId) return;
-        bindMotionClip(clip, threeClip);
+        bindMotionClip(clip, threeClip, resolvedMapped);
         setPendingMotionClipId(null);
       } catch (err: unknown) {
         if (cancelledRef.current || !isMountedRef.current || requestIdRef.current !== reqId) return;
@@ -125,7 +134,22 @@ export const AnimationPlayerBar: React.FC = () => {
       }
     })();
   }, [pendingMotionClipId, pendingMotionClipAssetId, currentAssetId, loadedSkeletonBoneNames, retargetMapping,
-      setPendingMotionClipId, setClipState, bindMotionClip, setClipError]);
+      hasRootMotion, activeModelObject, setPendingMotionClipId, setClipState, bindMotionClip, setClipError]);
+
+  // Re-bind active clip when In-Place mode is toggled
+  const prevHasRootMotionRef = useRef(hasRootMotion);
+  useEffect(() => {
+    if (prevHasRootMotionRef.current === hasRootMotion) return;
+    prevHasRootMotionRef.current = hasRootMotion;
+    if (!activeMotionClip || !loadedSkeletonBoneNames?.length) return;
+    const { threeClip, mappedJointCount: resolvedMapped } = motionClipV1ToThreeClip(
+      activeMotionClip,
+      loadedSkeletonBoneNames,
+      retargetMapping,
+      { inPlace: !hasRootMotion, restQuaternions: extractTargetRestQuaternions(activeModelObject) }
+    );
+    bindMotionClip(activeMotionClip, threeClip, resolvedMapped);
+  }, [hasRootMotion, activeMotionClip, loadedSkeletonBoneNames, retargetMapping, activeModelObject, bindMotionClip]);
 
   // Hide player when idle and no clip is attached
   if (clipState === 'idle' && !activeThreeClip) {
@@ -266,7 +290,7 @@ export const AnimationPlayerBar: React.FC = () => {
     <div
       id="viewport-animation-player"
       aria-label="Animation player"
-      className="pointer-events-auto flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-[hsl(var(--surface-1))]/95 border border-white/[0.08] shadow-lg select-none max-w-[540px] w-max"
+      className="pointer-events-auto flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-[hsl(var(--surface-1))]/95 border border-white/[0.08] shadow-lg select-none max-w-[680px] w-max"
     >
       {/* Play / Pause */}
       <button
@@ -313,6 +337,31 @@ export const AnimationPlayerBar: React.FC = () => {
       >
         <Repeat className="w-3 h-3" />
       </button>
+
+      {/* In-Place */}
+      <button
+        type="button"
+        onClick={() => setHasRootMotion(!hasRootMotion)}
+        aria-label={hasRootMotion ? 'Enable in-place mode' : 'Disable in-place mode'}
+        aria-pressed={!hasRootMotion}
+        title={!hasRootMotion ? 'In-Place On (X/Z root locked)' : 'Root Motion On'}
+        className={`h-7 px-2 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer shrink-0 ${
+          !hasRootMotion
+            ? 'bg-[hsl(var(--accent))]/20 border-[hsl(var(--accent))]/50 text-[hsl(var(--accent))]'
+            : 'bg-[hsl(var(--surface-2))] border-white/[0.08] text-zinc-400 hover:text-white'
+        }`}
+      >
+        In-Place
+      </button>
+
+      {activeMotionClip && (
+        <span
+          title={`${mappedJointCount} of ${activeMotionClip.joint_names.length} clip joints mapped to skeleton`}
+          className="px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-white/[0.08] text-[10px] font-mono text-zinc-300 shrink-0"
+        >
+          Mapped Joints {mappedJointCount}/{activeMotionClip.joint_names.length}
+        </span>
+      )}
 
       {/* Scrubber & Time */}
       <div className="flex flex-col gap-0.5 min-w-[160px] sm:min-w-[200px]">

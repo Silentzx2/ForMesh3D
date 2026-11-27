@@ -61,6 +61,8 @@ class MotionGenerationRequest(BaseModel):
         description="ARDY model checkpoint variant (e.g. core40, core8, g1_52, g1_8)",
     )
     post_process: bool = Field(True, description="Apply motion post-processing/foot skating cleanup")
+    cfg_weight: Optional[float] = Field(None, description="Classifier-free guidance weight", ge=0.0)
+    num_denoising_steps: Optional[int] = Field(None, description="Number of diffusion denoising steps", ge=1)
     target_skeleton: Optional[str] = Field("core", description="Target skeleton ('core' or 'g1')")
     target_bones: Optional[List[str]] = Field(
         None, description="Optional target armature bone names for compatibility check"
@@ -158,6 +160,10 @@ async def generate_motion(
             "operation_id": operation_id,
             **(request.model_parameters or {}),
         }
+        if request.cfg_weight is not None:
+            job_inputs["cfg_weight"] = float(request.cfg_weight)
+        if request.num_denoising_steps is not None:
+            job_inputs["num_denoising_steps"] = int(request.num_denoising_steps)
 
         job_request = JobRequest(
             feature=feature,
@@ -199,8 +205,8 @@ async def get_checkpoints():
             "ARDY-Core-RP-20FPS-Horizon8",
             "ARDY-G1-RP-25FPS-Horizon52",
             "ARDY-G1-RP-25FPS-Horizon8",
-            "ardy_lite",
-            "ardy_full",
+            "ARDY-SOMA-RP-30FPS-Horizon60",
+            "ARDY-SOMA-RP-30FPS-KimodoRep-Horizon60",
         ],
         "default": "ARDY-Core-RP-20FPS-Horizon40",
         "checkpoint_details": [
@@ -237,20 +243,20 @@ async def get_checkpoints():
                 "description": "Unitree G1 humanoid skeleton, 25 FPS, 8-step horizon",
             },
             {
-                "id": "ardy_lite",
-                "nickname": "ardy_lite",
-                "skeleton": "core",
-                "fps": 20,
-                "horizon": 8,
-                "description": "ARDY Lite (Fast inference, ~6GB VRAM)",
+                "id": "ARDY-SOMA-RP-30FPS-Horizon60",
+                "nickname": "soma60",
+                "skeleton": "soma",
+                "fps": 30,
+                "horizon": 60,
+                "description": "SOMA human skeleton, 30 FPS, 60-step horizon",
             },
             {
-                "id": "ardy_full",
-                "nickname": "ardy_full",
-                "skeleton": "core",
-                "fps": 20,
-                "horizon": 40,
-                "description": "ARDY Full (High fidelity, ~8GB VRAM)",
+                "id": "ARDY-SOMA-RP-30FPS-KimodoRep-Horizon60",
+                "nickname": "soma-kimodo60",
+                "skeleton": "soma-kimodo",
+                "fps": 30,
+                "horizon": 60,
+                "description": "SOMA human skeleton (Kimodo smooth-root representation), 30 FPS, 60-step horizon",
             },
         ],
     }
@@ -271,7 +277,7 @@ async def get_available_models(
                     "id": m,
                     "name": "ARDY Motion Generation",
                     "description": "NVIDIA ARDY Autoregressive Motion Generation",
-                    "supported_formats": ["json", "npz", "bvh"],
+                    "supported_formats": ["json", "npz"],
                 }
                 for m in models_info
             ],
@@ -293,7 +299,7 @@ async def get_supported_formats():
             "text": ["prompt", "text"],
         },
         "output_formats": {
-            "mesh": ["json", "npz", "bvh"],
+            "mesh": ["json", "npz"],
         },
         "artifact_type": "motion",
     }

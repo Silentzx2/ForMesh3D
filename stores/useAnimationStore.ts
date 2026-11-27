@@ -47,22 +47,27 @@ export interface AnimationClipItem {
 const BONE_ALIASES: Record<string, string> = {
   root: 'hips', pelvis: 'hips', hip: 'hips', hips: 'hips',
   spine: 'spine', spine0: 'spine', spine01: 'spine', spine1: 'spine',
-  spine02: 'chest', spine2: 'chest', spine03: 'chest', spine3: 'chest', chest: 'chest', upperchest: 'chest',
+  spine02: 'chest', spine2: 'chest', chest: 'chest',
+  spine03: 'upperchest', spine3: 'upperchest', upperchest: 'upperchest',
   neck: 'neck', neck0: 'neck', neck01: 'neck', neck1: 'neck', head: 'head',
-  leftshoulder: 'upperarml', leftshoulderpitch: 'upperarml', leftshoulderroll: 'upperarml', leftshoulderyaw: 'upperarml',
+  leftshoulder: 'shoulderl', leftshoulderpitch: 'shoulderl', leftshoulderroll: 'shoulderl', leftshoulderyaw: 'shoulderl', shoulderl: 'shoulderl',
   leftarm: 'upperarml', leftupperarm: 'upperarml', upperarml: 'upperarml',
   leftforearm: 'lowerarml', leftelbow: 'lowerarml', leftlowerarm: 'lowerarml', lowerarml: 'lowerarml',
-  lefthand: 'handl', leftwrist: 'handl', leftwristroll: 'handl', leftwristpitch: 'handl', leftwristyaw: 'handl', leftthumb: 'handl', handl: 'handl',
-  leftupleg: 'upperlegl', leftthigh: 'upperlegl', lefthip: 'upperlegl', lefthippitch: 'upperlegl', lefthiproll: 'upperlegl', lefthipyaw: 'upperlegl', upperlegl: 'upperlegl', leftupperleg: 'upperlegl',
-  leftleg: 'lowerlegl', leftknee: 'lowerlegl', leftshin: 'lowerlegl', lowerlegl: 'lowerlegl', leftlowerleg: 'lowerlegl',
-  leftfoot: 'footl', leftankle: 'footl', leftanklepitch: 'footl', leftankleroll: 'footl', lefttoebase: 'footl', lefttoe: 'footl', footl: 'footl',
-  rightshoulder: 'upperarmr', rightshoulderpitch: 'upperarmr', rightshoulderroll: 'upperarmr', rightshoulderyaw: 'upperarmr',
+  lefthand: 'handl', leftwrist: 'handl', leftwristroll: 'handl', leftwristpitch: 'handl', leftwristyaw: 'handl', handl: 'handl',
+  leftthumb: 'thumbl', thumbl: 'thumbl',
+  leftupleg: 'upperlegl', leftthigh: 'upperlegl', lefthip: 'upperlegl', lefthippitch: 'upperlegl', lefthiproll: 'upperlegl', lefthipyaw: 'upperlegl', leftleg: 'upperlegl', upperlegl: 'upperlegl', leftupperleg: 'upperlegl',
+  leftknee: 'lowerlegl', leftshin: 'lowerlegl', lowerlegl: 'lowerlegl', leftlowerleg: 'lowerlegl',
+  leftfoot: 'footl', leftankle: 'footl', leftanklepitch: 'footl', leftankleroll: 'footl', footl: 'footl',
+  lefttoebase: 'toel', lefttoe: 'toel', toel: 'toel',
+  rightshoulder: 'shoulderr', rightshoulderpitch: 'shoulderr', rightshoulderroll: 'shoulderr', rightshoulderyaw: 'shoulderr', shoulderr: 'shoulderr',
   rightarm: 'upperarmr', rightupperarm: 'upperarmr', upperarmr: 'upperarmr',
   rightforearm: 'lowerarmr', rightelbow: 'lowerarmr', rightlowerarm: 'lowerarmr', lowerarmr: 'lowerarmr',
-  righthand: 'handr', rightwrist: 'handr', rightwristroll: 'handr', rightwristpitch: 'handr', rightwristyaw: 'handr', rightthumb: 'handr', handr: 'handr',
-  rightupleg: 'upperlegr', rightthigh: 'upperlegr', righthip: 'upperlegr', righthippitch: 'upperlegr', righthiproll: 'upperlegr', righthipyaw: 'upperlegr', upperlegr: 'upperlegr', rightupperleg: 'upperlegr',
-  rightleg: 'lowerlegr', rightknee: 'lowerlegr', rightshin: 'lowerlegr', lowerlegr: 'lowerlegr', rightlowerleg: 'lowerlegr',
-  rightfoot: 'footr', rightankle: 'footr', rightanklepitch: 'footr', rightankleroll: 'footr', righttoebase: 'footr', righttoe: 'footr', footr: 'footr',
+  righthand: 'handr', rightwrist: 'handr', rightwristroll: 'handr', rightwristpitch: 'handr', rightwristyaw: 'handr', handr: 'handr',
+  rightthumb: 'thumbr', thumbr: 'thumbr',
+  rightupleg: 'upperlegr', rightthigh: 'upperlegr', righthip: 'upperlegr', righthippitch: 'upperlegr', righthiproll: 'upperlegr', righthipyaw: 'upperlegr', rightleg: 'upperlegr', upperlegr: 'upperlegr', rightupperleg: 'upperlegr',
+  rightknee: 'lowerlegr', rightshin: 'lowerlegr', lowerlegr: 'lowerlegr', rightlowerleg: 'lowerlegr',
+  rightfoot: 'footr', rightankle: 'footr', rightanklepitch: 'footr', rightankleroll: 'footr', footr: 'footr',
+  righttoebase: 'toer', righttoe: 'toer', toer: 'toer',
 };
 
 export function normalizeBoneName(name: string): string {
@@ -391,13 +396,14 @@ interface AnimationState {
   clipError: string | null;
   activeMotionClip: MotionClipV1 | null;
   activeThreeClip: THREE.AnimationClip | null;
+  mappedJointCount: number;
   pendingMotionClipId: string | null;
   pendingMotionClipAssetId: string | null;
   setClipState: (clipState: AnimationClipState, error?: string | null) => void;
   setPendingMotionClipId: (clipId: string | null) => void;
   setPendingMotionClipAssetId: (assetId: string | null) => void;
   bindEmbeddedClip: (clip: THREE.AnimationClip) => void;
-  bindMotionClip: (clip: MotionClipV1, threeClip: THREE.AnimationClip) => void;
+  bindMotionClip: (clip: MotionClipV1, threeClip: THREE.AnimationClip, mappedJointCount?: number) => void;
   setClipError: (message: string) => void;
   dismissClipError: () => void;
   clearClipOnAssetSwitch: () => void;
@@ -518,7 +524,7 @@ export const useAnimationStore = create<AnimationState>((set, get) => ({
     }
     set({ currentTime: next });
   },
-  hasRootMotion: false,
+  hasRootMotion: true,
   setHasRootMotion: (hasRootMotion) => set({ hasRootMotion }),
   hasFootLock: true,
   setHasFootLock: (hasFootLock) => set({ hasFootLock }),
@@ -961,6 +967,7 @@ export const useAnimationStore = create<AnimationState>((set, get) => ({
   clipError: null,
   activeMotionClip: null,
   activeThreeClip: null,
+  mappedJointCount: 0,
   pendingMotionClipId: null,
   pendingMotionClipAssetId: null,
   setClipState: (clipState, error) =>
@@ -978,6 +985,7 @@ export const useAnimationStore = create<AnimationState>((set, get) => ({
     set({
       activeMotionClip: null,
       activeThreeClip: clip,
+      mappedJointCount: 0,
       duration: clip.duration > 0 ? clip.duration : 0,
       currentTime: 0,
       isPlaying: true,
@@ -985,11 +993,16 @@ export const useAnimationStore = create<AnimationState>((set, get) => ({
       clipError: null,
     });
   },
-  bindMotionClip: (clip, threeClip) => {
+  bindMotionClip: (clip, threeClip, mappedJointCount) => {
     (useAnimationStore as any)._lastTick = 0;
+    const resolvedMappedCount =
+      typeof mappedJointCount === 'number'
+        ? mappedJointCount
+        : threeClip.tracks.filter((t) => t.name.endsWith('.quaternion')).length;
     set({
       activeMotionClip: clip,
       activeThreeClip: threeClip,
+      mappedJointCount: resolvedMappedCount,
       duration: clip.duration,
       fps: clip.fps,
       currentTime: 0,
@@ -1018,6 +1031,7 @@ export const useAnimationStore = create<AnimationState>((set, get) => ({
     set({
       activeMotionClip: null,
       activeThreeClip: null,
+      mappedJointCount: 0,
       pendingMotionClipId: null,
       pendingMotionClipAssetId: null,
       isPlaying: false,

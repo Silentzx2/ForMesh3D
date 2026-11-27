@@ -107,6 +107,7 @@ Router prefix: /api/v1/motion. Motion clips use normalized MotionClipV1 (schema 
 - GET /api/v1/motion/presets — List bundled, read-only premade presets from backend/motion_presets/. Only approved tracked NPZ files are listed.
 - GET /api/v1/motion/presets/{id}/thumbnail — Serve a sibling PNG/WEBP thumbnail for a validated premade preset ID; no arbitrary file serving.
 - GET /api/v1/motion/clips/{clip_id} — Return normalized MotionClipV1 for a premade ID, user preset ID (upl_ or gen_), or completed ARDY job/asset ID. No filesystem paths are exposed.
+- GET /api/v1/motion/clips/{clip_id}/download — Download the raw `.npz` file for a premade, user, or completed ARDY job clip.
 - POST /api/v1/motion/clips/preview — Multipart file (.npz). Temporary validation/preview only; never persists to storage or either preset library.
 - GET /api/v1/motion/uploads — List user-owned uploaded/generated presets from backend/storage/presets/<preset_id>/; entries include source: uploaded | generated.
 - POST /api/v1/motion/uploads — Validate and persist an uploaded NPZ as backend/storage/presets/<upl_id>/motion.npz with one metadata.json in that preset directory.

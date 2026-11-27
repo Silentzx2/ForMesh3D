@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import type * as THREE from 'three';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { ActiveMeshBar, isValidMeshAsset } from '../components';
 import { useAnimationStore } from '@/stores/useAnimationStore';
 import { useViewerStore } from '@/stores/useViewerStore';
-import { exportAnimatedModelAsGlb } from '../dynamic/exportAnimatedGlb';
+import { exportAnimatedModelAsGlb, exportMultiClipGlb } from '../dynamic/exportAnimatedGlb';
 import {
   listMotionPresets,
   saveAnimatedMeshToWorkspace,
@@ -15,6 +16,7 @@ import {
   getMotionClipFromUrl,
   getPresetThumbnailUrl,
   motionClipV1ToThreeClip,
+  extractTargetRestQuaternions,
   type MotionPresetItem,
   type MotionClipV1,
 } from '@/services/motionClient';
@@ -39,6 +41,16 @@ type LoadStatus = 'loading' | 'ready' | 'empty' | 'error';
 
 const DURATION_MIN = 0.5;
 const DURATION_MAX = 30.0;
+const PREMADE_CATEGORIES = ['All', 'Idle', 'Walk', 'Run', 'Action'] as const;
+type PremadeCategory = (typeof PREMADE_CATEGORIES)[number];
+
+function matchesPremadeCategory(name: string, category: PremadeCategory): boolean {
+  if (category === 'All') return true;
+  if (category === 'Idle') return /\b(idle|stand|breath|wait)\b/i.test(name);
+  if (category === 'Walk') return /\b(walk|stroll|march|step)\b/i.test(name);
+  if (category === 'Run') return /\b(run|sprint|jog|dash)\b/i.test(name);
+  return !/\b(idle|stand|breath|wait|walk|stroll|march|step|run|sprint|jog|dash)\b/i.test(name);
+}
 
 interface PresetCardProps {
   preset: MotionPresetItem;
@@ -107,6 +119,7 @@ export const AnimationPanel: React.FC = () => {
   const loadedSkeletonBoneNames = useAnimationStore((s) => s.loadedSkeletonBoneNames);
   const retargetMapping = useAnimationStore((s) => s.retargetMapping);
   const activeMotionClip = useAnimationStore((s) => s.activeMotionClip);
+  const hasRootMotion = useAnimationStore((s) => s.hasRootMotion);
   const setClipState = useAnimationStore((s) => s.setClipState);
   const setIsPlaying = useAnimationStore((s) => s.setIsPlaying);
   const bindMotionClip = useAnimationStore((s) => s.bindMotionClip);
@@ -129,6 +142,7 @@ export const AnimationPanel: React.FC = () => {
   // Library tabs & search
   const [activeTab, setActiveTab] = useState<LibraryTab>('preset');
   const [searchQuery, setSearchQuery] = useState('');
+  const [premadeCategory, setPremadeCategory] = useState<PremadeCategory>('All');
 
   // Preset state
   const [presetStatus, setPresetStatus] = useState<LoadStatus>('loading');
@@ -216,14 +230,15 @@ export const AnimationPanel: React.FC = () => {
         return;
       }
       setClipState('binding_clip', null);
-      const { threeClip } = motionClipV1ToThreeClip(
+      const { threeClip, mappedJointCount } = motionClipV1ToThreeClip(
         clip,
         loadedSkeletonBoneNames,
-        retargetMapping
+        retargetMapping,
+        { inPlace: !hasRootMotion, restQuaternions: extractTargetRestQuaternions(activeModelObject) }
       );
-      bindMotionClip(clip, threeClip);
+      bindMotionClip(clip, threeClip, mappedJointCount);
     },
-    [hasRiggedMesh, loadedSkeletonBoneNames, retargetMapping, setClipState, bindMotionClip]
+    [hasRiggedMesh, loadedSkeletonBoneNames, retargetMapping, hasRootMotion, activeModelObject, setClipState, bindMotionClip]
   );
 
   const handleSelectPreset = async (preset: MotionPresetItem) => {
@@ -272,7 +287,12 @@ export const AnimationPanel: React.FC = () => {
         if (!preset) continue;
         try {
           const clip = await getMotionClipFromUrl(preset.clip_url);
-          const { threeClip } = motionClipV1ToThreeClip(clip, loadedSkeletonBoneNames, retargetMapping);
+          const { threeClip } = motionClipV1ToThreeClip(
+            clip,
+            loadedSkeletonBoneNames,
+            retargetMapping,
+            { inPlace: !hasRootMotion, restQuaternions: extractTargetRestQuaternions(activeModelObject) }
+          );
           const glb = await exportAnimatedModelAsGlb({ activeModelObject, activeThreeClip: threeClip });
           const saved = await saveAnimatedMeshToWorkspace({
             workspaceId: targetWorkspaceId,
@@ -315,6 +335,50 @@ export const AnimationPanel: React.FC = () => {
       if (savedCount > 0) toast.success('Saved ' + savedCount + ' animated mesh asset' + (savedCount === 1 ? '' : 's') + ' to workspace');
       if (failures.length > 0) toast.warning(failures.length + ' preset export(s) failed: ' + failures.slice(0, 2).join('; '));
       setSelectedExportPresetIds([]);
+    } finally {
+      setIsBatchExporting(false);
+      setClipState('paused', null);
+    }
+  };
+
+  const handleExportCombinedGlb = async () => {
+    if (!hasRiggedMesh || !activeModelObject || selectedExportPresetIds.length < 2) {
+      toast.error('Select a rigged mesh and at least two presets to export a combined GLB.');
+      return;
+    }
+
+    setIsBatchExporting(true);
+    setIsPlaying(false);
+    setClipState('exporting', null);
+    const clips: THREE.AnimationClip[] = [];
+    const failures: string[] = [];
+    try {
+      const restQuaternions = extractTargetRestQuaternions(activeModelObject);
+      for (const presetId of selectedExportPresetIds) {
+        const preset = presets.find((item) => item.id === presetId);
+        if (!preset) continue;
+        try {
+          const clip = await getMotionClipFromUrl(preset.clip_url);
+          const { threeClip } = motionClipV1ToThreeClip(
+            clip,
+            loadedSkeletonBoneNames,
+            retargetMapping,
+            { inPlace: !hasRootMotion, restQuaternions }
+          );
+          clips.push(threeClip);
+        } catch (error) {
+          failures.push(preset.name + ': ' + (error instanceof Error ? error.message : 'conversion failed'));
+        }
+      }
+      if (clips.length === 0) {
+        toast.error('No selected presets could be converted for combined export.');
+        return;
+      }
+      await exportMultiClipGlb(activeModelObject, clips, `${currentAsset?.name || 'character'}_combined`);
+      toast.success(`Exported combined GLB with ${clips.length} animation clips`);
+      if (failures.length > 0) toast.warning(`${failures.length} preset(s) skipped: ${failures.slice(0, 2).join('; ')}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Combined GLB export failed');
     } finally {
       setIsBatchExporting(false);
       setClipState('paused', null);
@@ -424,9 +488,10 @@ export const AnimationPanel: React.FC = () => {
   };
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
-  const filteredPresets = normalizedQuery
-    ? presets.filter((p) => p.name.toLowerCase().includes(normalizedQuery))
-    : presets;
+  const filteredPresets = presets.filter((p) => {
+    if (!matchesPremadeCategory(p.name, premadeCategory)) return false;
+    return !normalizedQuery || p.name.toLowerCase().includes(normalizedQuery);
+  });
 
   const uploadedIdSet = new Set(uploadedClips.map((u) => u.id));
   const mergedSavedItems = [
@@ -676,7 +741,26 @@ export const AnimationPanel: React.FC = () => {
 
           {/* Tab Panel: Premade */}
           {activeTab === 'preset' && (
-            <div role="tabpanel" aria-label="Premade motion clips">
+            <div role="tabpanel" aria-label="Premade motion clips" className="space-y-2">
+              {/* Category Filter Pills */}
+              <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Premade category filters">
+                {PREMADE_CATEGORIES.map((category) => (
+                  <button
+                    key={category}
+                    type="button"
+                    onClick={() => setPremadeCategory(category)}
+                    aria-pressed={premadeCategory === category}
+                    className={`h-6 px-2 rounded-full text-[11px] font-medium border transition-colors cursor-pointer ${
+                      premadeCategory === category
+                        ? 'bg-[hsl(var(--primary))] text-black border-[hsl(var(--primary))]'
+                        : 'bg-[hsl(var(--surface-2))] text-zinc-300 border-white/[0.08] hover:text-white'
+                    }`}
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
+
               {presetStatus === 'loading' && (
                 <div className="grid grid-cols-2 gap-2">
                   {[0, 1, 2, 3].map((idx) => (
@@ -698,26 +782,42 @@ export const AnimationPanel: React.FC = () => {
               )}
               {presetStatus === 'empty' && (
                 <div className="p-4 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.06] text-center text-xs text-zinc-400">
-                  No premade presets are installed yet. Add reviewed NPZ files to backend/motion_presets/. User imports and generated clips appear in My Presets.
+                  No premade presets are available yet. Import an NPZ file or generate a motion clip to view it in My Presets.
                 </div>
               )}
               {presetStatus === 'ready' && filteredPresets.length === 0 && (
                 <div className="p-4 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.06] text-center text-xs text-zinc-400">
-                  No presets match &quot;{searchQuery}&quot;.
+                  {normalizedQuery
+                    ? <>No presets match &quot;{searchQuery}&quot;.</>
+                    : <>No {premadeCategory} presets found.</>}
                 </div>
               )}
               {presetStatus === 'ready' && filteredPresets.length > 0 && (
                 <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => void handleSaveSelectedPresets()}
-                    disabled={isBatchExporting || !hasRiggedMesh || !activeModelObject || selectedExportPresetIds.length === 0 ||
-                      !targetWorkspaceId || !sourceAssetId || (currentAsset as any)?.asset_type === 'animated_mesh'}
-                    className="w-full h-7 rounded-lg bg-[hsl(var(--primary))] text-black text-[11px] font-semibold disabled:opacity-40 cursor-pointer"
-                    title="Each selected preset is exported as a separate immutable animated GLB in this workspace"
-                  >
-                    {isBatchExporting ? 'Saving selected...' : 'Save selected to Workspace (' + selectedExportPresetIds.length + ')'}
-                  </button>
+                  <div className="flex flex-col gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveSelectedPresets()}
+                      disabled={isBatchExporting || !hasRiggedMesh || !activeModelObject || selectedExportPresetIds.length === 0 ||
+                        !targetWorkspaceId || !sourceAssetId || (currentAsset as any)?.asset_type === 'animated_mesh'}
+                      className="w-full h-7 rounded-lg bg-[hsl(var(--primary))] text-black text-[11px] font-semibold disabled:opacity-40 cursor-pointer"
+                      title="Each selected preset is exported as a separate immutable animated GLB in this workspace"
+                    >
+                      {isBatchExporting ? 'Saving selected...' : 'Save selected to Workspace (' + selectedExportPresetIds.length + ')'}
+                    </button>
+                    {selectedExportPresetIds.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => void handleExportCombinedGlb()}
+                        disabled={isBatchExporting || !hasRiggedMesh || !activeModelObject}
+                        className="w-full h-7 rounded-lg bg-[hsl(var(--surface-2))] hover:bg-[hsl(var(--surface-3))] border border-white/[0.08] text-white text-[11px] font-semibold flex items-center justify-center gap-1.5 disabled:opacity-40 cursor-pointer"
+                        title="Pack all selected presets into a single multi-clip .glb file for Unity, Unreal, or Godot"
+                      >
+                        <Download className="w-3 h-3 text-[hsl(var(--primary))]" />
+                        <span>{isBatchExporting ? 'Exporting Combined...' : `Export Combined GLB (${selectedExportPresetIds.length})`}</span>
+                      </button>
+                    )}
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                   {filteredPresets.map((preset) => (
                     <PresetCard
@@ -759,7 +859,7 @@ export const AnimationPanel: React.FC = () => {
               )}
               {savedStatus === 'empty' && (
                 <div className="p-4 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.06] text-center text-xs text-zinc-400">
-                  No user presets yet. Import an NPZ or generate motion; both are saved in backend/storage/presets/.
+                  No user presets yet. Import an NPZ file or generate a motion clip to save it here.
                 </div>
               )}
               {savedStatus === 'ready' && filteredSaved.length === 0 && (

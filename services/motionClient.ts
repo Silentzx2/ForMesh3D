@@ -423,6 +423,27 @@ export async function deleteUploadedMotionClip(clipId: string): Promise<void> {
   }
 }
 
+export interface MotionClipConversionOptions {
+  inPlace?: boolean;
+  restQuaternions?: Record<string, THREE.Quaternion>;
+}
+
+/**
+ * Extracts bind/rest local quaternions from all bones in a Three.js object hierarchy.
+ */
+export function extractTargetRestQuaternions(
+  root: THREE.Object3D | null | undefined
+): Record<string, THREE.Quaternion> {
+  const rest: Record<string, THREE.Quaternion> = {};
+  if (!root) return rest;
+  root.traverse((obj) => {
+    if ((obj as THREE.Bone).isBone && obj.name && !rest[obj.name]) {
+      rest[obj.name] = obj.quaternion.clone();
+    }
+  });
+  return rest;
+}
+
 /**
  * Converts a validated MotionClipV1 into a Three.js AnimationClip,
  * optionally retargeting joint names to match a target skeleton's bone names.
@@ -430,7 +451,8 @@ export async function deleteUploadedMotionClip(clipId: string): Promise<void> {
 export function motionClipV1ToThreeClip(
   clip: MotionClipV1,
   targetBoneNames?: string[] | null,
-  preferredMapping?: Record<string, string>
+  preferredMapping?: Record<string, string>,
+  options?: MotionClipConversionOptions
 ): { threeClip: THREE.AnimationClip; mappedJointCount: number } {
   const nameMapping =
     targetBoneNames && targetBoneNames.length > 0
@@ -462,14 +484,26 @@ export function motionClipV1ToThreeClip(
     if (!targetBone) continue;
 
     mappedJointCount += 1;
+    const restQuat = options?.restQuaternions?.[targetBone];
+    const deltaQuat = restQuat ? new THREE.Quaternion() : null;
+    const outQuat = restQuat ? new THREE.Quaternion() : null;
     const quatValues = new Float32Array(clip.frame_count * 4);
     for (let f = 0; f < clip.frame_count; f++) {
       const q = clip.frames[f].rotations[j];
       const offset = f * 4;
-      quatValues[offset] = q[0];
-      quatValues[offset + 1] = q[1];
-      quatValues[offset + 2] = q[2];
-      quatValues[offset + 3] = q[3];
+      if (restQuat && deltaQuat && outQuat) {
+        deltaQuat.set(q[0], q[1], q[2], q[3]);
+        outQuat.copy(restQuat).multiply(deltaQuat);
+        quatValues[offset] = outQuat.x;
+        quatValues[offset + 1] = outQuat.y;
+        quatValues[offset + 2] = outQuat.z;
+        quatValues[offset + 3] = outQuat.w;
+      } else {
+        quatValues[offset] = q[0];
+        quatValues[offset + 1] = q[1];
+        quatValues[offset + 2] = q[2];
+        quatValues[offset + 3] = q[3];
+      }
     }
     tracks.push(new THREE.QuaternionKeyframeTrack(`${targetBone}.quaternion`, times, quatValues));
   }
@@ -481,15 +515,16 @@ export function motionClipV1ToThreeClip(
     );
   }
 
+  const inPlace = Boolean(options?.inPlace);
   const rootTarget = !usedIndexFallback ? mapping[clip.joint_names[0]] : undefined;
   if (rootTarget) {
     const posValues = new Float32Array(clip.frame_count * 3);
     for (let f = 0; f < clip.frame_count; f++) {
       const rt = clip.frames[f].root_translation;
       const offset = f * 3;
-      posValues[offset] = rt[0];
+      posValues[offset] = inPlace ? 0 : rt[0];
       posValues[offset + 1] = rt[1];
-      posValues[offset + 2] = rt[2];
+      posValues[offset + 2] = inPlace ? 0 : rt[2];
     }
     tracks.push(new THREE.VectorKeyframeTrack(`${rootTarget}.position`, times, posValues));
   }

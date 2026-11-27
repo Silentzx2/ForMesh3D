@@ -4,7 +4,6 @@ import React, { useState } from 'react';
 import { useWorkspace } from '../store/WorkspaceContext';
 import { useViewerStore } from '@/stores/useViewerStore';
 import { useAnimationStore } from '@/stores/useAnimationStore';
-import { saveMotionClip } from '@/services/motionStorage';
 import { downloadAnimatedGlb, exportAnimatedModelAsGlb } from './exportAnimatedGlb';
 import {
   Film,
@@ -24,6 +23,9 @@ export const DynamicAnimationInspector: React.FC = () => {
   const clipError = useAnimationStore((s) => s.clipError);
   const activeMotionClip = useAnimationStore((s) => s.activeMotionClip);
   const activeThreeClip = useAnimationStore((s) => s.activeThreeClip);
+  const mappedJointCount = useAnimationStore((s) => s.mappedJointCount);
+  const hasRootMotion = useAnimationStore((s) => s.hasRootMotion);
+  const setHasRootMotion = useAnimationStore((s) => s.setHasRootMotion);
   const isPlaying = useAnimationStore((s) => s.isPlaying);
   const togglePlay = useAnimationStore((s) => s.togglePlay);
   const setIsPlaying = useAnimationStore((s) => s.setIsPlaying);
@@ -41,7 +43,6 @@ export const DynamicAnimationInspector: React.FC = () => {
   const setDisplayOptions = useAnimationStore((s) => s.setDisplayOptions);
 
   const [exportError, setExportError] = useState<string | null>(null);
-  const [isSavingLocal, setIsSavingLocal] = useState(false);
 
   const isExporting = clipState === 'exporting';
   const hasClip = Boolean(activeThreeClip);
@@ -67,19 +68,6 @@ export const DynamicAnimationInspector: React.FC = () => {
       toast.error(`Export failed: ${msg}`);
     } finally {
       setClipState(hasClip ? 'paused' : 'idle');
-    }
-  };
-
-  const handleSaveToLocal = async () => {
-    if (!activeMotionClip) return;
-    setIsSavingLocal(true);
-    try {
-      await saveMotionClip(activeMotionClip, 'generated');
-      toast.success(`Saved "${activeMotionClip.name}" to local clips`);
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save clip locally');
-    } finally {
-      setIsSavingLocal(false);
     }
   };
 
@@ -123,9 +111,11 @@ export const DynamicAnimationInspector: React.FC = () => {
         </div>
 
         {activeMotionClip && (
-          <div className="flex justify-between text-[11px] font-mono text-zinc-400 border-t border-white/[0.06] pt-1">
+          <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400 border-t border-white/[0.06] pt-1">
             <span className="truncate">{activeMotionClip.skeleton_profile}</span>
-            <span>{activeMotionClip.joint_names.length} joints</span>
+            <span className="px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/[0.08] text-zinc-200">
+              Mapped Joints {mappedJointCount}/{activeMotionClip.joint_names.length}
+            </span>
           </div>
         )}
       </div>
@@ -232,40 +222,50 @@ export const DynamicAnimationInspector: React.FC = () => {
         </div>
       </div>
 
-      {/* 3D Overlays */}
-      <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.08] flex items-center justify-between">
-        <span className="text-xs text-zinc-200 font-medium">Skeleton Armature</span>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={displayOptions.showSkeleton}
-          aria-label="Toggle skeleton armature"
-          onClick={() => setDisplayOptions({ showSkeleton: !displayOptions.showSkeleton })}
-          className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${
-            displayOptions.showSkeleton ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'
-          }`}
-        >
-          <div
-            className={`w-3 h-3 rounded-full shadow-sm transition-transform ${
-              displayOptions.showSkeleton ? 'translate-x-3 bg-black' : 'translate-x-0 bg-white'
+      {/* 3D Overlays & Playback Options */}
+      <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.08] space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-zinc-200 font-medium">Skeleton Armature</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={displayOptions.showSkeleton}
+            aria-label="Toggle skeleton armature"
+            onClick={() => setDisplayOptions({ showSkeleton: !displayOptions.showSkeleton })}
+            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${
+              displayOptions.showSkeleton ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'
             }`}
-          />
-        </button>
+          >
+            <div
+              className={`w-3 h-3 rounded-full shadow-sm transition-transform ${
+                displayOptions.showSkeleton ? 'translate-x-3 bg-black' : 'translate-x-0 bg-white'
+              }`}
+            />
+          </button>
+        </div>
+        <div className="flex items-center justify-between border-t border-white/[0.06] pt-2">
+          <span className="text-xs text-zinc-200 font-medium">In-Place (Lock X/Z)</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={!hasRootMotion}
+            aria-label="Toggle in-place mode"
+            onClick={() => setHasRootMotion(!hasRootMotion)}
+            className={`w-7 h-4 rounded-full p-0.5 transition-colors cursor-pointer ${
+              !hasRootMotion ? 'bg-[hsl(var(--primary))]' : 'bg-white/15'
+            }`}
+          >
+            <div
+              className={`w-3 h-3 rounded-full shadow-sm transition-transform ${
+                !hasRootMotion ? 'translate-x-3 bg-black' : 'translate-x-0 bg-white'
+              }`}
+            />
+          </button>
+        </div>
       </div>
 
       {/* Actions */}
       <div className="space-y-1.5">
-        {activeMotionClip && (
-          <button
-            type="button"
-            onClick={handleSaveToLocal}
-            disabled={isSavingLocal}
-            className="w-full h-8 px-3 rounded-xl bg-[hsl(var(--surface-2))] hover:bg-[hsl(var(--surface-3))] border border-white/[0.08] text-zinc-200 text-xs font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50"
-          >
-            <span>{isSavingLocal ? 'Saving...' : 'Save Clip Locally'}</span>
-          </button>
-        )}
-
         <button
           type="button"
           onClick={handleExportClip}
