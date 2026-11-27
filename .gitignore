@@ -1,4 +1,10 @@
 # HuggingFace token (stored with 0o600 permissions, but plaintext on disk)
+
+# user will remove this after all done 
+backup/adapters/
+
+
+
 .hf_token
 backend/.hf_token
 .brain/

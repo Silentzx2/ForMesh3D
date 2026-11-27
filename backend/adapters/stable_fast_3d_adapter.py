@@ -1,510 +1,171 @@
 """
-Stable Fast 3D adapter for single-image textured mesh generation.
-
-The adapter deliberately follows the upstream SF3D preprocessing and inference
-contract. Native texture_baker and uv_unwrapper extensions are required; a
-degraded UV fallback is not used because it can silently damage texture quality.
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  Stable Fast 3D (SF3D) Image-to-Textured-Mesh Adapter                        ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  Repo     : backend/thirdparty/StableFast3D (sf3d.system.SF3D)               ║
+║  Weights  : backend/pretrained/StableFast3D                                  ║
+║  Patcher  : patcher.stable_fast_3d.attention.pre_ampere_chunked_sdpa (sm<80) ║
+║  States   : UNLOADED -> LOADING -> LOADED -> PROCESSING -> LOADED / ERROR    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 """
+
 from __future__ import annotations
 
 import contextlib
+import gc
 import importlib
+import importlib.util
 import logging
-import os
-import shutil
 import sys
-import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, Dict
 
-try:
-    import torch
-except ImportError:  # pragma: no cover - SF3D itself requires torch
-    torch = None
+import rembg
+import torch
+import trimesh
+from PIL import Image
 
-from backend.core.models.base import BaseModel, ModelStatus
-from backend.loader import get_model_weights_dir
+from core.models.base import BaseModel
+from core.utils.upstream import resolve_pretrained, resolve_thirdparty, use_thirdparty
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SEED = 42891
-DEFAULT_FOREGROUND_RATIO = 0.85
-MIN_TEXTURE_RESOLUTION = 512
-MAX_TEXTURE_RESOLUTION = 4096
-SUPPORTED_REMESH_OPTIONS = {"none", "triangle", "quad"}
+
+def _preload_native_ext(pkg_root: Path, pkg_name: str) -> None:
+    """Pre-inject _C.so into sys.modules to prevent circular PyInit imports."""
+    pkg_dir = pkg_root / pkg_name
+    c_so = next(pkg_dir.glob("_C*.so"), None) if pkg_dir.is_dir() else None
+    if c_so is None:
+        c_so = next(pkg_root.glob(f"build/*/{pkg_name}/_C*.so"), None)
+    if c_so is None:
+        raise RuntimeError(f"SF3D native extension {pkg_name}._C not found under {pkg_root}")
+    sys.modules.pop(pkg_name, None)
+    sys.modules.pop(f"{pkg_name}._C", None)
+    spec = importlib.util.spec_from_file_location(f"{pkg_name}._C", str(c_so))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[f"{pkg_name}._C"] = mod
+    spec.loader.exec_module(mod)
+    importlib.import_module(pkg_name)
 
 
 class StableFast3DAdapter(BaseModel):
-    """Stable Fast 3D — image to UV-unwrapped, PBR-textured GLB."""
-
-    # This key must match models.yaml and download_models.sh.
-    MODEL_KEY = "stable-fast-3d"
+    MODEL_KEY = "StableFast3D"
     FEATURE_TYPE = "image_to_textured_mesh"
-    supports_seed_variants = False
 
     def __init__(self, vram_requirement: int, **kwargs: Any):
-        self.model_id = kwargs.get("model_id")
-        self.model_path: Path | None = None
-        self.vram_requirement = vram_requirement
-        self.feature_type = kwargs.get("feature_type", self.FEATURE_TYPE)
-        self.status = ModelStatus.UNLOADED
-        self.gpu_id: int | None = None
-        self.gpu_ids: list[int] = []
-        self.resource_plan: dict[str, Any] = {}
-        self.native_topology = False
-        self.model: Any = None
+        super().__init__(
+            vram_requirement=vram_requirement,
+            model_id=kwargs.get("model_id"),
+            model_path=kwargs.get("model_path"),
+            feature_type=kwargs.get("feature_type", self.FEATURE_TYPE),
+        )
         self.device = "cpu"
-        self.dtype = None
-        self.version = "1.0"
-        self.experimental = False
         self._pipeline: Any = None
         self._rembg_session: Any = None
         self._remove_background: Any = None
         self._resize_foreground: Any = None
 
     def _load_model(self) -> Any:
-        """Load the third-party SF3D source and local Hugging Face weights."""
-        sf3d_root = (
-            Path(__file__).resolve().parents[1] / "thirdparty" / "StableFast3D"
-        ).resolve()
-        if not (sf3d_root / "sf3d" / "system.py").is_file():
-            raise FileNotFoundError(
-                "Stable Fast 3D source is missing. Initialize the third-party "
-                "submodule with: git submodule update --init --recursive backend/thirdparty"
-            )
-        if str(sf3d_root) not in sys.path:
-            sys.path.insert(0, str(sf3d_root))
+        sf3d_root = resolve_thirdparty("StableFast3D")
+        weights_dir = Path(self.model_path) if self.model_path else resolve_pretrained(self.MODEL_KEY)
+        if not (weights_dir / "config.yaml").is_file() or not (weights_dir / "model.safetensors").is_file():
+            raise FileNotFoundError(f"SF3D weights (config.yaml, model.safetensors) missing in {weights_dir}")
 
-        # Both native packages live one directory above their import packages.
-        texture_baker_root = sf3d_root / "texture_baker"
-        if str(texture_baker_root) not in sys.path:
-            sys.path.insert(0, str(texture_baker_root))
+        for ext_name in ("texture_baker", "uv_unwrapper"):
+            ext_root = sf3d_root / ext_name
+            if str(ext_root) not in sys.path:
+                sys.path.insert(0, str(ext_root))
+            _preload_native_ext(ext_root, ext_name)
 
-        # _C.so's PyInit() internally does `import texture_baker`, which hits the
-        # partially-initialized parent package → circular import.
-        # Fix: pre-load _C.so as a standalone module under the key "texture_baker._C"
-        # in sys.modules BEFORE importing the package. When __init__ does
-        # `from . import _C`, Python finds it already cached and skips PyInit.
-        import importlib.util as _iutil
-
-        pkg_dir = texture_baker_root / "texture_baker"
-        _c_so = next(pkg_dir.glob("_C*.so"), None) if pkg_dir.is_dir() else None
-        if _c_so is None:
-            _c_so = next(texture_baker_root.glob("build/*/texture_baker/_C*.so"), None)
-        if _c_so is None:
-            raise RuntimeError(
-                "Stable Fast 3D texture_baker native extension (_C.so) not found. "
-                "Run backend/scripts/install.sh --gpu to build the SF3D extensions."
-            )
-
-        # Clear stale partial state then pre-inject _C before the package import.
-        sys.modules.pop("texture_baker", None)
-        sys.modules.pop("texture_baker._C", None)
-        _spec = _iutil.spec_from_file_location("texture_baker._C", str(_c_so))
-        _c_mod = _iutil.module_from_spec(_spec)
-        sys.modules["texture_baker._C"] = _c_mod
-        _spec.loader.exec_module(_c_mod)
-
-        try:
-            texture_baker = importlib.import_module("texture_baker")
-        except ImportError as exc:
-            raise RuntimeError(
-                "Stable Fast 3D texture_baker native extension is unavailable. "
-                "Run backend/scripts/install.sh --gpu to build the SF3D extensions."
-            ) from exc
-        if not callable(getattr(texture_baker, "TextureBaker", None)):
-            raise RuntimeError(
-                "Stable Fast 3D texture_baker package is incomplete; TextureBaker is required."
-            )
-
-        uv_unwrapper_root = sf3d_root / "uv_unwrapper"
-        if str(uv_unwrapper_root) not in sys.path:
-            sys.path.insert(0, str(uv_unwrapper_root))
-
-        uv_pkg_dir = uv_unwrapper_root / "uv_unwrapper"
-        _uv_c_so = next(uv_pkg_dir.glob("_C*.so"), None) if uv_pkg_dir.is_dir() else None
-        if _uv_c_so is None:
-            _uv_c_so = next(uv_unwrapper_root.glob("build/*/uv_unwrapper/_C*.so"), None)
-        if _uv_c_so is None:
-            raise RuntimeError(
-                "Stable Fast 3D uv_unwrapper native extension (_C.so) not found. "
-                "Run backend/scripts/install.sh --gpu to build the SF3D extensions."
-            )
-
-        sys.modules.pop("uv_unwrapper", None)
-        sys.modules.pop("uv_unwrapper._C", None)
-        _uv_spec = _iutil.spec_from_file_location("uv_unwrapper._C", str(_uv_c_so))
-        _uv_c_mod = _iutil.module_from_spec(_uv_spec)
-        sys.modules["uv_unwrapper._C"] = _uv_c_mod
-        _uv_spec.loader.exec_module(_uv_c_mod)
-
-        try:
-            uv_unwrapper = importlib.import_module("uv_unwrapper")
-        except ImportError as exc:
-            raise RuntimeError(
-                "Stable Fast 3D uv_unwrapper native extension is unavailable. "
-                "Run backend/scripts/install.sh --gpu to build the SF3D extensions."
-            ) from exc
-        if not callable(getattr(uv_unwrapper, "Unwrapper", None)):
-            raise RuntimeError(
-                "Stable Fast 3D uv_unwrapper package is incomplete; its compiled _C extension is required."
-            )
-
-        try:
+        self.device = f"cuda:{self.gpu_id or 0}" if torch.cuda.is_available() else "cpu"
+        with use_thirdparty("StableFast3D", chdir=False):
             from sf3d.system import SF3D
             from sf3d.utils import remove_background, resize_foreground
-            import rembg
-        except ImportError as exc:
-            raise RuntimeError(
-                f"Stable Fast 3D Python dependencies are incomplete: {exc}. "
-                "Install backend/requirements-models.txt and the SF3D native extensions."
-            ) from exc
 
-        weights_dir = get_model_weights_dir(self.MODEL_KEY)
-        weights_dir_path = Path(weights_dir)
-        required_files = (
-            weights_dir_path / "config.yaml",
-            weights_dir_path / "model.safetensors",
-        )
-        missing = [str(path) for path in required_files if not path.is_file()]
-        if missing:
-            raise FileNotFoundError(
-                "Stable Fast 3D checkpoint is incomplete; missing: "
-                + ", ".join(missing)
-                + ". Accept the gated Hugging Face model license and run "
-                "backend/scripts/download_models.sh."
-            )
+            logger.info("Loading SF3D from %s on %s", weights_dir, self.device)
+            pipeline = SF3D.from_pretrained(str(weights_dir), config_name="config.yaml", weight_name="model.safetensors")
+            pipeline.to(self.device)
+            pipeline.eval()
 
-        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
-        logger.info("Loading Stable Fast 3D from %s on %s", weights_dir_path, device)
-        pipeline = SF3D.from_pretrained(
-            str(weights_dir_path),
-            config_name="config.yaml",
-            weight_name="model.safetensors",
-        )
-        pipeline.to(device)
-        pipeline.eval()
-
-        try:
-            rembg_session = rembg.new_session()
-        except Exception as exc:
-            raise RuntimeError(
-                f"Could not initialize SF3D background-removal session: {exc}"
-            ) from exc
-
-        self.model_path = weights_dir_path
-        self.device = device
-        self._pipeline = pipeline
-        self._rembg_session = rembg_session
-        self._remove_background = remove_background
-        self._resize_foreground = resize_foreground
-        self.model = pipeline
-
-        pipeline_cfg = getattr(pipeline, "cfg", None)
-        logger.info(
-            "Stable Fast 3D loaded on %s: conditioning_size=%s, "
-            "isosurface_resolution=%s, isosurface_threshold=%s",
-            device,
-            getattr(pipeline_cfg, "cond_image_size", "unknown"),
-            getattr(pipeline_cfg, "isosurface_resolution", "unknown"),
-            getattr(pipeline_cfg, "isosurface_threshold", "unknown"),
-        )
-        logger.info(
-            "Stable Fast 3D native extensions loaded: texture_baker=%s uv_unwrapper=%s",
-            getattr(texture_baker, "__file__", "unknown"),
-            getattr(uv_unwrapper, "__file__", "unknown"),
-        )
-        return pipeline
+            self._pipeline = pipeline
+            self._remove_background = remove_background
+            self._resize_foreground = resize_foreground
+            self._rembg_session = rembg.new_session()
+            return pipeline
 
     def _unload_model(self) -> None:
         self._pipeline = None
         self._rembg_session = None
         self._remove_background = None
         self._resize_foreground = None
-        self.model = None
-
-    def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        pipeline = self._pipeline
-        if pipeline is None:
-            return {"success": False, "error": "Stable Fast 3D pipeline not loaded"}
-
-        image_value = inputs.get("image_path") or inputs.get("image")
-        if not image_value:
-            return {"success": False, "error": "SF3D requires an image_path"}
-        image_path = Path(image_value).expanduser()
-        if not image_path.is_file():
-            return {"success": False, "error": f"SF3D input image not found: {image_path}"}
-
-        try:
-            seed = int(inputs.get("seed", DEFAULT_SEED))
-            texture_resolution = int(inputs.get("texture_resolution", 1024))
-            native_target_polycount = int(
-                inputs.get("native_target_polycount")
-                or inputs.get("target_polycount")
-                or 0
-            )
-            raw_target_verts = inputs.get("target_vertex_count")
-            if raw_target_verts is None:
-                raw_target_verts = inputs.get("vertex_count")
-            target_vertex_count = int(raw_target_verts) if raw_target_verts is not None else -1
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "SF3D seed, texture_resolution, native_target_polycount, and target_vertex_count must be integers"
-            ) from exc
-
-        # Determine remeshing option:
-        # 1. Explicit remesh_option input ("none", "triangle", "quad") takes precedence.
-        # 2. Otherwise derive from topology_mode ("triangle" / "quad") or quad_topology flag.
-        # 3. Default to "none" so SF3D outputs its raw mesh without automatic remeshing.
-        remesh_input = inputs.get("remesh_option")
-        if remesh_input is not None:
-            remesh_option = str(remesh_input).strip().lower()
-        else:
-            topology_mode = str(inputs.get("topology_mode") or "").strip().lower()
-            if topology_mode in ("quad", "triangle"):
-                remesh_option = topology_mode
-            elif inputs.get("quad_topology"):
-                remesh_option = "quad"
-            else:
-                remesh_option = "none"
-
-        # Determine target vertex count:
-        # - If remesh is "none", vertex count is ignored (-1).
-        # - If target_vertex_count was not explicitly specified (> 0):
-        #   - If user provided target polycount: in a triangle mesh, vertices ≈ faces / 2
-        #   - If remesh is "triangle" and no count given: default to 50,000 vertices (~100,000 faces)
-        #     so SF3D performs upstream subdivision + Botsch remesh for high-detail geometry.
-        if remesh_option == "none":
-            target_vertex_count = -1
-        elif target_vertex_count <= 0:
-            if native_target_polycount > 0:
-                target_vertex_count = max(500, native_target_polycount // 2)
-            elif remesh_option == "triangle":
-                target_vertex_count = 50000
-
-        texture_enabled = bool(
-            inputs.get("texture_enabled", True) and inputs.get("generate_texture", True)
-        )
-        if seed < 0:
-            raise ValueError("SF3D seed must be >= 0")
-        if not MIN_TEXTURE_RESOLUTION <= texture_resolution <= MAX_TEXTURE_RESOLUTION:
-            raise ValueError(
-                f"SF3D texture_resolution must be between "
-                f"{MIN_TEXTURE_RESOLUTION} and {MAX_TEXTURE_RESOLUTION}"
-            )
-        if remesh_option not in SUPPORTED_REMESH_OPTIONS:
-            raise ValueError(
-                f"Invalid SF3D remesh_option {remesh_option!r}; "
-                f"expected one of {sorted(SUPPORTED_REMESH_OPTIONS)}"
-            )
-        if target_vertex_count == 0 or target_vertex_count < -1:
-            raise ValueError("SF3D target_vertex_count must be -1 or a positive integer")
-
-        if self._remove_background is None or self._resize_foreground is None:
-            raise RuntimeError("SF3D image preprocessing helpers are not initialized")
-        if self._rembg_session is None:
-            raise RuntimeError("SF3D background-removal session is not initialized")
-        if torch is None:
-            raise RuntimeError("PyTorch is required to run Stable Fast 3D")
-
-        logger.info(
-            "Stable Fast 3D inference started: device=%s texture_resolution=%d "
-            "remesh=%s target_vertex_count=%d seed_metadata=%d",
-            getattr(pipeline, "device", self.device),
-            texture_resolution,
-            remesh_option,
-            target_vertex_count,
-            seed,
-        )
-        if remesh_option == "none" and target_vertex_count > 0:
-            logger.warning(
-                "SF3D ignores target_vertex_count=%d when remesh_option='none'",
-                target_vertex_count,
-            )
-
-        try:
-            from PIL import Image
-
-            with Image.open(image_path) as source_image:
-                image = source_image.convert("RGBA")
-        except Exception as exc:
-            raise ValueError(f"Could not decode SF3D input image {image_path}: {exc}") from exc
-
-        try:
-            # Match the official SF3D CLI preprocessing: remove background,
-            # then fit the foreground to the expected 0.85 canvas ratio.
-            image = self._remove_background(image, self._rembg_session)
-            image = self._resize_foreground(image, DEFAULT_FOREGROUND_RATIO)
-            if image is None or getattr(image, "mode", None) != "RGBA":
-                raise ValueError("SF3D preprocessing must return a valid RGBA image")
-        except Exception as exc:
-            raise ValueError(f"SF3D image preprocessing failed: {exc}") from exc
-
-        device_value = getattr(pipeline, "device", self.device)
-        device_type = getattr(device_value, "type", str(device_value).split(":", 1)[0])
-        autocast_context = contextlib.nullcontext()
-        is_pre_ampere = False
-
-        if device_type == "cuda" and torch is not None and torch.cuda.is_available():
-            try:
-                dev_idx = (
-                    device_value.index
-                    if hasattr(device_value, "index") and device_value.index is not None
-                    else torch.cuda.current_device()
-                )
-                major, _ = torch.cuda.get_device_capability(dev_idx)
-                is_pre_ampere = (major < 8)
-            except Exception:
-                is_pre_ampere = False
-
-            # BF16 is preferred where supported; FP16 keeps T4-class GPUs working.
-            autocast_dtype = torch.float16
-            try:
-                if torch.cuda.is_bf16_supported():
-                    autocast_dtype = torch.bfloat16
-            except Exception:
-                pass
-            autocast_context = torch.autocast(
-                device_type="cuda", dtype=autocast_dtype
-            )
-
-        # The workaround is isolated in this model's worker-scoped patcher.
-        # sm >= 80 never patches SDPA and follows the native upstream path.
-        from patcher.stable_fast_3d.attention import pre_ampere_chunked_sdpa
-
-        if is_pre_ampere and torch is not None and torch.cuda.is_available():
+        gc.collect()
+        if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        try:
-            with pre_ampere_chunked_sdpa(torch, enabled=is_pre_ampere, chunk_size=1024):
-                with torch.no_grad(), autocast_context:
-                    try:
-                        mesh, _global_info = pipeline.run_image(
-                            image,
-                            bake_resolution=texture_resolution,
-                            remesh=remesh_option,
-                            vertex_count=target_vertex_count,
-                        )
-                    except Exception as remesh_exc:
-                        if remesh_option != "none":
-                            logger.warning(
-                                "SF3D remesh (%s, vertex_count=%d) failed: %s; falling back to raw mesh (none)",
-                                remesh_option,
-                                target_vertex_count,
-                                remesh_exc,
-                            )
-                            mesh, _global_info = pipeline.run_image(
-                                image,
-                                bake_resolution=texture_resolution,
-                                remesh="none",
-                                vertex_count=-1,
-                            )
-                        else:
-                            raise
-        finally:
-            if is_pre_ampere and torch is not None and torch.cuda.is_available():
-                torch.cuda.empty_cache()
+    def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        if self._pipeline is None:
+            raise RuntimeError("SF3D pipeline not loaded")
+        image_path = Path(inputs.get("image_path") or inputs.get("image") or "")
+        if not image_path.is_file():
+            raise FileNotFoundError(f"SF3D image not found: {image_path}")
+
+        tex_res = max(512, min(4096, int(inputs.get("texture_resolution", 1024))))
+        remesh = str(inputs.get("remesh_option") or "none").strip().lower()
+        target_verts = int(inputs.get("target_vertex_count") or inputs.get("vertex_count") or -1)
+        if remesh == "none":
+            target_verts = -1
+        elif target_verts <= 0:
+            poly = int(inputs.get("native_target_polycount") or inputs.get("target_polycount") or 0)
+            target_verts = max(500, poly // 2) if poly > 0 else (50000 if remesh == "triangle" else -1)
+
+        fg_ratio = float(inputs.get("foreground_ratio", 0.85))
+        image = self._remove_background(Image.open(image_path).convert("RGBA"), self._rembg_session)
+        image = self._resize_foreground(image, fg_ratio)
+
+        is_pre_ampere = False
+        autocast_ctx: Any = contextlib.nullcontext()
+        if str(self.device).startswith("cuda") and torch.cuda.is_available():
+            major, _ = torch.cuda.get_device_capability(self.gpu_id or 0)
+            is_pre_ampere = major < 8
+            dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            autocast_ctx = torch.autocast(device_type="cuda", dtype=dtype)
+
+        # 1. Patcher FIRST (sm < 80 only; sm >= 80 stays native)
+        from patcher.stable_fast_3d.attention import pre_ampere_chunked_sdpa
+
+        with pre_ampere_chunked_sdpa(torch, enabled=is_pre_ampere, chunk_size=1024):
+            with torch.no_grad(), autocast_ctx:
+                try:
+                    mesh, _ = self._pipeline.run_image(image, bake_resolution=tex_res, remesh=remesh, vertex_count=target_verts)
+                except Exception as exc:
+                    if remesh != "none":
+                        logger.warning("SF3D remesh (%s) failed (%s); falling back to raw", remesh, exc)
+                        mesh, _ = self._pipeline.run_image(image, bake_resolution=tex_res, remesh="none", vertex_count=-1)
+                    else:
+                        raise
 
         if isinstance(mesh, (list, tuple)):
-            if len(mesh) != 1:
-                raise RuntimeError(
-                    f"SF3D single-image inference returned {len(mesh)} meshes; expected exactly one"
-                )
             mesh = mesh[0]
-
-        # If user disabled texture, strip visual maps for clean untextured export
+        texture_enabled = bool(inputs.get("texture_enabled", True) and inputs.get("generate_texture", True))
         if not texture_enabled:
-            import trimesh
             mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh)
 
-        vertices = getattr(mesh, "vertices", None)
-        faces = getattr(mesh, "faces", None)
-        if vertices is None or faces is None or len(vertices) == 0 or len(faces) == 0:
-            raise RuntimeError("SF3D produced an empty mesh; no GLB artifact was created")
-
-        output_dir: Path | None = None
-        try:
-            output_dir = self._create_temporary_output_dir("stable_fast_3d")
-            output_path = output_dir / f"stable_fast_3d_{uuid.uuid4().hex[:12]}.glb"
-            mesh.export(str(output_path), include_normals=True)
-            if not output_path.is_file() or output_path.stat().st_size < 12:
-                raise RuntimeError("SF3D GLB export produced an empty or missing file")
-            with output_path.open("rb") as exported_file:
-                if exported_file.read(4) != b"glTF":
-                    raise RuntimeError("SF3D output is not a valid binary GLB file")
-        except Exception:
-            if output_dir is not None:
-                shutil.rmtree(output_dir, ignore_errors=True)
-            raise
-
-        logger.info(
-            "Stable Fast 3D inference complete: vertices=%d faces=%d "
-            "texture_resolution=%d texture_enabled=%s output=%s",
-            len(vertices),
-            len(faces),
-            texture_resolution,
-            texture_enabled,
-            output_path,
-        )
+        out = self._create_temporary_output_dir("stable_fast_3d") / f"sf3d_{uuid.uuid4().hex[:12]}.glb"
+        mesh.export(str(out), include_normals=True)
         return {
             "success": True,
-            "output_mesh_path": str(output_path),
-            "mesh_path": str(output_path),
-            "textured_mesh_path": str(output_path) if texture_enabled else None,
+            "output_mesh_path": str(out.resolve()),
+            "mesh_path": str(out.resolve()),
+            "textured_mesh_path": str(out.resolve()) if texture_enabled else None,
             "texture_enabled": texture_enabled,
-            "actual_face_count": len(faces),
-            "actual_vertex_count": len(vertices),
-            "generation_info": {
-                "seed": seed,
-                "seed_applied": False,
-                "texture_resolution": texture_resolution,
-                "native_target_polycount": native_target_polycount or None,
-                "faces": len(faces),
-                "vertices": len(vertices),
-                "remesh_option": remesh_option if remesh_option != "none" else None,
-                "target_vertex_count": target_vertex_count if target_vertex_count > 0 else None,
-            },
-            # The scheduler removes this private temp directory after durable copy.
-            "_temporary_output_dir": str(output_dir),
+            "actual_face_count": len(mesh.faces),
+            "actual_vertex_count": len(mesh.vertices),
+            "generation_info": {"texture_resolution": tex_res, "remesh_option": remesh},
         }
 
     def get_supported_formats(self) -> Dict[str, list[str]]:
         return {"input": ["png", "jpg", "jpeg", "webp"], "output": ["glb"]}
 
     def get_parameter_schema(self) -> Dict[str, Any]:
-        return {
-            "parameters": {
-                "seed": {
-                    "type": "integer",
-                    "description": (
-                        "Provenance value only; upstream SF3D run_image has no seed control"
-                    ),
-                    "default": DEFAULT_SEED,
-                    "minimum": 0,
-                    "required": False,
-                },
-                "texture_resolution": {
-                    "type": "integer",
-                    "description": "Output texture atlas resolution in pixels",
-                    "default": 1024,
-                    "minimum": MIN_TEXTURE_RESOLUTION,
-                    "maximum": MAX_TEXTURE_RESOLUTION,
-                    "required": False,
-                },
-                "remesh_option": {
-                    "type": "string",
-                    "description": "Upstream remeshing operation",
-                    "default": "none",
-                    "enum": sorted(SUPPORTED_REMESH_OPTIONS),
-                    "required": False,
-                },
-                "target_vertex_count": {
-                    "type": "integer",
-                    "description": "Approximate remesh target; -1 disables vertex-count targeting",
-                    "default": -1,
-                    "minimum": -1,
-                    "required": False,
-                },
-            }
-        }
+        return {"parameters": {}}

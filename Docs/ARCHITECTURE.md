@@ -16,7 +16,7 @@ This document provides a **complete, self‑contained description** of the ForMe
 | **API Routers** | `backend/api/routers/` | Individual routes for upload, generation, retopology, UV, segmentation, rigging, motion, system, DB. |
 | **Model Registry** | `backend/config/models.yaml` | **Single source of truth** for model metadata (`name`, `label`, `description`, `vram_requirement`, `capabilities`, `default_parameters`). |
 | **Model Factory** | `backend/core/scheduler/model_factory.py`, `backend/adapters/__init__.py` | Builds `ADAPTER_REGISTRY` and derived `_ADAPTER_MAP`; selects the correct adapter class for a given model. |
-| **Adapters & Patchers** | `backend/adapters/`, `patcher/<model>/` | Executes model inference; isolates pre‑Ampere (`sm < 80`) patches. Currently each adapter contains duplicated boiler‑plate – the audit recommends collapsing these to a thin façade. |
+| **Adapters & Patchers** | `backend/adapters/`, `backend/core/utils/upstream.py`, `patcher/<model>/` | Thin model adapters using `use_thirdparty`/`load_thirdparty_script` and `resolve_pretrained`, with `patcher/<model>/` applied first for `sm < 80` isolation. |
 | **Storage & DB** | `backend/storage/`, `backend/core/scheduler/database_manager.py` | Persists immutable workspace assets under `<workspace_id>/mesh/` and animated exports under `<workspace_id>/animation/<clip>_vNNN/{animated.glb,motion.npz}`; SQLite is authoritative and the single workspace-root `metadata.json` is a projection. |
 | **Motion Service** | `backend/services/motion_clips.py` | Safe motion preset discovery, bounded NPZ/NPY parsing, and `MotionClipV1` normalization for ARDY and user-uploaded clips; presets in `backend/motion_presets/`, user uploads/generated copies in backend/storage/presets/<preset_id>/. |
 | **Third‑Party Source** | `backend/thirdparty/` | Pinned upstream repositories (model code, weights). |
@@ -43,34 +43,21 @@ flowchart LR
     UI[Next.js Studio] -->|REST| API[FastAPI /api/v1]
     API --> Queue[Scheduler / Queue]
     Queue -->|models.yaml defaults| Factory[ModelFactory]
-    Factory --> Adapter[Model Adapter]
-    Adapter --> Store[backend/storage/workspace/mesh/mesh.glb]
+    Factory --> Adapter[Thin Model Adapter]
+    Adapter -->|1. pre-Ampere sm<80| Patcher[patcher/<model>]
+    Adapter -->|2. use_thirdparty + resolve_pretrained| Upstream[backend/thirdparty & pretrained]
+    Upstream --> Store[backend/storage/workspace/mesh/mesh.glb]
     Store --> UI
     API --> DB[(SQLite)]
 ```
 
 ---
 
-## 5. Adapter Architecture & Vision (Expanded)
+## 5. Adapter Architecture (Thin Pluggable Loader)
 
-### 5.1 Current State (as of 2026‑11‑25)
-- **20 adapters** live under `backend/adapters/`, each averaging **~300 lines**.
-- Each adapter re‑implements:
-  - Environment guards (`_is_pre_ampere`).
-  - Temporary‑directory creation & cleanup (often missing cleanup).
-  - HF checkpoint download logic (duplicated across adapters).
-  - `get_supported_formats` / `get_parameter_schema` stubs.
-- Only **2 adapters** have unit tests.
-- Several critical bugs were identified (hard‑coded metadata, UV omission, global monkey‑patch, subprocess leaks).
-
-### 5.2 Desired Future State
-- **Thin façade** per adapter: only input validation and output conversion.
-- **Shared helpers** in `BaseModel` or a new `patcher/common.py` for:
-  - Temp‑dir lifecycle (`BaseModel._run_temp(fn)`).
-  - Checkpoint caching (`BaseModel._cached_load(model_id)`).
-  - Pre‑Ampere guard isolation.
-- **Reuse upstream model code** directly (most third‑party repos expose a single < 100‑line file that implements the full pipeline).
-- **Result:** ~735 lines removed → codebase ~14 % leaner, easier to audit, and fully GPU‑parity compliant.
+- **15 adapters** under `backend/adapters/` (12 enabled, 3 disabled: `pixal3d`, `trellis2`, `taoflowforge`) now route through `backend/core/utils/upstream.py` (`use_thirdparty`, `load_thirdparty_script`, `resolve_pretrained`, `resolve_thirdparty`).
+- **Execution order:** `patcher.<model>.apply_patch()` runs **first** (only inside that model's worker), then `use_thirdparty(...)` / `load_thirdparty_script(...)` runs the official upstream pipeline with local weights from `backend/pretrained/<Model>` (failing fast if missing).
+- **Clean boundaries:** Each adapter carries a standard ASCII header and numbered sections; shared utilities (`BaseModel`, `upstream.py`) replace duplicated path/temp-dir/download boilerplate.
 
 ---
 

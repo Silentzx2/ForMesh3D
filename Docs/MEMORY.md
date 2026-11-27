@@ -35,14 +35,8 @@
 - Frontend: `bun run test` (`tsc --noEmit`), `bun run lint`, `bun test`, `bun run build`.
 - Backend: first-party `python -m compileall -q backend/adapters backend/api backend/core ...`, `python -m unittest backend/tests/test_default_parameters_injection.py`, `pytest` contracts, `bash -n backend/scripts/download_models.sh`.
 
-## Adapter Architecture Overview & Vision
+## Adapter Architecture (Pluggable Upstream Loader)
 
-The **adapter layer** currently wraps each third‑party model with a large amount of duplicated boiler‑plate (environment guards, temporary‑directory handling, checkpoint download logic, schema definitions, etc.).  Our audit shows that most upstream model repositories provide a single compact implementation (typically under 100 lines) that already contains the full pipeline.
-
-**Benefits of re‑using the original model code directly:**
-- **Single source of truth** – fixes, performance improvements, and new features in the upstream repo flow automatically to our system.
-- **Lean codebase** – eliminating duplicated blocks saves ~735 lines (~14 % of adapter code) and reduces cognitive load for new contributors.
-- **GPU parity compliance** – the upstream pipelines are already built for `sm >= 80` GPUs, preserving our high‑GPU‑parity rule.
-- **Simpler maintenance** – only a thin façade remains per adapter, handling input shaping and output conversion.
-
-**Vision:** Collapse each adapter to a minimal façade that configures inputs and forwards the request to the original model pipeline, while shared utilities (temp‑dir cleanup, checkpoint caching, pre‑Ampere guards) live centrally in `BaseModel` or `patcher/common.py`.  This makes the codebase easier to understand for any new AI or human reviewer lacking prior context.
+- **Shared loader (`backend/core/utils/upstream.py`):** `resolve_thirdparty`, `resolve_pretrained`, `use_thirdparty`, `load_thirdparty_script`.
+- **Completed rewrite:** All 15 adapters (12 enabled + 3 disabled `pixal3d`, `trellis2`, `taoflowforge`) rewritten cleanly from 0 using `upstream.py`, applying `patcher/<model>` first and failing fast on missing local weights (`backend/pretrained/<Model>`).
+- **GPU parity:** `sm >= 80` keeps native BF16/FlashAttention; `sm < 80` workarounds stay isolated in `patcher/<model>/`.

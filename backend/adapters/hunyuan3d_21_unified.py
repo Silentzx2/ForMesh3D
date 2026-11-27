@@ -1,468 +1,182 @@
 """
-=============================================================================
-MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
-=============================================================================
-Model ID          : hunyuan3d_21_unified
-Model Name        : Hunyuan3D-2.1 Unified — Image to Raw Mesh + Texture Paint
-Feature Target    : image_to_raw_mesh / image_mesh_painting
-Status            : STABLE / WORKING
-Upstream Repo     : https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1
-Upstream Pipeline :
-  - Shape : hy3dshape.pipelines.Hunyuan3DDiTFlowMatchingPipeline
-  - Paint : hy3dgen.texgen.pipelines.Hunyuan3DPaintPipeline
-Checkpoint / Path : backend/pretrained/tencent/Hunyuan3D-2.1
-Hardware / VRAM   : 10–12 GB — fits on 16 GB consumer cards
------------------------------------------------------------------------------
-AGENT GOVERNANCE RULES:
-1. Single unified adapter for Hunyuan3D-2.1. Handles both raw mesh
-   generation and image mesh painting (texture autochain).
-2. When feature_type == 'image_to_raw_mesh':
-     - Loads shape pipeline, generates raw mesh from image.
-     - If texture_enabled, runs paint pipeline on result (autochain).
-3. When feature_type == 'image_mesh_painting':
-     - Loads paint pipeline only, takes existing mesh + reference image,
-       returns textured mesh (texture page / standalone paint mode).
-4. Does NOT modify upstream pipeline code. Checkpoint load failures are
-   retried once because upstream from_pretrained() only downloads when
-   the PARENT directory is missing — incomplete subdirs pass bad paths
-   to DiffusionPipeline.from_pretrained() which raises ValueError.
------------------------------------------------------------------------------
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  Hunyuan3D-2.1 Unified Shape & Paint Adapter                                 ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  Repo     : backend/thirdparty/Hunyuan3D-2.1 (+ hunyuan3d-2 fallback)        ║
+║  Weights  : backend/pretrained/tencent/Hunyuan3D-2.1                         ║
+║  Patcher  : None (FlashVDM + CPU offload on CUDA)                            ║
+║  States   : UNLOADED -> LOADING -> LOADED -> PROCESSING -> LOADED / ERROR    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 """
+
 from __future__ import annotations
 
-import contextlib
+import gc
 import logging
-import os
-import sys
-import tempfile
 from pathlib import Path
 from typing import Any, Dict
 
-try:
-    import torch
-except ImportError:  # pragma: no cover - torch optional in CPU-only environments
-    torch = None
+import torch
+import trimesh
+from PIL import Image
 
-from backend.core.models.base import BaseModel, ModelStatus
-from backend.loader import get_model_weights_dir
+from core.models.base import BaseModel
+from core.utils.upstream import resolve_pretrained, use_thirdparty
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SEED = 42891  # matches quality.yaml seeds.base_seed / scheduler auto-seed base
-
 
 class Hunyuan3D21UnifiedAdapter(BaseModel):
-    """
-    Hunyuan3D-2.1 Unified — Image to Raw Mesh + Texture Painting.
-
-    Single adapter that owns both the shape generation pipeline and the
-    texture painting pipeline for Hunyuan3D-2.1. Both pipelines load from
-    the same weights directory (backend/pretrained/tencent/Hunyuan3D-2.1),
-    so a single _load_model() call can initialise both and the adapter
-    decides at request time which to run.
-    """
-
     MODEL_KEY = "tencent/Hunyuan3D-2.1"
 
     def __init__(self, vram_requirement: int, **kwargs: Any):
-        self.model_id = kwargs.get("model_id")
-        self.model_path: Path | None = None
-        self.vram_requirement = vram_requirement
-        self.feature_type = kwargs.get("feature_type", "image_to_raw_mesh")
-        self.status = ModelStatus.UNLOADED
-        self.gpu_id: int | None = None
-        self.gpu_ids: list[int] = []
-        self.resource_plan: dict[str, Any] = {}
-        self.native_topology = False
-        self.model: Any = None
-        self.device = "cpu"
-        self.dtype = None
-        self.version = "1.0"
-        self.experimental = False
+        super().__init__(
+            vram_requirement=vram_requirement,
+            model_id=kwargs.get("model_id"),
+            model_path=kwargs.get("model_path"),
+            feature_type=kwargs.get("feature_type", "image_to_raw_mesh"),
+        )
         self._shape_pipeline: Any = None
         self._paint_pipeline: Any = None
-
-    # ── checkpoint validation ──────────────────────────────────────────
-
-    def _has_valid_checkpoint(self, subdir: str, weights_dir_path: Path) -> bool:
-        """True iff subdir contains model_index.json AND at least one weight file."""
-        p = weights_dir_path / subdir
-        if not p.is_dir():
-            return False
-        if not (p / "model_index.json").is_file():
-            return False
-        return any(
-            f.is_file() and f.suffix in {".safetensors", ".bin", ".pt", ".ckpt"}
-            for f in p.iterdir()
-        )
-
-    def _download_weights(self, weights_dir_path: Path) -> None:
-        weights_dir_path.mkdir(parents=True, exist_ok=True)
-        logger.info(
-            "Hunyuan3D-2.1 Unified weights not found locally; downloading "
-            "checkpoints from HuggingFace Hub tencent/Hunyuan3D-2.1..."
-        )
-        from huggingface_hub import snapshot_download
-
-        snapshot_download(
-            repo_id="tencent/Hunyuan3D-2.1",
-            local_dir=str(weights_dir_path),
-        )
-
-    # ── model lifecycle ────────────────────────────────────────────────
+        self._paint_is_hy3dpaint = False
 
     def _load_model(self) -> Any:
-        # Make the vendored hunyuan3d-2 source importable in the worker
-        # process, which only has backend/ on sys.path.
-        _hunyuan2_root = str(Path(__file__).resolve().parents[1] / "thirdparty" / "hunyuan3d-2")
-        if _hunyuan2_root not in sys.path:
-            sys.path.insert(0, _hunyuan2_root)
+        weights_dir = Path(self.model_path) if self.model_path else resolve_pretrained(self.MODEL_KEY)
+        if not weights_dir.is_dir():
+            raise FileNotFoundError(f"Hunyuan3D-2.1 weights missing: {weights_dir}")
 
-        # Hunyuan3D-2.1 shape pipeline lives under thirdparty/Hunyuan3D-2.1/hy3dshape
-        _hy3dshape_root = (
-            str(Path(__file__).resolve().parents[1] / "thirdparty" / "Hunyuan3D-2.1" / "hy3dshape")
-        )
-        if _hy3dshape_root not in sys.path:
-            sys.path.insert(0, _hy3dshape_root)
+        device = f"cuda:{self.gpu_id or 0}" if torch.cuda.is_available() else "cpu"
 
-        weights_dir = get_model_weights_dir(self.MODEL_KEY)
-        logger.info("Loading Hunyuan3D-2.1 Unified pipeline from %s", weights_dir)
-        weights_dir_path = Path(weights_dir)
+        with use_thirdparty("Hunyuan3D-2.1/hy3dshape", chdir=False):
+            from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
 
-        # Validate checkpoints before attempting to load pipelines.
-        delight_ok = self._has_valid_checkpoint("hunyuan3d-delight-v2-0", weights_dir_path)
-        paint_ok = self._has_valid_checkpoint("hunyuan3d-paint-v2-0-turbo", weights_dir_path) or self._has_valid_checkpoint(
-            "hunyuan3d-paint-v2-0", weights_dir_path
-        )
-        shape_ok = (
-            (weights_dir_path / "hunyuan3d-dit-v2-1").is_dir()
-            or (weights_dir_path / "config.json").is_file()
-        )
-        is_downloaded = shape_ok and delight_ok and paint_ok
-        if not is_downloaded:
-            self._download_weights(weights_dir_path)
-
-        device = f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu"
-
-        # ── Load shape pipeline (always needed for image_to_raw_mesh) ──
-        from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
+            logger.info("Loading Hunyuan3D-2.1 shape pipeline from %s", weights_dir)
+            shape_pipe = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(str(weights_dir), device=device)
+            if hasattr(shape_pipe, "enable_flashvdm"):
+                try:
+                    shape_pipe.enable_flashvdm()
+                except Exception as exc:
+                    logger.warning("Could not enable FlashVDM: %s", exc)
+            if torch.cuda.is_available() and hasattr(shape_pipe, "enable_model_cpu_offload"):
+                try:
+                    shape_pipe.enable_model_cpu_offload(gpu_id=self.gpu_id or 0)
+                except Exception as exc:
+                    logger.warning("Could not enable CPU offload: %s", exc)
+            self._shape_pipeline = shape_pipe
 
         try:
-            shape_pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-                str(weights_dir_path),
-                device=device,
-            )
-        except Exception as load_err:
-            logger.warning(
-                "Hunyuan3D-2.1 Unified shape load failed (%s); re-downloading and retrying.",
-                load_err,
-            )
-            self._download_weights(weights_dir_path)
-            shape_pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-                str(weights_dir_path),
-                device=device,
-            )
-
-        if hasattr(shape_pipeline, "enable_flashvdm") and bool(getattr(self, "enable_flashvdm", True)):
-            try:
-                shape_pipeline.enable_flashvdm()
-                logger.info("Hunyuan3D-2.1 Unified FlashVDM decoder enabled")
-            except Exception as vdm_err:
-                logger.warning("Could not enable FlashVDM for Hunyuan3D-2.1 Unified: %s", vdm_err)
-
-        if torch is not None and torch.cuda.is_available() and hasattr(shape_pipeline, "enable_model_cpu_offload"):
-            try:
-                shape_pipeline.enable_model_cpu_offload(
-                    gpu_id=self.gpu_id if self.gpu_id is not None else 0
-                )
-            except Exception as offload_err:
-                logger.warning(
-                    "Could not enable model CPU offload for Hunyuan3D-2.1 Unified: %s",
-                    offload_err,
-                )
-
-        self._shape_pipeline = shape_pipeline
-        self.model = shape_pipeline
-
-        # ── Load paint pipeline (needed for texture autochain / paint page) ──
-        self._paint_is_hy3dpaint = False
-        if bool(getattr(self, "enable_realesrgan", True)):
-            try:
-                hy3dpaint_dir = str(Path(__file__).resolve().parents[1] / "thirdparty" / "Hunyuan3D-2.1" / "hy3dpaint")
-                if hy3dpaint_dir not in sys.path:
-                    sys.path.insert(0, hy3dpaint_dir)
-                from textureGenPipeline import Hunyuan3DPaintConfig, Hunyuan3DPaintPipeline as Hy3DPaintV21Pipeline
-
-                self._paint_pipeline = Hy3DPaintV21Pipeline(Hunyuan3DPaintConfig(6, 512))
+            with use_thirdparty("Hunyuan3D-2.1/hy3dpaint", chdir=False):
+                from textureGenPipeline import Hunyuan3DPaintConfig, Hunyuan3DPaintPipeline as Hy3DPaintV21
+                self._paint_pipeline = Hy3DPaintV21(Hunyuan3DPaintConfig(6, 512))
                 self._paint_is_hy3dpaint = True
-                logger.info("Hunyuan3D-2.1 Unified hy3dpaint (RealESRGAN) pipeline loaded")
-            except Exception as hy3dpaint_err:
-                logger.warning("hy3dpaint (RealESRGAN) unavailable (%s); falling back to hy3dgen paint.", hy3dpaint_err)
-
-        if self._paint_pipeline is None:
+                logger.info("Hunyuan3D-2.1 hy3dpaint pipeline loaded")
+        except Exception as exc:
+            logger.warning("hy3dpaint unavailable (%s); trying hy3dgen paint fallback", exc)
             try:
-                from hy3dgen.texgen.pipelines import Hunyuan3DPaintPipeline
-
-                paint_weights_dir = Path(get_model_weights_dir("tencent/Hunyuan3D-2"))
-                paint_subfolder = (
+                paint_dir = resolve_pretrained("Hunyuan3D-2")
+                paint_sub = (
                     "hunyuan3d-paint-v2-0-turbo"
-                    if (paint_weights_dir / "hunyuan3d-paint-v2-0-turbo" / "model_index.json").is_file()
+                    if (paint_dir / "hunyuan3d-paint-v2-0-turbo" / "model_index.json").is_file()
                     else "hunyuan3d-paint-v2-0"
                 )
-                try:
-                    paint_pipeline = Hunyuan3DPaintPipeline.from_pretrained(
-                        str(paint_weights_dir), subfolder=paint_subfolder
-                    )
-                except Exception as paint_err:
-                    logger.warning(
-                        "Hunyuan3D-2.1 Unified paint load failed (%s); re-downloading and retrying.",
-                        paint_err,
-                    )
-                    from huggingface_hub import snapshot_download
-
-                    snapshot_download(
-                        repo_id="tencent/Hunyuan3D-2",
-                        local_dir=str(paint_weights_dir),
-                        allow_patterns=[
-                            "hunyuan3d-paint-v2-0/**/*",
-                            "hunyuan3d-paint-v2-0-turbo/**/*",
-                            "hunyuan3d-delight-v2-0/**/*",
-                        ],
-                    )
-                    paint_pipeline = Hunyuan3DPaintPipeline.from_pretrained(
-                        str(paint_weights_dir), subfolder=paint_subfolder
-                    )
-
-                self._paint_pipeline = paint_pipeline
-                logger.info("Hunyuan3D-2.1 Unified paint pipeline loaded from %s", weights_dir_path)
-            except Exception as paint_load_err:
-                logger.warning(
-                    "Hunyuan3D-2.1 Unified paint pipeline not loaded (texture disabled): %s",
-                    paint_load_err,
-                )
+                with use_thirdparty("hunyuan3d-2", chdir=False):
+                    from hy3dgen.texgen.pipelines import Hunyuan3DPaintPipeline
+                    self._paint_pipeline = Hunyuan3DPaintPipeline.from_pretrained(str(paint_dir), subfolder=paint_sub)
+            except Exception as fb_exc:
+                logger.warning("Hunyuan3D-2.1 paint disabled: %s", fb_exc)
                 self._paint_pipeline = None
 
-        return shape_pipeline
+        return self._shape_pipeline
 
     def _unload_model(self) -> None:
         self._shape_pipeline = None
         self._paint_pipeline = None
-        self.model = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
-    # ── inference ──────────────────────────────────────────────────────
+    def _run_paint(self, mesh_path: str, image_path: str, out: Path) -> None:
+        if self._paint_is_hy3dpaint:
+            self._paint_pipeline(
+                mesh_path=str(mesh_path),
+                image_path=str(image_path),
+                output_mesh_path=str(out.with_suffix(".obj")),
+                use_remesh=False,
+                save_glb=True,
+            )
+        else:
+            textured = self._paint_pipeline(mesh=trimesh.load(mesh_path, process=False), image=Image.open(image_path))
+            textured.export(str(out))
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        raw_tex = inputs.get("texture_enabled")
-        if raw_tex is None:
-            raw_tex = inputs.get("generate_texture", False)
-        texture_enabled = (
-            raw_tex.strip().lower() in {"1", "true", "yes", "on"}
-            if isinstance(raw_tex, str)
-            else bool(raw_tex)
-        )
+        seed = int(inputs["seed"])
+        tex_raw = inputs.get("texture_enabled", inputs.get("generate_texture", False))
+        texture_enabled = tex_raw.strip().lower() in {"1", "true", "yes", "on"} if isinstance(tex_raw, str) else bool(tex_raw)
+        tex_res = max(512, min(4096, int(inputs.get("texture_resolution") or 2048)))
 
-        # ── Paint-only mode: existing mesh + reference image → textured mesh ──
         if self.feature_type == "image_mesh_painting":
-            pipeline = self._paint_pipeline
-            if pipeline is None:
-                return {
-                    "success": False,
-                    "error": "Hunyuan3D-2.1 Unified paint pipeline not loaded",
-                }
-
-            mesh_path = inputs.get("mesh_path")
-            image_path = inputs.get("image_path")
+            if self._paint_pipeline is None:
+                return {"success": False, "error": "Hunyuan3D-2.1 paint pipeline not loaded"}
+            mesh_path, image_path = inputs.get("mesh_path"), inputs.get("image_path")
             if not mesh_path or not Path(mesh_path).is_file():
-                return {"success": False, "error": f"mesh not found: {mesh_path}"}
+                return {"success": False, "error": f"Mesh not found: {mesh_path}"}
             if not image_path or not Path(image_path).is_file():
-                return {"success": False, "error": f"image not found: {image_path}"}
-
-            seed = int(inputs.get("seed", DEFAULT_SEED))
-            texture_resolution = int(inputs.get("texture_resolution") or 2048)
-            texture_resolution = max(512, min(4096, texture_resolution))
-
-            out_dir = self._create_temporary_output_dir("hunyuan3d21_paint")
-            out = out_dir / f"hunyuan3d_21_paint_{seed}.glb"
-            ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
-            if getattr(self, "_paint_is_hy3dpaint", False):
-                with ctx:
-                    pipeline(
-                        mesh_path=str(mesh_path),
-                        image_path=str(image_path),
-                        output_mesh_path=str(out.with_suffix(".obj")),
-                        use_remesh=False,
-                        save_glb=True,
-                    )
-            else:
-                import trimesh
-                from PIL import Image
-
-                mesh = trimesh.load(mesh_path, process=False)
-                image = Image.open(image_path)
-
-                with ctx:
-                    textured = pipeline(mesh=mesh, image=image)
-
-                if hasattr(textured, "export"):
-                    textured.export(str(out))
-                else:
-                    return {"success": False, "error": "Paint pipeline returned non-exportable object"}
-
+                return {"success": False, "error": f"Image not found: {image_path}"}
+            out = self._create_temporary_output_dir("hunyuan3d21_paint") / f"hunyuan3d_21_paint_{seed}.glb"
+            with torch.no_grad():
+                self._run_paint(str(mesh_path), str(image_path), out)
             return {
                 "success": True,
-                "output_mesh_path": str(out),
-                "mesh_path": str(out),
-                "textured_mesh_path": str(out),
+                "output_mesh_path": str(out.resolve()),
+                "mesh_path": str(out.resolve()),
+                "textured_mesh_path": str(out.resolve()),
                 "texture_enabled": True,
-                "generation_info": {
-                    "seed": seed,
-                    "texture_resolution": texture_resolution,
-                    "feature_type": "image_mesh_painting",
-                },
+                "generation_info": {"seed": seed, "texture_resolution": tex_res},
             }
 
-        # ── Shape generation mode (default) ──
-        pipeline = self._shape_pipeline
-        if pipeline is None:
-            return {
-                "success": False,
-                "error": "Hunyuan3D-2.1 Unified shape pipeline not loaded",
-            }
-
+        if self._shape_pipeline is None:
+            return {"success": False, "error": "Hunyuan3D-2.1 shape pipeline not loaded"}
         image_path = inputs.get("image_path") or inputs.get("image")
         if not image_path or not Path(image_path).is_file():
-            return {"success": False, "error": f"image not found: {image_path}"}
+            return {"success": False, "error": f"Image not found: {image_path}"}
 
-        seed = int(inputs.get("seed", DEFAULT_SEED))
-        num_inference_steps = int(inputs["num_inference_steps"])
-        guidance_scale = float(inputs["guidance_scale"])
-        octree_resolution = int(inputs["octree_resolution"])
-        num_chunks = int(inputs["num_chunks"])
-
-        import trimesh
-
-        generator = None
-        if torch is not None:
-            gen_device = (
-                getattr(pipeline, "_execution_device", None)
-                or (f"cuda:{self.gpu_id}" if self.gpu_id is not None else "cpu")
-            )
-            generator = torch.Generator(device=gen_device)
-            generator.manual_seed(seed)
-
-        ctx = torch.no_grad() if torch is not None else contextlib.nullcontext()
-        with ctx:
-            outputs = pipeline(
-                image=image_path,
-                num_inference_steps=num_inference_steps,
-                guidance_scale=guidance_scale,
-                octree_resolution=octree_resolution,
-                num_chunks=num_chunks,
-                output_type="trimesh",
-                generator=generator,
-            )
-
-        meshes = outputs if isinstance(outputs, list) else [outputs]
-        if not meshes:
-            return {"success": False, "error": "Hunyuan3D-2.1 Unified produced no mesh"}
-
-        mesh = meshes[0]
+        gen = torch.Generator(device="cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
+        shape_params = {
+            "num_inference_steps": int(inputs.get("num_inference_steps", 50)),
+            "guidance_scale": float(inputs.get("guidance_scale", 7.5)),
+            "octree_resolution": int(inputs.get("octree_resolution", 512)),
+            "num_chunks": int(inputs.get("num_chunks", 8000)),
+        }
+        with torch.no_grad():
+            mesh = self._shape_pipeline(image=str(image_path), generator=gen, **shape_params)[0]
 
         out_dir = self._create_temporary_output_dir("hunyuan3d21")
         out = out_dir / f"hunyuan3d_21_{seed}.glb"
         mesh.export(str(out))
 
-        # ── Texture autochain: paint on the raw mesh using already-loaded weights ──
+        textured_out: Path | None = None
         if texture_enabled and self._paint_pipeline is not None:
-            texture_image_path = inputs.get("image_path") or inputs.get("image")
-            if texture_image_path and Path(texture_image_path).is_file():
-                try:
-                    textured_out = out_dir / f"hunyuan3d_21_textured_{seed}.glb"
-                    if getattr(self, "_paint_is_hy3dpaint", False):
-                        with ctx:
-                            self._paint_pipeline(
-                                mesh_path=str(out),
-                                image_path=str(texture_image_path),
-                                output_mesh_path=str(textured_out.with_suffix(".obj")),
-                                use_remesh=False,
-                                save_glb=True,
-                            )
-                    else:
-                        from PIL import Image
-
-                        ref_image = Image.open(texture_image_path)
-                        with ctx:
-                            textured = self._paint_pipeline(mesh=mesh, image=ref_image)
-                        if hasattr(textured, "export"):
-                            textured.export(str(textured_out))
-                    if textured_out.is_file():
-                        return {
-                            "success": True,
-                            "output_mesh_path": str(out),
-                            "mesh_path": str(out),
-                            "textured_mesh_path": str(textured_out),
-                            "texture_enabled": True,
-                            "generation_info": {
-                                "seed": seed,
-                                "num_inference_steps": num_inference_steps,
-                                "guidance_scale": guidance_scale,
-                                "octree_resolution": octree_resolution,
-                                "num_chunks": num_chunks,
-                                "texture_enabled": True,
-                                "feature_type": "image_to_raw_mesh",
-                            },
-                        }
-                    logger.warning(
-                        "Paint pipeline returned non-exportable object; returning raw mesh only"
-                    )
-                except Exception as tex_err:
-                    logger.warning(
-                        "Hunyuan3D-2.1 Unified texture generation failed: %s",
-                        tex_err,
-                        exc_info=True,
-                    )
+            try:
+                textured_out = out_dir / f"hunyuan3d_21_textured_{seed}.glb"
+                with torch.no_grad():
+                    self._run_paint(str(out), str(image_path), textured_out)
+            except Exception as exc:
+                logger.warning("Hunyuan3D-2.1 texture autochain failed: %s", exc)
+                textured_out = None
 
         return {
             "success": True,
-            "output_mesh_path": str(out),
-            "mesh_path": str(out),
-            "generation_info": {
-                "seed": seed,
-                "num_inference_steps": num_inference_steps,
-                "guidance_scale": guidance_scale,
-                "octree_resolution": octree_resolution,
-                "num_chunks": num_chunks,
-                "texture_enabled": False,
-                "feature_type": "image_to_raw_mesh",
-            },
+            "output_mesh_path": str((textured_out or out).resolve()),
+            "mesh_path": str((textured_out or out).resolve()),
+            "textured_mesh_path": str(textured_out.resolve()) if textured_out else None,
+            "texture_enabled": textured_out is not None,
+            "actual_face_count": len(mesh.faces),
+            "actual_vertex_count": len(mesh.vertices),
+            "generation_info": {"seed": seed, "texture_resolution": tex_res, **shape_params},
         }
 
     def get_supported_formats(self) -> Dict[str, list[str]]:
-        return {"input": ["png", "jpg", "jpeg", "webp"], "output": ["glb", "obj"]}
+        return {"input": ["png", "jpg", "jpeg", "webp", "glb", "obj"], "output": ["glb", "obj"]}
 
     def get_parameter_schema(self) -> Dict[str, Any]:
-        return {
-            "parameters": {
-                "seed": {
-                    "type": "integer",
-                    "description": "Random seed for reproducibility",
-                    "default": DEFAULT_SEED,
-                    "minimum": 0,
-                    "required": False,
-                },
-                "texture_enabled": {
-                    "type": "boolean",
-                    "description": "Generate PBR texture after raw mesh (autochain)",
-                    "default": False,
-                    "required": False,
-                },
-                "texture_resolution": {
-                    "type": "integer",
-                    "description": "Texture resolution (512–4096)",
-                    "default": 2048,
-                    "minimum": 512,
-                    "maximum": 4096,
-                    "required": False,
-                },
-            }
-        }
+        return {"parameters": {}}

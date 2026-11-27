@@ -51,8 +51,9 @@ flowchart TD
     UI --> API["FastAPI<br/>/api/v1"]
     API --> REG["Model Manifest<br/>models.yaml"]
     REG --> SCH["Model Scheduler"]
-    SCH --> AD["Model Adapter<br/>isolated worker"]
-    AD --> GPU["GPU inference<br/>or CPU processing"]
+    SCH --> AD["Thin Model Adapter<br/>isolated worker"]
+    AD -->|"1. sm &lt; 80"| PAT["patcher/&lt;model&gt;"]
+    AD -->|"2. use_thirdparty + resolve_pretrained"| GPU["backend/thirdparty &amp; pretrained"]
     GPU --> OUT["Mesh / texture / motion outputs"]
     OUT --> STORE["backend/storage<br/>files + SQLite job state"]
     STORE --> API
@@ -91,7 +92,14 @@ The TRELLIS text-paint entry reuses the existing TRELLIS checkpoint and adapter 
 - **Adapter registration:** enabled model IDs live in <code>backend/core/scheduler/model_factory.py</code> (and <code>backend/adapters/__init__.py</code> derives <code>_ADAPTER_MAP</code> from it).
 - **Workspace route:** <code>/workspace/generate/&lt;workspace_id&gt;</code>.
 - **Persistent storage:** <code>backend/storage/</code>, including <code>backend/storage/job_queue.db</code> for the single-worker workspace flow.
-- **Third-party code:** pinned Git submodule at <code>backend/thirdparty</code>.
+- **Third-party code:** pinned Git submodule at <code>backend/thirdparty</code>, loaded dynamically via <code>backend/core/utils/upstream.py</code>.
+
+### How to Add a New Model
+
+1. **Weights & Repo:** Place upstream source under `backend/thirdparty/<Repo>` and weights under `backend/pretrained/<Model>`.
+2. **Optional Patcher:** Add `patcher/<model>/__init__.py` (`apply_patch()`) for any `sm < 80` or worker-local shims (never leak across sibling pipelines).
+3. **Thin Adapter:** Subclass `BaseModel` in `backend/adapters/<model>_adapter.py` using `resolve_pretrained("<Model>")` and `with use_thirdparty("<Repo>"):` (or `load_thirdparty_script(...)`), applying `patcher.<model>.apply_patch()` **first**.
+4. **Register:** Add the model entry to `backend/config/models.yaml` and `ModelFactory.ADAPTER_REGISTRY` in `backend/core/scheduler/model_factory.py`.
 
 See [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) for execution and ownership boundaries, and [Docs/api-documentation.md](Docs/api-documentation.md) for API route groups.
 

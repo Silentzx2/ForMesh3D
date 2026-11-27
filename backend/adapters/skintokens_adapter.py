@@ -1,335 +1,159 @@
 """
-=============================================================================
-MODEL ADAPTER SPECIFICATION & AGENT GOVERNANCE
-=============================================================================
-Model ID          : skintokens_auto_rigging
-Model Name        : SkinTokens — Unified Autoregressive Rigging
-Feature Target    : auto_rig
-Status            : PRODUCTION / ACTIVE
-Upstream Repo     : https://github.com/VAST-AI-Research/SkinTokens
-Upstream Pipeline : TokenRig (FSQ-CVAE + Qwen3-0.6B + GRPO refinement)
-Checkpoint / Path : backend/pretrained/SkinTokens
-Hardware / VRAM   : 14336 MB
------------------------------------------------------------------------------
-AGENT GOVERNANCE RULES:
-1. Large GPU & Upstream Native Logic Preservation:
-   On sm >= 80, SkinTokens runs in 100% native upstream mode (official
-   FlashAttention 2, native BF16, official inference schedule).
-2. T4 pre-Ampere execution: patcher/skintokens/ adapts attention to SDPA
-   and precision to FP16 without touching model code.
-3. Thin adapter: directly invokes official upstream demo.load_model and demo.run_rig.
-=============================================================================
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  SkinTokens Auto-Rigging Adapter                                             ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  Repo     : backend/thirdparty/SkinTokens (demo.py + bpy_server.py)          ║
+║  Weights  : backend/pretrained/SkinTokens                                    ║
+║  Patcher  : patcher.skintokens.apply_patch()  (sm < 80 + qwen3_compat)       ║
+║  States   : UNLOADED -> LOADING -> LOADED -> PROCESSING -> LOADED / ERROR    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
 from __future__ import annotations
 
+import gc
 import logging
-import os
 import subprocess
-import sys
-import tempfile
 from pathlib import Path
 from typing import Any, Dict
 
-try:
-    import torch
-except ImportError:  # pragma: no cover
-    torch = None
+import torch
 
-from backend.core.models.base import BaseModel, ModelStatus
-from backend.loader import get_model_weights_dir
+from core.models.base import BaseModel
+from core.utils.upstream import resolve_pretrained, resolve_thirdparty, use_thirdparty
 from patcher.skintokens import apply_patch, bpy_server_popen_args
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SEED = 42891  # matches quality.yaml seeds.base_seed / scheduler auto-seed base
-
 
 class SkinTokensAdapter(BaseModel):
-    """SkinTokens — Unified Autoregressive Rigging (Thin Model Adapter)."""
-
     MODEL_KEY = "SkinTokens"
     FEATURE_TYPE = "auto_rig"
 
-    _LOCKED_INFERENCE_PROFILE = {
-        "architecture": "TokenRig",
-        "llm_backbone": "Qwen3-0.6B",
-        "skin_quantizer": "FSQ-CVAE",
-        "precision": "bfloat16",
-        "attention": "flash_attention_2",
-    }
-
-    def __init__(self, vram_requirement: int = 14336, **kwargs: Any):
-        self.model_id = kwargs.get("model_id", "skintokens_auto_rigging")
-        self.model_path: Path | None = None
-        self.vram_requirement = vram_requirement
-        self.feature_type = kwargs.get("feature_type", self.FEATURE_TYPE)
-        self.status = ModelStatus.UNLOADED
-        self.gpu_id: int | None = None
-        self.gpu_ids: list[int] = []
-        self.resource_plan: dict[str, Any] = {}
-        self.native_topology = False
-        self.model: Any = None
-        self.device = "cpu"
-        self.dtype = None
-        self.version = "1.0"
-        self.experimental = False
+    def __init__(self, vram_requirement: int, **kwargs: Any):
+        super().__init__(
+            vram_requirement=vram_requirement,
+            model_id=kwargs.get("model_id"),
+            model_path=kwargs.get("model_path"),
+            feature_type=kwargs.get("feature_type", self.FEATURE_TYPE),
+        )
         self._server_proc: Any = None
         self._ckpt_path: str | None = None
 
-    def _load_model(self) -> Any:
-        skintokens_root = Path(__file__).resolve().parents[1] / "thirdparty" / "SkinTokens"
+    def _start_bpy_server(self) -> None:
+        skintokens_root = resolve_thirdparty("SkinTokens")
         repo_root = Path(__file__).resolve().parents[2]
-        root_str = str(skintokens_root)
-        if root_str not in sys.path:
-            sys.path.insert(0, root_str)
-
-        # Warn when running in low-VRAM / CPU-offload mode so the operator
-        # knows inference may be slower or may fail if the model does not fit.
-        strategy = (self.resource_plan or {}).get("strategy")
-        if strategy == "single_gpu_low_vram":
-            logger.warning(
-                "SkinTokens running in low-VRAM/offload mode (strategy=%s, "
-                "reservation=%sMB); inference may be slower or fail on GPU OOM.",
-                strategy,
-                (self.resource_plan or {}).get("reservation_mb", {}).get(
-                    self.gpu_id, "unknown"
-                ),
-            )
-
-        # Apply model-specific pre-Ampere (T4) hardware patcher and import shims
-        apply_patch(gpu_id=self.gpu_id)
-
-        import demo
-
-        # Start companion bpy binding server — run from skintokens_root so
-        # bpy_server.py (vendored in thirdparty/SkinTokens/) is found. The
-        # subprocess is a fresh interpreter, so it does not inherit the Michelangelo
-        # models stub injected by apply_patch(); launch it via bpy_server_popen_args
-        # which injects the stub before importing src.server.spec, preventing the
-        # ModuleNotFoundError: No module named 'src.model.michelangelo.models'
-        # crash that kept bpy_server from ever serving /ping.
-        _orig_cwd = os.getcwd()
-        os.chdir(str(skintokens_root))
-        try:
+        with use_thirdparty("SkinTokens", chdir=True):
             self._server_proc = subprocess.Popen(
                 bpy_server_popen_args(str(skintokens_root), str(repo_root)),
                 stdout=None,
                 stderr=None,
             )
-        finally:
-            os.chdir(_orig_cwd)
+
+    def _stop_bpy_server(self) -> None:
+        proc = self._server_proc
+        self._server_proc = None
+        if proc is None:
+            return
         try:
-            demo.wait_for_bpy_server()
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                proc.kill()
+                proc.wait(timeout=3)
+            except Exception:
+                logger.warning("Could not reap SkinTokens bpy_server", exc_info=True)
 
-            # Resolve weights and call official upstream model loader.
-            weights_dir = get_model_weights_dir(self.MODEL_KEY)
-            ckpt_path = self._resolve_checkpoint(weights_dir, skintokens_root)
-            self._ckpt_path = ckpt_path
+    def _load_model(self) -> Any:
+        # 1. Patcher FIRST
+        apply_patch(gpu_id=self.gpu_id)
 
-            # Ensure TokenRig locates local Qwen3-0.6B LLM config.
-            for qcand in [weights_dir / "models" / "Qwen3-0.6B", skintokens_root / "models" / "Qwen3-0.6B", Path("models/Qwen3-0.6B")]:
-                if qcand.is_dir():
-                    try:
+        weights_dir = Path(self.model_path) if self.model_path else resolve_pretrained(self.MODEL_KEY)
+        if not weights_dir.is_dir():
+            raise FileNotFoundError(f"SkinTokens weights missing: {weights_dir}")
+
+        ckpts = sorted(weights_dir.rglob("*.ckpt")) + sorted(weights_dir.rglob("*.safetensors"))
+        if not ckpts:
+            raise FileNotFoundError(f"No SkinTokens checkpoint found in {weights_dir}")
+        self._ckpt_path = str(ckpts[0])
+
+        # 2. Upstream SECOND
+        skintokens_root = resolve_thirdparty("SkinTokens")
+        self._start_bpy_server()
+        try:
+            with use_thirdparty("SkinTokens", chdir=True):
+                import demo
+                demo.wait_for_bpy_server()
+                for qcand in (weights_dir / "models" / "Qwen3-0.6B", skintokens_root / "models" / "Qwen3-0.6B"):
+                    if qcand.is_dir():
                         import src.model.tokenrig as tokenrig_mod
                         tokenrig_mod.LLM_LOCAL_DIR = qcand
-                    except Exception:
-                        pass
-                    break
-
-            logger.info("Loading SkinTokens model from %s", ckpt_path or "default")
-            _load_cwd = os.getcwd()
-            # TokenRig.__init__ loads cfg['pretrained_vae'] via a relative path
-            # ('experiments/skin_vae_.../last.ckpt'); run from weights_dir if present,
-            # and ensure configs/ (e.g. configs/skeleton/vroid.yaml) resolves there too.
-            if weights_dir.is_dir():
-                _cfg_link = weights_dir / "configs"
-                _src_cfg = skintokens_root / "configs"
-                if not _cfg_link.exists() and _src_cfg.is_dir():
-                    try:
-                        _cfg_link.symlink_to(_src_cfg)
-                    except OSError:
-                        pass
-                os.chdir(str(weights_dir))
-            try:
-                demo.load_model(model_ckpt=ckpt_path or "", hf_path=None)
-            except RuntimeError as e:
-                if "model_ckpt is empty" in str(e):
-                    raise RuntimeError(
-                        "SkinTokens model load failed: no checkpoint found. "
-                        "Download SkinTokens weights (manager.sh option 11 or "
-                        "backend/scripts/download_models.sh skintokens), then retry."
-                    ) from e
-                raise RuntimeError(
-                    "SkinTokens model load failed: the Michelangelo encoder source "
-                    "is not vendored in backend/thirdparty/SkinTokens/. "
-                    "Vendor src/model/michelangelo/models/ there, then retry. "
-                    f"Original error: {e}"
-                ) from e
-            finally:
-                os.chdir(_load_cwd)
-
-            self.model = demo.model
-            if getattr(self.model, "_skintokens_stub", False):
-                raise RuntimeError(
-                    "SkinTokens loaded a stub model because the Michelangelo encoder "
-                    "source is not vendored. "
-                    "Vendor backend/thirdparty/SkinTokens/src/model/michelangelo/models/"
-                    " (from upstream NeuralCarver/Michelangelo) and retry."
-                )
-            return self.model
+                        break
+                logger.info("Loading SkinTokens from %s", self._ckpt_path)
+                demo.load_model(model_ckpt=self._ckpt_path, hf_path=None)
         except Exception:
             self._stop_bpy_server()
             raise
-
-    def _stop_bpy_server(self) -> None:
-        """Terminate and reap the companion Blender-Python server process."""
-        process = self._server_proc
-        self._server_proc = None
-        if process is None:
-            return
-        try:
-            if process.poll() is None:
-                process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
-        except ProcessLookupError:
-            try:
-                process.wait(timeout=1)
-            except Exception:
-                pass
-        except Exception:
-            logger.warning("Could not reap SkinTokens bpy_server process", exc_info=True)
+        return self._ckpt_path
 
     def _unload_model(self) -> None:
         self._stop_bpy_server()
-        self.model = None
-
-    @staticmethod
-    def _resolve_checkpoint(weights_dir: Path, skintokens_root: Path) -> str | None:
-        candidates = [
-            weights_dir / "experiments" / "articulation_xl_quantization_256_token_4" / "grpo_1400.ckpt",
-            weights_dir / "experiments" / "articulation_xl_quantization_256_token_4" / "last.ckpt",
-            weights_dir / "grpo_1400.ckpt",
-            skintokens_root / "experiments" / "articulation_xl_quantization_256_token_4" / "grpo_1400.ckpt",
-            skintokens_root / "experiments" / "articulation_xl_quantization_256_token_4" / "last.ckpt",
-        ]
-        return next((str(c) for c in candidates if c.is_file()), None)
+        self._ckpt_path = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        if self.model is None:
-            return {"success": False, "error": "SkinTokens not loaded"}
-
-        mesh_path = inputs.get("mesh_path") or inputs.get("image_path") or inputs.get("image")
+        mesh_path = inputs.get("mesh_path")
         if not mesh_path or not Path(mesh_path).is_file():
-            return {"success": False, "error": f"Mesh file not found: {mesh_path}"}
+            return {"success": False, "error": f"Mesh not found: {mesh_path}"}
 
-        seed = int(inputs.get("seed", DEFAULT_SEED))
-        workdir = self._create_temporary_output_dir("skintokens")
-        out_file = workdir / f"{Path(mesh_path).stem}_rigged.glb"
+        seed = int(inputs["seed"])
+        torch.manual_seed(seed)
+        out_file = self._create_temporary_output_dir("skintokens") / f"{Path(mesh_path).stem}_rigged.glb"
+        rig_kwargs = {
+            "filepaths": [Path(mesh_path)],
+            "top_k": int(inputs.get("top_k", 5)),
+            "top_p": float(inputs.get("top_p", 0.95)),
+            "temperature": float(inputs.get("temperature", 1.0)),
+            "repetition_penalty": float(inputs.get("repetition_penalty", 2.0)),
+            "num_beams": int(inputs.get("num_beams", 10)),
+            "use_skeleton": bool(inputs.get("use_skeleton", False)),
+            "use_transfer": bool(inputs.get("use_transfer", True)),
+            "use_postprocess": bool(inputs.get("use_postprocess", False)),
+            "output_paths": [out_file],
+            "model_ckpt": self._ckpt_path or "",
+            "hf_path": None,
+        }
 
-        # Direct execution of official upstream inference function
-        import demo
-        import time as _time
-        if torch is not None:
-            torch.manual_seed(seed)
-        top_k = int(inputs["top_k"])
-        top_p = float(inputs["top_p"])
-        temperature = float(inputs["temperature"])
-        repetition_penalty = float(inputs["repetition_penalty"])
-        num_beams = int(inputs["num_beams"])
-        use_skeleton = bool(inputs["use_skeleton"])
-        use_transfer = bool(inputs["use_transfer"])
-        use_postprocess = bool(inputs["use_postprocess"])
-        logger.info("[SKINTOKENS] Sampling skeleton tokens and predicting skinning weights (seed=%d, beams=%d)...", seed, num_beams)
-        t_rig = _time.perf_counter()
-        try:
-            demo.run_rig(
-                filepaths=[Path(mesh_path)],
-                top_k=top_k,
-                top_p=top_p,
-                temperature=temperature,
-                repetition_penalty=repetition_penalty,
-                num_beams=num_beams,
-                use_skeleton=use_skeleton,
-                use_transfer=use_transfer,
-                use_postprocess=use_postprocess,
-                output_paths=[out_file],
-                model_ckpt=self._ckpt_path or "",
-                hf_path=None,
-            )
-        except Exception as exc:
-            if "RemoteDisconnected" in repr(exc) or "Connection aborted" in repr(exc):
-                if use_transfer:
-                    logger.warning("[SKINTOKENS] bpy_server disconnected during transfer; restarting bpy_server and retrying with use_transfer=False")
+        with use_thirdparty("SkinTokens", chdir=True):
+            import demo
+            try:
+                demo.run_rig(**rig_kwargs)
+            except Exception as exc:
+                if rig_kwargs["use_transfer"] and ("RemoteDisconnected" in repr(exc) or "Connection aborted" in repr(exc)):
+                    logger.warning("[SKINTOKENS] bpy_server disconnected during transfer; restarting with use_transfer=False")
                     self._stop_bpy_server()
-                    skintokens_root = Path(__file__).resolve().parent.parent / "thirdparty" / "SkinTokens"
-                    repo_root = Path(__file__).resolve().parent.parent.parent
-                    self._bpy_proc = subprocess.Popen(
-                        bpy_server_popen_args(str(skintokens_root), str(repo_root)),
-                        cwd=str(skintokens_root),
-                    )
+                    self._start_bpy_server()
                     demo.wait_for_bpy_server()
-                    demo.run_rig(
-                        filepaths=[Path(mesh_path)],
-                        top_k=top_k,
-                        top_p=top_p,
-                        temperature=temperature,
-                        repetition_penalty=repetition_penalty,
-                        num_beams=num_beams,
-                        use_skeleton=use_skeleton,
-                        use_transfer=False,
-                        use_postprocess=use_postprocess,
-                        output_paths=[out_file],
-                        model_ckpt=self._ckpt_path or "",
-                        hf_path=None,
-                    )
+                    rig_kwargs["use_transfer"] = False
+                    demo.run_rig(**rig_kwargs)
                 else:
-                    raise RuntimeError(
-                        "SkinTokens Blender worker (bpy_server) disconnected during rigging; "
-                        "the mesh may have caused Blender to crash or run out of memory."
-                    ) from exc
-            else:
-                raise
-        logger.info("[SKINTOKENS] Rig decoding and GLB export completed elapsed=%.2fs output=%s", _time.perf_counter() - t_rig, out_file.name)
+                    raise
 
         if not out_file.is_file() or out_file.stat().st_size == 0:
-            return {"success": False, "error": "SkinTokens produced no output file"}
+            return {"success": False, "error": "SkinTokens produced no rigged GLB"}
 
         return {
             "success": True,
-            "output_mesh_path": str(out_file),
-            "mesh_path": str(out_file),
-            "generation_info": {
-                "seed": seed,
-                "top_k": top_k,
-                "top_p": top_p,
-                "temperature": temperature,
-                "repetition_penalty": repetition_penalty,
-                "num_beams": num_beams,
-                "use_skeleton": use_skeleton,
-                "use_transfer": use_transfer,
-                "use_postprocess": use_postprocess,
-            },
+            "output_mesh_path": str(out_file.resolve()),
+            "mesh_path": str(out_file.resolve()),
+            "generation_info": {"seed": seed, "use_transfer": rig_kwargs["use_transfer"]},
         }
 
     def get_supported_formats(self) -> Dict[str, list[str]]:
-        return {"input": ["obj", "glb", "fbx"], "output": ["glb"]}
+        return {"input": ["glb", "obj", "fbx", "ply", "stl"], "output": ["glb"]}
 
     def get_parameter_schema(self) -> Dict[str, Any]:
-        return {
-            "parameters": {
-                "seed": {"type": "integer", "description": "Random seed", "default": DEFAULT_SEED, "minimum": 0, "required": False},
-                "top_k": {"type": "integer", "description": "Top-k sampling threshold", "default": 5, "minimum": 1, "maximum": 50, "required": False},
-                "top_p": {"type": "number", "description": "Top-p sampling probability", "default": 0.95, "minimum": 0.0, "maximum": 1.0, "required": False},
-                "temperature": {"type": "number", "description": "Sampling temperature", "default": 1.0, "minimum": 0.01, "maximum": 2.0, "required": False},
-                "repetition_penalty": {"type": "number", "description": "Repetition penalty", "default": 2.0, "minimum": 1.0, "maximum": 5.0, "required": False},
-                "num_beams": {"type": "integer", "description": "Beam search count", "default": 10, "minimum": 1, "maximum": 20, "required": False},
-                "use_skeleton": {"type": "boolean", "description": "Use existing mesh skeleton", "default": False, "required": False},
-                "use_transfer": {"type": "boolean", "description": "Transfer original textures and scale", "default": True, "required": False},
-                "use_postprocess": {"type": "boolean", "description": "Apply voxel skin postprocessing", "default": False, "required": False},
-            }
-        }
+        return {"parameters": {}}
