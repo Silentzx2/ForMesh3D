@@ -17,7 +17,7 @@ let currentAssetValue: { id: string; name: string; category: string } | null = {
 
 let mockSetCurrentAsset: (asset: { id: string; name: string; category: string } | null) => void = () => {};
 let mockUpdateAssetProperties: () => void = () => {};
-let mockUploadMeshAsset: () => Promise<unknown> = () => new Promise(() => {});
+const mockUploadMeshAsset = mock(() => new Promise<unknown>(() => {}));
 
 let setCurrentAssetCalls: any[] = [];
 let revokeCalls: string[] = [];
@@ -58,7 +58,8 @@ beforeEach(() => {
   mockAbortImpl = mock(() => {
     abortCalls += 1;
   });
-  mockUploadMeshAsset = mock(() => new Promise(() => {})); // never resolves = in-flight upload
+  mockUploadMeshAsset.mockClear();
+  mockUploadMeshAsset.mockImplementation(() => new Promise<unknown>(() => {})); // never resolves = in-flight upload
 
   currentAssetValue = { id: 'previous-asset', name: 'previous.glb', category: 'mesh' };
   mockSetCurrentAsset = mock((asset: any) => {
@@ -135,6 +136,7 @@ describe('useMeshAssetUpload — AbortController cancel', () => {
 
     // Drive upload (synchronous; SSR won't flush state but side effects run).
     void live.upload(file);
+    await Promise.resolve();
     assert.equal(mockCreateObjectURL.mock.calls.length, 1, 'blob URL created for local preview');
 
     live.cancel();
@@ -170,9 +172,11 @@ describe('useMeshAssetUpload — AbortController cancel', () => {
 
     const file = new File([new Uint8Array([1])], 'mesh.glb', { type: 'model/gltf-binary' });
     void live.upload(file);
+    await Promise.resolve();
 
     assert.doesNotThrow(() => live.cancel());
-    assert.equal(setCurrentAssetCalls.length, 1, 'setCurrentAsset called once (with local asset), no restore when no previous asset');
+    assert.equal(setCurrentAssetCalls.length, 2, 'local preview is mounted then cleared on cancel');
+    assert.equal(setCurrentAssetCalls[1], null, 'no previous asset leaves the viewer empty');
   });
 
   it('allows a new upload after cancel (uploadInProgress cleared)', async () => {
@@ -190,11 +194,13 @@ describe('useMeshAssetUpload — AbortController cancel', () => {
 
     const file = new File([new Uint8Array([1])], 'mesh.glb', { type: 'model/gltf-binary' });
     void live.upload(file);
+    await Promise.resolve();
     live.cancel();
 
     // A second upload should be accepted (uploadInProgress was cleared by cancel).
     const file2 = new File([new Uint8Array([2])], 'mesh2.glb', { type: 'model/gltf-binary' });
     void live.upload(file2);
+    await Promise.resolve();
     assert.equal(mockUploadMeshAsset.mock.calls.length, 2, 'second upload accepted after cancel');
   });
 
@@ -215,6 +221,7 @@ describe('useMeshAssetUpload — AbortController cancel', () => {
 
     const file = new File([new Uint8Array([1])], 'mesh.glb', { type: 'model/gltf-binary' });
     void live.upload(file);
+    await Promise.resolve();
     live.cancel();
     live.reset();
 
@@ -239,6 +246,7 @@ describe('useMeshAssetUpload — AbortController cancel', () => {
 
     const file = new File([new Uint8Array([1])], 'mesh.glb', { type: 'model/gltf-binary' });
     void live.upload(file);
+    await Promise.resolve();
     live.cancel();
 
     assert.ok(setCurrentAssetCalls.length >= 1, 'cancel path executed setCurrentAsset restore');

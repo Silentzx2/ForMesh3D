@@ -86,11 +86,36 @@ export function useMeshAssetUpload() {
   const upload = useCallback(async (rawFile: File): Promise<ModelAsset | null> => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (uploadInProgress.current) return null;
-
-    const file = await requestMeshOrientation(rawFile);
-    if (!file) return null;
-
     uploadInProgress.current = true;
+    setState({
+      status: 'verifying',
+      fileName: rawFile.name,
+      loadedBytes: 0,
+      totalBytes: rawFile.size,
+      percent: 0,
+      error: null,
+    });
+
+    let file: File | null;
+    try {
+      file = await requestMeshOrientation(rawFile);
+    } catch (error) {
+      uploadInProgress.current = false;
+      setState({
+        status: 'error',
+        fileName: rawFile.name,
+        loadedBytes: 0,
+        totalBytes: rawFile.size,
+        percent: 0,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+    if (!file) {
+      uploadInProgress.current = false;
+      setState(initialState);
+      return null;
+    }
 
     const controller = new AbortController();
     abortControllerRef.current = controller;

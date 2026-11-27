@@ -53,9 +53,12 @@ async function loadMeshFromFile(file: File): Promise<THREE.Object3D> {
       const dracoLoader = new DRACOLoader();
       dracoLoader.setDecoderPath('/draco/');
       loader.setDRACOLoader(dracoLoader);
-      const gltf = await loader.loadAsync(url);
-      dracoLoader.dispose();
-      return gltf.scene;
+      try {
+        const gltf = await loader.loadAsync(url);
+        return gltf.scene;
+      } finally {
+        dracoLoader.dispose();
+      }
     }
     if (ext === 'obj') {
       const loader = new OBJLoader();
@@ -105,16 +108,22 @@ export function MeshOrientationModal() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const pendingRequestRef = useRef<PendingOrientationRequest | null>(null);
   const pivotRef = useRef<THREE.Group | null>(null);
   const modelRef = useRef<THREE.Object3D | null>(null);
 
   useEffect(() => {
     activeListener = (req) => {
+      pendingRequestRef.current?.resolve(null);
+      pendingRequestRef.current = req;
       setRotationDeg({ x: 0, y: 0, z: 0 });
       setLoadError(null);
       setRequest(req);
     };
     return () => {
+      pendingRequestRef.current?.resolve(null);
+      pendingRequestRef.current = null;
       activeListener = null;
     };
   }, []);
@@ -252,6 +261,7 @@ export function MeshOrientationModal() {
   const handleCancel = useCallback(() => {
     if (!request || exporting) return;
     request.resolve(null);
+    if (pendingRequestRef.current === request) pendingRequestRef.current = null;
     setRequest(null);
   }, [request, exporting]);
 
@@ -264,6 +274,7 @@ export function MeshOrientationModal() {
 
     if (isUnrotated || !modelRef.current) {
       request.resolve(request.file);
+      if (pendingRequestRef.current === request) pendingRequestRef.current = null;
       setRequest(null);
       return;
     }
@@ -307,16 +318,58 @@ export function MeshOrientationModal() {
       const orientedFile = new File([buffer], `${stem}.glb`, {
         type: 'model/gltf-binary',
       });
-      request.resolve(orientedFile);
-      setRequest(null);
+      if (pendingRequestRef.current === request) {
+        request.resolve(orientedFile);
+        pendingRequestRef.current = null;
+        setRequest(null);
+      } else {
+        request.resolve(null);
+      }
     } catch {
       // Fallback to original file if export fails
-      request.resolve(request.file);
-      setRequest(null);
+      if (pendingRequestRef.current === request) {
+        request.resolve(request.file);
+        pendingRequestRef.current = null;
+        setRequest(null);
+      } else {
+        request.resolve(null);
+      }
     } finally {
       setExporting(false);
     }
   }, [request, rotationDeg, exporting]);
+
+  useEffect(() => {
+    if (!request) return;
+    const frame = requestAnimationFrame(() => {
+      dialogRef.current?.querySelector<HTMLElement>('button:not([disabled])')?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [request]);
+
+  const handleDialogKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      if (!exporting) handleCancel();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const controls = dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+    );
+    if (!controls?.length) {
+      event.preventDefault();
+      return;
+    }
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }, [exporting, handleCancel]);
 
   if (!request) return null;
 
@@ -326,8 +379,9 @@ export function MeshOrientationModal() {
       role="dialog"
       aria-modal="true"
       aria-labelledby="mesh-orientation-title"
+      onKeyDown={handleDialogKeyDown}
     >
-      <div className="w-full max-w-4xl rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] text-foreground shadow-2xl overflow-hidden flex flex-col">
+      <div ref={dialogRef} className="w-full max-w-4xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] text-foreground shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-[hsl(var(--border))]">
           <div className="flex items-center gap-2">

@@ -62,7 +62,7 @@ Use only the currently exported shared presets. Prefer local CSS transitions for
 - Preserve loading, disabled, empty, success and error states when changing async UI.
 - Avoid hover-only functionality; touch and keyboard interaction must remain usable.
 - Respect reduced-motion preferences for non-essential movement.
-- Keep destructive actions visually distinct and require the existing confirmation pattern where one is already used.
+- Keep destructive actions visually distinct and require the existing confirmation pattern where one is already used. Delete/Trash dialogs keep keyboard focus contained, close with Escape when idle, and confirm irreversible purge/empty actions; failed server deletes keep the dialog open.
 - Reuse existing toast, dialog, tooltip, and progress primitives.
 
 ## 6. Workspace and viewport behavior

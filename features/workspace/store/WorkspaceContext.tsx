@@ -3338,11 +3338,8 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
 
     if (isSameTool) {
       // Re-entering the active tool returns it to its empty/default workspace view.
-      selectedAssetIdRef.current = null;
-      setSelectedAssetId(null);
-      setActiveMeshAssetId(null);
+      setCurrentAsset(null);
       setWorkspaceId(null);
-      useViewerStore.getState().setLoadedModel(null, null, null);
     } else if (nextWorkspaceId) {
       const preferred = findPreferredVersionForTool(workspaceVersionsRef.current, tool);
       if (preferred && preferred.asset_id !== activeMeshAssetIdRef.current) {
@@ -3385,7 +3382,7 @@ async function resolveMeshReference(asset?: ModelAsset | null, signal?: AbortSig
         window.history.replaceState(null, '', route);
       }
     }
-  }, [pathname, router, setMainNav, setActiveTool, setIsLeftPanelOpen, isWorkspaceShellActive, setSelectedAssetId, setActiveMeshAssetId, setWorkspaceId]);
+  }, [pathname, router, setMainNav, setActiveTool, setIsLeftPanelOpen, isWorkspaceShellActive, setCurrentAsset, setWorkspaceId]);
 
   const navigateToMain = useCallback((nav: MainNavRoute) => {
     setMainNav(nav);

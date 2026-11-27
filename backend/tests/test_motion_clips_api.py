@@ -437,8 +437,10 @@ def test_motion_openapi_routes_and_order():
     assert "/api/v1/motion/uploads/from-clip/{clip_id}" in paths
     assert "/api/v1/motion/clips/{clip_id}" in paths
 
-    route_paths = [getattr(r, "path", "") for r in app.routes]
-    assert route_paths.index("/api/v1/motion/clips/preview") < route_paths.index("/api/v1/motion/clips/{clip_id}")
+    # The preview is a POST while the parameterized clip lookup is a GET;
+    # the method-specific contract avoids depending on framework route internals.
+    assert "post" in paths["/api/v1/motion/clips/preview"]
+    assert "get" in paths["/api/v1/motion/clips/{clip_id}"]
 
 
 # ---------------------------------------------------------------------------
@@ -500,6 +502,7 @@ def test_completed_ardy_clip_is_saved_as_idempotent_user_preset(tmp_path: Path, 
     generated_path = workspace_dir / "ardy_123.npz"
     generated_path.write_bytes(_make_ardy_npz_bytes(frames=4, joints=27, text="walk"))
     monkeypatch.setattr(motion_clips, "get_storage_base_dir", lambda: storage_dir)
+    monkeypatch.setattr(motion_generation, "get_storage_base_dir", lambda: storage_dir)
 
     class _FakeDB:
         def get_asset(self, asset_id: str):

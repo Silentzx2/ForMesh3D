@@ -135,8 +135,8 @@ class TripoSRAdapter(BaseModel):
         resolution = int(inputs.get("texture_resolution") or 2048)
         if texture_enabled and resolution not in TEXTURE_RESOLUTIONS:
             raise ValueError(f"texture_resolution must be one of {TEXTURE_RESOLUTIONS}")
-        foreground_ratio = float(inputs["foreground_ratio"])
-        mc_resolution = int(inputs["mc_resolution"])
+        foreground_ratio = float(inputs.get("foreground_ratio", 0.85))
+        mc_resolution = int(inputs.get("mc_resolution", MARCHING_CUBES_RESOLUTION))
         image = self._prepare_image(image_path, foreground_ratio=foreground_ratio)
         logger.info("[TRIPOSR] Encoding image into 3D triplane representation (device=%s)...", self.device)
         t_stage = __import__("time").perf_counter()

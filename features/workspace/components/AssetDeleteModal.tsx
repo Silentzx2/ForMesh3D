@@ -8,6 +8,36 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { AlertTriangle, RotateCcw, Trash2, X } from 'lucide-react';
 import type { ModelAsset, WorkspaceVersionItem } from '../types';
 
+
+function trapDialogFocus(
+  event: React.KeyboardEvent<HTMLDivElement>,
+  dialogRef: React.RefObject<HTMLDivElement | null>,
+  onClose: () => void,
+  busy: boolean,
+) {
+  if (event.key === 'Escape') {
+    if (!busy) onClose();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const controls = dialogRef.current?.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+  );
+  if (!controls?.length) {
+    event.preventDefault();
+    return;
+  }
+  const first = controls[0];
+  const last = controls[controls.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 export interface TrashItem {
   trash_id: string;
   kind: 'workspace' | 'asset';
@@ -129,9 +159,9 @@ interface AssetDeleteModalProps {
   asset: ModelAsset | null;
   derivedVersions: WorkspaceVersionItem[];
   onClose: () => void;
-  onDeleteWorkspace: (workspaceId: string, permanent: boolean) => Promise<void>;
-  onDeleteSpecificVersion: (workspaceId: string, assetId: string, permanent: boolean) => Promise<void>;
-  onDeleteStandalone: (asset: ModelAsset) => Promise<void>;
+  onDeleteWorkspace: (workspaceId: string, permanent: boolean) => Promise<boolean | void>;
+  onDeleteSpecificVersion: (workspaceId: string, assetId: string, permanent: boolean) => Promise<boolean | void>;
+  onDeleteStandalone: (asset: ModelAsset) => Promise<boolean | void>;
 }
 
 export function AssetDeleteModal({
@@ -148,6 +178,15 @@ export function AssetDeleteModal({
   const [permanent, setPermanent] = useState(false);
   const [countdown, setCountdown] = useState(3);
   const [busy, setBusy] = useState(false);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!asset) return;
+    const frame = requestAnimationFrame(() => {
+      dialogRef.current?.querySelector<HTMLElement>('button:not([disabled]), input:not([disabled])')?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [asset?.id]);
 
   useEffect(() => {
     setMode(hasDerived ? 'specific' : 'workspace');
@@ -173,14 +212,15 @@ export function AssetDeleteModal({
     if (busy) return;
     setBusy(true);
     try {
+      let deleted: boolean | void;
       if (mode === 'specific' && asset.workspace_id && selectedVersion) {
-        await onDeleteSpecificVersion(asset.workspace_id, selectedVersion.asset_id, permanent);
+        deleted = await onDeleteSpecificVersion(asset.workspace_id, selectedVersion.asset_id, permanent);
       } else if (asset.workspace_id) {
-        await onDeleteWorkspace(asset.workspace_id, permanent);
+        deleted = await onDeleteWorkspace(asset.workspace_id, permanent);
       } else {
-        await onDeleteStandalone(asset);
+        deleted = await onDeleteStandalone(asset);
       }
-      onClose();
+      if (deleted !== false) onClose();
     } finally {
       setBusy(false);
     }
@@ -191,12 +231,14 @@ export function AssetDeleteModal({
       className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
       role="dialog"
       aria-modal="true"
+      aria-labelledby="asset-delete-title"
+      onKeyDown={(event) => trapDialogFocus(event, dialogRef, onClose, busy)}
     >
-      <div className="w-full max-w-lg rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] text-foreground shadow-2xl overflow-hidden">
+      <div ref={dialogRef} className="w-full max-w-lg rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] text-foreground shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-[hsl(var(--border))]">
           <div className="flex items-center gap-2">
             <Trash2 className="w-4 h-4 text-rose-400" />
-            <h2 className="text-sm font-semibold">Delete Mesh</h2>
+            <h2 id="asset-delete-title" className="text-sm font-semibold">Delete Mesh</h2>
           </div>
           <button
             type="button"
@@ -340,6 +382,16 @@ export function TrashBinModal({
   onEmpty,
 }: TrashBinModalProps) {
   const [busyId, setBusyId] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      dialogRef.current?.querySelector<HTMLElement>('button:not([disabled])')?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+
   if (!open) return null;
 
   return (
@@ -347,13 +399,15 @@ export function TrashBinModal({
       className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
       role="dialog"
       aria-modal="true"
+      aria-labelledby="trash-bin-title"
+      onKeyDown={(event) => trapDialogFocus(event, dialogRef, onClose, busyId !== null)}
     >
-      <div className="w-full max-w-lg rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] text-foreground shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+      <div ref={dialogRef} className="w-full max-w-lg rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] text-foreground shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-[hsl(var(--border))]">
           <div className="flex items-center gap-2">
             <Trash2 className="w-4 h-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold">Trash Bin</h2>
-            <span className="text-[11px] text-muted-foreground">(Temp — auto-clears on restart)</span>
+            <h2 id="trash-bin-title" className="text-sm font-semibold">Trash Bin</h2>
+            <span className="text-[11px] text-muted-foreground">(Temporary — OS cleanup may remove it)</span>
           </div>
           <button
             type="button"
@@ -403,6 +457,7 @@ export function TrashBinModal({
                     type="button"
                     disabled={busyId !== null}
                     onClick={async () => {
+                      if (!window.confirm(`Permanently delete "${item.name}"? This cannot be undone.`)) return;
                       setBusyId(item.trash_id);
                       try {
                         await onPurge(item.trash_id);
@@ -426,6 +481,7 @@ export function TrashBinModal({
             type="button"
             disabled={items.length === 0 || busyId !== null}
             onClick={async () => {
+              if (!window.confirm('Permanently delete every item in Trash? This cannot be undone.')) return;
               setBusyId('__empty');
               try {
                 await onEmpty();

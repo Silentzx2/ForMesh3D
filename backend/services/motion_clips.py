@@ -373,7 +373,7 @@ def _parse_npy_bytes(data: bytes) -> Tuple[Tuple[int, ...], str, List[Any]]:
         raise MotionClipError(422, "Invalid NPY array shape")
 
     # Reject object/pickle/void dtypes unconditionally
-    if not descr or descr[0] not in "<>=|" or len(descr) < 3:
+    if not descr or descr[0] not in "<>=|" or len(descr) < 2:
         raise MotionClipError(422, f"Unsupported NPY dtype '{descr}'")
     kind_char = descr[1]
     if kind_char in ("O", "V"):

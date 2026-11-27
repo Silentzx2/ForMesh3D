@@ -4,7 +4,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import { useMeshAssetUpload } from '@/hooks/useMeshAssetUpload';
 import { MeshUploadStatus } from '../Panels/MeshUploadStatus';
 import { AssetDeleteModal, TrashBinModal, type TrashItem } from '../components/AssetDeleteModal';
-import type { ModelAsset, WorkspaceVersionItem } from '../types';
+import { normalizeModelAsset, type ModelAsset, type WorkspaceVersionItem } from '../types';
 import { useQueryClient } from '@tanstack/react-query';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import { toast } from 'sonner';
@@ -57,10 +57,11 @@ export const RightAssetsPanel: React.FC = () => {
     setTrashLoading(true);
     try {
       const res = await fetch('/api/v1/system/trash');
-      if (res.ok) {
-        const data = await res.json();
-        setTrashItems(Array.isArray(data?.items) ? data.items : []);
-      }
+      if (!res.ok) throw new Error("Could not load Trash");
+      const data = await res.json();
+      setTrashItems(Array.isArray(data?.items) ? data.items : []);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not load Trash");
     } finally {
       setTrashLoading(false);
     }
@@ -741,7 +742,7 @@ export const RightAssetsPanel: React.FC = () => {
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           toast.error(err?.detail || 'Failed to delete workspace');
-          return;
+          return false;
         }
         if (workspaceId === wsId) {
           navigateToTool(activeTool);
@@ -750,6 +751,7 @@ export const RightAssetsPanel: React.FC = () => {
         queryClient.invalidateQueries({ queryKey: ['uploaded-assets'] });
         queryClient.invalidateQueries({ queryKey: ['history-assets'] });
         toast.success(permanent ? 'Workspace permanently deleted.' : 'Workspace moved to Trash.');
+        return true;
       }}
       onDeleteSpecificVersion={async (wsId, assetId, permanent) => {
         const res = await fetch(
@@ -759,20 +761,47 @@ export const RightAssetsPanel: React.FC = () => {
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           toast.error(err?.detail || 'Failed to delete version');
-          return;
+          return false;
         }
         setWorkspaceVersions((prev) => prev.filter((v) => v.asset_id !== assetId));
         if (currentAsset?.id === assetId) {
-          const base = workspaceVersions.find((v) => v.is_base);
+          const base = workspaceVersions.find((version) => version.is_base);
           if (base) {
+            const existingBase = assets.find((item) => item.id === base.asset_id || item.asset_id === base.asset_id);
+            if (existingBase) {
+              setCurrentAsset(existingBase);
+            } else {
+              const extension = base.url.split('?')[0].match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() || 'glb';
+              setCurrentAsset(normalizeModelAsset({
+                id: base.asset_id,
+                asset_id: base.asset_id,
+                workspace_id: wsId,
+                is_base_mesh: true,
+                operation_type: base.operation_type || 'generate',
+                name: base.name || base.version_label || 'Base Mesh',
+                format: extension.toUpperCase() as ModelAsset['format'],
+                category: 'generation',
+                thumbnail: base.thumbnail_url || '',
+                source: {
+                  filename: `${base.asset_id}.${extension}`,
+                  subfolder: 'generated',
+                  type: 'output',
+                  viewUrl: base.url,
+                  fileId: base.asset_id,
+                },
+              }));
+            }
+          } else {
             setCurrentAsset(null);
           }
         }
         queryClient.invalidateQueries({ queryKey: ['history-assets'] });
         toast.success(permanent ? 'Version permanently deleted.' : 'Version moved to Trash.');
+        return true;
       }}
       onDeleteStandalone={async (asset) => {
         await deleteAsset(asset.id);
+        return true;
       }}
     />
 
@@ -802,6 +831,9 @@ export const RightAssetsPanel: React.FC = () => {
         if (res.ok) {
           toast.success('Permanently deleted.');
           await loadTrashItems();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          toast.error(err?.detail || 'Permanent delete failed');
         }
       }}
       onEmpty={async () => {
@@ -809,6 +841,9 @@ export const RightAssetsPanel: React.FC = () => {
         if (res.ok) {
           toast.success('Trash emptied.');
           await loadTrashItems();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          toast.error(err?.detail || 'Could not empty Trash');
         }
       }}
     />
