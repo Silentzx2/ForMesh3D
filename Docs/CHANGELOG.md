@@ -1,3 +1,7 @@
+**Runtime follow-up (same release)** – Mini adapter now loads the Standard checkpoint; Hunyuan3D-2.1 Paint receives absolute local paths for the shared Paint snapshot, DINOv2, RealESRGAN and its config; the vendored Paint loader now uses the local shared snapshot instead of downloading a duplicate. Paint-only requests now fail clearly when required 2.1 dependencies are missing rather than silently falling back to 2.0.
+
+**2026-11-27 (Model Download Manager)** – Consolidated Hunyuan3D-2.1 Shape + Paint into one shared-snapshot download, added exact checkpoint-file verification and automatic DINOv2/RealESRGAN dependencies, corrected the vendored RealESRGAN destination, switched Mini downloads to the Standard checkpoint, removed Turbo from the manager menu, and synchronized `manager.sh` selections.
+
 # Change Log
 
 **2026-11-27 (Thin Adapter Rewrite)** – Added `backend/core/utils/upstream.py` (`use_thirdparty`, `load_thirdparty_script`, `resolve_pretrained`, `resolve_thirdparty`) and rewrote all 15 adapters (12 enabled + 3 disabled) cleanly from 0 with `patcher/`-first isolation, fail-fast local weights, and `compileall` verification across all backend modules; updated `Docs/` and `README.md` with architecture flowchart and new-model guide.

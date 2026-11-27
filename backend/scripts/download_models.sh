@@ -4,7 +4,7 @@
 # Usage: ./download_models.sh [OPTIONS]
 # 
 # Available models:
-#   hunyuan2mini, hunyuan21, trellis, trellis-text, trellis2,
+#   hunyuan21, hunyuan2mini, trellis, trellis-text, trellis2,
 #   skintokens, partuv, triposg, triposr, ardy, pixal3d, taoflowforge, misc, all
 #
 # Options:
@@ -119,7 +119,7 @@ VERIFY_ONLY=false
 FORCE_DOWNLOAD=false
 
 # Available models
-AVAILABLE_MODELS=("hunyuan2mini" "hunyuan21" "hunyuan3d_shape_v21" "hunyuan3d_paint_v21" "hunyuan3d_v20_paint" "stable_fast_3d" "hunyuan3d_dit_v2_mini_turbo" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "triflow" "partfield" "triposg" "triposr" "ardy" "pixal3d" "taoflowforge" "misc" "all")
+AVAILABLE_MODELS=("hunyuan21" "hunyuan2mini" "hunyuan3d_v20_paint" "stable_fast_3d" "trellis" "trellis-text" "trellis2" "skintokens" "unirig" "partuv" "triflow" "partfield" "triposg" "triposr" "ardy" "pixal3d" "taoflowforge" "misc" "all")
 
 show_help() {
     cat << EOF
@@ -135,11 +135,8 @@ Options:
     --list                  List all available models
 
 Available models:
-    hunyuan2mini       - Hunyuan3D 2.0 mini models
-    hunyuan21          - Hunyuan3D 2.1 models
-    hunyuan3d_shape_v21 - Hunyuan3D-Shape-v2-1 (3.3B shape)
-    hunyuan3d_paint_v21 - Hunyuan3D-Paint-v2-1 (2B PBR texture)
-    hunyuan3d_dit_v2_mini_turbo - Hunyuan3D-DiT-v2-mini-Turbo (0.6B low-VRAM)
+    hunyuan21          - Hunyuan3D 2.1 Shape + Paint bundle (shared weights, DINOv2, RealESRGAN)
+    hunyuan2mini       - Hunyuan3D 2.0 Mini Standard (0.6B shape model)
     trellis            - TRELLIS image-large model
     trellis-text       - TRELLIS text-xlarge model (optional)
     trellis2           - TRELLIS.2-4B model (image-based only)
@@ -348,91 +345,170 @@ download_with_verify() {
     fi
 }
 
-# Function to download Hunyuan3D 2.0 mini models
+# Verify the exact Standard Mini checkpoint files (not Turbo/Fast).
+verify_hunyuan2mini_checkpoint() {
+    local model_dir="$PRETRAINED_DIR/tencent/Hunyuan3D-2mini/hunyuan3d-dit-v2-mini"
+    verify_file "$model_dir/config.yaml" 500 || return 1
+    verify_any_weight_file 1000000000 \
+        "$model_dir/model.fp16.safetensors" \
+        "$model_dir/model.fp16.ckpt"
+}
+
+# Function to download Hunyuan3D 2.0 Mini Standard
 download_hunyuan2mini() {
     print_info "========================================"
-    print_info "Downloading Hunyuan3D 2.0 Mini Models"
+    print_info "Downloading Hunyuan3D 2.0 Mini Standard"
     print_info "========================================"
-    
+
     local model_dir="$PRETRAINED_DIR/tencent/Hunyuan3D-2mini"
-    
-    if [ "$FORCE_DOWNLOAD" = false ] && verify_directory "$model_dir" 5; then
-        print_info "Hunyuan3D 2.0 mini models already exist and verified"
+    if [ "$FORCE_DOWNLOAD" = false ] && verify_hunyuan2mini_checkpoint; then
+        print_info "Hunyuan3D 2.0 Mini Standard checkpoint is complete"
         return 0
     fi
-    
-    mkdir -p "$model_dir" 2>/dev/null || true
+
+    mkdir -p "$model_dir"
     ensure_writable_model_dir "$model_dir" || return 1
-    print_info "Downloading Hunyuan3D 2.0 mini (geometry)..."
-    if hf_download  tencent/Hunyuan3D-2mini \
-        --include "hunyuan3d-dit-v2-mini-turbo/*" \
+    print_info "Downloading Standard Mini checkpoint (hunyuan3d-dit-v2-mini)..."
+    if ! hf_download tencent/Hunyuan3D-2mini \
+        --include "hunyuan3d-dit-v2-mini/*" \
         --local-dir "$model_dir"; then
-        print_success "Hunyuan3D 2.0 mini models downloaded successfully"
-    else
-        print_error "Failed to download Hunyuan3D 2.0 mini models"
+        print_error "Failed to download Hunyuan3D 2.0 Mini Standard"
         return 1
     fi
+
+    if ! verify_hunyuan2mini_checkpoint; then
+        print_error "Mini Standard download is incomplete: config.yaml and model.fp16.safetensors/model.fp16.ckpt are required"
+        return 1
+    fi
+    print_success "Hunyuan3D 2.0 Mini Standard is ready"
 }
 
-# Function to download Hunyuan3D 2.1 models
-download_hunyuan21() {
-    print_info "========================================"
-    print_info "Downloading Hunyuan3D 2.1 Models"
-    print_info "========================================"
-    
+# Verify concrete checkpoint/config files instead of relying on directory file counts.
+verify_any_weight_file() {
+    local min_size="$1"
+    shift
+    local candidate
+    for candidate in "$@"; do
+        if [ -s "$candidate" ] && verify_file "$candidate" "$min_size"; then
+            return 0
+        fi
+    done
+    print_warning "No valid model weight found in: $*"
+    return 1
+}
+
+verify_hunyuan21_checkpoint() {
     local model_dir="$PRETRAINED_DIR/tencent/Hunyuan3D-2.1"
-    
-    if [ "$FORCE_DOWNLOAD" = false ] &&        verify_directory "$model_dir/hunyuan3d-dit-v2-1" 3 &&        verify_directory "$model_dir/hunyuan3d-vae-v2-1" 3 &&        verify_directory "$model_dir/hunyuan3d-paintpbr-v2-1" 3; then
-        print_info "Hunyuan3D 2.1 shared checkpoint is complete and verified"
-        return 0
-    fi
-    
-    mkdir -p "$model_dir" 2>/dev/null || true
-    ensure_writable_model_dir "$model_dir" || return 1
-    print_info "Downloading Hunyuan3D 2.1 models..."
-    if hf_download tencent/Hunyuan3D-2.1 --local-dir "$model_dir"; then
-        print_success "Hunyuan3D 2.1 models downloaded successfully"
-    else
-        print_error "Failed to download Hunyuan3D 2.1 models"
-        return 1
-    fi
+    local shape_dir="$model_dir/hunyuan3d-dit-v2-1"
+    local vae_dir="$model_dir/hunyuan3d-vae-v2-1"
+    local paint_dir="$model_dir/hunyuan3d-paintpbr-v2-1"
+
+    print_info "Verifying Hunyuan3D-2.1 Shape checkpoint..."
+    verify_file "$shape_dir/config.yaml" 1000 || return 1
+    verify_file "$shape_dir/model.fp16.ckpt" 1000000000 || return 1
+
+    print_info "Verifying Hunyuan3D-2.1 Shape VAE checkpoint..."
+    verify_file "$vae_dir/config.yaml" 200 || return 1
+    verify_file "$vae_dir/model.fp16.ckpt" 100000000 || return 1
+
+    print_info "Verifying Hunyuan3D-2.1 Paint checkpoint..."
+    verify_file "$paint_dir/model_index.json" 200 || return 1
+    verify_file "$paint_dir/unet/config.json" 200 || return 1
+    verify_any_weight_file 50000000 \
+        "$paint_dir/unet/diffusion_pytorch_model.safetensors" \
+        "$paint_dir/unet/diffusion_pytorch_model.bin" || return 1
+    verify_file "$paint_dir/vae/config.json" 200 || return 1
+    verify_any_weight_file 100000000 \
+        "$paint_dir/vae/diffusion_pytorch_model.safetensors" \
+        "$paint_dir/vae/diffusion_pytorch_model.bin" || return 1
 }
 
-# Function to download Hunyuan3D-Shape-v2-1 models
-download_hunyuan3d_shape_v21() {
-    print_info "========================================"
-    print_info "Downloading Hunyuan3D-Shape-v2-1 Models"
-    print_info "========================================"
-
-    # Shape-v2-1 shares the full Hunyuan3D-2.1 pipeline root with Paint.
-    download_hunyuan21
-}
-
-# Function to download Hunyuan3D-Paint-v2-1 models
-download_hunyuan3d_paint_v21() {
-    print_info "========================================"
-    print_info "Downloading Hunyuan3D-Paint-v2-1 Models"
-    print_info "========================================"
-
-    # Paint uses the same Hunyuan3D-2.1 root checkpoint as Shape.
-    download_hunyuan21
-
+download_realesrgan_dependency() {
     local realesrgan_path="$PRETRAINED_DIR/misc/RealESRGAN_x4plus.pth"
-    local thirdparty_realesrgan_path="$PROJECT_ROOT/backend/thirdparty/hunyuan3d-paint-v2-1/hy3dpaint/ckpt/RealESRGAN_x4plus.pth"
+    local thirdparty_paint_dir="$THIRDPARTY_DIR/Hunyuan3D-2.1/hy3dpaint"
+    local thirdparty_realesrgan_path="$thirdparty_paint_dir/ckpt/RealESRGAN_x4plus.pth"
 
     if [ "$FORCE_DOWNLOAD" = false ] && verify_file "$realesrgan_path" 50000000; then
-        print_info "RealESRGAN_x4plus already exists and verified"
+        print_info "RealESRGAN_x4plus is already downloaded"
     else
-        print_info "Downloading RealESRGAN_x4plus.pth..."
         mkdir -p "$PRETRAINED_DIR/misc"
-        download_with_verify             "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"             "$realesrgan_path"             "RealESRGAN_x4plus model"
+        download_with_verify \
+            "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth" \
+            "$realesrgan_path" \
+            "RealESRGAN_x4plus model" || return 1
     fi
 
+    if [ ! -d "$thirdparty_paint_dir" ]; then
+        print_error "Hunyuan3D-2.1 third-party source is missing: $thirdparty_paint_dir"
+        print_error "Initialize backend/thirdparty before downloading Paint dependencies."
+        return 1
+    fi
     mkdir -p "$(dirname "$thirdparty_realesrgan_path")"
-    if [ ! -f "$thirdparty_realesrgan_path" ] || [ "$FORCE_DOWNLOAD" = true ]; then
+    if [ ! -s "$thirdparty_realesrgan_path" ] || [ "$FORCE_DOWNLOAD" = true ]; then
         cp "$realesrgan_path" "$thirdparty_realesrgan_path"
     fi
+    verify_file "$thirdparty_realesrgan_path" 50000000
 }
+
+download_dinov2_dependency() {
+    local dinov2_dir="$PRETRAINED_DIR/dinov2-giant"
+    if [ "$FORCE_DOWNLOAD" = false ] && \
+       verify_file "$dinov2_dir/config.json" 500 && \
+       verify_file "$dinov2_dir/preprocessor_config.json" 300 && \
+       verify_file "$dinov2_dir/model.safetensors" 1000000000; then
+        print_info "DINOv2-Giant checkpoint is already downloaded"
+        return 0
+    fi
+
+    mkdir -p "$dinov2_dir"
+    ensure_writable_model_dir "$dinov2_dir" || return 1
+    print_info "Downloading DINOv2-Giant runtime dependency..."
+    if ! hf_download facebook/dinov2-giant --local-dir "$dinov2_dir" --exclude "*.bin"; then
+        print_error "Failed to download DINOv2-Giant"
+        return 1
+    fi
+
+    verify_file "$dinov2_dir/config.json" 500 &&
+    verify_file "$dinov2_dir/preprocessor_config.json" 300 &&
+    verify_file "$dinov2_dir/model.safetensors" 1000000000
+}
+
+download_hunyuan21_dependencies() {
+    print_info "Preparing Hunyuan3D-2.1 Paint runtime dependencies..."
+    download_dinov2_dependency || return 1
+    download_realesrgan_dependency || return 1
+}
+
+# One shared Hugging Face snapshot contains Shape, Shape VAE and Paint.
+download_hunyuan21() {
+    print_info "========================================"
+    print_info "Downloading Hunyuan3D 2.1 Shape + Paint"
+    print_info "========================================"
+
+    local model_dir="$PRETRAINED_DIR/tencent/Hunyuan3D-2.1"
+    if [ "$FORCE_DOWNLOAD" = false ] && verify_hunyuan21_checkpoint; then
+        print_info "Shared Hunyuan3D-2.1 Shape + Paint checkpoint is complete"
+    else
+        mkdir -p "$model_dir"
+        ensure_writable_model_dir "$model_dir" || return 1
+        print_info "Downloading the shared tencent/Hunyuan3D-2.1 repository once..."
+        if ! hf_download tencent/Hunyuan3D-2.1 --local-dir "$model_dir"; then
+            print_error "Failed to download Hunyuan3D-2.1 shared checkpoint"
+            return 1
+        fi
+        if ! verify_hunyuan21_checkpoint; then
+            print_error "Hunyuan3D-2.1 download is incomplete; required Shape, VAE and Paint files are missing"
+            return 1
+        fi
+    fi
+
+    download_hunyuan21_dependencies || return 1
+    print_success "Hunyuan3D-2.1 Shape + Paint and runtime dependencies are ready"
+}
+
+# Backward-compatible CLI aliases; both now resolve to the same combined bundle.
+download_hunyuan3d_shape_v21() { download_hunyuan21; }
+download_hunyuan3d_paint_v21() { download_hunyuan21; }
 
 # Function to download Hunyuan3D 2.0 Paint models (texture-only, no mesh weights)
 download_hunyuan3d_v20_paint() {
@@ -510,18 +586,6 @@ download_stable_fast_3d() {
     fi
 
     print_success "Stable Fast 3D is ready"
-}
-
-# Function to download Hunyuan3D-DiT-v2-mini-Turbo models
-download_hunyuan3d_dit_v2_mini_turbo() {
-    print_info "========================================"
-    print_info "Downloading Hunyuan3D-DiT-v2-mini-Turbo Models"
-    print_info "========================================"
-
-    # The mini-turbo pipeline root is the DiT checkpoint; the bundled
-    # checkpoint already contains the VAE weights, so only the DiT
-    # subfolder needs to be downloaded.
-    download_hunyuan2mini
 }
 
 # Function to download TRELLIS models
@@ -1038,38 +1102,12 @@ download_taoflowforge() {
     fi
 }
 
-# Function to download miscellaneous models
+# Function to download miscellaneous utility dependencies.
 download_misc() {
     print_info "========================================"
     print_info "Downloading Miscellaneous Models"
     print_info "========================================"
-    
-    # RealESRGAN_x4plus for Hunyuan3D-2.1
-    local realesrgan_path="$PRETRAINED_DIR/misc/RealESRGAN_x4plus.pth"
-    if [ "$FORCE_DOWNLOAD" = false ] && verify_file "$realesrgan_path" 50000000; then # 50MB minimum
-        print_info "RealESRGAN_x4plus already exists and verified"
-    else
-        mkdir -p $PRETRAINED_DIR/misc
-        download_with_verify \
-            "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth" \
-            "$realesrgan_path" \
-            "RealESRGAN_x4plus model"
-    fi
-    
-    local dinov2_dir="$PRETRAINED_DIR/dinov2-giant"
-    if [ "$FORCE_DOWNLOAD" = false ] && verify_directory "$dinov2_dir" 5; then
-        print_info "DINOv2-giant model already exists and verified"
-    else
-        mkdir -p "$dinov2_dir"
-        print_info "Downloading DINOv2-giant model..."
-        if hf_download  facebook/dinov2-giant \
-            --local-dir "$dinov2_dir" --exclude "*.bin"; then
-            print_success "DINOv2-giant model downloaded successfully"
-        else
-            print_error "Failed to download DINOv2-giant model"
-            return 1
-        fi
-    fi
+    download_hunyuan21_dependencies
 }
 
 # Function to verify all models
@@ -1080,38 +1118,35 @@ verify_all_models() {
     
     local all_verified=true
     
-    print_info "Checking Hunyuan3D 2.1 shared checkpoint..."
-    verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2.1/hunyuan3d-dit-v2-1" 3 || all_verified=false
-    verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2.1/hunyuan3d-vae-v2-1" 3 || all_verified=false
-    verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2.1/hunyuan3d-paintpbr-v2-1" 3 || all_verified=false
-    
-    print_info "Checking Hunyuan3D-Shape-v2-1..."
-    verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2.1" 5 || all_verified=false
-    
-    print_info "Checking Hunyuan3D-Paint-v2-1..."
-    verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2.1" 5 || all_verified=false
-    
+    print_info "Checking Hunyuan3D-2.1 Shape + Paint bundle..."
+    verify_hunyuan21_checkpoint || all_verified=false
+    verify_file "$PRETRAINED_DIR/misc/RealESRGAN_x4plus.pth" 50000000 || all_verified=false
+    verify_file "$THIRDPARTY_DIR/Hunyuan3D-2.1/hy3dpaint/ckpt/RealESRGAN_x4plus.pth" 50000000 || all_verified=false
+    verify_file "$PRETRAINED_DIR/dinov2-giant/config.json" 500 || all_verified=false
+    verify_file "$PRETRAINED_DIR/dinov2-giant/preprocessor_config.json" 300 || all_verified=false
+    verify_file "$PRETRAINED_DIR/dinov2-giant/model.safetensors" 1000000000 || all_verified=false
+
+    print_info "Checking Hunyuan3D 2.0 Mini Standard..."
+    verify_hunyuan2mini_checkpoint || all_verified=false
+
     print_info "Checking Hunyuan3D-Paint-v2-0..."
     verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2/hunyuan3d-paint-v2-0" 3 || all_verified=false
     verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2/hunyuan3d-delight-v2-0" 3 || all_verified=false
-    
-    print_info "Checking Hunyuan3D-DiT-v2-mini-Turbo..."
-    verify_directory "$PRETRAINED_DIR/tencent/Hunyuan3D-2mini/hunyuan3d-dit-v2-mini-turbo" 3 || all_verified=false
-    
+
     print_info "Checking TRELLIS image-large..."
     verify_directory "$PRETRAINED_DIR/TRELLIS/TRELLIS-image-large" 5 || all_verified=false
-    
+
     print_info "Checking TRELLIS text-xlarge (optional)..."
     verify_directory "$PRETRAINED_DIR/TRELLIS/TRELLIS-text-xlarge" 5 || print_warning "TRELLIS text-xlarge not found (optional)"
-    
+
     print_info "Checking SkinTokens..."
     verify_directory "$PRETRAINED_DIR/SkinTokens" 2 || all_verified=false
-    
+
     print_info "Checking PartUV..."
     verify_directory "$PRETRAINED_DIR/PartUV" 1 || all_verified=false
     print_info "Checking TriFlow..."
     verify_file "$PRETRAINED_DIR/TriFlow/flow_model.safetensors" 500000000 || print_warning "TriFlow checkpoints not found"
-    
+
     print_info "Checking TRELLIS.2-4B..."
     verify_directory "$PRETRAINED_DIR/TRELLIS.2/TRELLIS.2-4B" 5 || all_verified=false
 
@@ -1124,15 +1159,6 @@ verify_all_models() {
 
     print_info "Checking ARDY..."
     verify_directory "$PRETRAINED_DIR/ardy" 1 || all_verified=false
-
-    print_info "Checking miscellaneous models..."
-    verify_file "$PRETRAINED_DIR/misc/RealESRGAN_x4plus.pth" 50000000 || all_verified=false
-    verify_directory "$PRETRAINED_DIR/dinov2-giant" 5 || all_verified=false
-    
-    print_info "Checking Hunyuan3D-Paint-v2-1 RealESRGAN dependency..."
-    verify_file "$PRETRAINED_DIR/misc/RealESRGAN_x4plus.pth" 50000000 || all_verified=false
-    # Also verify the thirdparty copy expected by the Paint adapter.
-    verify_file "$PROJECT_ROOT/backend/thirdparty/hunyuan3d-paint-v2-1/hy3dpaint/ckpt/RealESRGAN_x4plus.pth" 50000000 || all_verified=false
 
     print_info "Checking Pixal3D..."
     if [ -d "$PRETRAINED_DIR/Pixal3D" ]; then
@@ -1197,23 +1223,17 @@ IFS=',' read -ra MODELS_ARRAY <<< "$MODELS_TO_DOWNLOAD"
 failed=false
 for model in "${MODELS_ARRAY[@]}"; do
     case "$model" in
-        "hunyuan2mini")
+        "hunyuan2mini"|"hunyuan3d_dit_v2_mini_turbo")
             download_hunyuan2mini
             ;;
-        "hunyuan3d_shape_v21")
-            download_hunyuan3d_shape_v21
-            ;;
-        "hunyuan3d_paint_v21")
-            download_hunyuan3d_paint_v21
+        "hunyuan21"|"hunyuan3d_shape_v21"|"hunyuan3d_paint_v21")
+            download_hunyuan21
             ;;
         "hunyuan3d_v20_paint")
             download_hunyuan3d_v20_paint
             ;;
         "stable_fast_3d")
             download_stable_fast_3d
-            ;;
-        "hunyuan3d_dit_v2_mini_turbo")
-            download_hunyuan3d_dit_v2_mini_turbo
             ;;
         "hunyuan21")
             download_hunyuan21
@@ -1259,10 +1279,9 @@ for model in "${MODELS_ARRAY[@]}"; do
             ;;
         "all")
             download_hunyuan21
-            download_hunyuan3d_paint_v21
+            download_hunyuan2mini
             download_hunyuan3d_v20_paint
             download_stable_fast_3d
-            download_hunyuan2mini
             download_trellis
             download_trellis_text
             download_trellis2
@@ -1274,7 +1293,6 @@ for model in "${MODELS_ARRAY[@]}"; do
             download_triposr
             download_ardy
             download_pixal3d
-            download_misc
             ;;
         *)
             print_error "Unknown model: $model"

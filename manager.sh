@@ -216,26 +216,23 @@ cmd_models() {
         banner
         printf "\t ${WHITE}${BOLD}MODEL DOWNLOAD${NC}\n\n"
         printf "  Select models to download from HuggingFace:\n\n"
-        printf "  ${CYAN}[1]${NC}  Hunyuan3D-Shape-v2-1 - 3.3B shape model\n"
-        printf "  ${CYAN}[2]${NC}  Hunyuan3D-Paint-v2-1 - PBR texture model\n"
-        printf "  ${CYAN}[3]${NC}  Hunyuan3D-DiT-v2-mini-Turbo - low-VRAM shape model\n"
-        printf "  ${CYAN}[4]${NC}  Hunyuan3D-2.1 Legacy - legacy integration\n"
-        printf "  ${CYAN}[5]${NC}  Hunyuan3D 2.0 Mini - mini-turbo shape model\n"
-        printf "  ${CYAN}[6]${NC}  Hunyuan3D-2 (v2.0) Paint - texture-only paint model\n"
-        printf "  ${CYAN}[7]${NC}  Stable Fast 3D      - image to textured mesh (HF-gated)\n"
-        printf "  ${CYAN}[8]${NC}  TRELLIS            - Image-large generation model\n"
-        printf "  ${CYAN}[9]${NC}  TRELLIS Text-XL    - Text-xlarge generation model (optional)\n"
-        printf "  ${CYAN}[10]${NC} TRELLIS.2-4B       - Image-based generation model\n"
-        printf "  ${CYAN}[11]${NC} SkinTokens         - Auto-rigging model\n"
-        printf "  ${CYAN}[12]${NC} PartUV             - UV unwrapping model\n"
-        printf "  ${CYAN}[13]${NC} Misc               - RealESRGAN, DINOv2\n"
-        printf "  ${CYAN}[14]${NC} TripoSG            - High-fidelity image-to-3D + RMBG\n"
-        printf "  ${CYAN}[15]${NC} ARDY               - Motion AI / Animation checkpoints\n"
-        printf "  ${CYAN}[17]${NC} Pixal3D             - High-quality pixel-aligned (Not Tested)\n"
-        printf "  ${CYAN}[18]${NC} TaoFlowForge        - Progressive native mesh generation (Alibaba)\n"
-        printf "  ${CYAN}[19]${NC} TriFlow             - Neural Quad-Dominant Retopology (TUM/Audi)\n"
-        printf "  ${CYAN}[20]${NC} PartField           - 3D Feature Fields for Part Segmentation (NVIDIA)\n"
-        printf "  ${CYAN}[21]${NC} TripoSR             - Image to mesh + optional base-color texture\n"
+        printf "  ${CYAN}[1]${NC}  Hunyuan3D-2.1 Shape + Paint - shared weights + DINOv2 + RealESRGAN\n"
+        printf "  ${CYAN}[2]${NC}  Hunyuan3D-2 Mini Standard  - 0.6B shape model\n"
+        printf "  ${CYAN}[3]${NC}  Hunyuan3D-2 (v2.0) Paint - texture-only paint model\n"
+        printf "  ${CYAN}[4]${NC}  Stable Fast 3D            - image to textured mesh (HF-gated)\n"
+        printf "  ${CYAN}[5]${NC}  TRELLIS                   - Image-large generation model\n"
+        printf "  ${CYAN}[6]${NC}  TRELLIS Text-XL           - Text-xlarge generation model (optional)\n"
+        printf "  ${CYAN}[7]${NC}  TRELLIS.2-4B              - Image-based generation model\n"
+        printf "  ${CYAN}[8]${NC}  SkinTokens                - Auto-rigging model\n"
+        printf "  ${CYAN}[9]${NC}  PartUV                    - UV unwrapping model\n"
+        printf "  ${CYAN}[10]${NC} Misc                      - DINOv2, RealESRGAN utilities\n"
+        printf "  ${CYAN}[11]${NC} TripoSG                   - High-fidelity image-to-3D + RMBG\n"
+        printf "  ${CYAN}[12]${NC} ARDY                      - Motion AI / Animation checkpoints\n"
+        printf "  ${CYAN}[13]${NC} Pixal3D                   - High-quality pixel-aligned (Not Tested)\n"
+        printf "  ${CYAN}[14]${NC} TaoFlowForge              - Progressive native mesh generation (Alibaba)\n"
+        printf "  ${CYAN}[15]${NC} TriFlow                   - Neural Quad-Dominant Retopology (TUM/Audi)\n"
+        printf "  ${CYAN}[16]${NC} PartField                 - 3D Feature Fields for Part Segmentation (NVIDIA)\n"
+        printf "  ${CYAN}[17]${NC} TripoSR                   - Image to mesh + optional base-color texture\n"
         printf "\n"
         printf "  ${CYAN}[a]${NC}  Download ALL models\n"
         printf "  ${CYAN}[v]${NC}  Verify existing models only\n"
@@ -270,27 +267,24 @@ cmd_models() {
                 for num in $choice; do
                     num=$(echo "$num" | tr -d ' ')
                     case "$num" in
-                        1) models_csv="${models_csv}hunyuan3d_shape_v21," ;;
-                        2) models_csv="${models_csv}hunyuan3d_paint_v21," ;;
-                        3) models_csv="${models_csv}hunyuan3d_dit_v2_mini_turbo," ;;
-                        4) models_csv="${models_csv}hunyuan21," ;;
-                        5) models_csv="${models_csv}hunyuan2mini," ;;
-                        6) models_csv="${models_csv}hunyuan3d_v20_paint," ;;
-                        7) models_csv="${models_csv}stable_fast_3d," ;;
-                        8) models_csv="${models_csv}trellis," ;;
-                        9) models_csv="${models_csv}trellis-text," ;;
-                        10) models_csv="${models_csv}trellis2," ;;
-                        11) models_csv="${models_csv}skintokens," ;;
-                        12) models_csv="${models_csv}partuv," ;;
-                        13) models_csv="${models_csv}misc," ;;
-                        14) models_csv="${models_csv}triposg," ;;
-                        15) models_csv="${models_csv}ardy," ;;
-                        17) models_csv="${models_csv}pixal3d," ;;
-                        18) models_csv="${models_csv}taoflowforge," ;;
-                        19) models_csv="${models_csv}triflow," ;;
-                        20) models_csv="${models_csv}partfield," ;;
-                        21) models_csv="${models_csv}triposr," ;;
-                         *)
+                        1) models_csv="${models_csv}hunyuan21," ;;
+                        2) models_csv="${models_csv}hunyuan2mini," ;;
+                        3) models_csv="${models_csv}hunyuan3d_v20_paint," ;;
+                        4) models_csv="${models_csv}stable_fast_3d," ;;
+                        5) models_csv="${models_csv}trellis," ;;
+                        6) models_csv="${models_csv}trellis-text," ;;
+                        7) models_csv="${models_csv}trellis2," ;;
+                        8) models_csv="${models_csv}skintokens," ;;
+                        9) models_csv="${models_csv}partuv," ;;
+                        10) models_csv="${models_csv}misc," ;;
+                        11) models_csv="${models_csv}triposg," ;;
+                        12) models_csv="${models_csv}ardy," ;;
+                        13) models_csv="${models_csv}pixal3d," ;;
+                        14) models_csv="${models_csv}taoflowforge," ;;
+                        15) models_csv="${models_csv}triflow," ;;
+                        16) models_csv="${models_csv}partfield," ;;
+                        17) models_csv="${models_csv}triposr," ;;
+                        *)
                             echo -e "${RED}[✗]${NC} Invalid selection: $num"
                             sleep 1
                             continue 2

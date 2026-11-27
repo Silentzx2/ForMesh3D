@@ -22,7 +22,7 @@ import trimesh
 from PIL import Image
 
 from core.models.base import BaseModel
-from core.utils.upstream import resolve_pretrained, use_thirdparty
+from core.utils.upstream import resolve_pretrained, resolve_thirdparty, use_thirdparty
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +66,48 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
             self._shape_pipeline = shape_pipe
 
         try:
+            paint_root = resolve_thirdparty("Hunyuan3D-2.1/hy3dpaint")
+            paint_weights = weights_dir / "hunyuan3d-paintpbr-v2-1"
+            dinov2_weights = resolve_pretrained("dinov2-giant")
+            realesrgan_weights = paint_root / "ckpt" / "RealESRGAN_x4plus.pth"
+            paint_config_path = paint_root / "cfgs" / "hunyuan-paint-pbr.yaml"
+
+            required_paint_files = (
+                paint_weights / "model_index.json",
+                paint_weights / "unet" / "config.json",
+                dinov2_weights / "config.json",
+                dinov2_weights / "preprocessor_config.json",
+                dinov2_weights / "model.safetensors",
+                realesrgan_weights,
+                paint_config_path,
+            )
+            missing = [str(path) for path in required_paint_files if not path.is_file()]
+            if missing:
+                raise FileNotFoundError(
+                    "Hunyuan3D-2.1 Paint dependencies are incomplete: " + ", ".join(missing)
+                )
+
             with use_thirdparty("Hunyuan3D-2.1/hy3dpaint", chdir=False):
                 from textureGenPipeline import Hunyuan3DPaintConfig, Hunyuan3DPaintPipeline as Hy3DPaintV21
-                self._paint_pipeline = Hy3DPaintV21(Hunyuan3DPaintConfig(6, 512))
+
+                paint_config = Hunyuan3DPaintConfig(6, 512)
+                paint_config.device = device
+                paint_config.multiview_cfg_path = str(paint_config_path)
+                paint_config.multiview_pretrained_path = str(weights_dir)
+                paint_config.dino_ckpt_path = str(dinov2_weights)
+                paint_config.realesrgan_ckpt_path = str(realesrgan_weights)
+
+                self._paint_pipeline = Hy3DPaintV21(paint_config)
                 self._paint_is_hy3dpaint = True
-                logger.info("Hunyuan3D-2.1 hy3dpaint pipeline loaded")
+                logger.info(
+                    "Hunyuan3D-2.1 Paint loaded from local weights (paint=%s, dino=%s, realesrgan=%s)",
+                    paint_weights,
+                    dinov2_weights,
+                    realesrgan_weights,
+                )
         except Exception as exc:
+            if self.feature_type == "image_mesh_painting":
+                raise RuntimeError(f"Hunyuan3D-2.1 Paint initialization failed: {exc}") from exc
             logger.warning("hy3dpaint unavailable (%s); trying hy3dgen paint fallback", exc)
             try:
                 paint_dir = resolve_pretrained("Hunyuan3D-2")

@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║  Hunyuan3D-2 Mini Turbo Image-to-Raw-Mesh Adapter                            ║
+║  Hunyuan3D-2 Mini Standard Image-to-Raw-Mesh Adapter                            ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  Repo     : backend/thirdparty/hunyuan3d-2 (hy3dgen.shapegen.pipelines)      ║
 ║  Weights  : backend/pretrained/tencent/Hunyuan3D-2mini                       ║
@@ -26,7 +26,7 @@ from core.utils.upstream import resolve_pretrained, use_thirdparty
 logger = logging.getLogger(__name__)
 
 
-class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
+class Hunyuan3DDiTV2MiniImageToRawMeshAdapter(BaseModel):
     MODEL_KEY = "tencent/Hunyuan3D-2mini"
     FEATURE_TYPE = "image_to_raw_mesh"
 
@@ -41,9 +41,9 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
 
     def _load_model(self) -> Any:
         weights_dir = Path(self.model_path) if self.model_path else resolve_pretrained(self.MODEL_KEY)
-        subfolder = "hunyuan3d-dit-v2-mini-turbo"
+        subfolder = "hunyuan3d-dit-v2-mini"
         sub_path = weights_dir / subfolder
-        if not sub_path.is_dir() and not (weights_dir / "config.json").is_file():
+        if not (sub_path / "config.yaml").is_file():
             raise FileNotFoundError(f"Hunyuan3D-2mini weights missing in {weights_dir}")
 
         device = f"cuda:{self.gpu_id or 0}" if torch.cuda.is_available() else "cpu"
@@ -71,7 +71,7 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         if self._pipeline is None:
-            return {"success": False, "error": "Hunyuan3D Mini Turbo pipeline not loaded"}
+            return {"success": False, "error": "Hunyuan3D Mini Standard pipeline not loaded"}
         image_path = inputs.get("image_path") or inputs.get("image")
         if not image_path or not Path(image_path).is_file():
             return {"success": False, "error": f"Image not found: {image_path}"}
@@ -84,8 +84,8 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
         seed = int(inputs["seed"])
         gen = torch.Generator(device="cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
         params = {
-            "num_inference_steps": int(inputs.get("num_inference_steps", 5)),
-            "guidance_scale": float(inputs.get("guidance_scale", 5.0)),
+            "num_inference_steps": int(inputs.get("num_inference_steps", 50)),
+            "guidance_scale": float(inputs.get("guidance_scale", 7.5)),
             "octree_resolution": int(inputs.get("octree_resolution", 512)),
             "num_chunks": int(inputs.get("num_chunks", 8000)),
         }
@@ -93,7 +93,7 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
         with torch.no_grad():
             mesh = self._pipeline(image=str(image_path), generator=gen, **params)[0]
 
-        out = self._create_temporary_output_dir("hunyuan3d_mini_turbo") / f"hunyuan3d_mini_{seed}.glb"
+        out = self._create_temporary_output_dir("hunyuan3d_mini_standard") / f"hunyuan3d_mini_{seed}.glb"
         mesh.export(str(out))
         return {
             "success": True,
@@ -109,3 +109,7 @@ class Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter(BaseModel):
 
     def get_parameter_schema(self) -> Dict[str, Any]:
         return {"parameters": {}}
+
+
+# Backward-compatible import name used by the existing adapter registry.
+Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter = Hunyuan3DDiTV2MiniImageToRawMeshAdapter
