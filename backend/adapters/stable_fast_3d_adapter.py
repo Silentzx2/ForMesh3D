@@ -50,7 +50,7 @@ def _preload_native_ext(pkg_root: Path, pkg_name: str) -> None:
 
 
 class StableFast3DAdapter(BaseModel):
-    MODEL_KEY = "StableFast3D"
+    MODEL_KEY = "stable-fast-3d"
     FEATURE_TYPE = "image_to_textured_mesh"
 
     def __init__(self, vram_requirement: int, **kwargs: Any):

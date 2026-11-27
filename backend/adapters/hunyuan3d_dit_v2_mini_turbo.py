@@ -3,9 +3,10 @@
 ║  Hunyuan3D-2 Mini Turbo Image-to-Raw-Mesh Adapter                            ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  Repo     : backend/thirdparty/hunyuan3d-2 (hy3dgen.shapegen.pipelines)      ║
-║  Weights  : backend/pretrained/Hunyuan3D-2mini                               ║
+║  Weights  : backend/pretrained/tencent/Hunyuan3D-2mini                       ║
 ║  Patcher  : None (CPU offload enabled on CUDA)                               ║
 ║  States   : UNLOADED -> LOADING -> LOADED -> PROCESSING -> LOADED / ERROR    ║
+║  Status   : STABLE & ACTIVE                                                  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
