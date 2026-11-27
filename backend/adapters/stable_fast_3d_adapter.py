@@ -3,9 +3,10 @@
 ║  Stable Fast 3D (SF3D) Image-to-Textured-Mesh Adapter                        ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  Repo     : backend/thirdparty/StableFast3D (sf3d.system.SF3D)               ║
-║  Weights  : backend/pretrained/StableFast3D                                  ║
+║  Weights  : backend/pretrained/stable-fast-3d                                ║
 ║  Patcher  : patcher.stable_fast_3d.attention.pre_ampere_chunked_sdpa (sm<80) ║
 ║  States   : UNLOADED -> LOADING -> LOADED -> PROCESSING -> LOADED / ERROR    ║
+║  Status   : STABLE & ACTIVE                                                  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 

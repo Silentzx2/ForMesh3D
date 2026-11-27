@@ -6,6 +6,7 @@
 ║  Weights  : backend/pretrained/tencent/Hunyuan3D-2.1                         ║
 ║  Patcher  : None (FlashVDM + CPU offload on CUDA)                            ║
 ║  States   : UNLOADED -> LOADING -> LOADED -> PROCESSING -> LOADED / ERROR    ║
+║  Status   : STABLE & ACTIVE                                                  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
