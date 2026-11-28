@@ -74,6 +74,14 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
   const viewerSelectedAsset = useViewerStore((state) => state.selectedAsset);
   const currentAssetRef = useRef(currentAsset);
   useEffect(() => { currentAssetRef.current = currentAsset; }, [currentAsset]);
+  useEffect(() => {
+    if (
+      orientationState !== 'idle' &&
+      (!loadedModelUrl || viewerLoadState !== 'ready' || viewerSelectedAsset?.id !== currentAsset?.id)
+    ) {
+      setOrientationState('idle');
+    }
+  }, [orientationState, loadedModelUrl, viewerLoadState, viewerSelectedAsset?.id, currentAsset?.id]);
 
   const workspaceMeshVersions = React.useMemo(() => {
     if (!workspaceId) return [];
