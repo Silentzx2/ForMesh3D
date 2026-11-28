@@ -138,10 +138,11 @@ def _patch_pre_ampere_precision() -> None:
 
             @classmethod  # type: ignore[misc]
             def _sdpa_from_config(cls: Any, config: Any, *args: Any, **kwargs: Any) -> Any:
+                target = "eager" if getattr(config, "model_type", "") == "opt" else "sdpa"
                 if getattr(config, "_attn_implementation", None) == "flash_attention_2":
-                    config._attn_implementation = "sdpa"
+                    config._attn_implementation = target
                 if kwargs.get("attn_implementation") == "flash_attention_2":
-                    kwargs["attn_implementation"] = "sdpa"
+                    kwargs["attn_implementation"] = target
                 return orig_from_config(cls, config, *args, **kwargs)
 
             AutoModelForCausalLM.from_config = _sdpa_from_config  # type: ignore[method-assign]
