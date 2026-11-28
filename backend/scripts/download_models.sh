@@ -503,6 +503,15 @@ download_hunyuan21() {
     fi
 
     download_hunyuan21_dependencies || return 1
+
+    # Also download Hunyuan3D-2 (v2.0) Paint as fallback. When bpy/embree is
+    # broken on the host, the HY 2.1 native paint pipeline cannot load and the
+    # adapter falls back to HY 2.0 paint — which needs its own weights under
+    # backend/pretrained/tencent/Hunyuan3D-2. Without them, texture generation
+    # silently produces raw mesh only.
+    print_info "Downloading Hunyuan3D-2 (v2.0) Paint fallback weights..."
+    download_hunyuan3d_v20_paint || return 1
+
     print_success "Hunyuan3D-2.1 Shape + Paint and runtime dependencies are ready"
 }
 
