@@ -1233,7 +1233,12 @@ async def upload_mesh(
                 "workspace_id": workspace_id, "asset_id": asset_id,
             }
             if file_store is not None:
-                await store_file_metadata_impl(file_store, asset_id, file_info)
+                try:
+                    await store_file_metadata_impl(file_store, asset_id, file_info)
+                except Exception as store_error:
+                    # The workspace DB and verified file are authoritative; legacy cache failure
+                    # must not turn a committed replacement into a false SAVE_FAILED response.
+                    logger.warning("Could not refresh legacy file-store metadata for %s: %s", asset_id, store_error)
 
             return {
                 "file_id": asset_id, "workspace_id": workspace_id, "asset_id": asset_id,
