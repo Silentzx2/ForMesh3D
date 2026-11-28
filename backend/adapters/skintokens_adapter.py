@@ -94,10 +94,18 @@ class SkinTokensAdapter(BaseModel):
                 logger.info("Loading SkinTokens from %s", self._ckpt_path)
                 # SkinTokens resolves relative paths (e.g.
                 # experiments/skin_vae_2_10_32768/last.ckpt) against the CWD,
-                # so chdir to the thirdparty SkinTokens root before loading.
-                # Configs (skeleton vroid.yaml) live there; checkpoint lives in weights_dir.
+                # so chdir to weights_dir for checkpoint loading.
+                # Symlink configs from skintokens_root so OmegaConf can find
+                # configs/skeleton/vroid.yaml via relative path as well.
+                configs_src = skintokens_root / "configs"
+                configs_dst = weights_dir / "configs"
+                if configs_src.is_dir() and not configs_dst.exists():
+                    try:
+                        configs_dst.symlink_to(configs_src, target_is_directory=True)
+                    except OSError:
+                        pass
                 prev_cwd = os.getcwd()
-                os.chdir(str(skintokens_root))
+                os.chdir(str(weights_dir))
                 try:
                     demo.load_model(model_ckpt=self._ckpt_path, hf_path=None)
                 finally:
