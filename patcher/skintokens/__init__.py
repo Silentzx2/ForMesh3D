@@ -153,6 +153,9 @@ def _patch_tokenrig_generate(gpu_id: Optional[int] = None) -> None:
             self.float()
             self._skintokens_fp32_cast = True
 
+        if "max_new_tokens" not in kwargs and "max_length" in kwargs:
+            kwargs["max_new_tokens"] = kwargs.pop("max_length")
+
         # In transformers==4.44, beam_search + do_sample=True uses multinomial over
         # (num_beams * vocab), which fails BeamSearchScorer's n_eos <= num_beams check
         # when VocabSwitchingLogitsProcessor masks all tokens except eos_token_id.
