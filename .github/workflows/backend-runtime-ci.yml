@@ -48,6 +48,7 @@ jobs:
           python -m pytest -q
           backend/tests/test_workspace_animation_storage.py
           backend/tests/test_workspace_trash.py
+          backend/tests/test_workspace_mesh_replace.py
 
       - name: Run PartField adapter and multipart persistence tests
         run: python -m pytest -q backend/tests/test_partfield_adapter.py
@@ -69,7 +70,6 @@ jobs:
         run: >-
           python -m pytest -q
           backend/tests/test_model_adapter_regressions.py
-          backend/tests/test_workspace_mesh_replace.py
           backend/tests/test_ardy_adapter.py
           backend/tests/test_temporary_output_lifecycle.py
           backend/tests/test_stable_fast_3d_patcher.py
