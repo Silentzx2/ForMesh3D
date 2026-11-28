@@ -66,7 +66,7 @@ The current log stream is Server-Sent Events. The removed WebSocket mesh-streami
 Router prefix: `/api/v1/file-upload`.
 
 - `POST /image`
-- `POST /mesh`
+- `POST /mesh` — normal upload creates a new workspace; the viewport orientation save supplies both `workspace_id` and `asset_id` to replace that retained GLB in place, preserving the existing asset identity.
 - `GET /metadata/{file_id}`
 - `DELETE /{file_id}`
 - `GET /list`

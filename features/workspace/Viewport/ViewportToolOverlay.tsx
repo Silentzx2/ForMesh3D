@@ -58,7 +58,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
     workspaceId,
     activeMeshAssetId,
     workspaceVersions,
-    setWorkspaceVersions,
+    updateAssetProperties,
     selectAsset,
     assets,
     resetCamera,
@@ -66,7 +66,24 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
     isExecuting,
   } = useWorkspace();
 
-  const [isOrienting, setIsOrienting] = useState(false);
+  type OrientationState = 'idle' | 'downloading' | 'editing' | 'saving';
+  const [orientationState, setOrientationState] = useState<OrientationState>('idle');
+  const isOrienting = orientationState !== 'idle';
+  const loadedModelUrl = useViewerStore((state) => state.loadedModelUrl);
+  const viewerLoadState = useViewerStore((state) => state.assetSelectionState);
+  const viewerSelectedAsset = useViewerStore((state) => state.selectedAsset);
+  const orientationRequestIdRef = useRef(0);
+  const currentAssetRef = useRef(currentAsset);
+  useEffect(() => { currentAssetRef.current = currentAsset; }, [currentAsset]);
+  useEffect(() => {
+    if (
+      orientationState !== 'idle' &&
+      (!loadedModelUrl || viewerLoadState !== 'ready' || viewerSelectedAsset?.id !== currentAsset?.id)
+    ) {
+      orientationRequestIdRef.current += 1;
+      setOrientationState('idle');
+    }
+  }, [orientationState, loadedModelUrl, viewerLoadState, viewerSelectedAsset?.id, currentAsset?.id]);
 
   const workspaceMeshVersions = React.useMemo(() => {
     if (!workspaceId) return [];
@@ -196,77 +213,111 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
   }, [isSettingsOpen, isHelpOpen]);
 
   const handleAdjustMeshOrientation = async () => {
-    if (!currentAsset || !workspaceId || isOrienting || isExecuting) return;
-    const sourceAssetId = currentAsset.asset_id || currentAsset.id;
-    if (!sourceAssetId) {
-      toast.error('The selected mesh is not available for orientation editing');
+    const selectedAsset = currentAsset;
+    if (!selectedAsset || !workspaceId || isOrienting || isExecuting || !loadedModelUrl) return;
+
+    const orientationRequestId = ++orientationRequestIdRef.current;
+    const selectedAssetId = selectedAsset.asset_id || selectedAsset.id;
+    if (!selectedAssetId || selectedAssetId.startsWith('local_')) {
+      toast.error('Save this mesh to the workspace before changing its orientation');
+      return;
+    }
+    if (selectedAsset.workspace_id && selectedAsset.workspace_id !== workspaceId) {
+      toast.error('Select a mesh from the current workspace first');
       return;
     }
 
-    setIsOrienting(true);
+    const viewerState = useViewerStore.getState();
+    if (viewerState.assetSelectionState !== 'ready' || viewerState.selectedAsset?.id !== selectedAsset.id) {
+      toast.error('Wait until the selected mesh has finished loading');
+      return;
+    }
+
+    const isStillSameLoadedMesh = () => {
+      const latest = useViewerStore.getState();
+      return currentAssetRef.current?.id === selectedAsset.id
+        && latest.selectedAsset?.id === selectedAsset.id
+        && latest.loadedModelUrl === loadedModelUrl
+        && latest.assetSelectionState === 'ready';
+    };
+
     try {
-      const blob = await getApiClient().downloadWorkspaceMesh(sourceAssetId);
-      const extension = (currentAsset.format || 'GLB').toLowerCase();
-      const filename = currentAsset.source?.filename || `${currentAsset.name || 'mesh'}.${extension}`;
+      setOrientationState('downloading');
+      const blob = await getApiClient().downloadWorkspaceMesh(selectedAssetId);
+      if (!isStillSameLoadedMesh()) {
+        toast.info('The active mesh changed. Reopen orientation for the newly selected mesh.');
+        return;
+      }
+
+      const extension = (selectedAsset.format || 'GLB').toLowerCase();
+      const filename = selectedAsset.source?.filename || `${selectedAsset.name || 'mesh'}.${extension}`;
       const sourceFile = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+
+      setOrientationState('editing');
       const orientedFile = await requestMeshOrientation(sourceFile);
       if (!orientedFile) return;
       if (orientedFile === sourceFile) {
         toast.info('No orientation changes were applied');
         return;
       }
+      if (!isStillSameLoadedMesh()) {
+        toast.error('The active mesh changed while the orientation editor was open. Nothing was saved.');
+        return;
+      }
 
-      const saved = await getApiClient().saveOrientedWorkspaceMesh(workspaceId, sourceAssetId, orientedFile);
-      const assetId = saved.asset.asset_id;
-      const savedUrl = saved.url || `/api/v1/system/jobs/${encodeURIComponent(assetId)}/download`;
-      const assetName = `${currentAsset.name || 'Mesh'} (Oriented)`;
-      const savedFilename = String(saved.asset.relative_path || '').split('/').pop() || '';
-      const versionNumber = savedFilename.match(/_v(\d{3})\.glb$/i)?.[1] || '001';
-      const orientationVersionLabel = `Orientation v${versionNumber}`;
-      const orientedAsset = normalizeModelAsset({
-        ...saved.asset,
-        id: assetId,
-        asset_id: assetId,
+      setOrientationState('saving');
+      const saved = await getApiClient().replaceWorkspaceMeshFile(workspaceId, selectedAssetId, orientedFile);
+      const cacheToken = Date.now();
+      const baseUrl = saved.url || `/api/v1/system/jobs/${encodeURIComponent(selectedAssetId)}/download`;
+      const savedUrl = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}v=${cacheToken}`;
+      const thumbnailUrl = saved.thumbnail_url
+        ? `${saved.thumbnail_url}${saved.thumbnail_url.includes('?') ? '&' : '?'}v=${cacheToken}`
+        : '';
+
+      const updatedAsset = normalizeModelAsset({
+        ...selectedAsset,
+        id: selectedAsset.id,
+        asset_id: selectedAssetId,
         workspace_id: workspaceId,
-        source_asset_id: sourceAssetId,
-        operation_type: 'orientation',
-        asset_type: 'oriented_mesh',
-        is_base_mesh: false,
-        name: assetName,
-        category: 'mesh',
+        name: selectedAsset.name,
+        category: selectedAsset.category,
         format: 'GLB',
-        thumbnail: saved.thumbnail_url || '',
+        file_size_mb: saved.file_size_mb,
+        thumbnail: thumbnailUrl || selectedAsset.thumbnail,
+        faces: saved.mesh_stats?.polygon_count ?? selectedAsset.faces,
+        triangles: saved.mesh_stats?.polygon_count ?? selectedAsset.triangles,
+        vertices: saved.mesh_stats?.vertex_count ?? selectedAsset.vertices,
+        statsAvailable: true,
         source: {
-          filename: saved.asset.original_filename || orientedFile.name,
-          subfolder: saved.asset.relative_path || 'mesh',
-          type: 'output',
+          ...selectedAsset.source,
+          filename: saved.filename || orientedFile.name,
+          subfolder: selectedAsset.source?.subfolder || 'mesh',
+          type: selectedAsset.source?.type || 'output',
           viewUrl: savedUrl,
-          fileId: assetId,
+          fileId: selectedAssetId,
         },
       });
-      setWorkspaceVersions((previous) => [
-        ...previous.filter((version) => version.asset_id !== assetId),
-        {
-          asset_id: assetId,
-          name: assetName,
-          version_label: orientationVersionLabel,
-          operation_type: 'orientation',
-          url: savedUrl,
-          thumbnail_url: saved.thumbnail_url || null,
-          created_at: saved.asset.created_at || new Date().toISOString(),
-          is_base: false,
-        },
-      ]);
-      setCurrentAsset(orientedAsset);
-      toast.success('Mesh orientation saved', {
-        description: 'A new workspace version was created. The original mesh is preserved.',
-      });
+
+      updateAssetProperties(selectedAsset.id, updatedAsset);
+      if (isStillSameLoadedMesh()) {
+        setCurrentAsset(updatedAsset);
+        loadModelInViewer(savedUrl, updatedAsset.name, updatedAsset as any);
+        toast.success('Mesh orientation saved', {
+          description: 'The existing workspace mesh file and asset record were updated in place.',
+        });
+      } else {
+        toast.success('Mesh orientation saved', {
+          description: 'The original mesh was updated. Your newer viewer selection was left unchanged.',
+        });
+      }
     } catch (error) {
       toast.error('Could not save mesh orientation', {
         description: error instanceof Error ? error.message : 'Unexpected orientation error',
       });
     } finally {
-      setIsOrienting(false);
+      if (orientationRequestIdRef.current === orientationRequestId) {
+        setOrientationState('idle');
+      }
     }
   };
 
@@ -350,7 +401,8 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
         <CameraTriad />
       </div>
 
-      {currentAsset && workspaceId && currentAsset.category !== 'texture'
+      {loadedModelUrl && viewerLoadState === 'ready' && viewerSelectedAsset?.id === currentAsset?.id
+        && currentAsset && workspaceId && currentAsset.category !== 'texture'
         && currentAsset.format !== 'IMAGE' && currentAsset.format !== 'FILE' && (
         <div className="pointer-events-auto absolute bottom-20 left-4 md:left-6 z-30">
           <SimpleTooltip label="Adjust Mesh Orientation" side="right">

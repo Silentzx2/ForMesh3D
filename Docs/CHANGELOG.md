@@ -1,6 +1,6 @@
 # Change Log
 
-**2026-11-28 (Persistent mesh orientation)** – Reused the upload orientation editor from the viewport, preserved original mesh scale during GLB export, and saved applied rotations as immutable workspace versions with SQLite active-mesh lineage.
+**2026-11-28 (Persistent mesh orientation)** – Kept upload-time orientation unchanged and added a separate bottom-left viewport control, visible only for a fully loaded workspace mesh. It reuses the same editor and replaces the selected GLB and its existing SQLite asset metadata in place without creating a new asset or version.
 
 **2026-11-28 (ARDY prompt conditioning)** – ARDY now reserves 6 GiB of CUDA memory for a local NF4 4-bit LLM2Vec prompt encoder while keeping the motion diffusion model on CPU. Quantized weights stay on their assigned GPU without unsupported `.to()` calls, and missing encoders fail instead of falling back to zero text features.
 
