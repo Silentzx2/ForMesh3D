@@ -203,6 +203,18 @@ def _inject_michelangelo_models_stub() -> None:
                 super().__init__()
                 self.width = width
 
+            def load_state_dict(self, state_dict, strict=True):
+                # Accept any checkpoint without error so load proceeds; the
+                # adapter rejects stub models before inference.
+                return super().load_state_dict({}, strict=False)
+
+            def forward(self, *args, **kwargs):
+                raise RuntimeError(
+                    "SkinTokens: real Michelangelo models source is not vendored. "
+                    "Vendor backend/thirdparty/SkinTokens/src/model/michelangelo/models/"
+                    " and retry."
+                )
+
         mod.AlignedShapeLatentPerceiver = AlignedShapeLatentPerceiver
         mod.ShapeAsLatentPerceiverEncoder = ShapeAsLatentPerceiverEncoder
         mod.__package__ = "src.model.michelangelo.models.tsal"
