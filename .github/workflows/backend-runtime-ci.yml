@@ -50,9 +50,6 @@ jobs:
           backend/tests/test_workspace_trash.py
           backend/tests/test_workspace_mesh_replace.py
 
-      - name: Run PartField adapter and multipart persistence tests
-        run: python -m pytest -q backend/tests/test_partfield_adapter.py
-
       - name: Run motion clip service and API contracts
         run: python -m pytest -q backend/tests/test_motion_clips_api.py
 
@@ -76,6 +73,9 @@ jobs:
           backend/tests/test_skintokens_process_lifecycle.py
           backend/tests/test_hunyuan21_metadata.py
           backend/tests/test_trellis_text_capability.py
+
+      - name: Run PartField adapter and multipart persistence tests
+        run: python -m pytest -q backend/tests/test_partfield_adapter.py
 
       - name: Check model and service manager shell syntax
         run: |
