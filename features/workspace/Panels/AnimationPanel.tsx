@@ -137,6 +137,7 @@ export const AnimationPanel: React.FC = () => {
   const [motionPrompt, setMotionPrompt] = useState<string>('');
   const [duration, setDuration] = useState<number>(4.0);
   const [seed, setSeed] = useState<number | ''>('');
+  const [checkpoint, setCheckpoint] = useState<string>('ARDY-Core-RP-20FPS-Horizon40');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Library tabs & search
@@ -470,6 +471,7 @@ export const AnimationPanel: React.FC = () => {
         prompt: motionPrompt.trim(),
         duration: clampedDuration,
         seed: seed === '' ? undefined : Number(seed),
+        modelParameters: { checkpoint },
       });
     } catch (err: unknown) {
       toast.error(`Animation generation failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -607,6 +609,22 @@ export const AnimationPanel: React.FC = () => {
               }}
               className="w-full h-1.5 rounded-full appearance-none cursor-pointer focus:outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[hsl(var(--primary))]"
             />
+          </div>
+
+          {/* Motion Model Checkpoint */}
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="motion-checkpoint-select" className="text-xs text-zinc-300 font-medium shrink-0">
+              Model
+            </label>
+            <select
+              id="motion-checkpoint-select"
+              value={checkpoint}
+              onChange={(e) => setCheckpoint(e.target.value)}
+              className="flex-1 min-w-0 h-7 px-2 rounded-lg bg-[hsl(var(--surface-0))] border border-white/[0.08] text-xs text-zinc-100 focus:outline-none focus:border-[hsl(var(--primary))]"
+            >
+              <option value="ARDY-Core-RP-20FPS-Horizon40">Core 20 FPS (Default)</option>
+              <option value="ARDY-SOMA-RP-30FPS-KimodoRep-Horizon60">SOMA KimodoRep 30 FPS</option>
+            </select>
           </div>
 
           {/* Seed */}

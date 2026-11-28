@@ -884,21 +884,42 @@ download_ardy() {
     print_info "========================================"
 
     local ardy_dir="$PRETRAINED_DIR/ardy"
-    mkdir -p "$ardy_dir"
+    local kimodo_dir="$ardy_dir/ARDY-SOMA-RP-30FPS-KimodoRep-Horizon60"
+    mkdir -p "$ardy_dir" "$kimodo_dir"
+
+    local core_ok=false
+    local kimodo_ok=false
     if [ "$FORCE_DOWNLOAD" = false ] && verify_directory "$ardy_dir" 1; then
-        print_info "ARDY models already exist and verified"
+        core_ok=true
+    fi
+    if [ "$FORCE_DOWNLOAD" = false ] && verify_directory "$kimodo_dir" 1; then
+        kimodo_ok=true
+    fi
+    if [ "$core_ok" = true ] && [ "$kimodo_ok" = true ]; then
+        print_info "ARDY models (Core40 + KimodoRep 30FPS) already exist and verified"
         return 0
     fi
 
-    print_info "Downloading ARDY checkpoints from nvidia/ARDY-Core-RP-20FPS-Horizon40..."
-    if hf_download nvidia/ARDY-Core-RP-20FPS-Horizon40 --local-dir "$ardy_dir" && verify_directory "$ardy_dir" 1; then
-        print_success "ARDY checkpoints downloaded successfully"
-    else
-        print_error "Failed to download ARDY checkpoints"
-        print_warning "The nvidia/ARDY-* repositories may require acceptance of the NVIDIA Open Model Agreement."
-        print_warning "Visit https://huggingface.co/collections/nvidia/ardy and agree to the terms, then run: export HF_TOKEN=<token> and re-run this script."
-        return 1
+    if [ "$core_ok" = false ]; then
+        print_info "Downloading ARDY Core checkpoints from nvidia/ARDY-Core-RP-20FPS-Horizon40..."
+        if ! (hf_download nvidia/ARDY-Core-RP-20FPS-Horizon40 --local-dir "$ardy_dir" && verify_directory "$ardy_dir" 1); then
+            print_error "Failed to download ARDY Core checkpoints"
+            print_warning "The nvidia/ARDY-* repositories may require acceptance of the NVIDIA Open Model Agreement."
+            print_warning "Visit https://huggingface.co/collections/nvidia/ardy and agree to the terms, then run: export HF_TOKEN=<token> and re-run this script."
+            return 1
+        fi
     fi
+
+    if [ "$kimodo_ok" = false ]; then
+        print_info "Downloading ARDY KimodoRep 30FPS checkpoints from nvidia/ARDY-SOMA-RP-30FPS-KimodoRep-Horizon60..."
+        if ! (hf_download nvidia/ARDY-SOMA-RP-30FPS-KimodoRep-Horizon60 --local-dir "$kimodo_dir" && verify_directory "$kimodo_dir" 1); then
+            print_error "Failed to download ARDY KimodoRep checkpoints"
+            print_warning "Visit https://huggingface.co/collections/nvidia/ardy and agree to the terms, then run: export HF_TOKEN=<token> and re-run this script."
+            return 1
+        fi
+    fi
+
+    print_success "ARDY checkpoints (Core40 + KimodoRep 30FPS) downloaded successfully"
 }
 
 # Function to download Pixal3D models
