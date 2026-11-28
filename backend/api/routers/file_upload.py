@@ -24,14 +24,17 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import anyio
 import aiofiles
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from api.dependencies import get_file_store
 from core.file_store import FileStore
-from core.scheduler.database_manager import DatabaseManager
-from core.scheduler.database_models import generate_workspace_id, generate_asset_id
+from core.scheduler.database_manager import DatabaseManager, ProcessFileLock
+from core.scheduler.database_models import (
+    AssetModel, OperationModel, WorkspaceModel, generate_workspace_id, generate_asset_id,
+    generate_operation_id,
+)
 from core.utils.artifact_utils import resolve_declared_artifact
 from core.utils.file_utils import (
     MAX_MESH_FACES,
@@ -906,6 +909,91 @@ async def upload_image(
             detail=f"Unsupported file type. Allowed extensions: {allowed_extensions}",
         )
 
+    if bool(workspace_id) != bool(asset_id):
+        raise HTTPException(status_code=400, detail="workspace_id and asset_id must be supplied together")
+
+    if workspace_id and asset_id:
+        if file_ext != ".glb":
+            raise HTTPException(status_code=400, detail="In-place orientation saves must be binary .glb files")
+
+        ws_manager = get_workspace_storage_manager()
+        operation_temp = ws_manager.create_operation_temp(generate_operation_id())
+        temp_mesh_path = operation_temp / "oriented.glb"
+        temp_thumbnail_path = operation_temp / "thumbnail.png"
+        total_bytes = 0
+        digest = hashlib.sha256()
+        max_size_bytes = MAX_MESH_UPLOAD_SIZE_MB * 1024 * 1024
+        try:
+            async with aiofiles.open(temp_mesh_path, "wb") as handle:
+                while chunk := await file.read(1024 * 1024):
+                    total_bytes += len(chunk)
+                    if total_bytes > max_size_bytes:
+                        raise HTTPException(status_code=413, detail="File size exceeds the 200 MiB mesh limit")
+                    digest.update(chunk)
+                    await handle.write(chunk)
+            if total_bytes == 0:
+                raise HTTPException(status_code=400, detail="Mesh file is empty")
+
+            validation_info = await anyio.to_thread.run_sync(
+                validate_mesh_file, str(temp_mesh_path), limiter=_MESH_VALIDATION_LIMITER
+            )
+            if not validation_info.get("valid", False):
+                raise HTTPException(status_code=400, detail=validation_info.get("error", "Invalid oriented mesh"))
+
+            try:
+                has_thumbnail = await anyio.to_thread.run_sync(
+                    generate_mesh_thumbnail, str(temp_mesh_path), str(temp_thumbnail_path)
+                )
+            except Exception as thumbnail_error:
+                logger.warning("Could not regenerate orientation thumbnail: %s", thumbnail_error)
+                has_thumbnail = False
+
+            result = _replace_workspace_mesh_asset(
+                db=DatabaseManager(), storage_manager=ws_manager,
+                workspace_id=workspace_id, asset_id=asset_id,
+                temp_mesh_path=temp_mesh_path,
+                temp_thumbnail_path=temp_thumbnail_path if has_thumbnail and temp_thumbnail_path.is_file() else None,
+                byte_size=total_bytes, sha256=digest.hexdigest(),
+            )
+            filename = result["asset"]["original_filename"]
+            file_info = {
+                "file_path": result["mesh_path"], "original_filename": filename,
+                "saved_filename": Path(result["mesh_path"]).name,
+                "file_size_mb": total_bytes / (1024 * 1024),
+                "content_type": "model/gltf-binary", "file_type": "mesh",
+                "file_size_bytes": total_bytes, "sha256": digest.hexdigest(),
+                "original_format": ".glb", "upload_time": datetime.now().isoformat(),
+                "durable": True, "workspace_id": workspace_id, "asset_id": asset_id,
+            }
+            if file_store is not None:
+                await store_file_metadata_impl(file_store, asset_id, file_info)
+
+            return {
+                "file_id": asset_id, "workspace_id": workspace_id, "asset_id": asset_id,
+                "filename": filename, "file_type": "mesh",
+                "file_size_mb": total_bytes / (1024 * 1024),
+                "upload_time": datetime.now(), "expires_at": None,
+                "url": f"/api/v1/system/jobs/{asset_id}/download",
+                "thumbnail_url": f"/api/v1/system/jobs/{asset_id}/thumbnail" if result["thumbnail_path"] else None,
+                "mesh_stats": {
+                    "vertex_count": validation_info.get("vertex_count", 0),
+                    "polygon_count": validation_info.get("face_count", 0),
+                    "is_watertight": validation_info.get("is_watertight", False),
+                },
+            }
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.error("Failed to replace workspace mesh %s: %s", asset_id, exc, exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to save mesh orientation") from exc
+        finally:
+            await file.close()
+            shutil.rmtree(operation_temp, ignore_errors=True)
+
     stem = Path(file.filename).stem or "image"
     ws_manager = get_workspace_storage_manager()
     workspace_id = ws_manager.mint_workspace_id(stem)
@@ -1015,10 +1103,131 @@ async def upload_image(
         raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
 
 
+def _replace_workspace_mesh_asset(
+    db: DatabaseManager,
+    storage_manager: WorkspaceStorageManager,
+    workspace_id: str,
+    asset_id: str,
+    temp_mesh_path: Path,
+    temp_thumbnail_path: Optional[Path],
+    byte_size: int,
+    sha256: str,
+) -> Dict:
+    """Replace one retained workspace mesh in place without creating a new asset/version."""
+    storage_manager.assert_safe_id(workspace_id)
+    storage_manager.assert_safe_id(asset_id)
+    workspace_dir = storage_manager.get_workspace_dir(workspace_id).resolve()
+    if Path(temp_mesh_path).suffix.lower() != ".glb":
+        raise ValueError("The orientation editor must provide a binary .glb mesh")
+
+    old_mesh_path = old_thumbnail_path = new_mesh_path = new_thumbnail_path = None
+    backup_mesh_path = backup_thumbnail_path = staging_mesh_path = staging_thumbnail_path = None
+
+    with ProcessFileLock(lock_path=storage_manager.storage_root / ".workspace_persistence.lock"):
+        with db.get_session() as session:
+            workspace = session.query(WorkspaceModel).filter_by(workspace_id=workspace_id).first()
+            asset = session.query(AssetModel).filter_by(asset_id=asset_id, workspace_id=workspace_id).first()
+            if not workspace or not asset:
+                raise ValueError("Workspace mesh was not found in this workspace")
+            if workspace.status != "active":
+                raise ValueError("Cannot orient a deleted or inactive workspace")
+            if asset.file_type != "mesh" or not asset.is_retained or asset.status != "available":
+                raise ValueError("Only retained, available workspace meshes can be oriented")
+
+            active_operations = session.query(OperationModel).filter(
+                OperationModel.workspace_id == workspace_id,
+                OperationModel.execution_status.in_(("queued", "processing")),
+            ).count()
+            if active_operations:
+                raise ValueError("Wait for the running workspace operation to finish before orienting its mesh")
+
+            old_mesh_path = (workspace_dir / asset.relative_path).resolve()
+            if not old_mesh_path.is_relative_to(workspace_dir) or not old_mesh_path.is_file():
+                raise FileNotFoundError("The selected workspace mesh is missing or outside its workspace")
+
+            new_mesh_path = old_mesh_path if old_mesh_path.suffix.lower() == ".glb" else old_mesh_path.with_suffix(".glb")
+            if new_mesh_path != old_mesh_path and new_mesh_path.exists():
+                raise FileExistsError("A GLB mesh already exists at the replacement path")
+
+            if asset.thumbnail_path:
+                old_thumbnail_path = (workspace_dir / asset.thumbnail_path).resolve()
+                if not old_thumbnail_path.is_relative_to(workspace_dir):
+                    raise ValueError("The mesh thumbnail path is outside its workspace")
+            has_new_thumbnail = bool(temp_thumbnail_path and Path(temp_thumbnail_path).is_file())
+            new_thumbnail_path = (
+                old_thumbnail_path if has_new_thumbnail and old_thumbnail_path
+                else (new_mesh_path.with_name(f"{new_mesh_path.stem}_thumbnail.png") if has_new_thumbnail else None)
+            )
+
+            token = uuid.uuid4().hex
+            staging_mesh_path = new_mesh_path.with_name(f".orientation_{token}.glb")
+            backup_mesh_path = old_mesh_path.with_name(f".orientation_backup_{token}.glb") if new_mesh_path == old_mesh_path else None
+            if new_thumbnail_path:
+                staging_thumbnail_path = new_thumbnail_path.with_name(f".orientation_{token}.png")
+                if new_thumbnail_path == old_thumbnail_path and old_thumbnail_path and old_thumbnail_path.exists():
+                    backup_thumbnail_path = old_thumbnail_path.with_name(f".orientation_backup_{token}.png")
+
+            try:
+                shutil.copy2(temp_mesh_path, staging_mesh_path)
+                if backup_mesh_path:
+                    shutil.copy2(old_mesh_path, backup_mesh_path)
+                if backup_thumbnail_path and old_thumbnail_path:
+                    shutil.copy2(old_thumbnail_path, backup_thumbnail_path)
+
+                os.replace(staging_mesh_path, new_mesh_path)
+                if new_thumbnail_path and temp_thumbnail_path:
+                    shutil.copy2(temp_thumbnail_path, staging_thumbnail_path)
+                    os.replace(staging_thumbnail_path, new_thumbnail_path)
+
+                asset.relative_path = str(new_mesh_path.relative_to(workspace_dir))
+                asset.original_filename = f"{Path(asset.original_filename or new_mesh_path.name).stem}.glb"
+                asset.byte_size = int(byte_size)
+                asset.sha256 = sha256
+                asset.thumbnail_path = str(new_thumbnail_path.relative_to(workspace_dir)) if new_thumbnail_path else None
+                asset.status = "available"
+                workspace.active_mesh_asset_id = asset_id
+                workspace.updated_at = datetime.utcnow()
+                session.flush()
+                asset_data = asset.to_dict()
+                session.commit()
+            except Exception:
+                session.rollback()
+                if backup_mesh_path and backup_mesh_path.exists():
+                    os.replace(backup_mesh_path, old_mesh_path)
+                elif new_mesh_path != old_mesh_path:
+                    new_mesh_path.unlink(missing_ok=True)
+                if backup_thumbnail_path and old_thumbnail_path and backup_thumbnail_path.exists():
+                    os.replace(backup_thumbnail_path, old_thumbnail_path)
+                elif new_thumbnail_path and new_thumbnail_path != old_thumbnail_path:
+                    new_thumbnail_path.unlink(missing_ok=True)
+                raise
+            finally:
+                for temporary_path in (staging_mesh_path, staging_thumbnail_path, backup_mesh_path, backup_thumbnail_path):
+                    if temporary_path:
+                        temporary_path.unlink(missing_ok=True)
+
+        if old_mesh_path and new_mesh_path and old_mesh_path != new_mesh_path:
+            old_mesh_path.unlink(missing_ok=True)
+        if old_thumbnail_path and old_thumbnail_path != new_thumbnail_path:
+            old_thumbnail_path.unlink(missing_ok=True)
+        try:
+            storage_manager.build_manifest_projection(workspace_id, db)
+        except Exception as exc:
+            logger.warning("Could not refresh workspace manifest after mesh orientation: %s", exc)
+
+    return {
+        "success": True, "workspace_id": workspace_id, "asset_id": asset_id,
+        "asset": asset_data, "mesh_path": str(new_mesh_path),
+        "thumbnail_path": str(new_thumbnail_path) if new_thumbnail_path else None,
+    }
+
+
 @router.post("/mesh", response_model=FileUploadResponse)
 async def upload_mesh(
     file: UploadFile = File(..., description="Mesh file to upload"),
     file_store: Optional[FileStore] = Depends(get_file_store),
+    workspace_id: Optional[str] = Form(None, description="Existing workspace to update in place"),
+    asset_id: Optional[str] = Form(None, description="Existing mesh asset to replace in place"),
     background_tasks: BackgroundTasks = None,
 ):
     """
