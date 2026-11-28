@@ -199,8 +199,9 @@ def _inject_michelangelo_models_stub() -> None:
             """Stub for the real Michelangelo encoder. Not vendored upstream."""
             _skintokens_stub = True
 
-            def __init__(self, **kwargs):
+            def __init__(self, width=768, **kwargs):
                 super().__init__()
+                self.width = width
 
         mod.AlignedShapeLatentPerceiver = AlignedShapeLatentPerceiver
         mod.ShapeAsLatentPerceiverEncoder = ShapeAsLatentPerceiverEncoder
