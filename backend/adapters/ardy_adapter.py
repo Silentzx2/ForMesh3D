@@ -100,7 +100,7 @@ class ArdyMotionGenerationAdapter(BaseModel):
                                         bnb_4bit_compute_dtype=torch.float16,
                                     ),
                                 )
-                                kw.setdefault("device_map", "auto")
+                                kw.setdefault("device_map", {"": 0})
                                 return orig_fp(cls, *a, **kw)
 
                             LLM2Vec.from_pretrained = _4bit_from_pretrained  # type: ignore[method-assign]
@@ -109,12 +109,16 @@ class ArdyMotionGenerationAdapter(BaseModel):
                         logger.info("ARDY text encoder: using 4-bit bitsandbytes quantization on %s", te_device)
                     except ImportError:
                         logger.info("bitsandbytes unavailable; loading ARDY text encoder on %s", te_device)
-                # Pass device=None for 4-bit device_map="auto" (avoids .to() ValueError) and move output to CPU for ARDY.
-                text_encoder = load_text_encoder(
-                    mode=te_mode,
-                    fp32=False,
-                    device=None if use_4bit_cuda else te_device,
-                )
+                # Pass device=None for 4-bit device_map (avoids .to() ValueError); preserve default dtype on failure.
+                prev_dtype = torch.get_default_dtype()
+                try:
+                    text_encoder = load_text_encoder(
+                        mode=te_mode,
+                        fp32=False,
+                        device=None if use_4bit_cuda else te_device,
+                    )
+                finally:
+                    torch.set_default_dtype(prev_dtype)
                 if use_4bit_cuda and text_encoder and not getattr(text_encoder, "_ardy_cpu_out_wrapped", False):
                     orig_call = text_encoder.__call__
 
