@@ -57,6 +57,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
     isRightPanelOpen: contextRightPanelOpen,
     workspaceId,
     activeMeshAssetId,
+    workspaceVersions,
     updateAssetProperties,
     selectAsset,
     assets,
