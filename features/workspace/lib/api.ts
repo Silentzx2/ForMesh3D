@@ -183,11 +183,9 @@ class ApiClient {
       const data = (payload?.data ?? payload) as { jobs?: Array<Record<string, unknown>> };
       const result: Record<string, HistoryItem> = {};
       (data.jobs ?? []).forEach((j, i) => {
-        // /jobs/history also appends operation rows (operation_id set, no result)
-        // for the job tracker. They carry no mesh artifact, so they must never
-        // become asset-panel entries — only real job results are workspace meshes.
-        if (j.operation_id && !j.result) return;
+        // Operation IDs identify tracked work, never mesh assets—even if a job result exists.
         const jobId = (j.job_id ?? j.id ?? `job-${i}`) as string;
+        if ((j.operation_id && !j.result) || /^op_[a-f0-9]{12}$/i.test(jobId)) return;
         const jobBase = `/api/v1/system/jobs/${jobId}`;
         const jobResult = (j.result ?? {}) as Record<string, any>;
         // Canonical production artifacts: game_ready GLB by default,

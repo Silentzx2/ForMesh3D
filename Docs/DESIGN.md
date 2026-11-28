@@ -68,7 +68,7 @@ Use only the currently exported shared presets. Prefer local CSS transitions for
 ## 6. Workspace and viewport behavior
 
 - The viewport is a local Three.js viewer (`TrackballControls` for full 360° gimbal-lock-free orbiting). It loads GLB/GLTF through `GLTFLoader` and supported OBJ, FBX, STL, and PLY meshes through their Three.js loaders; GLB downloads use the browser-side cache in `features/workspace/lib/glbCache.ts`.
-- Derived post-operation meshes (texture, retopology, UV, segmentation, rigging) are excluded from the Assets panel and selected via the viewport **Mesh Version** selector (`workspaceVersions`); switching tools auto-selects the matching workspace version (base mesh on Generate, texture on Texture, rigged mesh on Rigging and Animation).
+- Derived post-operation meshes (texture, retopology, UV, segmentation, rigging) are excluded from the Assets panel and selected via the viewport **Mesh Version** selector (`workspaceVersions`); only retained workspace `asset_id` values may enter this selector—`op_...` operation IDs and unsaved previews are tracking records, never mesh assets. Switching tools auto-selects the matching retained workspace version.
 - The server-side WebSocket/WebRTC mesh-streaming design was removed. Do not implement new UI against the old streaming architecture.
 - Workspace panels use the existing constrained layout and `.workspace-tool-body` styles from `app/globals.css`; test narrow and short viewports before changing panel sizing.
 - Heavy inspectors should continue to load only when their corresponding tool is selected.
