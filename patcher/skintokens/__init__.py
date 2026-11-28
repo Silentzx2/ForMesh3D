@@ -56,6 +56,22 @@ class AlignedShapeLatentPerceiver(torch.nn.Module):
         # Ignore all checkpoint keys for this stub module
         pass
 
+    def encode_latents(self, pc=None, feats=None, **kwargs):
+        import torch
+        if pc is not None:
+            batch_size = pc.shape[0]
+            num_points = pc.shape[1]
+            device = pc.device
+        else:
+            batch_size = 1
+            num_points = 1024
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        shape_embed = torch.zeros(batch_size, self.width if hasattr(self, 'width') else 768, device=device)
+        latents = torch.zeros(batch_size, num_points, self.width if hasattr(self, 'width') else 768, device=device)
+        token_num = num_points
+        pre_pc = pc if pc is not None else torch.zeros(batch_size, num_points, 3, device=device)
+        return shape_embed, latents, token_num, pre_pc
+
     def forward(self, *args, **kwargs):
         raise RuntimeError(
             "SkinTokens: real Michelangelo models source is not vendored. "
@@ -84,14 +100,28 @@ class ShapeAsLatentPerceiverEncoder(torch.nn.Module):
         # on unexpected keys from the real Michelangelo encoder.
         pass
 
+    def encode_latents(self, pc=None, feats=None, **kwargs):
+        import torch
+        if pc is not None:
+            batch_size = pc.shape[0]
+            num_points = pc.shape[1]
+            device = pc.device
+        else:
+            batch_size = 1
+            num_points = 1024
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        shape_embed = torch.zeros(batch_size, self.width, device=device)
+        latents = torch.zeros(batch_size, num_points, self.width, device=device)
+        token_num = num_points
+        pre_pc = pc if pc is not None else torch.zeros(batch_size, num_points, 3, device=device)
+        return shape_embed, latents, token_num, pre_pc
+
     def forward(self, *args, **kwargs):
         raise RuntimeError(
             "SkinTokens: real Michelangelo models source is not vendored. "
             "Vendor backend/thirdparty/SkinTokens/src/model/michelangelo/models/"
             " and retry."
         )
-
-
 def apply_patch(gpu_id: Optional[int] = None) -> None:
     """Apply SkinTokens pre-Ampere and import compatibility patches."""
     _inject_michelangelo_models_stub()
