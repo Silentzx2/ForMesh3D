@@ -1071,8 +1071,18 @@ def _replace_workspace_mesh_asset(
             has_new_thumbnail = bool(temp_thumbnail_path and Path(temp_thumbnail_path).is_file())
             new_thumbnail_path = (
                 old_thumbnail_path if has_new_thumbnail and old_thumbnail_path
-                else (new_mesh_path.with_name(f"{new_mesh_path.stem}_thumbnail.png") if has_new_thumbnail else None)
+                else (
+                    new_mesh_path.with_name(f"{new_mesh_path.stem}_thumbnail.png")
+                    if has_new_thumbnail else old_thumbnail_path
+                )
             )
+            if (
+                has_new_thumbnail
+                and new_thumbnail_path
+                and new_thumbnail_path != old_thumbnail_path
+                and new_thumbnail_path.exists()
+            ):
+                raise FileExistsError("A thumbnail already exists at the replacement path")
 
             token = uuid.uuid4().hex
             staging_mesh_path = new_mesh_path.with_name(f".orientation_{token}.glb")
