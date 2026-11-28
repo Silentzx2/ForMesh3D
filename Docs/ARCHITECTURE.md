@@ -55,7 +55,7 @@ flowchart LR
 
 ## 5. Adapter Architecture (Thin Pluggable Loader)
 
-- **15 adapters** under `backend/adapters/` (12 enabled, 3 disabled: `pixal3d`, `trellis2`, `taoflowforge`) now route through `backend/core/utils/upstream.py` (`use_thirdparty`, `load_thirdparty_script`, `resolve_pretrained`, `resolve_thirdparty`).
+- **16 adapters** under `backend/adapters/` (13 enabled, 3 disabled: `pixal3d`, `trellis2`, `taoflowforge`) now route through `backend/core/utils/upstream.py` (`use_thirdparty`, `load_thirdparty_script`, `resolve_pretrained`, `resolve_thirdparty`).
 - **Execution order:** `patcher.<model>.apply_patch()` runs **first** (only inside that model's worker), then `use_thirdparty(...)` / `load_thirdparty_script(...)` runs the official upstream pipeline with local weights from `backend/pretrained/<Model>` (failing fast if missing).
 - **Clean boundaries:** Each adapter carries a standard ASCII header and numbered sections; shared utilities (`BaseModel`, `upstream.py`) replace duplicated path/temp-dir/download boilerplate.
 

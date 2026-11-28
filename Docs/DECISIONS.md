@@ -1,6 +1,17 @@
 # Architecture Decisions — ForMesh 3D
 
-> **Last Updated:** 2026-11-27 | **Retention Policy:** Keep only the last 3 active ADRs.
+> **Last Updated:** 2026-11-28 | **Retention Policy:** Keep only the last 3 active ADRs.
+
+---
+
+## ADR-115: UniRig Auto-Rigging Integration & Pre-Ampere Patcher (2026-11-28)
+
+**Context:** SkinTokens requires >=14GB VRAM and long beam-search decoding on T4 (`sm_75`). Users also need VAST-AI's two-stage UniRig (SIGGRAPH '25) alongside SkinTokens without replacing SkinTokens.
+
+**Decision:**
+1. Add `backend/adapters/unirig_adapter.py` (`unirig_auto_rigging`, `enabled: true`) invoking upstream `src.data.extract` -> `run.py` -> `src.inference.merge` with per-request isolated `workdir`/`npz_dir`.
+2. Isolate T4 (`sm < 80`) workarounds (`flash_attn` SDPA shim, `AutoModelForCausalLM.from_config` SDPA fallback, `bf16-mixed` -> `16-mixed`, local checkpoint short-circuit) inside `patcher/unirig/__init__.py`; keep `sm >= 80` 100% native.
+3. Wire `RiggingPanel.tsx` with `useFeatureAvailability()` model dropdown (`UniRig` & `SkinTokens`) and model-specific settings, plus `download_models.sh` (`-m unirig`) and `manager.sh` (`[18] UniRig`).
 
 ---
 
@@ -25,14 +36,3 @@
 3. Register every animated mesh in SQLite with `asset_id=ast_<12hex>`, `operation_id=op_<12hex>`, `workspace_id`, `asset_type=animated_mesh`, `source_asset_id`, `motion_clip_id`, `operation_type=animation`, and a workspace-relative GLB path.
 4. Store the source NPZ beside the GLB. Do not create per-animation metadata JSON; project the authoritative DB state into the one workspace-root `metadata.json`.
 5. The workspace Assets panel lists saved animated meshes and selection does not alter the workspace route. GLB is the implemented export format through Three.js `GLTFExporter`.
-
----
-
-## ADR-112: Motion Clip Service Layer & Normalized MotionClipV1 API (2026-11-26)
-
-**Context:** ARDY motion generation produced raw NPZ artifacts with no safe, normalized, frontend-consumable contract.
-
-**Decision:**
-1. Add `backend/services/motion_clips.py`: bounded pure-Python ZIP+NPY parsing, path-traversal-safe preset thumbnail resolution, ARDY `local_rot_mats`/`root_positions` → `MotionClipV1`, preset listing from `backend/motion_presets/`, user presets in `backend/storage/presets/<preset_id>/`, and completed-job resolution via `motion_clip_id`.
-2. Mount `backend/api/routers/motion_generation.py` motion routes while preserving existing `POST /api/v1/motion` and checkpoints endpoints.
-3. Frontend typed client `services/motionClient.ts` validates `MotionClipV1` on receipt; `AnimationPlayerBar`, `CameraTriad`, `ActiveMeshBar`, `QualityBadge` wire into the Animation panel and viewport overlay.

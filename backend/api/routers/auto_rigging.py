@@ -70,6 +70,7 @@ class SkinTokensParameters(BaseModel):
     use_skeleton: Optional[bool] = Field(None, description="Use existing mesh skeleton")
     use_transfer: Optional[bool] = Field(None, description="Transfer original textures and scale")
     use_postprocess: Optional[bool] = Field(None, description="Apply voxel skin postprocessing")
+    faces_target_count: Optional[int] = Field(None, ge=1000, le=200000, description="UniRig target face count")
 
     model_config = ConfigDict(extra="forbid")
 
@@ -89,6 +90,7 @@ class AutoRigRequest(BaseModel):
     use_skeleton: Optional[bool] = Field(None, description="Use existing mesh skeleton")
     use_transfer: Optional[bool] = Field(None, description="Transfer original textures and scale")
     use_postprocess: Optional[bool] = Field(None, description="Apply voxel skin postprocessing")
+    faces_target_count: Optional[int] = Field(None, ge=1000, le=200000, description="UniRig target face count")
     top_k: Optional[int] = Field(None, ge=1, le=50, description="Top-k sampling threshold")
     top_p: Optional[float] = Field(None, ge=0.0, le=1.0, description="Top-p sampling probability")
     temperature: Optional[float] = Field(None, ge=0.01, le=2.0, description="Sampling temperature")
@@ -254,7 +256,7 @@ async def generate_rig(
             )
 
         ext = Path(mesh_file_path).suffix.lower()
-        if ext not in {".glb", ".gltf", ".obj", ".fbx"}:
+        if ext not in {".glb", ".gltf", ".obj", ".fbx", ".dae", ".vrm"}:
             raise HTTPException(
                 status_code=400, detail=f"Prerequisite failed: Unsupported mesh format {ext} for auto-rigging"
             )

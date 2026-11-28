@@ -1,11 +1,14 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useWorkspace } from '../store/WorkspaceContext';
+import { useFeatureAvailability } from '@/hooks/useFeatureAvailability';
 import {
   Bone,
   SlidersHorizontal,
   ChevronRight,
+  ChevronDown,
+  Cpu,
   Sparkles,
 } from '@/components/icons/hugeicons-components';
 import { HugeiconsIcon } from '@hugeicons/react';
@@ -33,7 +36,46 @@ export const RiggingPanel: React.FC = () => {
   const isMeshUploading =
     meshUpload.state.status === 'uploading' || meshUpload.state.status === 'verifying';
 
-  // Verified SkinTokens Neural Rigging Parameters (from skintokens_adapter.py)
+  const { modelDetails, weightsStatus, getModelsForFeature, loading: modelsLoading } = useFeatureAvailability();
+  const rigModels = useMemo(() => {
+    const fromApi = getModelsForFeature('auto_rig');
+    const pool = Array.from(new Set([...fromApi, 'unirig_auto_rigging', 'skintokens_auto_rigging']));
+    const ready = pool.filter((mid) => weightsStatus[mid] === true || modelDetails[mid]?.weights_available === true);
+    const list = ready.length > 0 ? ready : pool;
+    return list.map((mid) => {
+      const detail = modelDetails[mid];
+      const fallbackName = mid === 'unirig_auto_rigging' ? 'UniRig' : mid === 'skintokens_auto_rigging' ? 'SkinTokens' : mid;
+      const fallbackBadge = mid === 'unirig_auto_rigging' ? '8GB VRAM' : mid === 'skintokens_auto_rigging' ? '14GB VRAM' : '';
+      return {
+        id: mid,
+        label: detail?.name || detail?.ui_label || detail?.model_name || fallbackName,
+        badge: detail?.ui_badge || (detail?.vram_requirement ? `${Math.round(detail.vram_requirement / 1024)}GB VRAM` : fallbackBadge),
+      };
+    });
+  }, [getModelsForFeature, modelDetails, weightsStatus]);
+
+  // Rigging model selection & parameters
+  const [selectedModel, setSelectedModel] = useState<string>('unirig_auto_rigging');
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState<boolean>(false);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (rigModels.length > 0 && !rigModels.some((m) => m.id === selectedModel)) {
+      setSelectedModel(rigModels[0].id);
+    }
+  }, [rigModels, selectedModel]);
+
+  useEffect(() => {
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setIsModelDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, []);
+
+  const [facesTargetCount, setFacesTargetCount] = useState<number>(50000);
   const [useSkeleton, setUseSkeleton] = useState<boolean>(false);
   const [useTransfer, setUseTransfer] = useState<boolean>(true);
   const [usePostprocess, setUsePostprocess] = useState<boolean>(false);
@@ -62,17 +104,20 @@ export const RiggingPanel: React.FC = () => {
       await runAutoRigging({
         skeletonTemplate: 'humanoid',
         exportFormat: 'glb',
-        modelPreference: 'skintokens_auto_rigging',
-        modelParameters: {
-          top_k: topK,
-          top_p: topP,
-          temperature,
-          repetition_penalty: repetitionPenalty,
-          num_beams: numBeams,
-          use_skeleton: useSkeleton,
-          use_transfer: useTransfer,
-          use_postprocess: usePostprocess,
-        },
+        modelPreference: selectedModel,
+        modelParameters:
+          selectedModel === 'unirig_auto_rigging'
+            ? { faces_target_count: facesTargetCount }
+            : {
+                top_k: topK,
+                top_p: topP,
+                temperature,
+                repetition_penalty: repetitionPenalty,
+                num_beams: numBeams,
+                use_skeleton: useSkeleton,
+                use_transfer: useTransfer,
+                use_postprocess: usePostprocess,
+              },
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -120,28 +165,65 @@ export const RiggingPanel: React.FC = () => {
           onResetUpload={meshUpload.reset}
         />
 
-        {/* Rigging Type: Humanoid (Verified SkinTokens Mode) */}
-        <div className="space-y-1.5">
-          <span className="text-xs font-medium text-zinc-300 block">
-            Rigging Type
-          </span>
-          <div className="p-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-[hsl(var(--accent))]/60 flex items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-9 h-9 rounded-lg bg-[hsl(var(--accent))]/15 border border-[hsl(var(--accent))]/30 flex items-center justify-center text-[hsl(var(--accent))] flex-shrink-0">
-                <Bone className="w-4 h-4" />
+        {/* AI Model Selector Dropdown */}
+        <div className="space-y-1.5" ref={modelDropdownRef}>
+          <div className="space-y-1 relative">
+            <label className="text-xs font-medium text-zinc-300 block">
+              AI Model
+            </label>
+            <button
+              type="button"
+              aria-haspopup="listbox"
+              aria-expanded={isModelDropdownOpen}
+              aria-label="Select AI Model"
+              onClick={() => setIsModelDropdownOpen((prev) => !prev)}
+              className="w-full h-8 px-2.5 rounded-xl bg-[hsl(var(--surface-2))] border border-white/[0.08] hover:bg-[hsl(var(--surface-3))] flex items-center justify-between text-left transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <Cpu className="w-3.5 h-3.5 text-[hsl(var(--primary))] flex-shrink-0" />
+                <span className="text-xs font-medium text-zinc-100 truncate">
+                  {modelsLoading && rigModels.length === 0
+                    ? 'Checking weights...'
+                    : (rigModels.find((m) => m.id === selectedModel)?.label || rigModels[0]?.label || 'Select Model')}
+                </span>
               </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-semibold text-zinc-100">Humanoid Rig</span>
-                  <span className="text-[11px] font-mono px-1.5 py-0.2 rounded bg-white/[0.06] text-zinc-300">
-                    SkinTokens
-                  </span>
-                </div>
-                <p className="text-[11px] text-zinc-400 leading-snug mt-0.5">
-                  Autoregressive skeleton &amp; skinning weights (GLB output)
-                </p>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-zinc-400 flex-shrink-0 transition-transform ${
+                  isModelDropdownOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+
+            {isModelDropdownOpen && (
+              <div
+                role="listbox"
+                aria-label="Available rigging models"
+                className="absolute top-full mt-1 left-0 right-0 rounded-xl bg-[hsl(var(--surface-2))] border border-white/10 shadow-2xl p-1 z-40 space-y-0.5 max-h-52 overflow-y-auto"
+              >
+                {rigModels.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    role="option"
+                    aria-selected={selectedModel === m.id}
+                    onClick={() => {
+                      setSelectedModel(m.id);
+                      setIsModelDropdownOpen(false);
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer flex items-center justify-between ${
+                      selectedModel === m.id
+                        ? 'bg-[hsl(var(--accent))] text-white font-semibold'
+                        : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
+                    }`}
+                  >
+                    <span className="truncate pr-2">{m.label}</span>
+                    {m.badge && (
+                      <span className="text-[11px] font-mono opacity-80 flex-shrink-0">{m.badge}</span>
+                    )}
+                  </button>
+                ))}
               </div>
-            </div>
+            )}
           </div>
 
           {/* Informational T/A-pose guidance only */}
@@ -151,7 +233,7 @@ export const RiggingPanel: React.FC = () => {
           </div>
         </div>
 
-        {/* Inline Collapsible SkinTokens Parameters */}
+        {/* Inline Collapsible Model Parameters */}
         <div className="rounded-xl border border-white/[0.08] bg-[hsl(var(--surface-2))] overflow-hidden">
           <button
             type="button"
@@ -161,7 +243,9 @@ export const RiggingPanel: React.FC = () => {
           >
             <div className="flex items-center gap-2">
               <SlidersHorizontal className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
-              <span className="text-xs font-medium text-zinc-200">SkinTokens Settings</span>
+              <span className="text-xs font-medium text-zinc-200">
+                {selectedModel === 'unirig_auto_rigging' ? 'UniRig Settings' : 'SkinTokens Settings'}
+              </span>
             </div>
             <ChevronRight
               className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-150 ${
@@ -170,7 +254,30 @@ export const RiggingPanel: React.FC = () => {
             />
           </button>
 
-          {isSettingsOpen && (
+          {isSettingsOpen && selectedModel === 'unirig_auto_rigging' && (
+            <div className="p-3 pt-2 border-t border-white/[0.08] space-y-2 bg-black/20">
+              <div className="flex items-center justify-between text-xs">
+                <label htmlFor="rig-faces-target" className="text-zinc-300">
+                  Target Face Count
+                </label>
+                <span className="font-mono text-[11px] text-zinc-200 font-semibold">
+                  {facesTargetCount.toLocaleString()}
+                </span>
+              </div>
+              <input
+                id="rig-faces-target"
+                type="range"
+                min={5000}
+                max={100000}
+                step={5000}
+                value={facesTargetCount}
+                onChange={(e) => setFacesTargetCount(parseInt(e.target.value, 10))}
+                className="w-full h-1.5 rounded-full appearance-none bg-white/10 cursor-pointer accent-[hsl(var(--primary))]"
+              />
+            </div>
+          )}
+
+          {isSettingsOpen && selectedModel === 'skintokens_auto_rigging' && (
             <div className="p-3 pt-2 border-t border-white/[0.08] space-y-3 bg-black/20">
               {/* Sampling Temperature */}
               <div className="space-y-1">
@@ -401,7 +508,7 @@ export const RiggingPanel: React.FC = () => {
               <span>Auto-Rig Character</span>
             </button>
             <div className="flex items-center justify-between text-[11px] text-zinc-400 px-1 font-mono">
-              <span>SkinTokens · Humanoid</span>
+              <span>{selectedModel === 'unirig_auto_rigging' ? 'UniRig · Humanoid' : 'SkinTokens · Humanoid'}</span>
               <span>Output: GLB</span>
             </div>
           </div>

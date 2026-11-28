@@ -35,7 +35,7 @@ ForMesh3D brings image-to-3D generation and practical mesh-production tools into
 | **Segmentation** | Split a mesh into semantic parts with the PartField adapter. |
 | **Retopology** | Rebuild mesh topology with TriFlow. |
 | **UV unwrapping** | Generate UV layouts with PartUV. |
-| **Auto-rigging** | Generate character rigs with SkinTokens. |
+| **Auto-rigging** | Generate character rigs with SkinTokens and UniRig. |
 | **Motion generation** | Generate character motion with the ARDY adapter. |
 | **3D inspection** | Inspect GLB assets in the local Three.js viewport, with workspace tools and asset selection alongside it. |
 
@@ -79,7 +79,7 @@ The enabled model manifest currently covers these tools:
 | Mesh segmentation | PartField |
 | Retopology | TriFlow |
 | UV unwrapping | PartUV |
-| Auto-rigging | SkinTokens |
+| Auto-rigging | SkinTokens, UniRig |
 | Motion generation | ARDY |
 
 The TRELLIS text-paint entry reuses the existing TRELLIS checkpoint and adapter implementation; it is a separate feature registration, not a second set of model weights. Disabled/experimental model entries remain disabled unless deliberately changed.

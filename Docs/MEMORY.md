@@ -12,13 +12,13 @@
 - `backend/config/models.yaml` is the sole source for model metadata (`name`, `label`, `description`, `vram_requirement`), enablement, `capabilities`, and `default_parameters`.
 - `ModelFactory.ADAPTER_REGISTRY` resolves model IDs to adapter classes; `backend/adapters/__init__.py::_ADAPTER_MAP` derives from it automatically.
 - `multiprocess_scheduler.py` injects `default_parameters` before inference when keys are missing/`None` without overwriting UI-owned params (`seed`, `texture_resolution`, `poly_type`, `target_polycount`, `remesh_option`).
-- **Enabled families:** HY 2.1, HY 2.0 Mini Turbo, TripoSR, TripoSG, TRELLIS, Stable Fast 3D, HY 2.1/2.0 Paint, TripoSR Paint, TRELLIS Paint (Text Paint remains disabled), PartField, SkinTokens, TriFlow, PartUV, ARDY.
+- **Enabled families:** HY 2.1, HY 2.0 Mini Turbo, TripoSR, TripoSG, TRELLIS, Stable Fast 3D, HY 2.1/2.0 Paint, TripoSR Paint, TRELLIS Paint (Text Paint remains disabled), PartField, SkinTokens, UniRig, TriFlow, PartUV, ARDY.
 - **Disabled & retained:** Pixal3D, TRELLIS.2, TaoFlowForge (do not enable or delete).
 - `backend/thirdparty/` is a pinned submodule; `backend/thirdparty/TRELLIS/trellis/utils/postprocessing_utils.py` has a known upstream `IndentationError` (compile first-party code separately).
 
 ## 3. UI, Tools & Contracts
 - `ModelsTab.tsx`, `GeneratePanel.tsx`, and `TexturePanel.tsx` load dynamically from `/api/v1/system/models` (`constants/models.ts` deleted); VRAM badges round `vram_requirement / 1024`.
-- Retopology = TriFlow AI (`_pair_triangles_to_quads` for quads), UV = PartUV AI, Segmentation = PartField AI, Rigging = SkinTokens AI, Motion = ARDY. No script fallback engine exists.
+- Retopology = TriFlow AI (`_pair_triangles_to_quads` for quads), UV = PartUV AI, Segmentation = PartField AI, Rigging = UniRig AI & SkinTokens AI, Motion = ARDY. No script fallback engine exists.
 - `MeshViewer.tsx` renders local GLBs with hardware `setScissorTest` split comparison, 3-step Wireframe (`off` -> `overlay` -> `xray`), the simple `Execution Progress Bar` (`bottom-20`) and ~0.95s `THREE.Plane` scan reveal.
 - `multiprocess_scheduler.py` and `system.py` normalize and serve durable workspace paths (`mesh/mesh.glb`) rather than `/tmp`.
 - Animation panel (`features/workspace/Panels/AnimationPanel.tsx`) creates text→motion (ARDY), lists bundled Premade and server-backed My Presets, imports user NPZ and saves generated motion, and binds clips to the active rigged mesh. `ViewportToolOverlay.tsx` mounts `CameraTriad` (interactive SVG XYZ triad via `viewportEvents.ts`) and `AnimationPlayerBar` (play/pause, loop, speed, scrub, export GLB). `ActiveMeshBar.tsx` is the compact downstream mesh selector/uploader. `QualityBadge.tsx` reports mesh QA tier.
@@ -38,5 +38,5 @@
 ## Adapter Architecture (Pluggable Upstream Loader)
 
 - **Shared loader (`backend/core/utils/upstream.py`):** `resolve_thirdparty`, `resolve_pretrained`, `use_thirdparty`, `load_thirdparty_script`.
-- **Completed rewrite:** All 15 adapters (12 enabled + 3 disabled `pixal3d`, `trellis2`, `taoflowforge`) rewritten cleanly from 0 using `upstream.py`, applying `patcher/<model>` first and failing fast on missing local weights (`backend/pretrained/<Model>`).
+- **Completed adapters:** All 16 adapters (13 enabled including `unirig_adapter.py` + 3 disabled `pixal3d`, `trellis2`, `taoflowforge`) use `upstream.py`, applying `patcher/<model>` first and failing fast on missing local assets.
 - **GPU parity:** `sm >= 80` keeps native BF16/FlashAttention; `sm < 80` workarounds stay isolated in `patcher/<model>/`.

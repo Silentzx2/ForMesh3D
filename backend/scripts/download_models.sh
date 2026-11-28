@@ -5,7 +5,7 @@
 # 
 # Available models:
 #   hunyuan21, hunyuan2mini, trellis, trellis-text, trellis2,
-#   skintokens, partuv, triposg, triposr, ardy, pixal3d, taoflowforge, misc, all
+#   skintokens, unirig, partuv, triposg, triposr, ardy, pixal3d, taoflowforge, misc, all
 #
 # Options:
 #   -h, --help              Show this help message
@@ -140,7 +140,8 @@ Available models:
     trellis            - TRELLIS image-large model
     trellis-text       - TRELLIS text-xlarge model (optional)
     trellis2           - TRELLIS.2-4B model (image-based only)
-    skintokens         - SkinTokens model for unified auto-rigging (alias: unirig)
+    skintokens         - SkinTokens model for unified auto-rigging
+    unirig             - UniRig model for skeleton & skinning auto-rigging
     partuv             - PartUV model
     triflow            - TriFlow neural quad-dominant retopology model
     triposg            - TripoSG and RMBG models
@@ -707,6 +708,34 @@ download_skintokens() {
     fi
 }
 
+# Function to download UniRig model checkpoints
+download_unirig() {
+    print_info "========================================"
+    print_info "Downloading UniRig Model"
+    print_info "========================================"
+
+    local model_dir="$PRETRAINED_DIR/UniRig"
+    local exp_dir="$model_dir/experiments"
+
+    if [ "$FORCE_DOWNLOAD" = false ] && [ -s "$exp_dir/skeleton/articulation-xl_quantization_256/model.ckpt" ] && [ -s "$exp_dir/skin/articulation-xl/model.ckpt" ]; then
+        print_info "UniRig model already exists and verified"
+        return 0
+    fi
+
+    mkdir -p "$exp_dir" 2>/dev/null || true
+    ensure_writable_model_dir "$model_dir" || return 1
+    print_info "Downloading UniRig checkpoints from VAST-AI/UniRig..."
+    if hf_download VAST-AI/UniRig --local-dir "$exp_dir" --include "skeleton/articulation-xl_quantization_256/model.ckpt" "skin/articulation-xl/model.ckpt" "skin/skeleton/model.ckpt"; then
+        if [ -d "$THIRDPARTY_DIR/UniRig" ] && [ ! -e "$THIRDPARTY_DIR/UniRig/experiments" ]; then
+            ln -sf "$exp_dir" "$THIRDPARTY_DIR/UniRig/experiments" 2>/dev/null || true
+        fi
+        print_success "UniRig model downloaded successfully"
+    else
+        print_error "Failed to download UniRig model"
+        return 1
+    fi
+}
+
 # Function to download PartUV models 
 download_partuv() {
     print_info "========================================"
@@ -1151,6 +1180,9 @@ verify_all_models() {
     print_info "Checking SkinTokens..."
     verify_directory "$PRETRAINED_DIR/SkinTokens" 2 || all_verified=false
 
+    print_info "Checking UniRig..."
+    [ -s "$PRETRAINED_DIR/UniRig/experiments/skeleton/articulation-xl_quantization_256/model.ckpt" ] && [ -s "$PRETRAINED_DIR/UniRig/experiments/skin/articulation-xl/model.ckpt" ] || all_verified=false
+
     print_info "Checking PartUV..."
     verify_directory "$PRETRAINED_DIR/PartUV" 1 || all_verified=false
     print_info "Checking TriFlow..."
@@ -1256,8 +1288,11 @@ for model in "${MODELS_ARRAY[@]}"; do
         "trellis2")
             download_trellis2
             ;;
-        "skintokens"|"unirig")
+        "skintokens")
             download_skintokens
+            ;;
+        "unirig")
+            download_unirig
             ;;
         "partuv")
             download_partuv
@@ -1295,6 +1330,7 @@ for model in "${MODELS_ARRAY[@]}"; do
             download_trellis_text
             download_trellis2
             download_skintokens
+            download_unirig
             download_partuv
             download_partfield
             download_triflow

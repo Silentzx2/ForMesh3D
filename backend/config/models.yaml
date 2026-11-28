@@ -586,6 +586,33 @@ auto_rig:
       use_transfer: true
       use_postprocess: false
 
+  ## ============================================================================
+  ## UniRig (Unified Skeleton + Skinning Auto-Rig)
+  ## ============================================================================
+  unirig_auto_rigging:
+    name: "UniRig"
+    label: "Auto-Rig"
+    description: "Unified skeleton and skinning weight prediction (SIGGRAPH '25)"
+    enabled: true
+    vram_requirement: 8192
+    max_workers: 1
+    supported_inputs:
+      - obj
+      - glb
+      - fbx
+      - gltf
+      - dae
+      - vrm
+    supported_outputs:
+      - glb
+    model_path: backend/pretrained/UniRig
+    capabilities:
+      auto_rig: true
+      character_output: true
+    model_type: rigging
+    default_parameters:
+      faces_target_count: 50000
+
 mesh_retopology:
 
   ## ============================================================================

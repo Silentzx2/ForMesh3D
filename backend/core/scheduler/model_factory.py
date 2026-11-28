@@ -108,14 +108,14 @@ class ModelFactory:
             "module": "adapters.hunyuan3d_dit_v2_mini_turbo",
             "class": "Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter",
         },
-        # SkinTokens adapters
+        # SkinTokens & UniRig adapters
         "skintokens_auto_rigging": {
             "module": "adapters.skintokens_adapter",
             "class": "SkinTokensAdapter",
         },
-        "unirig_auto_rig": {
-            "module": "adapters.skintokens_adapter",
-            "class": "SkinTokensAdapter",
+        "unirig_auto_rigging": {
+            "module": "adapters.unirig_adapter",
+            "class": "UniRigAdapter",
         },
         # Retopology adapters
         "triflow_retopology": {

@@ -2791,6 +2791,7 @@ class MultiprocessModelScheduler:
                     and bool(job_request.inputs.get("enable_auto_rig"))
                     and postprocess_mode == "production_mesh"
                 ):
+                    auto_rig_provider = str(job_request.inputs.get("auto_rig_model") or "skintokens_auto_rigging")
                     child_request = JobRequest(
                         feature="auto_rig",
                         inputs={
@@ -2799,7 +2800,7 @@ class MultiprocessModelScheduler:
                             "output_format": "glb",
                             "with_skinning": True,
                         },
-                        model_preference="skintokens_auto_rigging",
+                        model_preference=auto_rig_provider,
                         priority=job_request.priority,
                         timeout_seconds=job_request.timeout_seconds,
                         metadata={
@@ -2825,7 +2826,7 @@ class MultiprocessModelScheduler:
                     child_id = await self.schedule_job(child_request)
                     final_result["rigging"] = {
                         "status": "queued",
-                        "provider": "skintokens_auto_rigging",
+                        "provider": auto_rig_provider,
                         "child_job_id": child_id,
                     }
                     final_result["rigged_model_url"] = (
