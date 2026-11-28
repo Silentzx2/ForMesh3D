@@ -167,7 +167,17 @@ def _patch_tokenrig_generate(gpu_id: Optional[int] = None) -> None:
         if is_pre_ampere:
             if kwargs.get("num_beams", 1) > 1:
                 kwargs["num_beams"] = 1
-            kwargs.setdefault("num_logits_to_keep", 1)
+            lm_head = getattr(getattr(self, "transformer", None), "lm_head", None)
+            if lm_head is not None and not getattr(lm_head, "_skintokens_lm_head_patched", False):
+                orig_lm_head_forward = lm_head.forward
+
+                def _last_token_lm_head(hidden_states: Any, *a: Any, **kw: Any) -> Any:
+                    if hasattr(hidden_states, "dim") and hidden_states.dim() == 3 and hidden_states.shape[1] > 1:
+                        hidden_states = hidden_states[:, -1:, :]
+                    return orig_lm_head_forward(hidden_states, *a, **kw)
+
+                lm_head.forward = _last_token_lm_head  # type: ignore[method-assign]
+                lm_head._skintokens_lm_head_patched = True  # type: ignore[attr-defined]
             with torch.amp.autocast("cuda", dtype=torch.float16):
                 return orig_generate.__wrapped__(self, *args, **kwargs) if hasattr(orig_generate, "__wrapped__") else orig_generate(self, *args, **kwargs)
         return orig_generate(self, *args, **kwargs)
