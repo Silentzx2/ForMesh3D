@@ -167,6 +167,7 @@ def _patch_tokenrig_generate(gpu_id: Optional[int] = None) -> None:
         if is_pre_ampere:
             if kwargs.get("num_beams", 1) > 1:
                 kwargs["num_beams"] = 1
+            kwargs.setdefault("num_logits_to_keep", 1)
             with torch.amp.autocast("cuda", dtype=torch.float16):
                 return orig_generate.__wrapped__(self, *args, **kwargs) if hasattr(orig_generate, "__wrapped__") else orig_generate(self, *args, **kwargs)
         return orig_generate(self, *args, **kwargs)
