@@ -381,7 +381,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
       </div>
 
       {loadedModelUrl && viewerLoadState === 'ready' && viewerSelectedAsset?.id === currentAsset?.id
-        && hasRenderableMesh && currentAsset && workspaceId && currentAsset.category !== 'texture'
+        && currentAsset && workspaceId && currentAsset.category !== 'texture'
         && currentAsset.format !== 'IMAGE' && currentAsset.format !== 'FILE' && (
         <div className="pointer-events-auto absolute bottom-20 left-4 md:left-6 z-30">
           <SimpleTooltip label="Adjust Mesh Orientation" side="right">
