@@ -84,11 +84,11 @@ def export_mesh_safe(
     if fmt not in {"glb", "gltf", "obj", "ply", "stl"}:
         fmt = "glb"
 
-    if isinstance(mesh, trimesh.Trimesh) and len(mesh.faces) > 1_000_000:
+    if isinstance(mesh, trimesh.Trimesh) and len(mesh.faces) > 5_000_000:
         # Enforce safety ceiling
         temp_raw = out.parent / f"_raw_{out.name}"
         mesh.export(str(temp_raw), file_type=fmt)
-        guard_mesh_density(str(temp_raw), str(out), max_faces=1_000_000)
+        guard_mesh_density(str(temp_raw), str(out), max_faces=5_000_000)
         if temp_raw.exists():
             temp_raw.unlink(missing_ok=True)
     else:

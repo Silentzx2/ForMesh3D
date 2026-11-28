@@ -141,6 +141,16 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
                 use_remesh=False,
                 save_glb=True,
             )
+            # hy3dpaint's convert_obj_to_glb requires bpy + embree. If bpy is broken
+            # (undefined symbol: rtcIsSYCLDeviceSupported) it silently skips GLB export,
+            # leaving only the .obj. Fall back to trimesh (already a project dep) so the
+            # textured mesh is still available as GLB without touching thirdparty code.
+            obj_out = out.with_suffix(".obj")
+            if not out.is_file() and obj_out.is_file():
+                try:
+                    trimesh.load(obj_out, process=False).export(str(out))
+                except Exception as exc:
+                    logger.warning("trimesh obj->glb fallback failed (%s); keeping .obj", exc)
         else:
             textured = self._paint_pipeline(mesh=trimesh.load(mesh_path, process=False), image=Image.open(image_path))
             textured.export(str(out))

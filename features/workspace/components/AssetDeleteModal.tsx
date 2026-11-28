@@ -176,7 +176,6 @@ export function AssetDeleteModal({
   const [mode, setMode] = useState<'specific' | 'workspace'>(hasDerived ? 'specific' : 'workspace');
   const [selectedAssetId, setSelectedAssetId] = useState<string>(derivedVersions[0]?.asset_id || '');
   const [permanent, setPermanent] = useState(false);
-  const [countdown, setCountdown] = useState(3);
   const [busy, setBusy] = useState(false);
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
@@ -192,17 +191,7 @@ export function AssetDeleteModal({
     setMode(hasDerived ? 'specific' : 'workspace');
     setSelectedAssetId(derivedVersions[0]?.asset_id || '');
     setPermanent(false);
-    setCountdown(3);
   }, [asset?.id, hasDerived, derivedVersions]);
-
-  useEffect(() => {
-    if (!asset || mode !== 'workspace') return;
-    setCountdown(3);
-    const timer = setInterval(() => {
-      setCountdown((c) => (c <= 1 ? 0 : c - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [asset, mode]);
 
   if (!asset) return null;
 
@@ -345,16 +334,14 @@ export function AssetDeleteModal({
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={busy || (mode === 'workspace' && countdown > 0)}
+            disabled={busy}
             className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 text-white hover:bg-rose-500 disabled:opacity-50 transition-colors"
           >
             {busy
               ? 'Deleting...'
-              : mode === 'workspace' && countdown > 0
-                ? `Yes, Delete (${countdown}s)`
-                : permanent
-                  ? 'Yes, Delete Forever'
-                  : 'Yes, Move to Trash'}
+              : permanent
+                ? 'Yes, Delete Forever'
+                : 'Yes, Move to Trash'}
           </button>
         </div>
       </div>

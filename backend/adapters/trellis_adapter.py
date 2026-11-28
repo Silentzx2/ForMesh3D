@@ -4,7 +4,8 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  Repo     : backend/thirdparty/TRELLIS (TrellisImageTo3DPipeline, to_glb)    ║
 ║  Weights  : backend/pretrained/TRELLIS  (or TRELLIS/TRELLIS-image-large)     ║
-║  Patcher  : SPARSE_ATTN_BACKEND=sdpa for sm < 80 before TRELLIS import       ║
+║  Patcher  : SPARSE_ATTN_BACKEND=sdpa for sm < 80 before TRELLIS import;     ║
+║             patcher.trellis.apply_spconv_workarounds (SPCONV_ALGO native)   ║
 ║  States   : UNLOADED -> LOADING -> LOADED -> PROCESSING -> LOADED / ERROR    ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
@@ -48,6 +49,13 @@ class _TrellisBaseAdapter(BaseModel):
             major, _ = torch.cuda.get_device_capability(self.gpu_id)
             if major < 8:
                 os.environ.setdefault("SPARSE_ATTN_BACKEND", "sdpa")
+
+        # TRELLIS worker-scoped patcher: set spconv env vars before TRELLIS/spconv
+        # import to avoid CUDA illegal-address in spconv implicit_gemm merge_sort
+        # during SLAT sampling.  sm >= 80 stays native; this is isolated to TRELLIS.
+        from patcher.trellis import apply_spconv_workarounds
+
+        apply_spconv_workarounds()
 
         weights_dir = Path(self.model_path) if self.model_path else resolve_pretrained(self.MODEL_KEY)
         alt_dir = weights_dir / "TRELLIS-image-large"

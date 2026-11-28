@@ -2563,7 +2563,7 @@ class MultiprocessModelScheduler:
                             if not _dst.exists():
                                 try:
                                     from pipelines.mesh_guard import guard_mesh_density
-                                    pipe_res = guard_mesh_density(str(_src), str(_dst), max_faces=2_000_000)
+                                    pipe_res = guard_mesh_density(str(_src), str(_dst), max_faces=5_000_000)
                                     if not pipe_res.get("success"):
                                         shutil.copy2(str(_src), str(_dst))
                                 except Exception:

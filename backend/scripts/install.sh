@@ -676,6 +676,15 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     $UV_PIP install --no-deps "partuv==0.1.2" || echo "[WARN] partuv wheel install failed"
 
     # bpy — Blender Python 4.0 wheel for SkinTokens & PartUV packing (Python 3.10 compatible)
+    # bpy's __init__.so links against Intel Embree and needs rtcIsSYCLDeviceSupported.
+    # install.sh never installed embree, so bpy import fails with "undefined symbol".
+    # Install the system embree library first so bpy can load on Debian/Ubuntu.
+    if command -v apt-get >/dev/null 2>&1 || command -v apt >/dev/null 2>&1; then
+        APT_BIN="$(command -v apt-get 2>/dev/null || command -v apt 2>/dev/null)"
+        echo "[INFO] Installing embree system library required by bpy wheel..."
+        $APT_BIN install -y --no-install-recommends libembree3 2>/dev/null || \
+            echo "[WARN] libembree3 install failed — bpy may fail to import (undefined symbol: rtcIsSYCLDeviceSupported)"
+    fi
     echo "[INFO] Installing bpy==4.0.0 from Blender PyPI..."
     $UV_PIP install "bpy==4.0.0" --extra-index-url https://download.blender.org/pypi/ || echo "[WARN] bpy install failed"
 

@@ -34,8 +34,8 @@ SUPPORTED_TEXTURE_FORMATS = [".jpg", ".jpeg", ".png", ".tga", ".exr", ".hdr"]
 
 # Validation limits
 MAX_IMAGE_RESOLUTION = (8192, 8192)  # Maximum accepted upload image resolution
-MAX_MESH_VERTICES = int(os.environ.get("FORMASH_MAX_MESH_VERTICES", 2_000_000))  # Maximum 2,000,000 vertices (2000k)
-MAX_MESH_FACES = int(os.environ.get("FORMASH_MAX_MESH_FACES", 2_000_000))  # Maximum 2,000,000 faces (2000k upload limit)
+MAX_MESH_VERTICES = int(os.environ.get("FORMASH_MAX_MESH_VERTICES", 5_000_000))  # Maximum 5,000,000 vertices (5000k)
+MAX_MESH_FACES = int(os.environ.get("FORMASH_MAX_MESH_FACES", 5_000_000))  # Maximum 5,000,000 faces (5000k upload limit)
 
 # MIME type mappings
 MIME_TYPE_MAPPING = {
