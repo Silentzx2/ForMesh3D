@@ -166,25 +166,53 @@ def _patch_vocab_logits_processor() -> None:
 
 
 def _patch_dataloader_num_workers() -> None:
-    """Force num_workers=0 in SkinTokens DatasetConfig.parse to avoid CUDA IPC pidfd_getfd errors."""
+    """Force num_workers=0 in SkinTokens DatasetConfig.parse and DataLoader
+    to avoid CUDA IPC pidfd_getfd errors in container environments without
+    pidfd_getfd support."""
     try:
         from src.data.dataset import DatasetConfig
     except ImportError:
-        return
-    if getattr(DatasetConfig, "_skintokens_nw_patched", False):
-        return
-    orig_parse = DatasetConfig.parse.__func__
+        pass
+    else:
+        if getattr(DatasetConfig, "_skintokens_nw_patched", False):
+            pass
+        else:
+            orig_parse = DatasetConfig.parse.__func__
 
-    @classmethod
-    def _patched_parse(cls: Any, *args: Any, **kwargs: Any) -> Any:
-        if kwargs.get("num_workers", 0):
-            kwargs["num_workers"] = 0
-            kwargs["persistent_workers"] = False
-            kwargs["pin_memory"] = False
-        return orig_parse(cls, *args, **kwargs)
+            @classmethod
+            def _patched_parse(cls: Any, *args: Any, **kwargs: Any) -> Any:
+                if kwargs.get("num_workers", 0):
+                    kwargs["num_workers"] = 0
+                    kwargs["persistent_workers"] = False
+                    kwargs["pin_memory"] = False
+                return orig_parse(cls, *args, **kwargs)
 
-    DatasetConfig.parse = _patched_parse  # type: ignore[assignment]
-    DatasetConfig._skintokens_nw_patched = True  # type: ignore[attr-defined]
+            DatasetConfig.parse = _patched_parse  # type: ignore[assignment]
+            DatasetConfig._skintokens_nw_patched = True  # type: ignore[attr-defined]
+
+    try:
+        from torch.utils.data import DataLoader
+    except ImportError:
+        return
+    if getattr(DataLoader, "_skintokens_nw_patched", False):
+        return
+    orig_init = DataLoader.__init__
+
+    def _patched_init(self, dataset, batch_size=1, shuffle=False, sampler=None,
+                      batch_sampler=None, num_workers=0, collate_fn=None,
+                      pin_memory=False, drop_last=False, timeout=0,
+                      worker_init_fn=None, multiprocessing_context=None,
+                      generator=None, *, prefetch_factor=2,
+                      persistent_workers=False):
+        num_workers = 0  # Force num_workers=0 to avoid multiprocessing spawn issues
+        return orig_init(self, dataset, batch_size, shuffle, sampler, batch_sampler,
+                         num_workers, collate_fn, pin_memory, drop_last,
+                         timeout, worker_init_fn, multiprocessing_context,
+                         generator, prefetch_factor=prefetch_factor,
+                         persistent_workers=persistent_workers)
+
+    DataLoader.__init__ = _patched_init  # type: ignore[assignment]
+    DataLoader._skintokens_nw_patched = True  # type: ignore[attr-defined]
 
 
 def _inject_michelangelo_models_stub() -> None:
