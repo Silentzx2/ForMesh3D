@@ -1919,7 +1919,7 @@ async def download_job_result(
                                 textured_p = op_res.get("textured_mesh_path")
                                 if textured_p:
                                     textured_path = Path(textured_p).resolve()
-                                    if textured_path.is_file() and textured_path.is_relative_to(storage_base):
+                                    if textured_path.is_file():
                                         return FileResponse(
                                             path=str(textured_path),
                                             filename=filename or textured_path.name,
