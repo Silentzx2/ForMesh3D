@@ -212,10 +212,22 @@ def _install_torch_cluster_shim() -> None:
     logger.info("UniRig patcher: installed pure-PyTorch torch_cluster.fps shim")
 
 
+def _allow_unirig_checkpoint_globals() -> None:
+    """Allowlist box.box.Box (and safe fallback) for PyTorch 2.6+ weights_only checkpoint loading."""
+    try:
+        import torch
+        from box import Box
+        if hasattr(torch.serialization, "add_safe_globals"):
+            torch.serialization.add_safe_globals([Box])
+    except Exception:
+        pass
+
+
 def apply_patch(gpu_id: Optional[int] = None) -> None:
-    """Apply UniRig pre-Ampere patches strictly when sm < 80."""
+    """Apply UniRig patches; pre-Ampere shims run strictly when sm < 80."""
     from patcher.doctor import GPUDoctor
 
+    _allow_unirig_checkpoint_globals()
     _install_torch_cluster_shim()
 
     info = GPUDoctor().inspect_gpu(gpu_id)
