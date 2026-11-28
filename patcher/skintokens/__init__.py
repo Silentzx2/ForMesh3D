@@ -167,6 +167,8 @@ def _patch_tokenrig_generate(gpu_id: Optional[int] = None) -> None:
         if is_pre_ampere:
             if kwargs.get("num_beams", 1) > 1:
                 kwargs["num_beams"] = 1
+            if kwargs.get("max_new_tokens", 0) > 768:
+                kwargs["max_new_tokens"] = 768
             if kwargs.get("do_sample", False):
                 kwargs["do_sample"] = False
                 for k in ("top_k", "top_p", "temperature"):
