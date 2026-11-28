@@ -1,13 +1,20 @@
 from contextlib import contextmanager
 from pathlib import Path
+import sys
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend.api.routers.file_upload import _replace_workspace_mesh_asset
-from backend.core.scheduler.database_models import AssetModel, Base, OperationModel, WorkspaceModel
-from backend.core.utils.file_utils import WorkspaceStorageManager
+backend_root = Path(__file__).resolve().parents[1]
+repo_root = backend_root.parent
+for import_root in (str(backend_root), str(repo_root)):
+    if import_root not in sys.path:
+        sys.path.insert(0, import_root)
+
+from api.routers.file_upload import _replace_workspace_mesh_asset
+from core.scheduler.database_models import AssetModel, Base, OperationModel, WorkspaceModel
+from core.utils.file_utils import WorkspaceStorageManager
 
 
 class _Database:
