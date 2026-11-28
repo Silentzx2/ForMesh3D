@@ -710,6 +710,12 @@ else
     echo "[INFO] Skipping model dependencies (no GPU detected)."
 fi
 
+# ARDY — NVIDIA Text-to-Motion (build motion_correction C++ extension if toolchain available)
+if [ -d "$THIRDPARTY_DIR/ardy" ]; then
+    echo "[INFO] Installing ARDY (including motion_correction C++ extension if toolchain available)..."
+    $UV_PIP install --no-build-isolation --no-deps -e "$THIRDPARTY_DIR/ardy" || echo "[WARN] ARDY motion_correction C++ build skipped (toolchain/cmake unavailable)"
+fi
+
 # ── System runtime libraries ─────────────────────────────────────────────────
 echo ""
 echo "========================================"
