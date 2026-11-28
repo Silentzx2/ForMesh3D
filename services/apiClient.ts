@@ -441,36 +441,24 @@ class ApiClient {
     return response.data;
   }
 
-  async saveOrientedWorkspaceMesh(
-    workspaceId: string,
-    sourceAssetId: string,
-    file: File,
-  ): Promise<{
-    success: boolean;
-    workspace_id: string;
-    active_mesh_asset_id: string;
-    asset: Record<string, any>;
-    url: string;
-    thumbnail_url?: string | null;
-    mesh_stats?: Record<string, number | undefined>;
-  }> {
-    const formData = new FormData();
-    formData.append('file', file);
-    const response = await this.client.post(
-      `/api/v1/system/workspace/${encodeURIComponent(workspaceId)}/assets/${encodeURIComponent(sourceAssetId)}/orientation`,
-      formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
-    );
-    return response.data;
+  async replaceWorkspaceMeshFile(workspaceId: string, assetId: string, file: File): Promise<FileUploadResponse> {
+    return this.uploadMeshFile(file, undefined, undefined, workspaceId, assetId);
   }
 
   async uploadMeshFile(
     file: File,
     onProgress?: (loadedBytes: number, totalBytes?: number) => void,
     signal?: AbortSignal,
+    workspaceId?: string,
+    assetId?: string,
   ): Promise<FileUploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
+    if (workspaceId || assetId) {
+      if (!workspaceId || !assetId) throw new Error('workspaceId and assetId must be provided together');
+      formData.append('workspace_id', workspaceId);
+      formData.append('asset_id', assetId);
+    }
 
     const response = await this.client.post<FileUploadResponse>(
       '/api/v1/file-upload/mesh',
