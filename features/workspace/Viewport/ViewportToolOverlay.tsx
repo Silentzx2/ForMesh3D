@@ -280,6 +280,8 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
         source: {
           ...selectedAsset.source,
           filename: saved.filename || orientedFile.name,
+          subfolder: selectedAsset.source?.subfolder || 'mesh',
+          type: selectedAsset.source?.type || 'output',
           viewUrl: savedUrl,
           fileId: selectedAssetId,
         },
