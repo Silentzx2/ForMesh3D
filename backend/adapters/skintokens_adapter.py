@@ -85,6 +85,8 @@ class SkinTokensAdapter(BaseModel):
         try:
             with use_thirdparty("SkinTokens", chdir=True):
                 import demo
+                from patcher.skintokens import _patch_tokenrig_generate
+                _patch_tokenrig_generate(gpu_id=getattr(self, "gpu_id", 0))
                 demo.wait_for_bpy_server()
                 for qcand in (weights_dir / "models" / "Qwen3-0.6B", skintokens_root / "models" / "Qwen3-0.6B"):
                     if qcand.is_dir():
