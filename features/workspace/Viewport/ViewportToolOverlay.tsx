@@ -72,6 +72,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
   const loadedModelUrl = useViewerStore((state) => state.loadedModelUrl);
   const viewerLoadState = useViewerStore((state) => state.assetSelectionState);
   const viewerSelectedAsset = useViewerStore((state) => state.selectedAsset);
+  const orientationRequestIdRef = useRef(0);
   const currentAssetRef = useRef(currentAsset);
   useEffect(() => { currentAssetRef.current = currentAsset; }, [currentAsset]);
   useEffect(() => {
@@ -79,6 +80,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
       orientationState !== 'idle' &&
       (!loadedModelUrl || viewerLoadState !== 'ready' || viewerSelectedAsset?.id !== currentAsset?.id)
     ) {
+      orientationRequestIdRef.current += 1;
       setOrientationState('idle');
     }
   }, [orientationState, loadedModelUrl, viewerLoadState, viewerSelectedAsset?.id, currentAsset?.id]);
@@ -214,6 +216,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
     const selectedAsset = currentAsset;
     if (!selectedAsset || !workspaceId || isOrienting || isExecuting || !loadedModelUrl) return;
 
+    const orientationRequestId = ++orientationRequestIdRef.current;
     const selectedAssetId = selectedAsset.asset_id || selectedAsset.id;
     if (!selectedAssetId || selectedAssetId.startsWith('local_')) {
       toast.error('Save this mesh to the workspace before changing its orientation');
@@ -312,7 +315,9 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
         description: error instanceof Error ? error.message : 'Unexpected orientation error',
       });
     } finally {
-      setOrientationState('idle');
+      if (orientationRequestIdRef.current === orientationRequestId) {
+        setOrientationState('idle');
+      }
     }
   };
 
