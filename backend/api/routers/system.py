@@ -1914,6 +1914,26 @@ async def download_job_result(
                                         filename=filename or out_p_path.name,
                                         media_type=get_content_type_for_file(str(out_p_path)),
                                     )
+                            # Serve the textured mesh when requested (artifact_format=textured).
+                            if requested_artifact_format == "textured":
+                                textured_p = op_res.get("textured_mesh_path")
+                                if textured_p:
+                                    textured_path = Path(textured_p).resolve()
+                                    if textured_path.is_file() and textured_path.is_relative_to(storage_base):
+                                        return FileResponse(
+                                            path=str(textured_path),
+                                            filename=filename or textured_path.name,
+                                            media_type=get_content_type_for_file(str(textured_path)),
+                                        )
+                                # Fallback: workspace mesh/textured_mesh.glb
+                                if op.workspace_id:
+                                    textured_ws = (storage_base / op.workspace_id / "mesh" / "textured_mesh.glb").resolve()
+                                    if textured_ws.is_file() and textured_ws.is_relative_to(storage_base):
+                                        return FileResponse(
+                                            path=str(textured_ws),
+                                            filename=filename or "textured_mesh.glb",
+                                            media_type=get_content_type_for_file(str(textured_ws)),
+                                        )
                             rel_p = op_res.get("relative_mesh_path")
                             if rel_p and op.workspace_id:
                                 rel_path = (storage_base / op.workspace_id / rel_p).resolve()

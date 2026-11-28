@@ -2572,8 +2572,17 @@ class MultiprocessModelScheduler:
                             final_result["mesh_path"] = str(_dst)
                             final_result["output_path"] = str(_dst)
                             final_result["file_path"] = str(_dst)
-                            if final_result.get("textured_mesh_path"):
-                                final_result["textured_mesh_path"] = str(_dst)
+                            # Preserve the adapter's textured mesh path and copy it to
+                            # durable storage separately so the UI can show textured output.
+                            _textured_src = final_result.get("textured_mesh_path")
+                            if _textured_src and _textured_src != str(_dst):
+                                _textured_dst = mesh_dir / "textured_mesh.glb"
+                                try:
+                                    if not _textured_dst.exists():
+                                        shutil.copy2(str(_textured_src), str(_textured_dst))
+                                    final_result["textured_mesh_path"] = str(_textured_dst)
+                                except Exception:
+                                    final_result["textured_mesh_path"] = str(_textured_src)
                             final_result["relative_mesh_path"] = "mesh/mesh.glb"
                             final_result["asset_root"] = str(canonical_root)
                             # Register the durable generated mesh and make it the workspace active mesh.
@@ -2940,6 +2949,13 @@ class MultiprocessModelScheduler:
                         final_result.setdefault("game_ready_url", artifact_url)
                         final_result.setdefault("source_model_url", artifact_url)
                         final_result.setdefault("download_url", artifact_url)
+                        # Textured mesh URL: serve the durable textured GLB if available.
+                        textured_path = final_result.get("textured_mesh_path")
+                        if textured_path and Path(textured_path).is_file():
+                            final_result.setdefault(
+                                "textured_model_url",
+                                f"/api/v1/system/jobs/{job_id}/download?artifact_format=textured",
+                            )
                     gen_info = final_result.get("generation_info") or {}
                     if "polygon_count" not in final_result:
                         final_result["polygon_count"] = gen_info.get("face_count") or gen_info.get("native_face_count") or 0
