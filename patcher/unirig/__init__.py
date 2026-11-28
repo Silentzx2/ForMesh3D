@@ -82,22 +82,35 @@ def _install_flash_attn_sdpa_shim() -> None:
 
     fa_mod = types.ModuleType("flash_attn")
     fa_mod._unirig_sdpa_shim = True  # type: ignore[attr-defined]
-    fa_mod.__spec__ = importlib.machinery.ModuleSpec("flash_attn", loader=None)
+    fa_mod.__path__ = []  # type: ignore[attr-defined]
+    fa_mod.__spec__ = importlib.machinery.ModuleSpec("flash_attn", loader=None, is_package=True)
     fa_mod.flash_attn_varlen_qkvpacked_func = _varlen_qkvpacked_sdpa  # type: ignore[attr-defined]
+    fa_mod.flash_attn_func = lambda *a, **kw: None  # type: ignore[attr-defined]
+    fa_mod.flash_attn_varlen_func = lambda *a, **kw: None  # type: ignore[attr-defined]
     modules_mod = types.ModuleType("flash_attn.modules")
-    modules_mod.__spec__ = importlib.machinery.ModuleSpec("flash_attn.modules", loader=None)
+    modules_mod.__path__ = []  # type: ignore[attr-defined]
+    modules_mod.__spec__ = importlib.machinery.ModuleSpec("flash_attn.modules", loader=None, is_package=True)
     mha_mod = types.ModuleType("flash_attn.modules.mha")
     mha_mod.__spec__ = importlib.machinery.ModuleSpec("flash_attn.modules.mha", loader=None)
     mha_mod.MHA = _SDPAMHA  # type: ignore[attr-defined]
+    bp_mod = types.ModuleType("flash_attn.bert_padding")
+    bp_mod.__spec__ = importlib.machinery.ModuleSpec("flash_attn.bert_padding", loader=None)
+    bp_mod.index_first_axis = lambda *a, **kw: None  # type: ignore[attr-defined]
+    bp_mod.pad_input = lambda *a, **kw: None  # type: ignore[attr-defined]
+    bp_mod.unpad_input = lambda *a, **kw: None  # type: ignore[attr-defined]
     fa_mod.modules = modules_mod  # type: ignore[attr-defined]
+    fa_mod.bert_padding = bp_mod  # type: ignore[attr-defined]
     modules_mod.mha = mha_mod  # type: ignore[attr-defined]
 
     sys.modules["flash_attn"] = fa_mod
     sys.modules["flash_attn.modules"] = modules_mod
     sys.modules["flash_attn.modules.mha"] = mha_mod
+    sys.modules["flash_attn.bert_padding"] = bp_mod
     try:
+        import transformers.utils as tf_u
         import transformers.utils.import_utils as tf_iu
         tf_iu.is_flash_attn_2_available = lambda: False
+        tf_u.is_flash_attn_2_available = lambda: False
     except Exception:
         pass
     logger.info("UniRig patcher: installed SDPA flash_attn shim for pre-Ampere GPU")
