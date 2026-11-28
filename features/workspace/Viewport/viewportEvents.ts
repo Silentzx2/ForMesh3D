@@ -7,10 +7,10 @@ import type { LightTone } from './MeshViewer';
 export const VIEWPORT_EVENTS = {
   /** Request MeshViewer to schedule a single on-demand render frame. */
   INVALIDATE_RENDER: 'invalidateViewportRender',
-  /** Broadcast live Three.js camera orientation quaternion [x, y, z, w]. */
-  CAMERA_ORIENTATION: 'viewport:cameraOrientation',
   /** Request MeshViewer to snap the camera to a cardinal or perspective preset. */
   SET_CAMERA_PRESET: 'setCameraPreset',
+  /** Request the active mesh to orient one of its local axes toward the current view. */
+  SET_MESH_ORIENTATION: 'setMeshOrientation',
   /** Request MeshViewer to capture a 1080p PNG snapshot of the mesh. */
   TAKE_SNAPSHOT: 'takeViewportSnapshot',
   /** Update MeshViewer studio lighting tone. */
@@ -28,25 +28,17 @@ export type CameraPresetKey =
   | 'right'
   | 'perspective';
 
-export interface CameraOrientationDetail {
-  quaternion: [number, number, number, number];
-}
+export type MeshOrientationAxis =
+  | 'positive-x'
+  | 'negative-x'
+  | 'positive-y'
+  | 'negative-y'
+  | 'positive-z'
+  | 'negative-z';
 
 export const invalidateViewportRender = (): void => {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event(VIEWPORT_EVENTS.INVALIDATE_RENDER));
-  }
-};
-
-export const dispatchCameraOrientation = (
-  quaternion: [number, number, number, number],
-): void => {
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(
-      new CustomEvent<CameraOrientationDetail>(VIEWPORT_EVENTS.CAMERA_ORIENTATION, {
-        detail: { quaternion },
-      }),
-    );
   }
 };
 
@@ -55,6 +47,16 @@ export const dispatchCameraPreset = (preset: CameraPresetKey): void => {
     window.dispatchEvent(
       new CustomEvent<CameraPresetKey>(VIEWPORT_EVENTS.SET_CAMERA_PRESET, {
         detail: preset,
+      }),
+    );
+  }
+};
+
+export const dispatchMeshOrientation = (axis: MeshOrientationAxis): void => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent<MeshOrientationAxis>(VIEWPORT_EVENTS.SET_MESH_ORIENTATION, {
+        detail: axis,
       }),
     );
   }

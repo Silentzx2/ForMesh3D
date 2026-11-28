@@ -18,7 +18,8 @@ import { useAnimationStore } from '@/stores/useAnimationStore';
 import { getApiClient } from '@/services/apiClient';
 import { collectMeshStats } from './meshStats';
 import { loadGLBWithProgress } from '../lib/glbCache';
-import { dispatchCameraOrientation, VIEWPORT_EVENTS } from './viewportEvents';
+import { VIEWPORT_EVENTS, type MeshOrientationAxis } from './viewportEvents';
+import { orientMeshAxisToView } from './meshOrientation';
 
 import { toast } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
@@ -710,6 +711,31 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     return () => window.removeEventListener('setCameraPreset', handleCameraPreset as EventListener);
   }, []);
 
+  // XYZ is an independent mesh-orientation controller; it never changes the viewer camera.
+  useEffect(() => {
+    const handleMeshOrientation = (e: CustomEvent<MeshOrientationAxis>) => {
+      const group = modelGroupRef.current;
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      if (!group || !camera || !controls || group.children.length === 0) return;
+
+      const cameraDirection = camera.position.clone().sub(controls.target);
+      orientMeshAxisToView(group, e.detail, cameraDirection);
+      invalidateRenderRef.current();
+    };
+
+    window.addEventListener(
+      VIEWPORT_EVENTS.SET_MESH_ORIENTATION,
+      handleMeshOrientation as EventListener,
+    );
+    return () => {
+      window.removeEventListener(
+        VIEWPORT_EVENTS.SET_MESH_ORIENTATION,
+        handleMeshOrientation as EventListener,
+      );
+    };
+  }, []);
+
   // 3. Viewport Lighting & Exposure Listeners
   useEffect(() => {
     const handleExposure = (e: CustomEvent<number>) => {
@@ -1398,32 +1424,7 @@ export const MeshViewer: React.FC<MeshViewerProps> = ({ className = '' }) => {
     };
   }, [hoveredPartId]);
 
-  // 7. Broadcast live camera quaternion so CameraTriad reflects orientation without React re-renders
-  useEffect(() => {
-    const controls = controlsRef.current;
-    const camera = cameraRef.current;
-    if (!controls || !camera) return;
-
-    const update = () => {
-      if (!camera) return;
-      dispatchCameraOrientation([
-        camera.quaternion.x,
-        camera.quaternion.y,
-        camera.quaternion.z,
-        camera.quaternion.w,
-      ]);
-    };
-
-    // Initial broadcast so the triad reflects the starting view
-    update();
-    controls.addEventListener('change', update);
-
-    return () => {
-      controls.removeEventListener('change', update);
-    };
-  }, [webglInitKey]);
-
-  // 8. Single animation clock & external clip binding subscription
+  // 7. Single animation clock & external clip binding subscription
   useEffect(() => {
     const unsub = useAnimationStore.subscribe((state) => {
       const activeClip = state.activeThreeClip;

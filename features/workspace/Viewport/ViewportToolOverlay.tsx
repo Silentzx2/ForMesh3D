@@ -35,7 +35,7 @@ const SHORTCUTS = [
   { keys: 'Left Drag', action: 'Orbit camera' },
   { keys: 'Right Drag', action: 'Pan view' },
   { keys: 'Scroll', action: 'Zoom in / out' },
-  { keys: 'XYZ Triad', action: 'Snap to axis view' },
+  { keys: 'XYZ Triad', action: 'Orient mesh to selected axis' },
   { keys: 'Reset Button', action: 'Fit & reset camera' },
 ] as const;
 
