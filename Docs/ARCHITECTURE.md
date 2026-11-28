@@ -34,6 +34,10 @@ This document provides a **complete, self‑contained description** of the ForMe
 7. (Motion) Completed ARDY jobs expose a `motion_clip_id`; the frontend resolves playable `MotionClipV1` clips through the Motion Service (`/api/v1/motion/clips/{clip_id}`) without raw filesystem paths, and binds them to the active rigged mesh in the viewport animation player.
 8. Saving an animation exports a GLB with Three.js `GLTFExporter`, then posts it with the stable source asset and motion clip IDs. The backend copies the original NPZ, publishes a versioned `animation/<clip>_vNNN/` folder atomically, records an `animated_mesh` asset plus operation lineage in SQLite, and refreshes the workspace-root manifest. Device download remains a separate client action.
 
+### ARDY split-device placement
+
+ARDY reserves 6144 MiB on one CUDA GPU for its local LLM2Vec prompt encoder, loaded with bitsandbytes NF4 4-bit quantization. The ARDY diffusion/autoencoder motion core remains on CPU. The adapter keeps the quantized encoder on its assigned GPU and the upstream model transfers prompt embeddings to the CPU motion core. Encoder initialization failures are fatal for that job; zero-feature unconditional fallback is prohibited.
+
 ---
 
 ## 4. Component Diagrams (Mermaid)

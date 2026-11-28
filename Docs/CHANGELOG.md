@@ -1,7 +1,9 @@
 # Change Log
 
+**2026-11-28 (Persistent mesh orientation)** – Reused the upload orientation editor from the viewport, preserved original mesh scale during GLB export, and saved applied rotations as immutable workspace versions with SQLite active-mesh lineage.
+
+**2026-11-28 (ARDY prompt conditioning)** – ARDY now reserves 6 GiB of CUDA memory for a local NF4 4-bit LLM2Vec prompt encoder while keeping the motion diffusion model on CPU. Quantized weights stay on their assigned GPU without unsupported `.to()` calls, and missing encoders fail instead of falling back to zero text features.
+
 **2026-11-28 (UniRig auto-rigging + SkinTokens T4 fixes)** – Added `unirig_auto_rigging` (`UniRigAdapter`, `patcher/unirig/`, `download_models.sh -m unirig`, `manager.sh [18]`, and `RiggingPanel.tsx` model dropdown + model-specific settings) alongside `skintokens_auto_rigging`. Fixed `SkinTokens` T4 (`sm < 80`) `max_length` validation, `lm_head` 6.65 GiB logits OOM, `num_beams=1`, and `do_sample=False`; wired `install.sh` for ARDY `motion_correction`.
 
-**2026-11-28 (Paint deps + asset panel)** – `install.sh` now compiles the Hunyuan3D-2.1 `hy3dpaint/DifferentiableRenderer/mesh_inpaint_processor` extension (upstream ships only the `.cpp`), so a full re-setup enables native 2.1 Paint instead of falling back. Asset panel no longer shows phantom duplicates: `getHistory` skips the operation rows that `/jobs/history` appends (`operation_id` set, no `result`), which previously surfaced as untextured `generate_textured_mesh` cards backed by an operation URL with only a thumbnail.
 
-**2026-11-28 (Hunyuan paint)** – Fixed Hunyuan texture generation: `backend/utils/{simplify_mesh_utils,multiview_utils,pipeline_utils,image_super_utils,uvwrap_utils}.py` now forward to the vendored `thirdparty/Hunyuan3D-2.1/hy3dpaint/utils` (previously pointed at the removed `hunyuan3d-paint-v2-1`/`hunyuan3d-shape-v2-1` dirs, so `remesh_mesh` and the paint pipeline failed to import); the 2.1 adapter now probes `DifferentiableRenderer.mesh_utils`/`mesh_inpaint_processor` so a missing `bpy` or uncompiled inpaint extension falls back to HY 2.0 paint instead of silently skipping texture; the fallback and HY 2.0 Paint adapter resolve `tencent/Hunyuan3D-2`.

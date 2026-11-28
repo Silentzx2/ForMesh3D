@@ -111,17 +111,17 @@ After this rewrite:
 - **Patcher:** None
 - **Key Contracts:** Unified shape + texture painting adapter with `enable_flashvdm` support; probes `bpy`/`mesh_inpaint_processor` before loading `hy3dpaint` and falls back to the HY 2.0 paint pipeline when either is missing (`install.sh` compiles the inpaint extension on setup).
 
-### 4.8 `ardy_adapter.py` (`211` lines)
+### 4.8 `ardy_adapter.py`
 - **Class:** `ArdyMotionGenerationAdapter`
 - **Upstream Repo:** `backend/thirdparty/ardy` (`ardy.model.load_model`, `ardy.tools.seed_everything`, `ardy.motion_rep.tools.length_to_mask`, `ardy.postprocess.post_process_motion`)
 - **Weights:** `backend/pretrained/ardy`
-- **Patcher:** None (CPU-only text-to-motion)
+- **Patcher:** `patcher.ardy.apply_nf4_patch()` (worker-local 4-bit NF4 LLM2Vec CUDA placement; motion core stays CPU)
 - **Key Contracts:**
   - `num_base_steps` clamping for denoising steps.
   - `duration > 10.0` `crop_history_length` sliding-window calculation.
   - Positional `texts` + `pad_mask` + `text_pad_mask` + `first_heading_angle` call convention.
   - `model.motion_rep.inverse(motion, is_normalized=True)` decoding + optional `post_process_motion`.
-  - Offline `text_encoder_warning` surfaced in `generation_info`.
+  - Prompt encoder initialization fails fast; no zero-feature unconditional fallback; scheduler reserves 6144 MiB for NF4 while the motion core stays CPU.
   - API-required return keys: `output_motion_path`, `output_path`, `file_path`, `format: "npz"`, `artifact_type: "motion"`.
   - Full `get_parameter_schema()` (`seed`, `duration`, `checkpoint`, `cfg_weight`, `num_denoising_steps`).
 
@@ -279,7 +279,7 @@ flowchart TD
 | `pixal3d_adapter.py` | `186` | `Pixal3DImageToRawMeshAdapter` (disabled) | `Pixal3D` |
 | `trellis2_adapter.py` | `200` | `Trellis2ImageToRawMeshAdapter` + 2 subclasses (disabled) | `TRELLIS.2` |
 | `triposr_adapter.py` | `201` | `TripoSRAdapter` | `TripoSR` |
-| `ardy_adapter.py` | `211` | `ArdyMotionGenerationAdapter` | `ardy` |
+| `ardy_adapter.py` | — | `ArdyMotionGenerationAdapter` | `ardy` |
 | `triflow_adapter.py` | `333` | `TriFlowRetopologyAdapter` | `TriFlow` |
 | `partfield_adapter.py` | `354` | `PartFieldSegmentationAdapter` | `PartField` |
 | `upstream.py` (shared) | `64` | `resolve_thirdparty`, `resolve_pretrained`, `use_thirdparty`, `load_thirdparty_script` | `—` |

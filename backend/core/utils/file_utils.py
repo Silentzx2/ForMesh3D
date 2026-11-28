@@ -891,6 +891,19 @@ class WorkspaceStorageManager:
             version += 1
         return final_mesh_path
 
+    def get_workspace_mesh_version_path(self, workspace_id: str, ext: str, mesh_dir: Path) -> Path:
+        """Use the canonical mesh/<workspace_id>.glb name and immutable _vNNN successors."""
+        self.assert_safe_id(workspace_id)
+        base_path = mesh_dir / f"{workspace_id}{ext}"
+        if not base_path.exists():
+            return base_path
+        version = 2
+        while True:
+            candidate = mesh_dir / f"{workspace_id}_v{version:03d}{ext}"
+            if not candidate.exists():
+                return candidate
+            version += 1
+
     def publish_derived_mesh(
         self,
         workspace_id: str,
@@ -908,6 +921,7 @@ class WorkspaceStorageManager:
             "uv": ws_dir / "uv",
             "rigging": ws_dir / "rigging",
             "animation": ws_dir / "animation",
+            "orientation": ws_dir / "mesh",
         }
         dest_dir = tool_folder_map.get(operation_type, ws_dir / operation_type).resolve()
         if not dest_dir.is_relative_to(ws_dir):
@@ -917,7 +931,11 @@ class WorkspaceStorageManager:
         ext = temp_mesh_path.suffix.lower()
         if ext not in (".glb", ".obj"):
             raise ValueError(f"Unsupported retained mesh format: {ext or 'unknown'}")
-        final_mesh_path = self.get_version_mesh_path(workspace_id, operation_type, ext, dest_dir)
+        final_mesh_path = (
+            self.get_workspace_mesh_version_path(workspace_id, ext, dest_dir)
+            if operation_type == "orientation"
+            else self.get_version_mesh_path(workspace_id, operation_type, ext, dest_dir)
+        )
 
         # Publish through unique staging paths; remove partial output on failure.
         staging_path = dest_dir / f".staging_{uuid.uuid4().hex}"

@@ -4,7 +4,7 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  Repo     : backend/thirdparty/ardy (ardy.model.load_model, ardy.postprocess)║
 ║  Weights  : backend/pretrained/ardy                                          ║
-║  Patcher  : None (CPU-only text-to-motion)                                   ║
+║  Patcher  : patcher.ardy.apply_nf4_patch()                                   ║
 ║  States   : UNLOADED -> LOADING -> LOADED -> PROCESSING -> LOADED / ERROR    ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
@@ -39,7 +39,6 @@ class ArdyMotionGenerationAdapter(BaseModel):
         )
         self._model: Any = None
         self._loaded_checkpoint: str | None = None
-        self._text_encoder_warning: str | None = None
 
     def _resolve_checkpoint_name(self, checkpoint: str | None, weights_dir: Path | None = None) -> str:
         if not checkpoint:
@@ -71,66 +70,55 @@ class ArdyMotionGenerationAdapter(BaseModel):
                 except OSError:
                     pass
 
-            self._text_encoder_warning = None
-            text_encoder: Any = False
+            text_encoder: Any = None
             te_dir = weights_dir / "text_encoders"
+            te_device = os.environ.get("ARDY_TEXT_ENCODER_DEVICE", "auto").strip().lower()
+            if not torch.cuda.is_available():
+                raise RuntimeError(
+                    "ARDY prompt conditioning requires a visible CUDA GPU for the NF4 LLM2Vec text encoder."
+                )
+            current_gpu = torch.cuda.current_device()
+            if te_device == "auto":
+                te_device = f"cuda:{current_gpu}"
+            if not te_device.startswith("cuda"):
+                raise RuntimeError(
+                    f"ARDY prompt conditioning requires CUDA, got ARDY_TEXT_ENCODER_DEVICE={te_device!r}."
+                )
+            requested_device = torch.device(te_device)
+            device_index = current_gpu if requested_device.index is None else requested_device.index
+            if device_index != current_gpu:
+                raise RuntimeError(
+                    f"ARDY worker was assigned cuda:{current_gpu}, but ARDY_TEXT_ENCODER_DEVICE requests {te_device}."
+                )
+            te_device = f"cuda:{device_index}"
+            os.environ["TEXT_ENCODER_DEVICE"] = te_device
             if te_dir.is_dir():
-                os.environ.setdefault("TEXT_ENCODERS_DIR", str(te_dir))
+                os.environ["TEXT_ENCODERS_DIR"] = str(te_dir)
+
             try:
-                te_mode = os.environ.get("ARDY_TEXT_ENCODER_MODE", "auto")
-                te_device = os.environ.get("ARDY_TEXT_ENCODER_DEVICE", "auto")
-                if te_device == "auto":
-                    te_device = "cuda" if torch.cuda.is_available() else "cpu"
-                use_4bit_cuda = False
-                if te_device.startswith("cuda"):
-                    try:
-                        import bitsandbytes  # noqa: F401
-                        from transformers import BitsAndBytesConfig
-                        from ardy.model.llm2vec.llm2vec import LLM2Vec
+                import bitsandbytes  # noqa: F401
+                from transformers import BitsAndBytesConfig
+                from ardy.model.llm2vec.llm2vec import LLM2Vec
+            except ImportError as exc:
+                raise RuntimeError(
+                    "ARDY prompt conditioning requires bitsandbytes and Transformers BitsAndBytesConfig "
+                    "for the NF4 CUDA text encoder."
+                ) from exc
 
-                        if not getattr(LLM2Vec, "_ardy_4bit_patched", False):
-                            orig_fp = LLM2Vec.from_pretrained.__func__  # type: ignore[attr-defined]
+            from patcher.ardy import apply_nf4_patch
 
-                            @classmethod  # type: ignore[misc]
-                            def _4bit_from_pretrained(cls: Any, *a: Any, **kw: Any) -> Any:
-                                kw.setdefault(
-                                    "quantization_config",
-                                    BitsAndBytesConfig(
-                                        load_in_4bit=True,
-                                        bnb_4bit_compute_dtype=torch.float16,
-                                    ),
-                                )
-                                kw.setdefault("device_map", {"": 0})
-                                return orig_fp(cls, *a, **kw)
-
-                            LLM2Vec.from_pretrained = _4bit_from_pretrained  # type: ignore[method-assign]
-                            LLM2Vec._ardy_4bit_patched = True  # type: ignore[attr-defined]
-                        use_4bit_cuda = True
-                        logger.info("ARDY text encoder: using 4-bit bitsandbytes quantization on %s", te_device)
-                    except ImportError:
-                        logger.info("bitsandbytes unavailable; loading ARDY text encoder on %s", te_device)
-                # Pass device=None for 4-bit device_map (avoids .to() ValueError); preserve default dtype on failure.
-                prev_dtype = torch.get_default_dtype()
-                try:
-                    text_encoder = load_text_encoder(
-                        mode=te_mode,
-                        fp32=False,
-                        device=None if use_4bit_cuda else te_device,
-                    )
-                finally:
-                    torch.set_default_dtype(prev_dtype)
-                if use_4bit_cuda and text_encoder and not getattr(text_encoder, "_ardy_cpu_out_wrapped", False):
-                    orig_call = text_encoder.__call__
-
-                    def _cpu_out_call(texts: Any, _orig: Any = orig_call) -> Any:
-                        t, lengths = _orig(texts)
-                        return (t.cpu() if hasattr(t, "cpu") else t), lengths
-
-                    text_encoder.__call__ = _cpu_out_call  # type: ignore[method-assign]
-                    text_encoder._ardy_cpu_out_wrapped = True
+            apply_nf4_patch(LLM2Vec, BitsAndBytesConfig, torch, device_index)
+            prev_dtype = torch.get_default_dtype()
+            try:
+                text_encoder = load_text_encoder(mode="local", fp32=False, device=te_device)
             except Exception as exc:
-                self._text_encoder_warning = "Text encoder server unavailable; prompt conditioning disabled"
-                logger.warning("%s (%s)", self._text_encoder_warning, exc)
+                raise RuntimeError(
+                    f"ARDY NF4 text encoder failed to initialize on {te_device}: {type(exc).__name__}: {exc}"
+                ) from exc
+            finally:
+                torch.set_default_dtype(prev_dtype)
+            if text_encoder is None:
+                raise RuntimeError("ARDY NF4 text encoder initialization returned no encoder.")
 
             logger.info("Loading ARDY (%s) from %s", model_name, weights_dir)
             self._model = load_model(
@@ -145,7 +133,6 @@ class ArdyMotionGenerationAdapter(BaseModel):
     def _unload_model(self) -> None:
         self._model = None
         self._loaded_checkpoint = None
-        self._text_encoder_warning = None
 
     def _process_request(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         prompt = inputs.get("text_prompt") or inputs.get("prompt", "")
@@ -185,10 +172,12 @@ class ArdyMotionGenerationAdapter(BaseModel):
             texts = [prompt]
             pad_mask = length_to_mask(torch.tensor([num_frames], device="cpu"))
             first_heading_angle = torch.zeros(1, device="cpu")
-            text_feat, text_pad_mask = None, None
             if getattr(model, "text_encoder", None) is None:
-                text_feat = torch.zeros(1, 1, 4096, device="cpu")
-                text_pad_mask = torch.zeros(1, 1, dtype=torch.bool, device="cpu")
+                return {
+                    "success": False,
+                    "error": "ARDY prompt encoder is unavailable; refusing unconditional motion generation.",
+                }
+            text_feat, text_pad_mask = None, None
 
             with torch.no_grad():
                 motion = model(
@@ -236,8 +225,6 @@ class ArdyMotionGenerationAdapter(BaseModel):
             "checkpoint": self._loaded_checkpoint,
             "output_format": "npz",
         }
-        if self._text_encoder_warning:
-            info["text_encoder_warning"] = self._text_encoder_warning
 
         return {
             "success": True,

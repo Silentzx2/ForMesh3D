@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useWorkspace } from '../store/WorkspaceContext';
+import { normalizeModelAsset } from '../types';
 import { toast } from 'sonner';
 import { SimpleTooltip } from '@/components/ui/simple-tooltip';
 import { HugeiconsIcon } from '@hugeicons/react';
@@ -14,6 +15,8 @@ import {
 import { Download, RotateCcw } from '@/components/icons/hugeicons-components';
 import type { LightTone, ShadingMode } from '../types';
 import { useViewerStore, loadModelInViewer } from '@/stores/useViewerStore';
+import { getApiClient } from '@/services/apiClient';
+import { requestMeshOrientation } from '../components/MeshOrientationModal';
 import { CameraTriad } from './CameraTriad';
 import { AnimationPlayerBar } from './AnimationPlayerBar';
 import {
@@ -44,6 +47,7 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
     wireframeMode,
     setWireframeMode,
     currentAsset,
+    setCurrentAsset,
     showGrid,
     setShowGrid,
     isTurntable,
@@ -54,11 +58,15 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
     workspaceId,
     activeMeshAssetId,
     workspaceVersions,
+    setWorkspaceVersions,
     selectAsset,
     assets,
     resetCamera,
     setIsExportModalOpen,
+    isExecuting,
   } = useWorkspace();
+
+  const [isOrienting, setIsOrienting] = useState(false);
 
   const workspaceMeshVersions = React.useMemo(() => {
     if (!workspaceId) return [];
@@ -187,6 +195,81 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
     };
   }, [isSettingsOpen, isHelpOpen]);
 
+  const handleAdjustMeshOrientation = async () => {
+    if (!currentAsset || !workspaceId || isOrienting || isExecuting) return;
+    const sourceAssetId = currentAsset.asset_id || currentAsset.id;
+    if (!sourceAssetId) {
+      toast.error('The selected mesh is not available for orientation editing');
+      return;
+    }
+
+    setIsOrienting(true);
+    try {
+      const blob = await getApiClient().downloadWorkspaceMesh(sourceAssetId);
+      const extension = (currentAsset.format || 'GLB').toLowerCase();
+      const filename = currentAsset.source?.filename || `${currentAsset.name || 'mesh'}.${extension}`;
+      const sourceFile = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+      const orientedFile = await requestMeshOrientation(sourceFile);
+      if (!orientedFile) return;
+      if (orientedFile === sourceFile) {
+        toast.info('No orientation changes were applied');
+        return;
+      }
+
+      const saved = await getApiClient().saveOrientedWorkspaceMesh(workspaceId, sourceAssetId, orientedFile);
+      const assetId = saved.asset.asset_id;
+      const savedUrl = saved.url || `/api/v1/system/jobs/${encodeURIComponent(assetId)}/download`;
+      const assetName = `${currentAsset.name || 'Mesh'} (Oriented)`;
+      const savedFilename = String(saved.asset.relative_path || '').split('/').pop() || '';
+      const versionNumber = savedFilename.match(/_v(\d{3})\.glb$/i)?.[1] || '001';
+      const orientationVersionLabel = `Orientation v${versionNumber}`;
+      const orientedAsset = normalizeModelAsset({
+        ...saved.asset,
+        id: assetId,
+        asset_id: assetId,
+        workspace_id: workspaceId,
+        source_asset_id: sourceAssetId,
+        operation_type: 'orientation',
+        asset_type: 'oriented_mesh',
+        is_base_mesh: false,
+        name: assetName,
+        category: 'mesh',
+        format: 'GLB',
+        thumbnail: saved.thumbnail_url || '',
+        source: {
+          filename: saved.asset.original_filename || orientedFile.name,
+          subfolder: saved.asset.relative_path || 'mesh',
+          type: 'output',
+          viewUrl: savedUrl,
+          fileId: assetId,
+        },
+      });
+      setWorkspaceVersions((previous) => [
+        ...previous.filter((version) => version.asset_id !== assetId),
+        {
+          asset_id: assetId,
+          name: assetName,
+          version_label: orientationVersionLabel,
+          operation_type: 'orientation',
+          url: savedUrl,
+          thumbnail_url: saved.thumbnail_url || null,
+          created_at: saved.asset.created_at || new Date().toISOString(),
+          is_base: false,
+        },
+      ]);
+      setCurrentAsset(orientedAsset);
+      toast.success('Mesh orientation saved', {
+        description: 'A new workspace version was created. The original mesh is preserved.',
+      });
+    } catch (error) {
+      toast.error('Could not save mesh orientation', {
+        description: error instanceof Error ? error.message : 'Unexpected orientation error',
+      });
+    } finally {
+      setIsOrienting(false);
+    }
+  };
+
   const handleSnapCamera = (preset: 'Front' | 'Top' | 'Side' | 'Iso') => {
     setActivePreset(preset);
     const key: CameraPresetKey = preset === 'Iso' ? 'perspective' : (preset.toLowerCase() as CameraPresetKey);
@@ -266,6 +349,24 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
         )}
         <CameraTriad />
       </div>
+
+      {currentAsset && workspaceId && currentAsset.category !== 'texture'
+        && currentAsset.format !== 'IMAGE' && currentAsset.format !== 'FILE' && (
+        <div className="pointer-events-auto absolute bottom-20 left-4 md:left-6 z-30">
+          <SimpleTooltip label="Adjust Mesh Orientation" side="right">
+            <button
+              type="button"
+              onClick={() => void handleAdjustMeshOrientation()}
+              disabled={isOrienting || isExecuting}
+              aria-label="Adjust and save mesh orientation"
+              title="Adjust Mesh Orientation"
+              className="w-10 h-10 rounded-full bg-[hsl(var(--surface-1))]/95 border border-white/[0.1] shadow-lg flex items-center justify-center text-zinc-200 hover:text-primary hover:border-primary/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <RotateCcw className={`w-4 h-4 ${isOrienting ? 'animate-spin' : ''}`} />
+            </button>
+          </SimpleTooltip>
+        </div>
+      )}
 
       {/* Right Viewport Dock: 3-icon grouped pill + detached Help (?) + detached Reset */}
       <div className="pointer-events-auto absolute top-24 right-4 flex flex-col items-center gap-2 z-20">

@@ -112,6 +112,7 @@ export function MeshOrientationModal() {
   const pendingRequestRef = useRef<PendingOrientationRequest | null>(null);
   const pivotRef = useRef<THREE.Group | null>(null);
   const modelRef = useRef<THREE.Object3D | null>(null);
+  const sourceCenterRef = useRef<THREE.Vector3 | null>(null);
 
   useEffect(() => {
     activeListener = (req) => {
@@ -204,10 +205,15 @@ export function MeshOrientationModal() {
         box.getCenter(center);
         const maxDim = Math.max(size.x, size.y, size.z, 0.001);
         const scale = 1.6 / maxDim;
-        obj.scale.multiplyScalar(scale);
-        obj.position.sub(center.multiplyScalar(scale));
+        sourceCenterRef.current = center.clone();
 
-        pivot.add(obj);
+        // Fit only the preview wrapper. Keep the source object and its units intact
+        // so confirming an orientation never silently rescales the saved mesh.
+        const fitGroup = new THREE.Group();
+        fitGroup.scale.setScalar(scale);
+        fitGroup.position.copy(center).multiplyScalar(-scale);
+        fitGroup.add(obj);
+        pivot.add(fitGroup);
         modelRef.current = obj;
         setLoading(false);
       })
@@ -248,6 +254,7 @@ export function MeshOrientationModal() {
       renderer.dispose();
       pivotRef.current = null;
       modelRef.current = null;
+      sourceCenterRef.current = null;
     };
   }, [request]);
 
@@ -283,23 +290,18 @@ export function MeshOrientationModal() {
     try {
       const exportGroup = new THREE.Group();
       const cloned = modelRef.current.clone(true);
-      const rotMatrix = new THREE.Matrix4().makeRotationFromEuler(
-        new THREE.Euler(
-          degToRad(rotationDeg.x),
-          degToRad(rotationDeg.y),
-          degToRad(rotationDeg.z),
-          'XYZ'
-        )
+      const center = sourceCenterRef.current?.clone() || new THREE.Vector3();
+      const rotationPivot = new THREE.Group();
+      rotationPivot.position.copy(center);
+      rotationPivot.rotation.set(
+        degToRad(rotationDeg.x),
+        degToRad(rotationDeg.y),
+        degToRad(rotationDeg.z),
+        'XYZ',
       );
-      cloned.traverse((child) => {
-        if ((child as THREE.Mesh).isMesh) {
-          const mesh = child as THREE.Mesh;
-          mesh.geometry = mesh.geometry.clone();
-          mesh.geometry.applyMatrix4(rotMatrix);
-          mesh.geometry.computeVertexNormals();
-        }
-      });
-      exportGroup.add(cloned);
+      cloned.position.sub(center);
+      rotationPivot.add(cloned);
+      exportGroup.add(rotationPivot);
 
       const exporter = new GLTFExporter();
       const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
@@ -325,15 +327,9 @@ export function MeshOrientationModal() {
       } else {
         request.resolve(null);
       }
-    } catch {
-      // Fallback to original file if export fails
-      if (pendingRequestRef.current === request) {
-        request.resolve(request.file);
-        pendingRequestRef.current = null;
-        setRequest(null);
-      } else {
-        request.resolve(null);
-      }
+    } catch (err) {
+      // Never report a successful orientation save when GLB export failed.
+      setLoadError(err instanceof Error ? err.message : 'Failed to export oriented mesh');
     } finally {
       setExporting(false);
     }
@@ -386,7 +382,7 @@ export function MeshOrientationModal() {
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-[hsl(var(--border))]">
           <div className="flex items-center gap-2">
             <h2 id="mesh-orientation-title" className="text-sm font-semibold">
-              Find the Best Angle
+              Adjust Mesh Orientation
             </h2>
             <span className="text-xs text-muted-foreground truncate max-w-[240px]">
               ({request.file.name})
@@ -409,7 +405,7 @@ export function MeshOrientationModal() {
           <div className="w-full md:w-64 shrink-0 border-b md:border-b-0 md:border-r border-[hsl(var(--border))] bg-[hsl(var(--surface-0))] p-4 flex flex-col justify-between gap-4">
             <div className="space-y-3">
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Adjust the model so it stands upright and faces forward on the grid.
+                Rotate the mesh to the correct up-axis and forward-facing direction. The original mesh scale is preserved.
               </p>
               <div className="space-y-2 text-xs">
                 <div className="flex items-start gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-2.5">

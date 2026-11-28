@@ -433,6 +433,37 @@ class ApiClient {
     return response.data;
   }
 
+  async downloadWorkspaceMesh(assetId: string): Promise<Blob> {
+    const response = await this.client.get(
+      `/api/v1/system/jobs/${encodeURIComponent(assetId)}/download`,
+      { responseType: 'blob' },
+    );
+    return response.data;
+  }
+
+  async saveOrientedWorkspaceMesh(
+    workspaceId: string,
+    sourceAssetId: string,
+    file: File,
+  ): Promise<{
+    success: boolean;
+    workspace_id: string;
+    active_mesh_asset_id: string;
+    asset: Record<string, any>;
+    url: string;
+    thumbnail_url?: string | null;
+    mesh_stats?: Record<string, number | undefined>;
+  }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await this.client.post(
+      `/api/v1/system/workspace/${encodeURIComponent(workspaceId)}/assets/${encodeURIComponent(sourceAssetId)}/orientation`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+    return response.data;
+  }
+
   async uploadMeshFile(
     file: File,
     onProgress?: (loadedBytes: number, totalBytes?: number) => void,

@@ -683,14 +683,14 @@ uv_unwrapping:
 motion_generation:
 
   ## ============================================================================
-  ## ARDY (CPU Text-to-Motion)
+  ## ARDY (CPU Motion Core + CUDA NF4 Text Encoder)
   ## ============================================================================
   ardy_motion_generation:
     name: "ARDY"
     label: "Motion"
-    description: "Text-to-motion humanoid animation synthesis"
+    description: "Prompt-conditioned motion synthesis with a CPU motion core and 4-bit NF4 CUDA text encoder"
     enabled: true
-    vram_requirement: 0
+    vram_requirement: 6144
     max_workers: 1
     supported_inputs:
       - text
@@ -700,7 +700,9 @@ motion_generation:
     model_path: backend/pretrained/ardy
     capabilities:
       motion_generation: true
-      cpu_only: true
+      motion_model_cpu: true
+      text_encoder_gpu: true
+      text_encoder_quantization: nf4
     model_type: motion
     default_parameters:
       duration: 4.0

@@ -183,6 +183,7 @@ export const RightAssetsPanel: React.FC = () => {
       'animation',
       'animate',
       'motion_generation',
+      'orientation',
       'texture',
       'texture_painting',
       'mesh_painting',

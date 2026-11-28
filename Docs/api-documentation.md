@@ -104,6 +104,8 @@ When `save_individual_parts=true`, PartField saves each generated part as an ind
 
 Router prefix: /api/v1/motion. Motion clips use normalized MotionClipV1 (schema version 1, quaternion_xyzw rotations, source-supported y_up axis, source_native translation units). Handedness and physical units are not asserted until a real NPZ from the supported checkpoint is verified.
 
+Prompt generation via `POST /api/v1/motion` uses the ARDY motion core on CPU and its local LLM2Vec text encoder on one CUDA GPU with bitsandbytes NF4 4-bit quantization; the scheduler reserves 6144 MiB for the encoder. The encoder checkpoints require the Hugging Face access described in the pinned ARDY README. Missing or failed prompt-encoder initialization fails the job rather than silently generating unconditional motion.
+
 - GET /api/v1/motion/presets — List bundled, read-only premade presets from backend/motion_presets/. Only approved tracked NPZ files are listed.
 - GET /api/v1/motion/presets/{id}/thumbnail — Serve a sibling PNG/WEBP thumbnail for a validated premade preset ID; no arbitrary file serving.
 - GET /api/v1/motion/clips/{clip_id} — Return normalized MotionClipV1 for a premade ID, user preset ID (upl_ or gen_), or completed ARDY job/asset ID. No filesystem paths are exposed.

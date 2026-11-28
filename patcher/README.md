@@ -73,6 +73,9 @@ patcher/
 ├── __init__.py           # Re-exports GPUDoctor, GPUInfo, DoctorConfig, ModelProfile, DoctorReport, StageRecord
 ├── README.md             # This architecture documentation
 ├── doctor.py             # Central GPU Doctor engine (hardware planner, chunked SDPA, recovery)
+├── ardy/                # ARDY worker-only NF4 LLM2Vec placement patch
+│   ├── __init__.py
+│   └── text_encoder.py
 ├── stable_fast_3d/       # Stable Fast 3D worker-only compatibility patch
 │   ├── __init__.py
 │   └── attention.py      # T4/pre-Ampere chunked SDPA; restores native SDPA on exit
@@ -111,6 +114,10 @@ Built-in profiles are registered for:
 ---
 
 ## 5. Model-Specific Patchers
+
+### `patcher/ardy/`
+- **Problem addressed**: bitsandbytes 4-bit models cannot be moved with `.to()` after `device_map` placement; the upstream LLM2Vec wrapper calls `.to()` during construction, encoder setup and encoding. The previous adapter also relied on the default 4-bit quantization type rather than explicitly selecting NF4.
+- **Fix applied**: Forces NF4 with double quantization and FP16 compute on the ARDY worker's assigned GPU, and makes LLM2Vec `.to()` a no-op only when its wrapped model is already quantized. The patch is applied only inside ARDY's isolated worker; the CPU motion core is untouched.
 
 ### `patcher/stable_fast_3d/`
 - **Problem addressed**: Long triplane attention sequences can exhaust memory on pre-Ampere GPUs (sm < 80).

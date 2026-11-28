@@ -36,10 +36,10 @@ ForMesh3D brings image-to-3D generation and practical mesh-production tools into
 | **Retopology** | Rebuild mesh topology with TriFlow. |
 | **UV unwrapping** | Generate UV layouts with PartUV. |
 | **Auto-rigging** | Generate character rigs with SkinTokens and UniRig. |
-| **Motion generation** | Generate character motion with the ARDY adapter. |
+| **Motion generation** | Generate prompt-conditioned character motion with ARDY; its LLM2Vec text encoder runs in 4-bit NF4 on CUDA while the motion core runs on CPU. |
 | **3D inspection** | Inspect GLB assets in the local Three.js viewport, with workspace tools and asset selection alongside it. |
 
-Model availability is controlled by <code>backend/config/models.yaml</code>. A model marked <code>enabled: true</code> is registered for use; it is not proof that its weights are installed or that inference has been validated on your GPU.
+Model availability is controlled by <code>backend/config/models.yaml</code>. A model marked <code>enabled: true</code> is registered for use; it is not proof that its weights are installed or that inference has been validated on your GPU. ARDY prompt generation requires a CUDA GPU with a 6 GiB scheduler reservation for its NF4 text encoder, plus Hugging Face access to the gated Llama-3 encoder weights; the motion model itself runs on CPU.
 
 ## How it works
 

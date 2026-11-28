@@ -241,6 +241,7 @@ const DERIVED_OPERATION_TYPES = new Set([
   'animation',
   'animate',
   'motion_generation',
+  'orientation',
   'edit',
   'refine',
 ]);
@@ -1357,6 +1358,36 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           const resolvedWorkspaceId = (raw as any)?.workspace_id || workspaceRouteId || undefined;
           const activeMesh = (raw as any)?.active_mesh_asset;
           const activeMeshAssetId = (raw as any)?.active_mesh_asset_id || activeMesh?.asset_id;
+          const retainedOrientationVersions = Array.isArray((raw as any)?.assets)
+            ? (raw as any).assets
+                .filter((asset: any) => asset?.file_type === 'mesh'
+                  && asset?.operation_type === 'orientation'
+                  && asset?.is_retained !== false
+                  && asset?.asset_id)
+                .map((asset: any) => ({
+                  asset_id: asset.asset_id,
+                  name: String(asset.original_filename || 'Oriented Mesh').replace(/\.[^/.]+$/, ''),
+                  version_label: (() => {
+                    const filename = String(asset.relative_path || '').split('/').pop() || '';
+                    const match = filename.match(/_v(\d{3})\.glb$/i);
+                    return `Orientation v${match?.[1] || '001'}`;
+                  })(),
+                  operation_type: 'orientation',
+                  url: `/api/v1/system/jobs/${encodeURIComponent(asset.asset_id)}/download`,
+                  thumbnail_url: asset.thumbnail_path
+                    ? `/api/v1/system/jobs/${encodeURIComponent(asset.asset_id)}/thumbnail`
+                    : null,
+                  created_at: asset.created_at,
+                  is_base: false,
+                }))
+            : [];
+          if (retainedOrientationVersions.length) {
+            setWorkspaceVersions((previous) => {
+              const merged = new Map(previous.map((version) => [version.asset_id, version]));
+              retainedOrientationVersions.forEach((version: WorkspaceVersionItem) => merged.set(version.asset_id, version));
+              return Array.from(merged.values());
+            });
+          }
           if (resolvedWorkspaceId && activeMeshAssetId) {
             const activeMeshUrl = `/api/v1/system/jobs/${encodeURIComponent(activeMeshAssetId)}/download`;
             const activeMeshName = activeMesh?.original_filename || activeMesh?.name || `Workspace_${resolvedWorkspaceId}`;
@@ -1365,7 +1396,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               id: activeMeshAssetId,
               workspace_id: resolvedWorkspaceId,
               operation_id: activeMesh?.operation_id,
-              is_base_mesh: true,
+              operation_type: activeMesh?.operation_type,
+              asset_type: activeMesh?.asset_type,
+              source_asset_id: activeMesh?.source_asset_id,
+              is_base_mesh: activeMesh?.operation_type !== 'orientation',
               name: activeMeshName,
               category: 'mesh',
               thumbnail: `/api/v1/system/jobs/${encodeURIComponent(activeMeshAssetId)}/thumbnail`,
