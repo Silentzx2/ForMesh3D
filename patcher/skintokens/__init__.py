@@ -148,10 +148,10 @@ def _patch_tokenrig_generate(gpu_id: Optional[int] = None) -> None:
     orig_generate = TokenRig.generate
 
     def _safe_generate(self: Any, *args: Any, **kwargs: Any) -> Any:
-        if is_pre_ampere and not getattr(self, "_skintokens_fp32_cast", False):
-            # Avoid bfloat16 emulation NaN/overflow on sm < 80 (T4) during long beam search.
-            self.float()
-            self._skintokens_fp32_cast = True
+        if is_pre_ampere and not getattr(self, "_skintokens_fp16_cast", False):
+            # Use native float16 on sm < 80 (T4) to avoid bfloat16 emulation and fp32 OOM.
+            self.half()
+            self._skintokens_fp16_cast = True
 
         if "max_new_tokens" not in kwargs and "max_length" in kwargs:
             kwargs["max_new_tokens"] = kwargs.pop("max_length")
@@ -165,7 +165,9 @@ def _patch_tokenrig_generate(gpu_id: Optional[int] = None) -> None:
                 kwargs.pop(k, None)
 
         if is_pre_ampere:
-            with torch.amp.autocast("cuda", enabled=False):
+            if kwargs.get("num_beams", 1) > 4:
+                kwargs["num_beams"] = 4
+            with torch.amp.autocast("cuda", dtype=torch.float16):
                 return orig_generate.__wrapped__(self, *args, **kwargs) if hasattr(orig_generate, "__wrapped__") else orig_generate(self, *args, **kwargs)
         return orig_generate(self, *args, **kwargs)
 
