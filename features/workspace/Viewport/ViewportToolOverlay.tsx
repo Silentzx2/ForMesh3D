@@ -288,11 +288,17 @@ export const ViewportToolOverlay: React.FC<ViewportToolOverlayProps> = ({
       });
 
       updateAssetProperties(selectedAsset.id, updatedAsset);
-      setCurrentAsset(updatedAsset);
-      loadModelInViewer(savedUrl, updatedAsset.name, updatedAsset as any);
-      toast.success('Mesh orientation saved', {
-        description: 'The existing workspace mesh file and asset record were updated in place.',
-      });
+      if (isStillSameLoadedMesh()) {
+        setCurrentAsset(updatedAsset);
+        loadModelInViewer(savedUrl, updatedAsset.name, updatedAsset as any);
+        toast.success('Mesh orientation saved', {
+          description: 'The existing workspace mesh file and asset record were updated in place.',
+        });
+      } else {
+        toast.success('Mesh orientation saved', {
+          description: 'The original mesh was updated. Your newer viewer selection was left unchanged.',
+        });
+      }
     } catch (error) {
       toast.error('Could not save mesh orientation', {
         description: error instanceof Error ? error.message : 'Unexpected orientation error',
