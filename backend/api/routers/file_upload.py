@@ -1038,7 +1038,7 @@ def _replace_workspace_mesh_asset(
     old_mesh_path = old_thumbnail_path = new_mesh_path = new_thumbnail_path = None
     backup_mesh_path = backup_thumbnail_path = staging_mesh_path = staging_thumbnail_path = None
 
-    with ProcessFileLock(lock_path=storage_manager.storage_root / ".workspace_persistence.lock"):
+    with ProcessFileLock(lock_path=storage_manager.storage_root / ".worker_claim.lock"):
         with db.get_session() as session:
             workspace = session.query(WorkspaceModel).filter_by(workspace_id=workspace_id).first()
             asset = session.query(AssetModel).filter_by(asset_id=asset_id, workspace_id=workspace_id).first()
