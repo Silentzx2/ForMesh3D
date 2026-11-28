@@ -1274,8 +1274,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         addAsset(outputAsset);
         void refreshAssets();
       }
-      if (resolvedWorkspaceId && (isBaseMesh || isDerivedOperation)) {
-        const versionAssetId = retainedAssetId || finalAssetId;
+      // The Mesh Version selector is for retained workspace assets only; never publish preview/op IDs.
+      if (resolvedWorkspaceId && isRetainedResult && retainedAssetId && (isBaseMesh || isDerivedOperation)) {
+        const versionAssetId = retainedAssetId;
         const versionLabel = isBaseMesh
           ? 'Base'
           : operationType.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
