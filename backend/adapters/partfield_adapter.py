@@ -6,6 +6,7 @@
 ║  Weights  : backend/pretrained/PartField or PartUV (model_objaverse.ckpt)    ║
 ║  Patcher  : None (worker-local partuv._core & preprocess_utils shims)        ║
 ║  States   : UNLOADED -> LOADING -> LOADED -> PROCESSING -> LOADED / ERROR    ║
+║  Status   : STABLE & ACTIVE                                                  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 

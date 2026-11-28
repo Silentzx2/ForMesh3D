@@ -6,6 +6,7 @@
 ║  Weights  : backend/pretrained/PartUV (model_objaverse.ckpt)                 ║
 ║  Patcher  : None (Trimesh 4/5 shim + Blender pack subprocess)                ║
 ║  States   : UNLOADED -> LOADING -> LOADED -> PROCESSING -> LOADED / ERROR    ║
+║  Status   : STABLE & ACTIVE                                                  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 

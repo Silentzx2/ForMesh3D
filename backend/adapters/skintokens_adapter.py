@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import gc
 import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import Any, Dict
@@ -91,7 +92,15 @@ class SkinTokensAdapter(BaseModel):
                         tokenrig_mod.LLM_LOCAL_DIR = qcand
                         break
                 logger.info("Loading SkinTokens from %s", self._ckpt_path)
-                demo.load_model(model_ckpt=self._ckpt_path, hf_path=None)
+                # SkinTokens resolves relative paths (e.g.
+                # experiments/skin_vae_2_10_32768/last.ckpt) against the CWD,
+                # so chdir to the weights dir before loading the model.
+                prev_cwd = os.getcwd()
+                os.chdir(str(weights_dir))
+                try:
+                    demo.load_model(model_ckpt=self._ckpt_path, hf_path=None)
+                finally:
+                    os.chdir(prev_cwd)
         except Exception:
             self._stop_bpy_server()
             raise
