@@ -205,6 +205,8 @@ def _patch_dataloader_num_workers() -> None:
                       generator=None, *, prefetch_factor=2,
                       persistent_workers=False):
         num_workers = 0  # Force num_workers=0 to avoid multiprocessing spawn issues
+        prefetch_factor = None  # prefetch_factor invalid when num_workers=0
+        persistent_workers = False  # persistent_workers invalid when num_workers=0
         return orig_init(self, dataset, batch_size, shuffle, sampler, batch_sampler,
                          num_workers, collate_fn, pin_memory, drop_last,
                          timeout, worker_init_fn, multiprocessing_context,
