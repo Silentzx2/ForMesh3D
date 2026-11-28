@@ -210,8 +210,8 @@ def _patch_dataloader_num_workers() -> None:
         return orig_init(self, dataset, batch_size, shuffle, sampler, batch_sampler,
                          num_workers, collate_fn, pin_memory, drop_last,
                          timeout, worker_init_fn, multiprocessing_context,
-                         generator, prefetch_factor=prefetch_factor,
-                         persistent_workers=persistent_workers)
+                         generator, prefetch_factor=None,
+                         persistent_workers=False)
 
     DataLoader.__init__ = _patched_init  # type: ignore[assignment]
     DataLoader._skintokens_nw_patched = True  # type: ignore[attr-defined]
