@@ -679,6 +679,18 @@ if [[ "${COMPUTE_MODE:-}" == "cuda" ]]; then
     echo "[INFO] Installing bpy==4.0.0 from Blender PyPI..."
     $UV_PIP install "bpy==4.0.0" --extra-index-url https://download.blender.org/pypi/ || echo "[WARN] bpy install failed"
 
+    # Hunyuan3D-2.1 hy3dpaint — the texture pipeline imports the compiled
+    # mesh_inpaint_processor extension; upstream ships only the .cpp source.
+    hy3dpaint_renderer_dir="$THIRDPARTY_DIR/Hunyuan3D-2.1/hy3dpaint/DifferentiableRenderer"
+    if [ -d "$hy3dpaint_renderer_dir" ]; then
+        echo "[INFO] Compiling Hunyuan3D-2.1 hy3dpaint mesh_inpaint_processor..."
+        if (cd "$hy3dpaint_renderer_dir" && bash compile_mesh_painter.sh); then
+            echo "[SUCCESS] mesh_inpaint_processor compiled."
+        else
+            echo "[WARN] mesh_inpaint_processor compile failed; Hunyuan3D-2.1 Paint will fall back to HY 2.0 paint."
+        fi
+    fi
+
     # PartField — NVIDIA 3D Feature Fields for Part Segmentation (backend/thirdparty/PartField)
     if [ -d "backend/thirdparty/PartField" ]; then
         echo "[INFO] PartField source present at backend/thirdparty/PartField."

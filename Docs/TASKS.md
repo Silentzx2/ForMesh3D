@@ -79,7 +79,7 @@ After this rewrite:
 ### 4.3 `stable_fast_3d_adapter.py` (`172` lines)
 - **Class:** `StableFast3DAdapter`
 - **Upstream Repo:** `backend/thirdparty/StableFast3D` (`sf3d.system.SF3D`)
-- **Weights:** `backend/pretrained/StableFast3D`
+- **Weights:** `backend/pretrained/stable-fast-3d`
 - **Patcher:** `patcher.stable_fast_3d.attention.pre_ampere_chunked_sdpa` (`sm < 80` only)
 - **Key Contracts:** Preloads native compiled `_C` extension cleanly via `_preload_native_ext`, handles `remesh_option` fallback when optional remesher is unavailable, exports textured GLB.
 
@@ -91,25 +91,25 @@ After this rewrite:
 - **Key Contracts:** Supports raw mesh (`formats=["mesh"]`), textured mesh (`to_glb` with `texture_resolution`), and image/text mesh painting; includes `utils3d` compatibility shim where required.
 
 ### 4.5 `hunyuan3d_dit_v2_mini_turbo.py` (`111` lines)
-- **Class:** `Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter`
+- **Class:** `Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter` (`Hunyuan3DDiTV2MiniImageToRawMeshAdapter` alias)
 - **Upstream Repo:** `backend/thirdparty/hunyuan3d-2` (`hy3dgen.shapegen.Hunyuan3DDiTFlowMatchingPipeline`)
-- **Weights:** `backend/pretrained/Hunyuan3D-2mini`
+- **Weights:** `backend/pretrained/tencent/Hunyuan3D-2mini`
 - **Patcher:** None
 - **Key Contracts:** Direct upstream shape generation and GLB export.
 
 ### 4.6 `hunyuan3d_v20_paint_adapter.py` (`103` lines)
 - **Class:** `Hunyuan3DV20PaintImageMeshPaintingAdapter`
 - **Upstream Repo:** `backend/thirdparty/hunyuan3d-2` (`hy3dgen.texgen.Hunyuan3DPaintPipeline`)
-- **Weights:** `backend/pretrained/Hunyuan3D-2`
+- **Weights:** `backend/pretrained/tencent/Hunyuan3D-2`
 - **Patcher:** None
 - **Key Contracts:** Direct upstream image-guided mesh painting onto an existing mesh.
 
 ### 4.7 `hunyuan3d_21_unified.py` (`183` lines)
 - **Class:** `Hunyuan3D21UnifiedAdapter`
 - **Upstream Repo:** `backend/thirdparty/Hunyuan3D-2.1/hy3dshape` + `hy3dpaint` (with `hunyuan3d-2` paint fallback)
-- **Weights:** `backend/pretrained/Hunyuan3D-2.1` (and `Hunyuan3D-2` fallback for paint)
+- **Weights:** `backend/pretrained/tencent/Hunyuan3D-2.1` (and `backend/pretrained/tencent/Hunyuan3D-2` fallback for paint)
 - **Patcher:** None
-- **Key Contracts:** Unified shape + texture painting adapter with `enable_flashvdm` support.
+- **Key Contracts:** Unified shape + texture painting adapter with `enable_flashvdm` support; probes `bpy`/`mesh_inpaint_processor` before loading `hy3dpaint` and falls back to the HY 2.0 paint pipeline when either is missing (`install.sh` compiles the inpaint extension on setup).
 
 ### 4.8 `ardy_adapter.py` (`211` lines)
 - **Class:** `ArdyMotionGenerationAdapter`
@@ -268,12 +268,12 @@ flowchart TD
 | Adapter File | Current Lines | Registered Class(es) | `MODEL_KEY` |
 |---|---:|---|---|
 | `triposg_adapter.py` | `100` | `TripoSGImageToRawMeshAdapter` | `TripoSG` |
-| `hunyuan3d_v20_paint_adapter.py` | `103` | `Hunyuan3DV20PaintImageMeshPaintingAdapter` | `Hunyuan3D-2` |
-| `hunyuan3d_dit_v2_mini_turbo.py` | `111` | `Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter` | `Hunyuan3D-2mini` |
+| `hunyuan3d_v20_paint_adapter.py` | `103` | `Hunyuan3DV20PaintImageMeshPaintingAdapter` | `tencent/Hunyuan3D-2` |
+| `hunyuan3d_dit_v2_mini_turbo.py` | `111` | `Hunyuan3DDiTV2MiniTurboImageToRawMeshAdapter` (`Hunyuan3DDiTV2MiniImageToRawMeshAdapter` alias) | `tencent/Hunyuan3D-2mini` |
 | `taoflowforge_adapter.py` | `150` | `TaoFlowForgeImageToRawMeshAdapter` (disabled) | `Taobao3D/TaoFlowForge` |
 | `skintokens_adapter.py` | `160` | `SkinTokensAdapter` | `SkinTokens` |
 | `partuv_adapter.py` | `170` | `PartUVUnwrappingAdapter` | `PartUV` |
-| `stable_fast_3d_adapter.py` | `172` | `StableFast3DAdapter` | `StableFast3D` |
+| `stable_fast_3d_adapter.py` | `172` | `StableFast3DAdapter` | `stable-fast-3d` |
 | `trellis_adapter.py` | `174` | `_TrellisBaseAdapter` + 4 subclasses | `TRELLIS` |
 | `hunyuan3d_21_unified.py` | `183` | `Hunyuan3D21UnifiedAdapter` | `Hunyuan3D-2.1` |
 | `pixal3d_adapter.py` | `186` | `Pixal3DImageToRawMeshAdapter` (disabled) | `Pixal3D` |

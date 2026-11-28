@@ -110,7 +110,7 @@ class Hunyuan3D21UnifiedAdapter(BaseModel):
                 raise RuntimeError(f"Hunyuan3D-2.1 Paint initialization failed: {exc}") from exc
             logger.warning("hy3dpaint unavailable (%s); trying hy3dgen paint fallback", exc)
             try:
-                paint_dir = resolve_pretrained("Hunyuan3D-2")
+                paint_dir = resolve_pretrained("tencent/Hunyuan3D-2")
                 paint_sub = (
                     "hunyuan3d-paint-v2-0-turbo"
                     if (paint_dir / "hunyuan3d-paint-v2-0-turbo" / "model_index.json").is_file()

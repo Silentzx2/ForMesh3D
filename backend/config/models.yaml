@@ -94,10 +94,10 @@ image_to_raw_mesh:
       multi_gpu: false
     model_type: mesh
     default_parameters:
-      num_inference_steps: 5
-      guidance_scale: 5.0
-      octree_resolution: 512
-      num_chunks: 8000
+      num_inference_steps: 20
+      guidance_scale: 7.5
+      octree_resolution: 380
+      num_chunks: 20000
       enable_flashvdm: true
       enable_realesrgan: true
 

@@ -3,7 +3,7 @@
 ║  Hunyuan3D-2 (v2.0) Image Mesh Painting Adapter                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  Repo     : backend/thirdparty/hunyuan3d-2 (hy3dgen.texgen.pipelines)        ║
-║  Weights  : backend/pretrained/Hunyuan3D-2                                   ║
+║  Weights  : backend/pretrained/tencent/Hunyuan3D-2                           ║
 ║  Patcher  : None (CPU offload enabled on CUDA)                               ║
 ║  States   : UNLOADED -> LOADING -> LOADED -> PROCESSING -> LOADED / ERROR    ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class Hunyuan3DV20PaintImageMeshPaintingAdapter(BaseModel):
-    MODEL_KEY = "Hunyuan3D-2"
+    MODEL_KEY = "tencent/Hunyuan3D-2"
     FEATURE_TYPE = "image_mesh_painting"
 
     def __init__(self, vram_requirement: int, **kwargs: Any):

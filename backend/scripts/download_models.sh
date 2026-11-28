@@ -136,7 +136,7 @@ Options:
 
 Available models:
     hunyuan21          - Hunyuan3D 2.1 Shape + Paint bundle (shared weights, DINOv2, RealESRGAN)
-    hunyuan2mini       - Hunyuan3D 2.0 Mini Standard (0.6B shape model)
+    hunyuan2mini       - Hunyuan3D 2.0 Mini Turbo (0.6B shape model)
     trellis            - TRELLIS image-large model
     trellis-text       - TRELLIS text-xlarge model (optional)
     trellis2           - TRELLIS.2-4B model (image-based only)
@@ -345,42 +345,42 @@ download_with_verify() {
     fi
 }
 
-# Verify the exact Standard Mini checkpoint files (not Turbo/Fast).
+# Verify the exact Turbo Mini checkpoint files (not Standard/Fast).
 verify_hunyuan2mini_checkpoint() {
-    local model_dir="$PRETRAINED_DIR/tencent/Hunyuan3D-2mini/hunyuan3d-dit-v2-mini"
+    local model_dir="$PRETRAINED_DIR/tencent/Hunyuan3D-2mini/hunyuan3d-dit-v2-mini-turbo"
     verify_file "$model_dir/config.yaml" 500 || return 1
     verify_any_weight_file 1000000000 \
         "$model_dir/model.fp16.safetensors" \
         "$model_dir/model.fp16.ckpt"
 }
 
-# Function to download Hunyuan3D 2.0 Mini Standard
+# Function to download Hunyuan3D 2.0 Mini Turbo
 download_hunyuan2mini() {
     print_info "========================================"
-    print_info "Downloading Hunyuan3D 2.0 Mini Standard"
+    print_info "Downloading Hunyuan3D 2.0 Mini Turbo"
     print_info "========================================"
 
     local model_dir="$PRETRAINED_DIR/tencent/Hunyuan3D-2mini"
     if [ "$FORCE_DOWNLOAD" = false ] && verify_hunyuan2mini_checkpoint; then
-        print_info "Hunyuan3D 2.0 Mini Standard checkpoint is complete"
+        print_info "Hunyuan3D 2.0 Mini Turbo checkpoint is complete"
         return 0
     fi
 
     mkdir -p "$model_dir"
     ensure_writable_model_dir "$model_dir" || return 1
-    print_info "Downloading Standard Mini checkpoint (hunyuan3d-dit-v2-mini)..."
+    print_info "Downloading Turbo Mini checkpoint (hunyuan3d-dit-v2-mini-turbo)..."
     if ! hf_download tencent/Hunyuan3D-2mini \
-        --include "hunyuan3d-dit-v2-mini/*" \
+        --include "hunyuan3d-dit-v2-mini-turbo/*" \
         --local-dir "$model_dir"; then
-        print_error "Failed to download Hunyuan3D 2.0 Mini Standard"
+        print_error "Failed to download Hunyuan3D 2.0 Mini Turbo"
         return 1
     fi
 
     if ! verify_hunyuan2mini_checkpoint; then
-        print_error "Mini Standard download is incomplete: config.yaml and model.fp16.safetensors/model.fp16.ckpt are required"
+        print_error "Mini Turbo download is incomplete: config.yaml and model.fp16.safetensors/model.fp16.ckpt are required"
         return 1
     fi
-    print_success "Hunyuan3D 2.0 Mini Standard is ready"
+    print_success "Hunyuan3D 2.0 Mini Turbo is ready"
 }
 
 # Verify concrete checkpoint/config files instead of relying on directory file counts.
@@ -1126,7 +1126,7 @@ verify_all_models() {
     verify_file "$PRETRAINED_DIR/dinov2-giant/preprocessor_config.json" 300 || all_verified=false
     verify_file "$PRETRAINED_DIR/dinov2-giant/model.safetensors" 1000000000 || all_verified=false
 
-    print_info "Checking Hunyuan3D 2.0 Mini Standard..."
+    print_info "Checking Hunyuan3D 2.0 Mini Turbo..."
     verify_hunyuan2mini_checkpoint || all_verified=false
 
     print_info "Checking Hunyuan3D-Paint-v2-0..."
