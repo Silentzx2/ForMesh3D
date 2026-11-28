@@ -1132,9 +1132,15 @@ def _replace_workspace_mesh_asset(
                         temporary_path.unlink(missing_ok=True)
 
         if old_mesh_path and new_mesh_path and old_mesh_path != new_mesh_path:
-            old_mesh_path.unlink(missing_ok=True)
+            try:
+                old_mesh_path.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                logger.warning("Could not remove replaced source mesh %s: %s", old_mesh_path, cleanup_error)
         if old_thumbnail_path and old_thumbnail_path != new_thumbnail_path:
-            old_thumbnail_path.unlink(missing_ok=True)
+            try:
+                old_thumbnail_path.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                logger.warning("Could not remove replaced mesh thumbnail %s: %s", old_thumbnail_path, cleanup_error)
         try:
             storage_manager.build_manifest_projection(workspace_id, db)
         except Exception as exc:
@@ -1254,7 +1260,7 @@ async def upload_mesh(
             }
         except HTTPException:
             raise
-        except ValueError as exc:
+        except (ValueError, FileExistsError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
