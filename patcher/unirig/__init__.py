@@ -15,14 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 def _install_flash_attn_sdpa_shim() -> None:
-    """Provide SDPA-backed flash_attn & flash_attn.modules.mha.MHA when flash_attn is absent."""
-    if "flash_attn" in sys.modules:
+    """Override flash_attn & flash_attn.modules.mha.MHA with SDPA on pre-Ampere GPUs."""
+    if getattr(sys.modules.get("flash_attn"), "_unirig_sdpa_shim", False):
         return
-    try:
-        import flash_attn  # noqa: F401
-        return
-    except ImportError:
-        pass
 
     import torch
     import torch.nn as nn
@@ -85,6 +80,7 @@ def _install_flash_attn_sdpa_shim() -> None:
         return out
 
     fa_mod = types.ModuleType("flash_attn")
+    fa_mod._unirig_sdpa_shim = True  # type: ignore[attr-defined]
     fa_mod.flash_attn_varlen_qkvpacked_func = _varlen_qkvpacked_sdpa  # type: ignore[attr-defined]
     modules_mod = types.ModuleType("flash_attn.modules")
     mha_mod = types.ModuleType("flash_attn.modules.mha")
