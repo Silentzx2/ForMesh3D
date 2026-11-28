@@ -166,9 +166,56 @@ def _patch_pre_ampere_precision() -> None:
         pass
 
 
+def _install_torch_cluster_shim() -> None:
+    """Provide pure-PyTorch torch_cluster.fps when torch_cluster is absent."""
+    if "torch_cluster" in sys.modules:
+        return
+    try:
+        import torch_cluster  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    import torch
+
+    def fps(
+        src: torch.Tensor,
+        batch: Optional[torch.Tensor] = None,
+        ratio: float = 0.5,
+        random_start: bool = True,
+    ) -> torch.Tensor:
+        if batch is None:
+            batch = torch.zeros(src.shape[0], dtype=torch.long, device=src.device)
+        out_indices = []
+        for b_id in torch.unique(batch, sorted=True):
+            mask = batch == b_id
+            pts = src[mask]
+            orig_idx = torch.nonzero(mask, as_tuple=False).squeeze(1)
+            n = pts.shape[0]
+            k = max(1, int(round(n * float(ratio)))) if ratio < 1.0 else min(n, int(ratio))
+            selected = torch.empty(k, dtype=torch.long, device=src.device)
+            cur = int(torch.randint(0, n, (1,), device=src.device).item()) if random_start else 0
+            dists = torch.full((n,), float("inf"), dtype=torch.float32, device=src.device)
+            pts_f = pts.float()
+            for i in range(k):
+                selected[i] = cur
+                dist = ((pts_f - pts_f[cur]) ** 2).sum(dim=-1)
+                dists = torch.minimum(dists, dist)
+                cur = int(torch.argmax(dists).item())
+            out_indices.append(orig_idx[selected])
+        return torch.cat(out_indices, dim=0)
+
+    tc_mod = types.ModuleType("torch_cluster")
+    tc_mod.fps = fps  # type: ignore[attr-defined]
+    sys.modules["torch_cluster"] = tc_mod
+    logger.info("UniRig patcher: installed pure-PyTorch torch_cluster.fps shim")
+
+
 def apply_patch(gpu_id: Optional[int] = None) -> None:
     """Apply UniRig pre-Ampere patches strictly when sm < 80."""
     from patcher.doctor import GPUDoctor
+
+    _install_torch_cluster_shim()
 
     info = GPUDoctor().inspect_gpu(gpu_id)
     if not info.is_pre_ampere and not info.is_cpu:

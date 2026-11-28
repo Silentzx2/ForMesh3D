@@ -80,7 +80,7 @@ class UniRigAdapter(BaseModel):
         if self._weights_dir and self._weights_dir.is_dir():
             env.setdefault("HF_HUB_CACHE", str(self._weights_dir))
         cmd = [sys.executable, *args]
-        if args and args[0] == "run.py" and GPUDoctor().inspect_gpu(self.gpu_id).is_pre_ampere:
+        if args and args[0] == "run.py":
             boot = (
                 "import sys, runpy; "
                 f"sys.path.insert(0, {str(_REPO_ROOT)!r}); "
