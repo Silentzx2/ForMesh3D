@@ -69,8 +69,8 @@ class PartUVUnwrappingAdapter(BaseModel):
 
         with use_thirdparty("PartUV", chdir=False):
             sys.modules["partuv.preprocess_utils"] = importlib.import_module("preprocess_utils")
-            from partuv.preprocess import PFInferenceModel, preprocess
-            from partuv import pipeline_numpy, save_results
+            from partuv.preprocess import PFInferenceModel, preprocess, save_results
+            from partuv import pipeline_numpy
 
             pf_cfg = partuv_root / "preprocess_utils" / "partfield_official" / "configs" / "final" / "demo.yaml"
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
