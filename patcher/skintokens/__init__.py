@@ -188,6 +188,11 @@ def _inject_michelangelo_models_stub() -> None:
                 # adapter rejects stub models before inference.
                 return super().load_state_dict({}, strict=False)
 
+            def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
+                                      missing_keys, unexpected_keys, error_msgs):
+                # Ignore all checkpoint keys for this stub module
+                pass
+
             def forward(self, *args, **kwargs):
                 raise RuntimeError(
                     "SkinTokens: real Michelangelo models source is not vendored. "
@@ -207,6 +212,13 @@ def _inject_michelangelo_models_stub() -> None:
                 # Accept any checkpoint without error so load proceeds; the
                 # adapter rejects stub models before inference.
                 return super().load_state_dict({}, strict=False)
+
+            def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
+                                      missing_keys, unexpected_keys, error_msgs):
+                # Ignore all checkpoint keys for this stub module so the
+                # parent TokenRig.load_state_dict(strict=True) does not fail
+                # on unexpected keys from the real Michelangelo encoder.
+                pass
 
             def forward(self, *args, **kwargs):
                 raise RuntimeError(
