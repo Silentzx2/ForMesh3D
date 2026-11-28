@@ -151,8 +151,11 @@ def _inject_michelangelo_models_stub() -> None:
     import importlib.util
     import types
 
-    if importlib.util.find_spec("src.model.michelangelo.models.tsal.sal_perceiver") is not None:
-        return
+    try:
+        if importlib.util.find_spec("src.model.michelangelo.models.tsal.sal_perceiver") is not None:
+            return
+    except ModuleNotFoundError:
+        pass
 
     # Only register packages that are actually missing from disk.
     # src, src.model, src.model.michelangelo exist on disk (with __init__.py)
