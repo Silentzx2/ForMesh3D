@@ -39,6 +39,59 @@ from patcher.skintokens.qwen3_compat import register_qwen3_if_missing
 logger = logging.getLogger(__name__)
 
 
+class AlignedShapeLatentPerceiver(torch.nn.Module):
+    """Stub for the real Michelangelo encoder. Not vendored upstream."""
+    _skintokens_stub = True
+
+    def __init__(self, **kwargs):
+        super().__init__()
+
+    def load_state_dict(self, state_dict, strict=True):
+        # Accept any checkpoint without error so load proceeds; the
+        # adapter rejects stub models before inference.
+        return super().load_state_dict({}, strict=False)
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
+                              missing_keys, unexpected_keys, error_msgs):
+        # Ignore all checkpoint keys for this stub module
+        pass
+
+    def forward(self, *args, **kwargs):
+        raise RuntimeError(
+            "SkinTokens: real Michelangelo models source is not vendored. "
+            "Vendor backend/thirdparty/SkinTokens/src/model/michelangelo/models/"
+            " and retry."
+        )
+
+
+class ShapeAsLatentPerceiverEncoder(torch.nn.Module):
+    """Stub for the real Michelangelo encoder. Not vendored upstream."""
+    _skintokens_stub = True
+
+    def __init__(self, width=768, **kwargs):
+        super().__init__()
+        self.width = width
+
+    def load_state_dict(self, state_dict, strict=True):
+        # Accept any checkpoint without error so load proceeds; the
+        # adapter rejects stub models before inference.
+        return super().load_state_dict({}, strict=False)
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
+                              missing_keys, unexpected_keys, error_msgs):
+        # Ignore all checkpoint keys for this stub module so the
+        # parent TokenRig.load_state_dict(strict=True) does not fail
+        # on unexpected keys from the real Michelangelo encoder.
+        pass
+
+    def forward(self, *args, **kwargs):
+        raise RuntimeError(
+            "SkinTokens: real Michelangelo models source is not vendored. "
+            "Vendor backend/thirdparty/SkinTokens/src/model/michelangelo/models/"
+            " and retry."
+        )
+
+
 def apply_patch(gpu_id: Optional[int] = None) -> None:
     """Apply SkinTokens pre-Ampere and import compatibility patches."""
     _inject_michelangelo_models_stub()
@@ -175,57 +228,6 @@ def _inject_michelangelo_models_stub() -> None:
     mod_name = "src.model.michelangelo.models.tsal.sal_perceiver"
     if mod_name not in sys.modules:
         mod = types.ModuleType(mod_name)
-
-        class AlignedShapeLatentPerceiver(torch.nn.Module):
-            """Stub for the real Michelangelo encoder. Not vendored upstream."""
-            _skintokens_stub = True
-
-            def __init__(self, **kwargs):
-                super().__init__()
-
-            def load_state_dict(self, state_dict, strict=True):
-                # Accept any checkpoint without error so load proceeds; the
-                # adapter rejects stub models before inference.
-                return super().load_state_dict({}, strict=False)
-
-            def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
-                                      missing_keys, unexpected_keys, error_msgs):
-                # Ignore all checkpoint keys for this stub module
-                pass
-
-            def forward(self, *args, **kwargs):
-                raise RuntimeError(
-                    "SkinTokens: real Michelangelo models source is not vendored. "
-                    "Vendor backend/thirdparty/SkinTokens/src/model/michelangelo/models/"
-                    " and retry."
-                )
-
-        class ShapeAsLatentPerceiverEncoder(torch.nn.Module):
-            """Stub for the real Michelangelo encoder. Not vendored upstream."""
-            _skintokens_stub = True
-
-            def __init__(self, width=768, **kwargs):
-                super().__init__()
-                self.width = width
-
-            def load_state_dict(self, state_dict, strict=True):
-                # Accept any checkpoint without error so load proceeds; the
-                # adapter rejects stub models before inference.
-                return super().load_state_dict({}, strict=False)
-
-            def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
-                                      missing_keys, unexpected_keys, error_msgs):
-                # Ignore all checkpoint keys for this stub module so the
-                # parent TokenRig.load_state_dict(strict=True) does not fail
-                # on unexpected keys from the real Michelangelo encoder.
-                pass
-
-            def forward(self, *args, **kwargs):
-                raise RuntimeError(
-                    "SkinTokens: real Michelangelo models source is not vendored. "
-                    "Vendor backend/thirdparty/SkinTokens/src/model/michelangelo/models/"
-                    " and retry."
-                )
 
         mod.AlignedShapeLatentPerceiver = AlignedShapeLatentPerceiver
         mod.ShapeAsLatentPerceiverEncoder = ShapeAsLatentPerceiverEncoder
