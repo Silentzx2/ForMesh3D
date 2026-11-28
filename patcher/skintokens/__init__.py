@@ -167,6 +167,10 @@ def _patch_tokenrig_generate(gpu_id: Optional[int] = None) -> None:
         if is_pre_ampere:
             if kwargs.get("num_beams", 1) > 1:
                 kwargs["num_beams"] = 1
+            if kwargs.get("do_sample", False):
+                kwargs["do_sample"] = False
+                for k in ("top_k", "top_p", "temperature"):
+                    kwargs.pop(k, None)
             lm_head = getattr(getattr(self, "transformer", None), "lm_head", None)
             if lm_head is not None and not getattr(lm_head, "_skintokens_lm_head_patched", False):
                 orig_lm_head_forward = lm_head.forward
