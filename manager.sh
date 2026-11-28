@@ -217,7 +217,7 @@ cmd_models() {
         printf "\t ${WHITE}${BOLD}MODEL DOWNLOAD${NC}\n\n"
         printf "  Select models to download from HuggingFace:\n\n"
         printf "  ${CYAN}[1]${NC}  Hunyuan3D-2.1 Shape + Paint - shared weights + DINOv2 + RealESRGAN\n"
-        printf "  ${CYAN}[2]${NC}  Hunyuan3D-2 Mini Standard  - 0.6B shape model\n"
+        printf "  ${CYAN}[2]${NC}  Hunyuan3D-2 Mini Turbo  - 0.6B shape model\n"
         printf "  ${CYAN}[3]${NC}  Hunyuan3D-2 (v2.0) Paint - texture-only paint model\n"
         printf "  ${CYAN}[4]${NC}  Stable Fast 3D            - image to textured mesh (HF-gated)\n"
         printf "  ${CYAN}[5]${NC}  TRELLIS                   - Image-large generation model\n"
