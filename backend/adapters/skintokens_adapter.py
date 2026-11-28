@@ -94,9 +94,10 @@ class SkinTokensAdapter(BaseModel):
                 logger.info("Loading SkinTokens from %s", self._ckpt_path)
                 # SkinTokens resolves relative paths (e.g.
                 # experiments/skin_vae_2_10_32768/last.ckpt) against the CWD,
-                # so chdir to the weights dir before loading the model.
+                # so chdir to the thirdparty SkinTokens root before loading.
+                # Configs (skeleton vroid.yaml) live there; checkpoint lives in weights_dir.
                 prev_cwd = os.getcwd()
-                os.chdir(str(weights_dir))
+                os.chdir(str(skintokens_root))
                 try:
                     demo.load_model(model_ckpt=self._ckpt_path, hf_path=None)
                 finally:
