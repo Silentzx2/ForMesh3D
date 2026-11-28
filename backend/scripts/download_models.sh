@@ -919,6 +919,18 @@ download_ardy() {
         fi
     fi
 
+    # Optional: LLM2Vec Llama-3-8B text encoder for prompt-conditioned motion (requires HF Llama-3 access)
+    local te_base="$ardy_dir/text_encoders/McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp"
+    local te_sup="$ardy_dir/text_encoders/McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised"
+    if [ "$FORCE_DOWNLOAD" = true ] || [ ! -d "$te_base" ] || [ -z "$(ls -A "$te_base" 2>/dev/null)" ]; then
+        print_info "Downloading ARDY LLM2Vec text encoder (McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp)..."
+        mkdir -p "$te_base" "$te_sup"
+        hf_download McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp --local-dir "$te_base" || \
+            print_warning "LLM2Vec base download skipped (requires HF_TOKEN + meta-llama/Meta-Llama-3-8B-Instruct access)"
+        hf_download McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised --local-dir "$te_sup" || \
+            print_warning "LLM2Vec supervised adapter download skipped"
+    fi
+
     print_success "ARDY checkpoints (Core40 + KimodoRep 30FPS) downloaded successfully"
 }
 

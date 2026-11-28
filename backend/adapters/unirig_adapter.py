@@ -1,5 +1,6 @@
 """
 UniRig — Unified Skeleton & Skinning Auto-Rigging Adapter
+Status  : PRODUCTION / ACTIVE
 Upstream: https://github.com/VAST-AI-Research/UniRig
 Thin adapter: directly invokes official upstream src.data.extract, run.py, and src.inference.merge.
 """

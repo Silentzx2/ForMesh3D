@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict
 
@@ -72,8 +73,57 @@ class ArdyMotionGenerationAdapter(BaseModel):
 
             self._text_encoder_warning = None
             text_encoder: Any = False
+            te_dir = weights_dir / "text_encoders"
+            if te_dir.is_dir():
+                os.environ.setdefault("TEXT_ENCODERS_DIR", str(te_dir))
             try:
-                text_encoder = load_text_encoder(mode="api", fp32=True, device="cpu")
+                te_mode = os.environ.get("ARDY_TEXT_ENCODER_MODE", "auto")
+                te_device = os.environ.get("ARDY_TEXT_ENCODER_DEVICE", "auto")
+                if te_device == "auto":
+                    te_device = "cuda" if torch.cuda.is_available() else "cpu"
+                use_4bit_cuda = False
+                if te_device.startswith("cuda"):
+                    try:
+                        import bitsandbytes  # noqa: F401
+                        from transformers import BitsAndBytesConfig
+                        from ardy.model.llm2vec.llm2vec import LLM2Vec
+
+                        if not getattr(LLM2Vec, "_ardy_4bit_patched", False):
+                            orig_fp = LLM2Vec.from_pretrained.__func__  # type: ignore[attr-defined]
+
+                            @classmethod  # type: ignore[misc]
+                            def _4bit_from_pretrained(cls: Any, *a: Any, **kw: Any) -> Any:
+                                kw.setdefault(
+                                    "quantization_config",
+                                    BitsAndBytesConfig(
+                                        load_in_4bit=True,
+                                        bnb_4bit_compute_dtype=torch.float16,
+                                    ),
+                                )
+                                kw.setdefault("device_map", "auto")
+                                return orig_fp(cls, *a, **kw)
+
+                            LLM2Vec.from_pretrained = _4bit_from_pretrained  # type: ignore[method-assign]
+                            LLM2Vec._ardy_4bit_patched = True  # type: ignore[attr-defined]
+                        use_4bit_cuda = True
+                        logger.info("ARDY text encoder: using 4-bit bitsandbytes quantization on %s", te_device)
+                    except ImportError:
+                        logger.info("bitsandbytes unavailable; loading ARDY text encoder on %s", te_device)
+                # Pass device=None for 4-bit device_map="auto" (avoids .to() ValueError) and move output to CPU for ARDY.
+                text_encoder = load_text_encoder(
+                    mode=te_mode,
+                    fp32=False,
+                    device=None if use_4bit_cuda else te_device,
+                )
+                if use_4bit_cuda and text_encoder and not getattr(text_encoder, "_ardy_cpu_out_wrapped", False):
+                    orig_call = text_encoder.__call__
+
+                    def _cpu_out_call(texts: Any, _orig: Any = orig_call) -> Any:
+                        t, lengths = _orig(texts)
+                        return (t.cpu() if hasattr(t, "cpu") else t), lengths
+
+                    text_encoder.__call__ = _cpu_out_call  # type: ignore[method-assign]
+                    text_encoder._ardy_cpu_out_wrapped = True
             except Exception as exc:
                 self._text_encoder_warning = "Text encoder server unavailable; prompt conditioning disabled"
                 logger.warning("%s (%s)", self._text_encoder_warning, exc)

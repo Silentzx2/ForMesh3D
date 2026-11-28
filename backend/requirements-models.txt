@@ -121,4 +121,5 @@ arrgh>=1.0.0                # [PARTFIELD] demo command CLI
 
 # ── ARDY (Text-to-Motion Generation) extra deps (backend/thirdparty/ardy) ─────
 vector-quantize-pytorch>=1.25,<1.26  # [ARDY] FSQ autoencoder
+bitsandbytes>=0.43.0                 # [ARDY] 4-bit LLM2Vec text encoder quantization
 polyscope>=2.4.0            # [PARTFIELD] interactive mesh visualization
